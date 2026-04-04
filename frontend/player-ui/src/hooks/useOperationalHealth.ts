@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { playerApiUrl } from '../lib/playerApiUrl'
 
 export type OperationalHealth = {
   maintenance_mode: boolean
@@ -24,7 +25,7 @@ export function useOperationalHealth(pollMs = 60_000) {
     let cancelled = false
     const load = async () => {
       try {
-        const res = await fetch('/health/operational')
+        const res = await fetch(playerApiUrl('/health/operational'))
         if (!res.ok) {
           if (!cancelled) setError(`HTTP ${res.status}`)
           return

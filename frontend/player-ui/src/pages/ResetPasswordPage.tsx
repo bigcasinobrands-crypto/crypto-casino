@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
+import { playerApiUrl } from '../lib/playerApiUrl'
 
 export default function ResetPasswordPage() {
   const [params] = useSearchParams()
@@ -24,7 +25,7 @@ export default function ResetPasswordPage() {
       return
     }
     setLoading(true)
-    const res = await fetch('/v1/auth/reset-password', {
+    const res = await fetch(playerApiUrl('/v1/auth/reset-password'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, password }),

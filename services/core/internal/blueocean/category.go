@@ -1,22 +1,29 @@
 package blueocean
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
-// PrimaryLobbyKey maps BOG type to sidebar / filter keys.
+// PrimaryLobbyKey maps BOG `type` strings to lobby filter keys (slots, live, table, …).
+// BOG uses variants like "live-casino-table" — normalize by prefix / family.
 func PrimaryLobbyKey(gameType string) string {
-	switch gameType {
-	case "video-slots":
-		return "slots"
-	case "live-casino":
+	gt := strings.ToLower(strings.TrimSpace(gameType))
+	switch {
+	case gt == "live-casino" || strings.HasPrefix(gt, "live-casino"):
 		return "live"
-	case "table-games", "video-poker":
+	case gt == "video-slots" || strings.HasPrefix(gt, "video-slot"):
+		return "slots"
+	case gt == "table-games" || gt == "video-poker":
 		return "table"
-	case "sportsbook", "virtual-sports":
+	case gt == "sportsbook" || gt == "virtual-sports":
 		return "sports"
-	case "crash-games":
+	case gt == "crash-games" || strings.HasPrefix(gt, "crash"):
 		return "crash"
-	case "scratch-cards":
+	case gt == "scratch-cards" || strings.Contains(gt, "scratch"):
 		return "scratch"
+	case strings.Contains(gt, "lottery") || strings.Contains(gt, "bingo"):
+		return "lottery"
 	default:
 		return "other"
 	}

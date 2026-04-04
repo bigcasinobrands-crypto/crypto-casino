@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -128,7 +129,7 @@ func (s *Server) ListHandler() http.HandlerFunc {
 		offset := parsePublicOffset(q.Get("offset"))
 
 		sqlStr := `
-			SELECT id, title, provider, COALESCE(category,''), COALESCE(thumbnail_url,''),
+			SELECT id, COALESCE(title,''), COALESCE(provider,''), COALESCE(category,''), COALESCE(thumbnail_url,''),
 				COALESCE(game_type,''), COALESCE(provider_system,''),
 				COALESCE(is_new,false), COALESCE(featurebuy_supported,false), COALESCE(play_for_fun_supported,false),
 				(COALESCE(metadata->>'mobile','') IN ('true','1'))
@@ -153,6 +154,7 @@ func (s *Server) ListHandler() http.HandlerFunc {
 			var g listRow
 			if err := rows.Scan(&g.ID, &g.Title, &g.Provider, &g.Category, &g.ThumbnailURL,
 				&g.GameType, &g.ProviderSystem, &g.IsNew, &g.FeatureBuySupported, &g.PlayForFunSupported, &g.Mobile); err != nil {
+				log.Printf("games list: skip row scan: %v", err)
 				continue
 			}
 			g.Live = g.GameType == "live-casino" || g.Category == "live"

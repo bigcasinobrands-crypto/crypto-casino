@@ -1,8 +1,7 @@
 import { NavLink } from 'react-router-dom'
 
 const items = [
-  { to: '/casino/blueocean', label: 'Blue Ocean' },
-  { to: '/casino/lobby', label: 'Lobby' },
+  { to: '/casino/games', label: 'Games' },
   { to: '/casino/featured', label: 'Featured' },
   { to: '/casino/slots', label: 'Slots' },
   { to: '/casino/live', label: 'Live' },
@@ -15,10 +14,7 @@ export default function CasinoSidebar() {
   return (
     <aside className="hidden w-52 flex-col border-r border-casino-border bg-casino-surface md:flex">
       <div className="px-4 py-4">
-        <NavLink
-          to="/casino/blueocean"
-          className="text-sm font-bold text-casino-primary hover:opacity-90"
-        >
+        <NavLink to="/casino/games" className="text-sm font-bold text-casino-primary hover:opacity-90">
           Crypto Casino
         </NavLink>
       </div>

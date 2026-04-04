@@ -40,7 +40,7 @@ export default function ProfilePage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold text-casino-primary">Your profile</h1>
         <Link to="/" className="text-sm text-casino-muted hover:text-casino-primary">
-          ← Lobby
+          ← Games
         </Link>
       </div>
 

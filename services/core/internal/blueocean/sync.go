@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,6 +22,13 @@ func SyncCatalog(ctx context.Context, pool *pgxpool.Pool, client *Client, cfg *c
 		"currency":        cur,
 		"show_systems":    1,
 		"show_additional": true,
+	}
+	if cfg != nil {
+		if aid := strings.TrimSpace(cfg.BlueOceanAgentID); aid != "" {
+			if n, err := strconv.ParseInt(aid, 10, 64); err == nil && n > 0 {
+				base["agentid"] = n
+			}
+		}
 	}
 	imageBase := ""
 	if cfg != nil {
@@ -212,7 +221,8 @@ func lobbyTagsForGame(idHash string, m map[string][]string) []string {
 	if idHash == "" {
 		return []string{}
 	}
-	var tags []string
+	// Non-nil slice so pgx encodes PostgreSQL '{}' not NULL (lobby_tags is NOT NULL).
+	tags := make([]string, 0)
 	for pill, hashes := range m {
 		for _, h := range hashes {
 			if h == idHash {

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { formatApiError } from '../api/errors'
+import { playerApiUrl } from '../lib/playerApiUrl'
 import { TurnstileField } from './TurnstileField'
 import { usePlayerAuth } from '../playerAuth'
 
@@ -231,7 +232,7 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    await fetch('/v1/auth/forgot-password', {
+    await fetch(playerApiUrl('/v1/auth/forgot-password'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),

@@ -1,6 +1,6 @@
 ﻿import { adminAppHref, installPlayerCrossAppBridge } from '@repo/cross-app'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { readApiError, formatApiError } from './api/errors'
 import { AuthModalProvider, useAuthModal } from './authModalContext'
 import { AuthModal } from './components/AuthModal'
@@ -10,20 +10,31 @@ import OperationalBanner from './components/OperationalBanner'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
 import DemoEmbedPage from './pages/DemoEmbedPage'
+import GameLobbyPage from './pages/GameLobbyPage'
 import LobbyPage from './pages/LobbyPage'
-import PlayPage from './pages/PlayPage'
 import ProfilePage from './pages/ProfilePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 
 const quickNav = [
-  { to: '/casino/blueocean', label: 'Blue Ocean' },
-  { to: '/casino/lobby', label: 'Lobby' },
+  { to: '/casino/games', label: 'Games' },
   { to: '/casino/featured', label: 'Featured' },
   { to: '/casino/slots', label: 'Slots' },
   { to: '/casino/live', label: 'Live' },
   { to: '/casino/new', label: 'New' },
 ]
+
+/** Old paths `/casino/lobby` and `/casino/blueocean` redirected here (single Blue Ocean–powered catalog). */
+function LegacyCasinoRedirect() {
+  const loc = useLocation()
+  return <Navigate to={{ pathname: '/casino/games', search: loc.search, hash: loc.hash }} replace />
+}
+
+function LegacyPlayToGameLobby() {
+  const { gameId } = useParams()
+  if (!gameId) return <Navigate to="/casino/games" replace />
+  return <Navigate to={`/casino/game-lobby/${encodeURIComponent(gameId)}`} replace />
+}
 
 function initials(email: string | undefined) {
   if (!email) return '?'
@@ -52,11 +63,11 @@ function AppShell() {
   return (
     <div className="flex min-h-screen bg-casino-bg text-casino-foreground">
       <CasinoSidebar />
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         <OperationalBanner data={op.data} error={op.error} />
         <header className="flex flex-wrap items-center gap-3 border-b border-casino-border bg-casino-surface px-4 py-3">
           <NavLink
-            to="/casino/blueocean"
+            to="/casino/games"
             className="text-sm font-semibold text-casino-primary md:hidden hover:opacity-90"
           >
             Casino
@@ -85,17 +96,20 @@ function AppShell() {
             ))}
           </div>
         </div>
-        <main className="flex flex-1 flex-col">
+        <main className="flex min-h-0 flex-1 flex-col">
           <Routes>
-            <Route path="/" element={<Navigate to="/casino/blueocean" replace />} />
+            <Route path="/" element={<Navigate to="/casino/games" replace />} />
+            <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
+            <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
+            <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPage />} />
+            <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
             <Route path="/casino/:section" element={<LobbyPage operationalData={op.data} />} />
-            <Route path="/login" element={<Navigate to="/casino/blueocean?auth=login" replace />} />
-            <Route path="/register" element={<Navigate to="/casino/blueocean?auth=register" replace />} />
-            <Route path="/forgot-password" element={<Navigate to="/casino/blueocean?auth=forgot" replace />} />
+            <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />
+            <Route path="/register" element={<Navigate to="/casino/games?auth=register" replace />} />
+            <Route path="/forgot-password" element={<Navigate to="/casino/games?auth=forgot" replace />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/play/:gameId" element={<PlayPage />} />
             <Route path="/embed/demo/:demoId" element={<DemoEmbedPage />} />
           </Routes>
         </main>

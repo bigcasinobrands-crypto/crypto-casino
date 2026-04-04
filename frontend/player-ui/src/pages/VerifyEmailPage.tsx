@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
+import { playerApiUrl } from '../lib/playerApiUrl'
 
 export default function VerifyEmailPage() {
   const [params] = useSearchParams()
@@ -16,7 +17,7 @@ export default function VerifyEmailPage() {
     }
     setErr(null)
     setLoading(true)
-    const res = await fetch('/v1/auth/verify-email', {
+    const res = await fetch(playerApiUrl('/v1/auth/verify-email'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
@@ -34,7 +35,7 @@ export default function VerifyEmailPage() {
       <div className="mx-auto max-w-md space-y-4 p-8 text-center">
         <p className="text-sm text-casino-muted">Email verified. You can deposit and withdraw.</p>
         <Link className="text-casino-primary hover:underline" to="/">
-          Go to lobby
+          Go to games
         </Link>
       </div>
     )
