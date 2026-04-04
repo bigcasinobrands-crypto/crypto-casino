@@ -16,10 +16,10 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - run: npm run build -w @repo/admin
-      - run: npm run build -w @repo/player
-      - run: npm run lint -w @repo/admin
-      - run: npm run lint -w @repo/player
+      - run: npm run build -w @repo/admin-console
+      - run: npm run build -w @repo/player-ui
+      - run: npm run lint -w @repo/admin-console
+      - run: npm run lint -w @repo/player-ui
       - run: npm audit --audit-level=critical
         continue-on-error: true
 
@@ -39,3 +39,4 @@ jobs:
       - run: go build -o /dev/null ./cmd/bootstrap
       - run: go build -o /dev/null ./cmd/worker
       - run: go build -o /dev/null ./cmd/playerbootstrap
+      - run: go build -o /dev/null ./cmd/resetstaffpw

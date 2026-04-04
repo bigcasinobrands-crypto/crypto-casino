@@ -46,7 +46,7 @@ function run(go, args) {
 const go = findGo();
 run(go, ["mod", "tidy"]);
 run(go, ["vet", "./..."]);
-const cmds = ["api", "worker", "bootstrap", "playerbootstrap"];
+const cmds = ["api", "worker", "bootstrap", "playerbootstrap", "resetstaffpw"];
 for (const name of cmds) {
   const out = join(core, "bin", `${name}${ext}`);
   run(go, ["build", "-o", out, `./cmd/${name}`]);

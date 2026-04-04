@@ -13,7 +13,7 @@ Phase 1 baseline: **two separate SPAs** (admin vs player), shared design tokens,
 1. `npm run compose:up` — Postgres + Redis (see `docker-compose.yml` for passwords).
 2. `copy .env.example services\core\.env` and set `JWT_SECRET` (≥32 chars). Set `REDIS_URL` for worker/async path (see `.env.example`). For **player email** (verify / reset), set `PUBLIC_PLAYER_URL` and either log-only mail (default) or **SMTP** — e.g. start **Mailpit** with `docker compose up -d mailpit`, then `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `SMTP_FROM=noreply@localhost`. Optional **Turnstile**: `TURNSTILE_SECRET` on API and `VITE_TURNSTILE_SITE_KEY` on the player app.
 3. `npm install` then `npm run build:core` (or `cd services/core && go mod tidy && go build ./cmd/...`)
-4. From `services/core`: `go run ./cmd/bootstrap <staff-email> <password>`
+4. Staff admin in Postgres: migrations **`00006_seed_default_admin.sql`** (inserts **`admin@twox.gg`** / **`testadmin123`** if missing) and **`00007_align_dev_admin_password.sql`** (sets that password if the row already existed from an earlier bootstrap). Restart the API once so migrations apply. If you still get “invalid email or password”, run from `services/core`: **`go run ./cmd/resetstaffpw admin@twox.gg testadmin123`**. Alternatively create the row with **`go run ./cmd/bootstrap <email> <password>`** (min 8 chars); bootstrap does not change an existing user’s password.
 5. `go run ./cmd/playerbootstrap <player-email> <password>` (optional test user; password **12+ characters**, letters and numbers)
 6. Terminal A: `npm run dev:api` (or `cd services/core && go run ./cmd/api`)  
    Terminal B: `npm run dev:worker` (needs `REDIS_URL` in `services/core/.env`)
@@ -43,7 +43,7 @@ npm run dev:worker   # worker — needs REDIS_URL in services/core/.env
 | Area | Decision |
 |------|-----------|
 | **Backend** | **Go 1.22+** in `services/core` — `chi`, `pgx`, `goose` (embedded SQL), `redis/go-redis` queue. |
-| **Frontends** | **Vite + React + TypeScript**; `react-router-dom`; Tailwind v4 + `@repo/design-tokens`. |
+| **Frontends** | **Vite + React + TypeScript** in `frontend/admin-console` & `frontend/player-ui`; shared `@repo/design-tokens` + `@repo/cross-app` (URLs / postMessage bridge only). |
 | **DB** | **PostgreSQL 16**; migrations under `services/core/internal/db/migrations/`. |
 | **Fystack** | **Stub + webhook + DB rows**; replace handlers with [Fystack REST](https://docs.fystack.io/) or a small Node adapter using `@fystack/sdk` called from Go (private network). Document final choice in PRD. |
 | **BlueOcean** | **Stub launch URL** + webhook → `blueocean_events` → worker → `ledger.ApplyCredit` (replace payload mapping with provider spec). |
