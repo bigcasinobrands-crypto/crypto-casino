@@ -1,0 +1,14 @@
+﻿/* Shared PokerHouse-style tokens: dark surfaces + neon green primary */
+@theme {
+  --color-casino-bg: #070708;
+  --color-casino-surface: #0e0e11;
+  --color-casino-elevated: #151518;
+  --color-casino-border: #27272f;
+  --color-casino-muted: #8a8a96;
+  --color-casino-foreground: #f4f4f5;
+  --color-casino-primary: #39ff14;
+  --color-casino-primary-dim: #2bc40f;
+  --radius-casino-sm: 0.5rem;
+  --radius-casino-md: 0.75rem;
+  --radius-casino-lg: 1rem;
+}

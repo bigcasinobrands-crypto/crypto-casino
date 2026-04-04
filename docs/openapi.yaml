@@ -1,0 +1,122 @@
+﻿openapi: 3.0.3
+info:
+  title: Crypto Casino API
+  version: 0.4.0
+  description: Phase 1 baseline — player auth baseline (verify email, reset password, stricter /auth rate limits).
+paths:
+  /health:
+    get:
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+  /health/ready:
+    get:
+      summary: Readiness (DB + optional Redis)
+      responses:
+        "200":
+          description: OK
+        "503":
+          description: Dependency down
+  /v1/webhooks/blueocean:
+    post:
+      summary: BlueOcean webhook (HMAC optional)
+      responses:
+        "202":
+          description: Accepted
+  /v1/webhooks/fystack:
+    post:
+      summary: Fystack webhook (HMAC optional)
+      responses:
+        "202":
+          description: Accepted
+  /v1/admin/auth/login:
+    post:
+      summary: Staff login
+      responses:
+        "200":
+          description: Tokens
+  /v1/admin/auth/logout:
+    post:
+      summary: Revoke refresh session
+      responses:
+        "200":
+          description: OK
+  /v1/admin/me:
+    get:
+      security: [{ staffBearer: [] }]
+      summary: Staff profile
+      responses:
+        "200":
+          description: OK
+  /v1/admin/users:
+    get:
+      security: [{ staffBearer: [] }]
+      summary: List players
+  /v1/admin/ledger:
+    get:
+      security: [{ staffBearer: [] }]
+      summary: List ledger rows
+  /v1/admin/events/blueocean:
+    get:
+      security: [{ staffBearer: [] }]
+      summary: List BlueOcean events
+  /v1/admin/integrations/fystack/payments:
+    get:
+      security: [{ staffBearer: [] }]
+  /v1/admin/integrations/fystack/withdrawals:
+    get:
+      security: [{ staffBearer: [] }]
+  /v1/auth/register:
+    post:
+      summary: Player register (accept_terms, accept_privacy, optional captcha_token; password 12+ chars)
+  /v1/auth/login:
+    post:
+      summary: Player login (optional captcha_token when TURNSTILE_SECRET set)
+  /v1/auth/refresh:
+    post:
+      summary: Rotate player access token
+  /v1/auth/logout:
+    post:
+      summary: Revoke player refresh session
+  /v1/auth/verify-email:
+    post:
+      summary: Confirm email with token from mail link
+  /v1/auth/verify-email/resend:
+    post:
+      security: [{ playerBearer: [] }]
+      summary: Resend verification email
+  /v1/auth/forgot-password:
+    post:
+      summary: Request password reset email (always 200)
+  /v1/auth/reset-password:
+    post:
+      summary: Set new password with reset token
+  /v1/auth/me:
+    get:
+      security: [{ playerBearer: [] }]
+      summary: Player profile (id, email, created_at, email_verified, email_verified_at)
+  /v1/games:
+    get:
+      summary: List games (catalog)
+  /v1/games/launch:
+    post:
+      security: [{ playerBearer: [] }]
+      summary: Launch URL for iframe
+  /v1/wallet/balance:
+    get:
+      security: [{ playerBearer: [] }]
+  /v1/wallet/deposit-session:
+    post:
+      security: [{ playerBearer: [] }]
+  /v1/wallet/withdraw:
+    post:
+      security: [{ playerBearer: [] }]
+components:
+  securitySchemes:
+    staffBearer:
+      type: http
+      scheme: bearer
+    playerBearer:
+      type: http
+      scheme: bearer

@@ -1,0 +1,17 @@
+{
+  "name": "crypto-casino",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:admin": "npm run dev -w @repo/admin",
+    "dev:player": "npm run dev -w @repo/player",
+    "compose:up": "docker compose up -d",
+    "compose:down": "docker compose down",
+    "build": "npm run build --workspaces --if-present",
+    "build:admin": "npm run build -w @repo/admin",
+    "build:player": "npm run build -w @repo/player",
+    "build:core": "node scripts/build-core.mjs",
+    "dev:api": "node scripts/go-dev.mjs ./cmd/api",
+    "dev:worker": "node scripts/go-dev.mjs ./cmd/worker"
+  }
+}
