@@ -22,10 +22,6 @@ func (h *Handler) cfg() *config.Config {
 }
 
 func (h *Handler) SyncBlueOceanCatalog(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	if h.BOG == nil || !h.BOG.Configured() {
 		adminapi.WriteError(w, http.StatusServiceUnavailable, "bog_unconfigured", "Blue Ocean client not configured")
 		return
@@ -77,10 +73,13 @@ func (h *Handler) OperationalFlags(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListGamesAdmin(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 200)
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT id, title, provider, COALESCE(category,''), COALESCE(thumbnail_url,''),
-			COALESCE(game_type,''), COALESCE(provider_system,''), hidden, COALESCE(hidden_reason,''),
-			COALESCE(bog_game_id,0), updated_at
-		FROM games ORDER BY updated_at DESC LIMIT $1
+		SELECT g.id, g.title, g.provider, COALESCE(g.category,''), COALESCE(g.thumbnail_url,''),
+			COALESCE(g.game_type,''), COALESCE(g.provider_system,''), g.hidden, COALESCE(g.hidden_reason,''),
+			COALESCE(g.bog_game_id,0), g.updated_at,
+			COALESCE(pls.lobby_hidden, false)
+		FROM games g
+		LEFT JOIN provider_lobby_settings pls ON pls.provider = g.provider
+		ORDER BY g.updated_at DESC LIMIT $1
 	`, limit)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
@@ -93,13 +92,17 @@ func (h *Handler) ListGamesAdmin(w http.ResponseWriter, r *http.Request) {
 		var hid bool
 		var bog int
 		var up time.Time
-		if err := rows.Scan(&id, &title, &prov, &cat, &thumb, &gt, &ps, &hid, &hr, &bog, &up); err != nil {
+		var provLobbyHid bool
+		if err := rows.Scan(&id, &title, &prov, &cat, &thumb, &gt, &ps, &hid, &hr, &bog, &up, &provLobbyHid); err != nil {
 			continue
 		}
+		effectiveLobby := !hid && !provLobbyHid
 		list = append(list, map[string]any{
 			"id": id, "title": title, "provider": prov, "category": cat, "thumbnail_url": thumb,
 			"game_type": gt, "provider_system": ps, "hidden": hid, "hidden_reason": hr,
 			"bog_game_id": bog, "updated_at": up.UTC().Format(time.RFC3339),
+			"provider_lobby_hidden": provLobbyHid,
+			"effective_in_lobby":    effectiveLobby,
 		})
 	}
 	writeJSON(w, map[string]any{"games": list})
@@ -131,6 +134,88 @@ func (h *Handler) PatchGameHidden(w http.ResponseWriter, r *http.Request) {
 	}
 	if tag.RowsAffected() == 0 {
 		adminapi.WriteError(w, http.StatusNotFound, "not_found", "game not found")
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (h *Handler) ListGameProviders(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.Pool.Query(r.Context(), `
+		WITH counts AS (
+			SELECT provider,
+				COUNT(*)::int AS game_count,
+				COUNT(*) FILTER (WHERE NOT hidden)::int AS individually_visible_count
+			FROM games
+			GROUP BY provider
+		)
+		SELECT c.provider, c.game_count, c.individually_visible_count,
+			COALESCE(p.lobby_hidden, false), COALESCE(p.hidden_reason,''), p.updated_at
+		FROM counts c
+		LEFT JOIN provider_lobby_settings p ON p.provider = c.provider
+		ORDER BY c.provider
+	`)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
+		return
+	}
+	defer rows.Close()
+	var list []map[string]any
+	for rows.Next() {
+		var prov string
+		var nGames, nVis int
+		var lobbyHid bool
+		var reason string
+		var setAt *time.Time
+		if err := rows.Scan(&prov, &nGames, &nVis, &lobbyHid, &reason, &setAt); err != nil {
+			continue
+		}
+		item := map[string]any{
+			"provider":                      prov,
+			"game_count":                    nGames,
+			"individually_visible_count":    nVis,
+			"lobby_hidden":                  lobbyHid,
+			"hidden_reason":                 reason,
+			"effective_lobby_visible_count": 0,
+		}
+		if !lobbyHid {
+			item["effective_lobby_visible_count"] = nVis
+		}
+		if setAt != nil {
+			item["settings_updated_at"] = setAt.UTC().Format(time.RFC3339)
+		}
+		list = append(list, item)
+	}
+	writeJSON(w, map[string]any{"providers": list})
+}
+
+type patchProviderLobbyReq struct {
+	Provider    string `json:"provider"`
+	LobbyHidden bool   `json:"lobby_hidden"`
+	Reason      string `json:"reason"`
+}
+
+func (h *Handler) PatchProviderLobbyHidden(w http.ResponseWriter, r *http.Request) {
+	var body patchProviderLobbyReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid body")
+		return
+	}
+	prov := strings.TrimSpace(body.Provider)
+	if prov == "" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "provider required")
+		return
+	}
+	reason := strings.TrimSpace(body.Reason)
+	_, err := h.Pool.Exec(r.Context(), `
+		INSERT INTO provider_lobby_settings (provider, lobby_hidden, hidden_reason, updated_at)
+		VALUES ($1, $2, NULLIF($3,''), now())
+		ON CONFLICT (provider) DO UPDATE SET
+			lobby_hidden = EXCLUDED.lobby_hidden,
+			hidden_reason = EXCLUDED.hidden_reason,
+			updated_at = now()
+	`, prov, body.LobbyHidden, reason)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "update failed")
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})

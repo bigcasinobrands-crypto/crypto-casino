@@ -1,4 +1,4 @@
-﻿import { Route, Routes } from 'react-router-dom'
+﻿import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminAuthProvider } from './authContext'
 import AdminLayout from './pages/AdminLayout'
 import BlueOceanOpsPage from './pages/BlueOceanOpsPage'
@@ -24,7 +24,8 @@ export default function App() {
           <Route path="/support" element={<SupportLookupPage />} />
           <Route path="/support/player/:id" element={<PlayerDetailPage />} />
           <Route path="/bog" element={<BlueOceanOpsPage />} />
-          <Route path="/games-catalog" element={<GamesCatalogPage />} />
+          <Route path="/games" element={<GamesCatalogPage />} />
+          <Route path="/games-catalog" element={<Navigate to="/games" replace />} />
           <Route
             path="/game-launches"
             element={<DataTablePage title="Game launches" path="/v1/admin/game-launches" />}

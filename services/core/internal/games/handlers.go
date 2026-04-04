@@ -48,7 +48,13 @@ func (s *Server) ListHandler() http.HandlerFunc {
 			sort = "name"
 		}
 
-		where := []string{"hidden = false"}
+		where := []string{
+			"hidden = false",
+			`NOT EXISTS (
+				SELECT 1 FROM provider_lobby_settings pls
+				WHERE pls.provider = games.provider AND pls.lobby_hidden = true
+			)`,
+		}
 		args := []any{}
 		argN := 1
 
@@ -230,10 +236,14 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 		var bogID int64
 		var playFun bool
 		var hidden bool
+		var provHidden bool
 		err := s.Pool.QueryRow(r.Context(), `
-			SELECT bog_game_id, COALESCE(play_for_fun_supported,false), COALESCE(hidden,false)
-			FROM games WHERE id = $1
-		`, body.GameID).Scan(&bogID, &playFun, &hidden)
+			SELECT g.bog_game_id, COALESCE(g.play_for_fun_supported,false), COALESCE(g.hidden,false),
+				COALESCE(pls.lobby_hidden, false)
+			FROM games g
+			LEFT JOIN provider_lobby_settings pls ON pls.provider = g.provider
+			WHERE g.id = $1
+		`, body.GameID).Scan(&bogID, &playFun, &hidden, &provHidden)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				playerapi.WriteError(w, http.StatusNotFound, "not_found", "unknown game")
@@ -242,7 +252,7 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 			http.Error(w, "db error", http.StatusInternalServerError)
 			return
 		}
-		if hidden {
+		if hidden || provHidden {
 			playerapi.WriteError(w, http.StatusNotFound, "not_found", "unknown game")
 			return
 		}
@@ -274,21 +284,25 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 			return
 		}
 
+		remote, err := remotePlayerID(r.Context(), s.Pool, uid)
+		if err != nil {
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "player link failed")
+			return
+		}
+
 		method := "getGameDemo"
 		params := map[string]any{
 			"currency":   s.Cfg.BlueOceanCurrency,
 			"gameid":     bogID,
 			"playforfun": true,
+			"userid":     remote,
+		}
+		if s.Cfg != nil && s.Cfg.BlueOceanMulticurrency {
+			params["multicurrency"] = 1
 		}
 		if mode == "real" {
 			method = "getGame"
 			params["playforfun"] = false
-			remote, err := remotePlayerID(r.Context(), s.Pool, uid)
-			if err != nil {
-				playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "player link failed")
-				return
-			}
-			params["userid"] = remote
 		} else {
 			if !playFun {
 				playerapi.WriteError(w, http.StatusConflict, "demo_unavailable", "demo not supported for this game")
@@ -305,16 +319,21 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 
 		raw, status, err := s.BOG.Call(r.Context(), method, params)
 		if err != nil {
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "provider request failed")
+			log.Printf("games launch: transport error method=%s game_id=%s bog_id=%d: %v", method, body.GameID, bogID, err)
+			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "provider connection failed: "+err.Error())
 			return
 		}
 		if status < 200 || status >= 300 {
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "provider returned error")
+			msg := blueocean.FormatAPIError(raw, status)
+			log.Printf("games launch: provider HTTP %d method=%s game_id=%s bog_id=%d: %s", status, method, body.GameID, bogID, msg)
+			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", msg)
 			return
 		}
-		url, err := blueocean.ExtractLaunchURL(raw)
-		if err != nil || url == "" {
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "no launch url in provider response")
+		launchURL, err := blueocean.ExtractLaunchURL(raw)
+		if err != nil || launchURL == "" {
+			msg := blueocean.FormatAPIError(raw, status)
+			log.Printf("games launch: no URL method=%s game_id=%s bog_id=%d body=%.300q", method, body.GameID, bogID, string(raw))
+			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "no launch URL in provider response — "+msg)
 			return
 		}
 
@@ -323,7 +342,7 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 		`, uid, body.GameID, mode)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"url": url, "mode": "iframe"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"url": launchURL, "mode": "iframe"})
 	}
 }
 

@@ -55,7 +55,7 @@ const othersItems: NavItem[] = [
     name: "Integrations",
     subItems: [
       { name: "Blue Ocean ops", path: "/bog", pro: false },
-      { name: "Games catalog", path: "/games-catalog", pro: false },
+      { name: "Games", path: "/games", pro: false },
       { name: "Game launches", path: "/game-launches", pro: false },
       { name: "Game disputes", path: "/game-disputes", pro: false },
       { name: "BlueOcean events", path: "/blueocean", pro: false },
@@ -83,10 +83,11 @@ const AppSidebar: FC = () => {
   );
   const subMenuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // const isActive = (path: string) => location.pathname === path;
   const isActive = useCallback(
     (path: string) => {
       if (path === "/support") return location.pathname.startsWith("/support");
+      if (path === "/games")
+        return location.pathname === "/games" || location.pathname === "/games-catalog";
       return location.pathname === path;
     },
     [location.pathname]

@@ -51,10 +51,10 @@ func main() {
 		log.Fatal(err)
 	}
 	_, err = pool.Exec(ctx, `
-		INSERT INTO staff_users (email, password_hash, role) VALUES ($1, $2, 'admin')
+		INSERT INTO staff_users (email, password_hash, role) VALUES ($1, $2, 'superadmin')
 	`, email, string(hash))
 	if err != nil {
 		log.Fatalf("insert: %v", err)
 	}
-	log.Printf("created staff admin: %s", email)
+	log.Printf("created staff superadmin: %s", email)
 }

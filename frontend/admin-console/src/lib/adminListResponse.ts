@@ -6,6 +6,7 @@ export const ADMIN_LIST_PATH_TO_KEY: Record<string, string> = {
   '/v1/admin/integrations/fystack/payments': 'payments',
   '/v1/admin/integrations/fystack/withdrawals': 'withdrawals',
   '/v1/admin/games': 'games',
+  '/v1/admin/game-providers': 'providers',
   '/v1/admin/game-launches': 'launches',
   '/v1/admin/game-disputes': 'disputes',
 }

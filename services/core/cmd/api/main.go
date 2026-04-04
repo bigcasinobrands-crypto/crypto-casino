@@ -183,11 +183,15 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
+		lobbyVisible := `hidden = false AND NOT EXISTS (
+			SELECT 1 FROM provider_lobby_settings pls
+			WHERE pls.provider = games.provider AND pls.lobby_hidden = true
+		)`
 		var visible, blueoceanVisible int64
-		_ = pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM games WHERE hidden = false`).Scan(&visible)
+		_ = pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM games WHERE `+lobbyVisible).Scan(&visible)
 		_ = pool.QueryRow(ctx, `
 			SELECT COUNT(*)::bigint FROM games
-			WHERE hidden = false AND LOWER(TRIM(COALESCE(provider,''))) = 'blueocean'
+			WHERE `+lobbyVisible+` AND LOWER(TRIM(COALESCE(provider,''))) = 'blueocean'
 		`).Scan(&blueoceanVisible)
 
 		var lastSync sql.NullTime

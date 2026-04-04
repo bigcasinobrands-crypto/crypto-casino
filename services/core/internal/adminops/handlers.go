@@ -22,7 +22,7 @@ type Handler struct {
 }
 
 func (h *Handler) Mount(r chi.Router) {
-	r.Use(adminapi.RequireAnyRole("admin", "support"))
+	r.Use(adminapi.RequireAnyRole("admin", "support", "superadmin"))
 	r.Get("/users", h.ListUsers)
 	r.Get("/users/{id}", h.GetUser)
 	r.Get("/users/{id}/export", h.GDPRExportUser)
@@ -34,11 +34,13 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/integrations/blueocean/status", h.BlueOceanStatus)
 	r.Get("/system/operational-flags", h.OperationalFlags)
 	r.Get("/games", h.ListGamesAdmin)
+	r.Get("/game-providers", h.ListGameProviders)
 	r.Get("/game-launches", h.ListGameLaunches)
 	r.Get("/game-disputes", h.ListGameDisputes)
 	r.Group(func(r chi.Router) {
-		r.Use(adminapi.RequireAnyRole("admin"))
+		r.Use(adminapi.RequireAnyRole("superadmin"))
 		r.Patch("/games/{id}/hidden", h.PatchGameHidden)
+		r.Patch("/game-providers/lobby-hidden", h.PatchProviderLobbyHidden)
 	})
 }
 

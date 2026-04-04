@@ -72,9 +72,7 @@ func (c *Client) Call(ctx context.Context, method string, params map[string]any)
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return json.RawMessage(respBody), resp.StatusCode, fmt.Errorf("blueocean: http %d", resp.StatusCode)
-	}
+	// Callers check status; do not return an error for 4xx/5xx so they can read the JSON body.
 	return json.RawMessage(respBody), resp.StatusCode, nil
 }
 
