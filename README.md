@@ -15,9 +15,9 @@ Phase 1 baseline: **two separate SPAs** (admin vs player), shared design tokens,
 3. `npm install` then `npm run build:core` (or `cd services/core && go mod tidy && go build ./cmd/...`)
 4. Staff admin in Postgres: migrations **`00006_seed_default_admin.sql`** (inserts **`admin@twox.gg`** / **`testadmin123`** if missing) and **`00007_align_dev_admin_password.sql`** (sets that password if the row already existed from an earlier bootstrap). Restart the API once so migrations apply. If you still get “invalid email or password”, run from `services/core`: **`go run ./cmd/resetstaffpw admin@twox.gg testadmin123`**. Alternatively create the row with **`go run ./cmd/bootstrap <email> <password>`** (min 8 chars); bootstrap does not change an existing user’s password.
 5. `go run ./cmd/playerbootstrap <player-email> <password>` (optional test user; password **12+ characters**, letters and numbers)
-6. Terminal A: `npm run dev:api` (or `cd services/core && go run ./cmd/api`)  
-   Terminal B: `npm run dev:worker` (needs `REDIS_URL` in `services/core/.env`)
-7. `npm run dev:admin` (5173) and `npm run dev:player` (5174)
+6. **Player + games:** Terminal A: `npm run dev:api` (or `cd services/core && go run ./cmd/api`). Terminal B: `npm run dev:player` (5174). Or one command: `npm install` then **`npm run dev:casino`** (API + player UI). The player app proxies `/v1` and `/health` to **127.0.0.1:8080** — keep the API running or the lobby shows a connection error.
+7. Optional Terminal C: `npm run dev:worker` (needs working **Redis** when `REDIS_URL` is set; if Redis is down, the API still starts and serves the game list; webhooks fall back to inline processing when the queue is unavailable).
+8. `npm run dev:admin` (5173) when you need the staff console.
 
 ### Notable HTTP routes
 
@@ -35,6 +35,7 @@ npm run build:admin
 npm run build:player
 npm run build:core   # tidy + vet + build api/worker/bootstrap/playerbootstrap
 npm run dev:api      # API from repo root (resolves Go on Windows if IDE PATH is thin)
+npm run dev:casino   # API + player UI together (after npm install for concurrently)
 npm run dev:worker   # worker — needs REDIS_URL in services/core/.env
 ```
 

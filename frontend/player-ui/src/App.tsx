@@ -1,22 +1,28 @@
 ﻿import { adminAppHref, installPlayerCrossAppBridge } from '@repo/cross-app'
 import { useEffect, useState } from 'react'
-import { Link, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { readApiError, formatApiError } from './api/errors'
 import { AuthModalProvider, useAuthModal } from './authModalContext'
 import { AuthModal } from './components/AuthModal'
+import CasinoSidebar from './components/CasinoSidebar'
+import HeaderGameSearch from './components/HeaderGameSearch'
+import OperationalBanner from './components/OperationalBanner'
+import { useOperationalHealth } from './hooks/useOperationalHealth'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
+import DemoEmbedPage from './pages/DemoEmbedPage'
 import LobbyPage from './pages/LobbyPage'
 import PlayPage from './pages/PlayPage'
 import ProfilePage from './pages/ProfilePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 
-const sidebar = [
-  { label: 'Casino', active: true },
-  { label: 'Slots', active: false },
-  { label: 'Sport', active: false },
-  { label: 'Promos', active: false },
-  { label: 'VIP', active: false },
+const quickNav = [
+  { to: '/casino/blueocean', label: 'Blue Ocean' },
+  { to: '/casino/lobby', label: 'Lobby' },
+  { to: '/casino/featured', label: 'Featured' },
+  { to: '/casino/slots', label: 'Slots' },
+  { to: '/casino/live', label: 'Live' },
+  { to: '/casino/new', label: 'New' },
 ]
 
 function initials(email: string | undefined) {
@@ -33,71 +39,68 @@ export default function App() {
   return (
     <PlayerAuthProvider>
       <AuthModalProvider>
-        <div className="flex min-h-screen bg-casino-bg text-casino-foreground">
-          <aside className="hidden w-52 flex-col border-r border-casino-border bg-casino-surface md:flex">
-            <div className="px-4 py-4">
-              <span className="text-sm font-bold text-casino-primary">Crypto Casino</span>
-            </div>
-            <nav className="flex flex-col gap-1 px-2 pb-4">
-              {sidebar.map((item) => (
-                <span
-                  key={item.label}
-                  className={
-                    item.active
-                      ? 'rounded-casino-md bg-casino-elevated px-3 py-2 text-sm text-casino-primary'
-                      : 'rounded-casino-md px-3 py-2 text-sm text-casino-muted'
-                  }
-                >
-                  {item.label}
-                </span>
-              ))}
-            </nav>
-          </aside>
-          <div className="flex min-h-screen flex-1 flex-col">
-            <header className="flex flex-wrap items-center gap-3 border-b border-casino-border bg-casino-surface px-4 py-3">
-              <span className="text-sm font-semibold text-casino-primary md:hidden">Casino</span>
-              <div className="flex flex-1 items-center gap-2">
-                <input
-                  type="search"
-                  placeholder="Search games"
-                  className="min-w-0 flex-1 rounded-casino-md border border-casino-border bg-casino-bg px-3 py-2 text-sm outline-none focus:border-casino-primary"
-                />
-              </div>
-              <HeaderAccount />
-              <StaffConsoleLink />
-              <div className="flex items-center gap-2">
-                <WalletActions />
-              </div>
-            </header>
-            <div className="border-b border-casino-border bg-casino-surface px-4 py-2">
-              <div className="flex gap-2 overflow-x-auto text-sm">
-                {['Lobby', 'Slots', 'Live', 'New'].map((t) => (
-                  <span
-                    key={t}
-                    className="whitespace-nowrap rounded-casino-sm px-3 py-1 text-casino-muted"
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <main className="flex flex-1 flex-col">
-              <Routes>
-                <Route path="/" element={<LobbyPage />} />
-                <Route path="/login" element={<Navigate to="/?auth=login" replace />} />
-                <Route path="/register" element={<Navigate to="/?auth=register" replace />} />
-                <Route path="/forgot-password" element={<Navigate to="/?auth=forgot" replace />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
-                <Route path="/verify-email" element={<VerifyEmailPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
-                <Route path="/play/:gameId" element={<PlayPage />} />
-              </Routes>
-            </main>
-          </div>
-        </div>
+        <AppShell />
         <AuthModal />
       </AuthModalProvider>
     </PlayerAuthProvider>
+  )
+}
+
+function AppShell() {
+  const op = useOperationalHealth()
+
+  return (
+    <div className="flex min-h-screen bg-casino-bg text-casino-foreground">
+      <CasinoSidebar />
+      <div className="flex min-h-screen flex-1 flex-col">
+        <OperationalBanner data={op.data} error={op.error} />
+        <header className="flex flex-wrap items-center gap-3 border-b border-casino-border bg-casino-surface px-4 py-3">
+          <NavLink
+            to="/casino/blueocean"
+            className="text-sm font-semibold text-casino-primary md:hidden hover:opacity-90"
+          >
+            Casino
+          </NavLink>
+          <HeaderGameSearch />
+          <HeaderAccount />
+          <StaffConsoleLink />
+          <div className="flex items-center gap-2">
+            <WalletActions />
+          </div>
+        </header>
+        <div className="border-b border-casino-border bg-casino-surface px-4 py-2">
+          <div className="flex gap-2 overflow-x-auto text-sm">
+            {quickNav.map(({ to, label }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  isActive
+                    ? 'whitespace-nowrap rounded-casino-sm bg-casino-primary px-3 py-1 font-medium text-casino-bg'
+                    : 'whitespace-nowrap rounded-casino-sm px-3 py-1 text-casino-muted hover:text-casino-primary'
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+        <main className="flex flex-1 flex-col">
+          <Routes>
+            <Route path="/" element={<Navigate to="/casino/blueocean" replace />} />
+            <Route path="/casino/:section" element={<LobbyPage operationalData={op.data} />} />
+            <Route path="/login" element={<Navigate to="/casino/blueocean?auth=login" replace />} />
+            <Route path="/register" element={<Navigate to="/casino/blueocean?auth=register" replace />} />
+            <Route path="/forgot-password" element={<Navigate to="/casino/blueocean?auth=forgot" replace />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/play/:gameId" element={<PlayPage />} />
+            <Route path="/embed/demo/:demoId" element={<DemoEmbedPage />} />
+          </Routes>
+        </main>
+      </div>
+    </div>
   )
 }
 

@@ -1,10 +1,14 @@
 ﻿import { Route, Routes } from 'react-router-dom'
 import { AdminAuthProvider } from './authContext'
 import AdminLayout from './pages/AdminLayout'
+import BlueOceanOpsPage from './pages/BlueOceanOpsPage'
 import DashboardPage from './pages/DashboardPage'
 import DataTablePage from './pages/DataTablePage'
+import GamesCatalogPage from './pages/GamesCatalogPage'
 import LoginPage from './pages/LoginPage'
+import PlayerDetailPage from './pages/PlayerDetailPage'
 import SettingsPage from './pages/SettingsPage'
+import SupportLookupPage from './pages/SupportLookupPage'
 
 export default function App() {
   return (
@@ -16,6 +20,18 @@ export default function App() {
           <Route
             path="/users"
             element={<DataTablePage title="Players" path="/v1/admin/users" />}
+          />
+          <Route path="/support" element={<SupportLookupPage />} />
+          <Route path="/support/player/:id" element={<PlayerDetailPage />} />
+          <Route path="/bog" element={<BlueOceanOpsPage />} />
+          <Route path="/games-catalog" element={<GamesCatalogPage />} />
+          <Route
+            path="/game-launches"
+            element={<DataTablePage title="Game launches" path="/v1/admin/game-launches" />}
+          />
+          <Route
+            path="/game-disputes"
+            element={<DataTablePage title="Game disputes" path="/v1/admin/game-disputes" />}
           />
           <Route
             path="/ledger"

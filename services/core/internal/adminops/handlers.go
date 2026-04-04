@@ -4,24 +4,42 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
+	"github.com/crypto-casino/core/internal/blueocean"
+	"github.com/crypto-casino/core/internal/config"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {
 	Pool *pgxpool.Pool
+	BOG  *blueocean.Client
+	Cfg  *config.Config
 }
 
 func (h *Handler) Mount(r chi.Router) {
 	r.Use(adminapi.RequireAnyRole("admin", "support"))
 	r.Get("/users", h.ListUsers)
+	r.Get("/users/{id}", h.GetUser)
+	r.Get("/users/{id}/export", h.GDPRExportUser)
 	r.Get("/ledger", h.ListLedger)
 	r.Get("/events/blueocean", h.ListBlueOcean)
 	r.Get("/integrations/fystack/payments", h.ListFystackPayments)
 	r.Get("/integrations/fystack/withdrawals", h.ListFystackWithdrawals)
+	r.Post("/integrations/blueocean/sync-catalog", h.SyncBlueOceanCatalog)
+	r.Get("/integrations/blueocean/status", h.BlueOceanStatus)
+	r.Get("/system/operational-flags", h.OperationalFlags)
+	r.Get("/games", h.ListGamesAdmin)
+	r.Get("/game-launches", h.ListGameLaunches)
+	r.Get("/game-disputes", h.ListGameDisputes)
+	r.Group(func(r chi.Router) {
+		r.Use(adminapi.RequireAnyRole("admin"))
+		r.Patch("/games/{id}/hidden", h.PatchGameHidden)
+	})
 }
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -48,10 +66,20 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ListLedger(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 100)
-	rows, err := h.Pool.Query(r.Context(), `
-		SELECT id, user_id::text, amount_minor, currency, entry_type, idempotency_key, created_at
-		FROM ledger_entries ORDER BY id DESC LIMIT $1
-	`, limit)
+	uid := strings.TrimSpace(r.URL.Query().Get("user_id"))
+	var rows pgx.Rows
+	var err error
+	if uid != "" {
+		rows, err = h.Pool.Query(r.Context(), `
+			SELECT id, user_id::text, amount_minor, currency, entry_type, idempotency_key, created_at
+			FROM ledger_entries WHERE user_id = $1::uuid ORDER BY id DESC LIMIT $2
+		`, uid, limit)
+	} else {
+		rows, err = h.Pool.Query(r.Context(), `
+			SELECT id, user_id::text, amount_minor, currency, entry_type, idempotency_key, created_at
+			FROM ledger_entries ORDER BY id DESC LIMIT $1
+		`, limit)
+	}
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
 		return

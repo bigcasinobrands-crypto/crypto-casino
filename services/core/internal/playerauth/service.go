@@ -92,6 +92,9 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 	if bcrypt.CompareHashAndPassword([]byte(phash), []byte(password)) != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}
+	if err := s.assertUserPlayAllowed(ctx, id); err != nil {
+		return "", "", 0, err
+	}
 	return s.issueSession(ctx, id)
 }
 
@@ -133,6 +136,9 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string) (access, ref
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM player_sessions WHERE id = $1::uuid`, sid)
 		return "", "", 0, ErrInvalidCredentials
 	}
+	if err := s.assertUserPlayAllowed(ctx, uid); err != nil {
+		return "", "", 0, err
+	}
 	_, _ = s.Pool.Exec(ctx, `DELETE FROM player_sessions WHERE id = $1::uuid`, sid)
 	plain, nh, err := newRefreshToken()
 	if err != nil {
@@ -164,6 +170,23 @@ func (s *Service) Logout(ctx context.Context, refreshPlain string) error {
 	return nil
 }
 
+func (s *Service) assertUserPlayAllowed(ctx context.Context, userID string) error {
+	var closed *time.Time
+	var until *time.Time
+	err := s.Pool.QueryRow(ctx, `
+		SELECT account_closed_at, self_excluded_until FROM users WHERE id = $1::uuid
+	`, userID).Scan(&closed, &until)
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+	if closed != nil {
+		return ErrInvalidCredentials
+	}
+	if until != nil && until.After(time.Now()) {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
 
 func newRefreshToken() (plain string, hashHex string, err error) {
 	var b [32]byte

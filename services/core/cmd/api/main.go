@@ -2,6 +2,7 @@
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/crypto-casino/core/internal/adminops"
+	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/captcha"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
@@ -50,15 +53,21 @@ func main() {
 		var errRedis error
 		rdb, errRedis = redisx.New(cfg.RedisURL)
 		if errRedis != nil {
-			log.Fatalf("redis: %v", errRedis)
+			log.Printf("warning: redis unavailable (%v); continuing without Redis (webhooks process inline; start redis or run docker compose up -d)", errRedis)
+			rdb = nil
+		} else {
+			defer rdb.Close()
 		}
-		defer rdb.Close()
 	}
 
 	jwtStaff := []byte(cfg.JWTSecret)
 	jwtPlayer := []byte(cfg.PlayerJWTSecret)
 	staffSvc := &staffauth.Service{Pool: pool, Secret: jwtStaff}
-	staffH := &staffauth.Handler{Svc: staffSvc}
+	bog := blueocean.NewClient(&cfg)
+	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg}
+	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH}
+	gameSrv := games.NewServer(pool, bog, &cfg)
+
 	mailSender := mail.ChooseSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
 	playerSvc := &playerauth.Service{
 		Pool:            pool,
@@ -83,7 +92,7 @@ func main() {
 
 	adminCORS := cors.New(cors.Options{
 		AllowedOrigins:   cfg.AdminCORSOrigins,
-		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS", "PATCH"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -91,7 +100,7 @@ func main() {
 	playerCORS := cors.New(cors.Options{
 		AllowedOrigins:   cfg.PlayerCORSOrigins,
 		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key", "X-Geo-Country"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	})
@@ -101,6 +110,10 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 	r.Get("/health/ready", readyHandler(pool, rdb))
+	r.Get("/health/operational", operationalHandler(pool, &cfg, bog))
+
+	// BOG-registered seamless wallet path (proxy to same handler as needed in prod).
+	r.Get("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg))
 
 	r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
 	r.Post("/v1/webhooks/fystack", webhooks.HandleFystack(pool, rdb))
@@ -115,7 +128,7 @@ func main() {
 		r.Use(playerCORS.Handler)
 		r.Group(func(r chi.Router) {
 			r.Use(httprate.LimitByIP(180, time.Minute))
-			r.Get("/games", games.ListHandler(pool))
+			r.Get("/games", gameSrv.ListHandler())
 		})
 		r.Route("/auth", func(r chi.Router) {
 			r.Use(httprate.LimitByIP(40, time.Minute))
@@ -133,9 +146,12 @@ func main() {
 			})
 		})
 		r.Group(func(r chi.Router) {
+			r.Use(playerCORS.Handler)
 			r.Use(httprate.LimitByIP(180, time.Minute))
 			r.Use(playerapi.BearerMiddleware(jwtPlayer))
-			r.Post("/games/launch", games.LaunchHandler(games.LaunchBaseFromEnv()))
+			r.Post("/games/launch", func(w http.ResponseWriter, r *http.Request) {
+				httprate.LimitByIP(45, time.Minute)(http.HandlerFunc(gameSrv.LaunchHandler())).ServeHTTP(w, r)
+			})
 			r.Get("/wallet/balance", wallet.BalanceHandler(pool))
 			r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool))
 			r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool))
@@ -159,6 +175,49 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
+	}
+}
+
+func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		var visible, blueoceanVisible int64
+		_ = pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM games WHERE hidden = false`).Scan(&visible)
+		_ = pool.QueryRow(ctx, `
+			SELECT COUNT(*)::bigint FROM games
+			WHERE hidden = false AND LOWER(TRIM(COALESCE(provider,''))) = 'blueocean'
+		`).Scan(&blueoceanVisible)
+
+		var lastSync sql.NullTime
+		var lastUpserted sql.NullInt64
+		var lastSyncErr sql.NullString
+		_ = pool.QueryRow(ctx, `
+			SELECT last_sync_at, last_sync_upserted, last_sync_error
+			FROM blueocean_integration_state WHERE id = 1
+		`).Scan(&lastSync, &lastUpserted, &lastSyncErr)
+
+		syncOK := !lastSyncErr.Valid || strings.TrimSpace(lastSyncErr.String) == ""
+
+		out := map[string]any{
+			"maintenance_mode":             cfg.MaintenanceMode,
+			"disable_game_launch":          cfg.DisableGameLaunch,
+			"blueocean_configured":         bog != nil && bog.Configured(),
+			"visible_games_count":          visible,
+			"blueocean_visible_games_count": blueoceanVisible,
+			"catalog_sync_ok":              syncOK,
+			"last_catalog_sync_at":         nil,
+		}
+		if lastSync.Valid {
+			out["last_catalog_sync_at"] = lastSync.Time.UTC().Format(time.RFC3339)
+		}
+		if lastUpserted.Valid {
+			out["last_catalog_upserted"] = lastUpserted.Int64
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }
 

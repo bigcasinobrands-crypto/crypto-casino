@@ -13,6 +13,7 @@ import (
 
 type Handler struct {
 	Svc *Service
+	Ops *adminops.Handler
 }
 
 type loginReq struct {
@@ -47,7 +48,11 @@ func (h *Handler) Mount(r chi.Router, jwtSecret []byte) {
 	})
 	r.Group(func(r chi.Router) {
 		r.Use(adminapi.BearerMiddleware(jwtSecret))
-		(&adminops.Handler{Pool: h.Svc.Pool}).Mount(r)
+		ops := h.Ops
+		if ops == nil {
+			ops = &adminops.Handler{Pool: h.Svc.Pool}
+		}
+		ops.Mount(r)
 	})
 }
 

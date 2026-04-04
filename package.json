@@ -2,9 +2,13 @@
   "name": "crypto-casino",
   "private": true,
   "workspaces": ["frontend/*", "packages/*"],
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
   "scripts": {
     "dev:admin": "npm run dev -w @repo/admin-console",
     "dev:player": "npm run dev -w @repo/player-ui",
+    "dev:casino": "concurrently -n api,player -c blue,green \"npm run dev:api\" \"npm run dev:player\"",
     "compose:up": "docker compose up -d",
     "compose:down": "docker compose down",
     "build": "npm run build --workspaces --if-present",

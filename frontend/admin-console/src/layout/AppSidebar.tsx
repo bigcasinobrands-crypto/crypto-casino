@@ -38,6 +38,11 @@ const navItems: NavItem[] = [
     path: "/users",
   },
   {
+    icon: <UserCircleIcon />,
+    name: "Support",
+    path: "/support",
+  },
+  {
     icon: <TableIcon />,
     name: "Ledger",
     path: "/ledger",
@@ -49,6 +54,10 @@ const othersItems: NavItem[] = [
     icon: <PlugInIcon />,
     name: "Integrations",
     subItems: [
+      { name: "Blue Ocean ops", path: "/bog", pro: false },
+      { name: "Games catalog", path: "/games-catalog", pro: false },
+      { name: "Game launches", path: "/game-launches", pro: false },
+      { name: "Game disputes", path: "/game-disputes", pro: false },
       { name: "BlueOcean events", path: "/blueocean", pro: false },
       { name: "Fystack payments", path: "/fystack", pro: false },
       { name: "Fystack withdrawals", path: "/fystack-wd", pro: false },
@@ -76,7 +85,10 @@ const AppSidebar: FC = () => {
 
   // const isActive = (path: string) => location.pathname === path;
   const isActive = useCallback(
-    (path: string) => location.pathname === path,
+    (path: string) => {
+      if (path === "/support") return location.pathname.startsWith("/support");
+      return location.pathname === path;
+    },
     [location.pathname]
   );
 
