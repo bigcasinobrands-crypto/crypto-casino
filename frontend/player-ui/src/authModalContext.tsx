@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -11,11 +12,27 @@ import { useLocation, useNavigate } from 'react-router-dom'
 
 export type AuthPanel = 'login' | 'register' | 'forgot'
 
+/** Matches wallet modal tabs (deposit / withdraw). */
+export type PostAuthWalletTab = 'deposit' | 'withdraw'
+
+export type OpenAuthOptions = {
+  /** Navigate here after successful sign-in or registration. */
+  navigateTo?: string | null
+  /** Open wallet modal on this tab after auth (e.g. Deposit). */
+  walletTab?: PostAuthWalletTab | null
+}
+
+type WalletHandler = ((tab: PostAuthWalletTab) => void) | null
+
 type Ctx = {
   panel: AuthPanel | null
-  openAuth: (p: AuthPanel) => void
+  openAuth: (p: AuthPanel, opts?: OpenAuthOptions) => void
   closeAuth: () => void
   setPanel: (p: AuthPanel | null) => void
+  /** Call after login/register succeeds so pending navigation / wallet run. */
+  schedulePostAuthContinuation: () => void
+  /** App shell registers how to open the wallet modal. */
+  registerPostAuthWalletHandler: (fn: WalletHandler) => void
 }
 
 const AuthModalCtx = createContext<Ctx | null>(null)
@@ -25,8 +42,44 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const openAuth = useCallback((p: AuthPanel) => setPanel(p), [])
-  const closeAuth = useCallback(() => setPanel(null), [])
+  const pendingNavRef = useRef<string | null>(null)
+  const pendingWalletRef = useRef<PostAuthWalletTab | null>(null)
+  const walletHandlerRef = useRef<WalletHandler>(null)
+
+  const clearPending = useCallback(() => {
+    pendingNavRef.current = null
+    pendingWalletRef.current = null
+  }, [])
+
+  const openAuth = useCallback((p: AuthPanel, opts?: OpenAuthOptions) => {
+    if (opts) {
+      pendingNavRef.current = opts.navigateTo ?? null
+      pendingWalletRef.current = opts.walletTab ?? null
+    } else {
+      clearPending()
+    }
+    setPanel(p)
+  }, [clearPending])
+
+  const closeAuth = useCallback(() => {
+    setPanel(null)
+    clearPending()
+  }, [clearPending])
+
+  const schedulePostAuthContinuation = useCallback(() => {
+    const nav = pendingNavRef.current
+    const wt = pendingWalletRef.current
+    clearPending()
+    setTimeout(() => {
+      if (nav) navigate(nav)
+      const wh = walletHandlerRef.current
+      if (wt && wh) wh(wt)
+    }, 0)
+  }, [clearPending, navigate])
+
+  const registerPostAuthWalletHandler = useCallback((fn: WalletHandler) => {
+    walletHandlerRef.current = fn
+  }, [])
 
   useEffect(() => {
     const q = new URLSearchParams(location.search)
@@ -43,8 +96,15 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
   }, [location.pathname, location.search, navigate])
 
   const v = useMemo(
-    () => ({ panel, openAuth, closeAuth, setPanel }),
-    [panel, openAuth, closeAuth],
+    () => ({
+      panel,
+      openAuth,
+      closeAuth,
+      setPanel,
+      schedulePostAuthContinuation,
+      registerPostAuthWalletHandler,
+    }),
+    [panel, openAuth, closeAuth, schedulePostAuthContinuation, registerPostAuthWalletHandler],
   )
 
   return <AuthModalCtx.Provider value={v}>{children}</AuthModalCtx.Provider>

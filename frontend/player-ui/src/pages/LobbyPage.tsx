@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type FC } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { useAuthModal } from '../authModalContext'
 import type { OperationalHealth } from '../hooks/useOperationalHealth'
+import CasinoCategoryPills from '../components/CasinoCategoryPills'
+import { RequireAuthLink } from '../components/RequireAuthLink'
 import { usePlayerAuth } from '../playerAuth'
+import { saveCatalogReturnBeforeGameOpen } from '../lib/catalogReturn'
 import { playerApiUrl } from '../lib/playerApiUrl'
 import {
   getFavouriteIds,
@@ -9,6 +13,8 @@ import {
   isFavourite,
   toggleFavourite,
 } from '../lib/gameStorage'
+import LobbyHomeSections from '../components/LobbyHomeSections'
+import PromoHero from '../components/PromoHero'
 
 type Game = {
   id: string
@@ -24,9 +30,18 @@ type Game = {
 /** Page size for API `limit` / `offset` (must match server max 2000). */
 const PAGE_SIZE = 48
 
-type Section = 'games' | 'featured' | 'slots' | 'live' | 'new' | 'favourites' | 'recent'
+type Section = 'games' | 'featured' | 'slots' | 'live' | 'new' | 'favourites' | 'recent' | 'bonus-buys'
 
-const SECTION_SET = new Set<string>(['games', 'featured', 'slots', 'live', 'new', 'favourites', 'recent'])
+const SECTION_SET = new Set<string>([
+  'games',
+  'featured',
+  'slots',
+  'live',
+  'new',
+  'favourites',
+  'recent',
+  'bonus-buys',
+])
 
 const NETWORK_ERR =
   'Network error — is the API running on port 8080? From the repo root: npm run compose:up then npm run dev:api.'
@@ -64,7 +79,7 @@ function emptySectionCopy(
   if (q.trim() || provider.trim() || pillActive('gameshows') || pillActive('blackjack')) {
     return 'No games match your search or filters. Try clearing filters or browse all games.'
   }
-  if (sec === 'slots' || sec === 'live' || sec === 'new') {
+  if (sec === 'slots' || sec === 'live' || sec === 'new' || sec === 'bonus-buys') {
     return `No games in this category. Open Games for the full catalog, or run a catalog sync in the staff console if you expect titles here. ${staff}`
   }
   if (noBlueOceanGames || (!op?.blueocean_configured && noGamesInDb)) {
@@ -81,6 +96,7 @@ const SECTION_TITLE: Record<Section, string> = {
   new: 'New',
   favourites: 'Favourites',
   recent: 'Recent',
+  'bonus-buys': 'Bonus buys',
 }
 
 const PortraitThumb: FC<{ url?: string; title: string }> = ({ url, title }) => {
@@ -96,7 +112,7 @@ const PortraitThumb: FC<{ url?: string; title: string }> = ({ url, title }) => {
     <img
       src={url}
       alt=""
-      className="h-full w-full object-cover object-center"
+      className="h-full w-full object-cover object-center transition-transform duration-300 ease-out group-hover:scale-[1.04]"
       loading="lazy"
       onError={() => setBad(true)}
     />
@@ -134,6 +150,9 @@ function buildListUrl(
     case 'slots':
       p.set('category', 'slots')
       break
+    case 'bonus-buys':
+      p.set('category', 'bonus-buys')
+      break
     default:
       break
   }
@@ -153,6 +172,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
   const provider = searchParams.get('provider') ?? ''
 
   const { accessToken, refreshProfile } = usePlayerAuth()
+  const { openAuth } = useAuthModal()
   const [games, setGames] = useState<Game[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [listLoading, setListLoading] = useState(false)
@@ -165,12 +185,31 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
   const sectionValid = SECTION_SET.has(secRaw)
   const sec = (sectionValid ? secRaw : 'games') as Section
 
+  const isDashboardHome = useMemo(
+    () =>
+      sectionValid &&
+      sec === 'games' &&
+      !q.trim() &&
+      !provider.trim() &&
+      (searchParams.get('pill') ?? '') !== 'gameshows' &&
+      (searchParams.get('pill') ?? '') !== 'blackjack' &&
+      sort === 'name',
+    [sectionValid, sec, q, provider, searchParams, sort],
+  )
+
   useEffect(() => {
     if (accessToken) void refreshProfile()
   }, [accessToken, refreshProfile])
 
   useEffect(() => {
     if (!sectionValid) return
+    if (isDashboardHome) {
+      setGames([])
+      setHasMore(false)
+      setListLoading(false)
+      setLoadErr(null)
+      return
+    }
     let cancelled = false
     void (async () => {
       setLoadErr(null)
@@ -226,7 +265,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     return () => {
       cancelled = true
     }
-  }, [sectionValid, sec, q, sort, provider, searchParams])
+  }, [sectionValid, sec, q, sort, provider, searchParams, isDashboardHome])
 
   const loadMore = useCallback(async () => {
     if (!sectionValid) return
@@ -265,17 +304,6 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     loadingMore,
   ])
 
-  const showLoadMore =
-    sectionValid &&
-    sec !== 'favourites' &&
-    sec !== 'recent' &&
-    hasMore &&
-    games.length > 0
-
-  if (!sectionValid) {
-    return <Navigate to="/casino/games" replace />
-  }
-
   const pillHref = useMemo(
     () => (pill: string, active: boolean) => {
       const next = new URLSearchParams(searchParams)
@@ -289,12 +317,36 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   const pillActive = (pill: string) => searchParams.get('pill') === pill
 
+  const showLoadMore =
+    sectionValid &&
+    sec !== 'favourites' &&
+    sec !== 'recent' &&
+    hasMore &&
+    games.length > 0
+
+  if (!sectionValid) {
+    return <Navigate to="/casino/games" replace />
+  }
+
+  if (isDashboardHome) {
+    return (
+      <div className="min-w-0 shrink-0 px-5 pb-12 pt-5 md:px-6">
+        <PromoHero />
+        <CasinoCategoryPills />
+        <LobbyHomeSections />
+      </div>
+    )
+  }
+
   return (
-    <div className="p-4">
+    <div className="min-w-0 px-5 pb-12 pt-5 md:px-6">
+      <CasinoCategoryPills />
       {loadErr ? <p className="mb-3 text-sm text-red-400">{loadErr}</p> : null}
 
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-xl font-semibold text-casino-foreground">{SECTION_TITLE[sec]}</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-casino-foreground md:text-2xl">
+          {SECTION_TITLE[sec]}
+        </h1>
         <div className="flex min-w-0 flex-1 flex-wrap gap-3 sm:justify-end">
           <label className="flex min-w-[120px] flex-col gap-1 text-xs text-casino-muted">
             Sort
@@ -361,20 +413,17 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4 lg:grid-cols-5 xl:grid-cols-6">
         {games.map((g) => {
           const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
           return (
             <div key={g.id} className="group relative">
-              <Link
-                to={lobbyTo}
-                className="block overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-sm ring-casino-primary/0 transition hover:border-casino-primary hover:ring-2 hover:ring-casino-primary/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary"
-              >
+              <RequireAuthLink to={lobbyTo} className="group game-thumb-link">
                 <div className="aspect-[3/4] w-full overflow-hidden bg-casino-elevated">
                   <PortraitThumb url={g.thumbnail_url} title={g.title} />
                 </div>
                 <span className="sr-only">{g.title}</span>
-              </Link>
+              </RequireAuthLink>
               <button
                 type="button"
                 title={isFavourite(g.id) ? 'Remove favourite' : 'Favourite'}
@@ -382,6 +431,11 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
+                  if (!accessToken) {
+                    saveCatalogReturnBeforeGameOpen()
+                    openAuth('login', { navigateTo: lobbyTo })
+                    return
+                  }
                   toggleFavourite(g.id)
                   refreshFav()
                   if (sec === 'favourites') {

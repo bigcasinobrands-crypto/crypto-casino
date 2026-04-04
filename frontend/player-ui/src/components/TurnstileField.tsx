@@ -3,7 +3,10 @@ import { useEffect, useRef } from 'react'
 declare global {
   interface Window {
     turnstile?: {
-      render: (el: HTMLElement, opts: { sitekey: string; callback: (t: string) => void }) => string
+      render: (
+        el: HTMLElement,
+        opts: { sitekey: string; callback: (t: string) => void; size?: 'normal' | 'compact' },
+      ) => string
     }
   }
 }
@@ -34,6 +37,7 @@ export function TurnstileField({ onToken }: Props) {
       window.turnstile.render(host.current, {
         sitekey: siteKey,
         callback: (t) => cb.current(t),
+        size: 'compact',
       })
     }
 
@@ -60,5 +64,5 @@ export function TurnstileField({ onToken }: Props) {
 
   if (!siteKey) return null
 
-  return <div ref={host} className="min-h-[65px]" />
+  return <div ref={host} className="min-h-[50px]" />
 }

@@ -1,18 +1,69 @@
 ﻿@import "tailwindcss";
 @import "@repo/design-tokens/theme.css";
 
+/* Player UI — violet / charcoal (Banani reference). Overrides shared tokens below. */
+@theme {
+  --color-casino-primary: #7c4dff;
+  --color-casino-primary-dim: #6a3ab8;
+  --color-casino-accent: #9b6cff;
+  --color-casino-bg: #121016;
+  --color-casino-surface: #14111a;
+  --color-casino-sidebar: #0f0d12;
+  --color-casino-topbar: #0f0d12;
+  --color-casino-elevated: #1b1520;
+  --color-casino-border: rgb(0 0 0 / 0.08);
+  --color-casino-muted: #a099a8;
+  --radius-casino-sm: 4px;
+  --radius-casino-md: 6px;
+  --radius-casino-lg: 8px;
+}
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
 body {
-  margin: 0;
-  min-height: 100vh;
   background: var(--color-casino-bg);
   color: var(--color-casino-foreground);
 }
 
+/* Hide scrollbars while keeping scroll (Firefox / WebKit / legacy Edge). */
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  /* Reduces scroll chaining into the browser chrome on macOS/iOS. */
+  .overscroll-y-contain {
+    overscroll-behavior-y: contain;
+  }
+}
+
 @layer components {
-  .auth-modal-input {
-    @apply w-full rounded-2xl border border-black/15 bg-white/90 px-4 py-3 text-sm text-[#1a1d1f] shadow-sm outline-none transition focus:border-[#1a1d1f]/35 focus:ring-2 focus:ring-[#1a1d1f]/15;
+  /* Game tiles: soft violet glow on hover around the thumbnail frame. */
+  .game-thumb-link {
+    @apply block overflow-hidden rounded-[2px] border border-casino-border bg-casino-surface shadow-sm;
+    transition:
+      border-color 0.25s ease,
+      box-shadow 0.25s ease;
   }
-  .auth-modal-btn-primary {
-    @apply w-full rounded-2xl bg-[#1a1d1f] py-3.5 text-sm font-semibold text-white shadow-md transition hover:bg-black active:scale-[0.99] disabled:pointer-events-none;
+  .game-thumb-link:hover {
+    border-color: color-mix(in srgb, var(--color-casino-primary) 50%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-casino-primary) 28%, transparent),
+      0 0 32px color-mix(in srgb, var(--color-casino-primary) 42%, transparent);
   }
+  .game-thumb-link:focus-visible {
+    outline: 2px solid var(--color-casino-primary);
+    outline-offset: 2px;
+  }
+
 }

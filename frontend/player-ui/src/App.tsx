@@ -1,12 +1,18 @@
 ﻿import { adminAppHref, installPlayerCrossAppBridge } from '@repo/cross-app'
-import { useEffect, useState } from 'react'
-import { Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
-import { readApiError, formatApiError } from './api/errors'
-import { AuthModalProvider, useAuthModal } from './authModalContext'
+import { useEffect, useState, useCallback } from 'react'
+import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
+import { AuthModalProvider, useAuthModal, type PostAuthWalletTab } from './authModalContext'
 import { AuthModal } from './components/AuthModal'
+import BrandLogo from './components/BrandLogo'
+import CasinoSearchStrip from './components/CasinoSearchStrip'
 import CasinoSidebar from './components/CasinoSidebar'
-import HeaderGameSearch from './components/HeaderGameSearch'
+import HeaderWalletBar from './components/HeaderWalletBar'
+import { IconBell, IconMenu, IconMessageSquare, IconSearch, IconUser } from './components/icons'
+import WalletFlowModal, { type WalletMainTab } from './components/WalletFlowModal'
+import MainScrollRestoration from './components/MainScrollRestoration'
 import OperationalBanner from './components/OperationalBanner'
+import SiteFooter from './components/SiteFooter'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
 import DemoEmbedPage from './pages/DemoEmbedPage'
@@ -16,15 +22,6 @@ import ProfilePage from './pages/ProfilePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 
-const quickNav = [
-  { to: '/casino/games', label: 'Games' },
-  { to: '/casino/featured', label: 'Featured' },
-  { to: '/casino/slots', label: 'Slots' },
-  { to: '/casino/live', label: 'Live' },
-  { to: '/casino/new', label: 'New' },
-]
-
-/** Old paths `/casino/lobby` and `/casino/blueocean` redirected here (single Blue Ocean–powered catalog). */
 function LegacyCasinoRedirect() {
   const loc = useLocation()
   return <Navigate to={{ pathname: '/casino/games', search: loc.search, hash: loc.hash }} replace />
@@ -36,11 +33,14 @@ function LegacyPlayToGameLobby() {
   return <Navigate to={`/casino/game-lobby/${encodeURIComponent(gameId)}`} replace />
 }
 
-function initials(email: string | undefined) {
-  if (!email) return '?'
-  const p = email.split('@')[0] ?? email
-  return p.slice(0, 2).toUpperCase()
+function CatalogFooter() {
+  const { pathname } = useLocation()
+  if (pathname.startsWith('/casino/game-lobby/') || pathname.startsWith('/embed/')) return null
+  return <SiteFooter />
 }
+
+const iconBtn =
+  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-casino-primary-dim text-casino-foreground transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary'
 
 export default function App() {
   useEffect(() => {
@@ -59,44 +59,96 @@ export default function App() {
 
 function AppShell() {
   const op = useOperationalHealth()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [walletOpen, setWalletOpen] = useState(false)
+  const [walletTab, setWalletTab] = useState<WalletMainTab>('deposit')
+  const { accessToken } = usePlayerAuth()
+  const { registerPostAuthWalletHandler } = useAuthModal()
+
+  const openWalletTab = useCallback((tab: PostAuthWalletTab) => {
+    setWalletTab(tab)
+    setWalletOpen(true)
+  }, [])
+
+  useEffect(() => {
+    registerPostAuthWalletHandler(openWalletTab)
+    return () => registerPostAuthWalletHandler(null)
+  }, [openWalletTab, registerPostAuthWalletHandler])
+
+  const focusSearch = () => {
+    document.getElementById('player-game-search')?.focus()
+  }
+
+  const openWallet = (tab: WalletMainTab) => {
+    setWalletTab(tab)
+    setWalletOpen(true)
+  }
 
   return (
-    <div className="flex min-h-screen bg-casino-bg text-casino-foreground">
-      <CasinoSidebar />
-      <div className="flex min-h-0 flex-1 flex-col">
-        <OperationalBanner data={op.data} error={op.error} />
-        <header className="flex flex-wrap items-center gap-3 border-b border-casino-border bg-casino-surface px-4 py-3">
-          <NavLink
-            to="/casino/games"
-            className="text-sm font-semibold text-casino-primary md:hidden hover:opacity-90"
-          >
-            Casino
-          </NavLink>
-          <HeaderGameSearch />
-          <HeaderAccount />
-          <StaffConsoleLink />
-          <div className="flex items-center gap-2">
-            <WalletActions />
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased">
+      <CasinoSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0">
+          <OperationalBanner data={op.data} error={op.error} />
+        </div>
+        <header className="relative z-50 flex h-16 shrink-0 items-center gap-2 border-b border-casino-border bg-casino-topbar px-3 sm:px-5 md:px-6">
+          <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              className={`${iconBtn} shrink-0 lg:hidden`}
+              aria-label="Open menu"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <IconMenu size={18} aria-hidden />
+            </button>
+            <BrandLogo
+              compact
+              className="min-w-0 shrink-0"
+              onNavigate={() => setSidebarOpen(false)}
+            />
+          </div>
+          <div className="min-w-0 flex-1 px-1">
+            <HeaderWalletBar onOpenWallet={openWallet} />
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 md:gap-3">
+            {accessToken ? (
+              <>
+                <button type="button" className={iconBtn} aria-label="Focus search" onClick={focusSearch}>
+                  <IconSearch size={18} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className={`${iconBtn} hidden sm:inline-flex`}
+                  aria-label="Messages (demo)"
+                >
+                  <IconMessageSquare size={18} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className={`${iconBtn} hidden sm:inline-flex`}
+                  aria-label="Notifications"
+                >
+                  <IconBell size={18} aria-hidden />
+                </button>
+                <HeaderProfileIcon />
+                <StaffConsoleLink />
+              </>
+            ) : (
+              <HeaderAccount />
+            )}
           </div>
         </header>
-        <div className="border-b border-casino-border bg-casino-surface px-4 py-2">
-          <div className="flex gap-2 overflow-x-auto text-sm">
-            {quickNav.map(({ to, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  isActive
-                    ? 'whitespace-nowrap rounded-casino-sm bg-casino-primary px-3 py-1 font-medium text-casino-bg'
-                    : 'whitespace-nowrap rounded-casino-sm px-3 py-1 text-casino-muted hover:text-casino-primary'
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
-          </div>
-        </div>
-        <main className="flex min-h-0 flex-1 flex-col">
+        <WalletFlowModal
+          open={Boolean(accessToken && walletOpen)}
+          onClose={() => setWalletOpen(false)}
+          initialTab={walletTab}
+        />
+        <CasinoSearchStrip />
+        <main
+          id={PLAYER_MAIN_SCROLL_ID}
+          className="scrollbar-none overscroll-y-contain flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto scroll-smooth"
+        >
+          <MainScrollRestoration />
           <Routes>
             <Route path="/" element={<Navigate to="/casino/games" replace />} />
             <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
@@ -112,6 +164,7 @@ function AppShell() {
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/embed/demo/:demoId" element={<DemoEmbedPage />} />
           </Routes>
+          <CatalogFooter />
         </main>
       </div>
     </div>
@@ -125,30 +178,30 @@ function StaffConsoleLink() {
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="hidden shrink-0 text-xs text-casino-muted underline hover:text-casino-primary sm:inline"
+      className="hidden shrink-0 text-[10px] text-casino-muted underline hover:text-casino-primary xl:inline"
     >
-      Staff console
+      Staff
     </a>
   )
 }
 
 function HeaderAccount() {
-  const { accessToken, me, logout } = usePlayerAuth()
+  const { accessToken } = usePlayerAuth()
   const { openAuth } = useAuthModal()
 
   if (!accessToken) {
     return (
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2">
         <button
           type="button"
-          className="text-casino-muted hover:text-casino-primary"
+          className="rounded-[4px] bg-casino-primary-dim px-4 py-1.5 text-xs font-semibold text-casino-foreground transition hover:brightness-110"
           onClick={() => openAuth('login')}
         >
           Sign in
         </button>
         <button
           type="button"
-          className="rounded-casino-md bg-casino-primary px-3 py-1.5 text-sm font-medium text-casino-bg"
+          className="rounded-[4px] bg-casino-primary px-4 py-1.5 text-xs font-semibold text-white transition hover:brightness-110"
           onClick={() => openAuth('register')}
         >
           Register
@@ -156,106 +209,21 @@ function HeaderAccount() {
       </div>
     )
   }
+  return null
+}
+
+function HeaderProfileIcon() {
+  const { accessToken, me } = usePlayerAuth()
+  if (!accessToken) return null
   return (
-    <div className="flex items-center gap-2">
-      <Link
-        to="/profile"
-        className="flex max-w-[200px] items-center gap-2 rounded-casino-md border border-casino-border bg-casino-bg px-2 py-1.5 text-left text-sm hover:border-casino-primary"
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-casino-elevated text-xs font-semibold text-casino-primary">
-          {initials(me?.email)}
-        </span>
-        <span className="min-w-0 truncate text-casino-foreground">{me?.email ?? 'Account'}</span>
-      </Link>
-      <button
-        type="button"
-        className="hidden text-xs text-casino-muted underline sm:inline"
-        onClick={() => void logout()}
-      >
-        Sign out
-      </button>
-    </div>
+    <Link
+      to="/profile"
+      className={iconBtn}
+      aria-label={me?.email ? `Account: ${me.email}` : 'Account and profile'}
+      title={me?.email ?? 'Profile'}
+    >
+      <IconUser size={18} aria-hidden />
+    </Link>
   )
 }
 
-function WalletActions() {
-  const { accessToken, balanceMinor, refreshProfile, apiFetch } = usePlayerAuth()
-  const [msg, setMsg] = useState<string | null>(null)
-
-  return (
-    <>
-      {msg && (
-        <span className="max-w-[140px] truncate text-xs text-amber-400" title={msg}>
-          {msg}
-        </span>
-      )}
-      <span className="text-sm text-casino-muted">
-        {accessToken ? `${balanceMinor ?? 0} minor USDT` : '—'}
-      </span>
-      {accessToken && (
-        <button
-          type="button"
-          className="rounded-casino-md bg-casino-primary px-3 py-2 text-sm font-medium text-casino-bg"
-          onClick={() => void deposit(apiFetch, refreshProfile, setMsg)}
-        >
-          Deposit
-        </button>
-      )}
-      {accessToken && (
-        <button
-          type="button"
-          className="rounded-casino-md border border-casino-border px-3 py-2 text-sm"
-          onClick={() => void withdraw(apiFetch, refreshProfile, setMsg)}
-        >
-          Withdraw
-        </button>
-      )}
-    </>
-  )
-}
-
-async function deposit(
-  apiFetch: (path: string, init?: RequestInit) => Promise<Response>,
-  refresh: () => Promise<void>,
-  setMsg: (s: string | null) => void,
-) {
-  setMsg(null)
-  const res = await apiFetch('/v1/wallet/deposit-session', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Idempotency-Key': crypto.randomUUID(),
-    },
-    body: JSON.stringify({ amount_minor: 10000, currency: 'USDT' }),
-  })
-  if (!res.ok) {
-    setMsg(formatApiError(await readApiError(res), 'Deposit failed'))
-    return
-  }
-  await refresh()
-}
-
-async function withdraw(
-  apiFetch: (path: string, init?: RequestInit) => Promise<Response>,
-  refresh: () => Promise<void>,
-  setMsg: (s: string | null) => void,
-) {
-  setMsg(null)
-  const res = await apiFetch('/v1/wallet/withdraw', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Idempotency-Key': crypto.randomUUID(),
-    },
-    body: JSON.stringify({
-      amount_minor: 1000,
-      currency: 'USDT',
-      destination: 'demo-withdraw-address',
-    }),
-  })
-  if (!res.ok) {
-    setMsg(formatApiError(await readApiError(res), 'Withdraw failed'))
-    return
-  }
-  await refresh()
-}

@@ -1,12 +1,35 @@
 import { useEffect, useId } from 'react'
 import { useAuthModal, type AuthPanel } from '../authModalContext'
 import { usePlayerAuth } from '../playerAuth'
+import BrandLogo from './BrandLogo'
 import { ForgotPasswordForm, LoginForm, RegisterForm } from './AuthForms'
+import { IconShieldCheck } from './icons'
+
+const REMEMBER_KEY = 'player_remember_login_id'
+
+const panelCopy: Record<AuthPanel, { kicker: string; title: string; subtitle: string }> = {
+  login: {
+    kicker: 'Welcome back',
+    title: 'Sign in',
+    subtitle: 'Use your email and password to continue.',
+  },
+  register: {
+    kicker: 'Create your account',
+    title: 'Register',
+    subtitle: 'Use your email and a strong password (12+ characters).',
+  },
+  forgot: {
+    kicker: 'Account help',
+    title: 'Reset password',
+    subtitle: "We'll email a reset link if that address has an account.",
+  },
+}
 
 export function AuthModal() {
   const { panel, closeAuth, setPanel } = useAuthModal()
   const { accessToken } = usePlayerAuth()
   const titleId = useId()
+  const descId = useId()
 
   useEffect(() => {
     if (accessToken && panel) closeAuth()
@@ -32,30 +55,16 @@ export function AuthModal() {
 
   if (!panel) return null
 
-  const titles: Record<AuthPanel, { title: string; subtitle: string }> = {
-    login: {
-      title: 'Login now',
-      subtitle: 'Please log in to continue using the casino.',
-    },
-    register: {
-      title: 'Sign up',
-      subtitle: 'Register with email to create your account.',
-    },
-    forgot: {
-      title: 'Reset password',
-      subtitle: "We'll email you a link if an account exists.",
-    },
-  }
-  const { title, subtitle } = titles[panel]
+  const copy = panelCopy[panel]
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5"
       role="presentation"
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-[#050408]/90 backdrop-blur-[1px]"
         aria-label="Close"
         onClick={closeAuth}
       />
@@ -63,33 +72,38 @@ export function AuthModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative flex max-h-[min(92vh,640px)] w-full max-w-[420px] flex-col overflow-hidden rounded-t-[1.75rem] shadow-2xl sm:rounded-[1.75rem]"
+        aria-describedby={copy.subtitle ? descId : undefined}
+        className="scrollbar-none relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[400px] flex-col gap-3 overflow-y-auto overflow-x-hidden rounded-casino-lg border border-casino-border/30 bg-casino-surface p-5 text-casino-foreground shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:max-w-[420px]"
       >
-        <div className="relative bg-[#1a1d1f] px-6 pb-5 pt-6 text-white">
-          <button
-            type="button"
-            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg text-white transition hover:bg-white/20"
-            onClick={closeAuth}
-            aria-label="Close"
-          >
-            ×
-          </button>
-          <h2 id={titleId} className="pr-10 text-2xl font-bold tracking-tight">
-            {title}
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-white/75">{subtitle}</p>
+        <button
+          type="button"
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-casino-md text-base text-casino-muted transition hover:bg-casino-elevated hover:text-casino-foreground"
+          onClick={closeAuth}
+          aria-label="Close"
+        >
+          ×
+        </button>
+
+        <div className="flex justify-center pr-7 pt-0.5">
+          <BrandLogo compact onNavigate={closeAuth} />
         </div>
 
-        <div className="flex flex-1 flex-col overflow-y-auto bg-[#b5e5d1] px-5 pb-6 pt-5">
-          {panel === 'login' && (
-            <LoginForm
-              onSwitchRegister={() => setPanel('register')}
-              onForgot={() => setPanel('forgot')}
-            />
-          )}
-          {panel === 'register' && (
-            <RegisterForm onSwitchLogin={() => setPanel('login')} />
-          )}
+        <div className="flex flex-col items-center gap-1 pr-7 text-center">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-casino-elevated px-2 py-1 text-[10px] font-semibold text-casino-muted">
+            <IconShieldCheck size={12} className="text-casino-primary" aria-hidden />
+            <span>{copy.kicker}</span>
+          </div>
+          <h2 id={titleId} className="text-xl font-bold leading-tight tracking-tight text-casino-foreground sm:text-2xl">
+            {copy.title}
+          </h2>
+          <p id={descId} className="max-w-[300px] text-xs leading-normal text-casino-muted">
+            {copy.subtitle}
+          </p>
+        </div>
+
+        <div className="flex min-h-0 flex-col gap-2">
+          {panel === 'login' && <LoginForm rememberStorageKey={REMEMBER_KEY} />}
+          {panel === 'register' && <RegisterForm />}
           {panel === 'forgot' && <ForgotPasswordForm onBack={() => setPanel('login')} />}
         </div>
       </div>

@@ -1,19 +1,104 @@
-import { useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { useAuthModal } from '../authModalContext'
 import { formatApiError } from '../api/errors'
 import { playerApiUrl } from '../lib/playerApiUrl'
 import { TurnstileField } from './TurnstileField'
 import { usePlayerAuth } from '../playerAuth'
+import { IconCheck, IconEye, IconEyeOff, IconLock, IconUser } from './icons'
 
-type NavProps = {
-  onSwitchRegister: () => void
-  onForgot: () => void
+function AuthError({ children }: { children: ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="rounded-casino-md border border-red-500/35 bg-red-950/40 px-2.5 py-1.5 text-xs leading-snug text-red-200"
+    >
+      {children}
+    </p>
+  )
 }
 
-export function LoginForm({ onSwitchRegister, onForgot, idPrefix = 'm' }: NavProps & { idPrefix?: string }) {
+function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
+  return (
+    <label htmlFor={htmlFor} className="text-[11px] font-semibold text-casino-foreground">
+      {children}
+    </label>
+  )
+}
+
+function InputRow({
+  children,
+  right,
+}: {
+  children: ReactNode
+  right?: ReactNode
+}) {
+  return (
+    <div className="flex min-h-10 items-center gap-2 rounded-casino-md bg-[#171218] px-3 transition-shadow focus-within:ring-1 focus-within:ring-casino-primary/35">
+      {children}
+      {right ? <div className="flex shrink-0 items-center">{right}</div> : null}
+    </div>
+  )
+}
+
+function CheckLine({
+  checked,
+  onChange,
+  children,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  children: ReactNode
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-snug text-casino-muted">
+      <input type="checkbox" className="sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span
+        className={`mt-px flex size-[18px] shrink-0 items-center justify-center rounded border ${
+          checked ? 'border-casino-primary bg-casino-primary' : 'border-casino-border bg-casino-elevated'
+        }`}
+        aria-hidden
+      >
+        <IconCheck size={12} className={`text-white ${checked ? 'opacity-100' : 'opacity-0'}`} strokeWidth={2.5} />
+      </span>
+      <span className="min-w-0 text-casino-muted [&_strong]:font-semibold [&_strong]:text-casino-foreground">
+        {children}
+      </span>
+    </label>
+  )
+}
+
+export function LoginForm({
+  rememberStorageKey,
+  idPrefix = 'm',
+}: {
+  rememberStorageKey: string
+  idPrefix?: string
+}) {
+  const { schedulePostAuthContinuation } = useAuthModal()
+  const location = useLocation()
+  const registerTo = useMemo(() => {
+    const q = new URLSearchParams(location.search)
+    q.set('auth', 'register')
+    return { pathname: location.pathname, search: `?${q.toString()}` }
+  }, [location.pathname, location.search])
+  const forgotTo = useMemo(() => {
+    const q = new URLSearchParams(location.search)
+    q.set('auth', 'forgot')
+    return { pathname: location.pathname, search: `?${q.toString()}` }
+  }, [location.pathname, location.search])
+
   const { login } = usePlayerAuth()
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem(rememberStorageKey) ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
+  const [remember, setRemember] = useState(true)
   const [captcha, setCaptcha] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -24,76 +109,133 @@ export function LoginForm({ onSwitchRegister, onForgot, idPrefix = 'm' }: NavPro
     setLoading(true)
     const r = await login(email, password, captcha ?? undefined)
     setLoading(false)
-    if (!r.ok) setErr(formatApiError(r.error, 'Sign in failed'))
+    if (!r.ok) {
+      setErr(formatApiError(r.error, 'Sign in failed'))
+      return
+    }
+    try {
+      if (remember && email.trim()) localStorage.setItem(rememberStorageKey, email.trim())
+      else localStorage.removeItem(rememberStorageKey)
+    } catch {
+      /* ignore */
+    }
+    schedulePostAuthContinuation()
   }
 
   return (
-    <div className="space-y-4">
-      {err && (
-        <p className="rounded-2xl border border-red-600/30 bg-red-500/15 px-3 py-2 text-sm text-red-900">
-          {err}
-        </p>
-      )}
-      <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
-        <div>
-          <label htmlFor={`${idPrefix}-login-email`} className="mb-1 block text-xs font-medium text-[#1a1d1f]/80">
-            Email
-          </label>
-          <input
-            id={`${idPrefix}-login-email`}
-            className="auth-modal-input"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
+    <div className="flex flex-col gap-2">
+      {err ? <AuthError>{err}</AuthError> : null}
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor={`${idPrefix}-login-email`}>Email or username</FieldLabel>
+          <InputRow>
+            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <input
+              id={`${idPrefix}-login-email`}
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              type="text"
+              name="username"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com or username"
+            />
+          </InputRow>
         </div>
-        <div>
-          <label htmlFor={`${idPrefix}-login-pw`} className="mb-1 block text-xs font-medium text-[#1a1d1f]/80">
-            Password
-          </label>
-          <div className="relative">
+
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor={`${idPrefix}-login-pw`}>Password</FieldLabel>
+          <InputRow
+            right={
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground"
+                onClick={() => setShowPw((v) => !v)}
+                aria-label={showPw ? 'Hide password' : 'Show password'}
+              >
+                {showPw ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+              </button>
+            }
+          >
+            <IconLock size={14} className="shrink-0 text-casino-muted" aria-hidden />
             <input
               id={`${idPrefix}-login-pw`}
-              className="auth-modal-input pr-12"
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
               type={showPw ? 'text' : 'password'}
               autoComplete="current-password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
             />
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#1a1d1f]/60"
-              onClick={() => setShowPw((v) => !v)}
-              aria-label={showPw ? 'Hide password' : 'Show password'}
-            >
-              {showPw ? 'Hide' : 'Show'}
-            </button>
-          </div>
+          </InputRow>
         </div>
+
         <TurnstileField onToken={setCaptcha} />
-        <button type="submit" disabled={loading} className="auth-modal-btn-primary disabled:opacity-50">
-          {loading ? 'Signing in…' : 'Log in'}
+
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex min-w-0 cursor-pointer items-center gap-2 text-[11px] leading-snug text-casino-muted">
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />
+            <span
+              className={`flex size-[18px] shrink-0 items-center justify-center rounded border ${
+                remember ? 'border-casino-primary bg-casino-primary' : 'border-casino-border bg-casino-elevated'
+              }`}
+              aria-hidden
+            >
+              <IconCheck
+                size={12}
+                className={`text-white ${remember ? 'opacity-100' : 'opacity-0'}`}
+                strokeWidth={2.5}
+              />
+            </span>
+            <span>Remember me</span>
+          </label>
+          <Link
+            to={forgotTo}
+            replace
+            className="shrink-0 text-[11px] font-semibold text-casino-foreground transition hover:text-casino-primary"
+          >
+            Forgot password?
+          </Link>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50"
+        >
+          {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-      <div className="flex flex-col items-center gap-2 text-center text-sm text-[#1a1d1f]/80">
-        <button type="button" className="font-medium text-[#1a1d1f] underline" onClick={onForgot}>
-          Forgot password?
-        </button>
-        <p>
-          Don&apos;t have an account?{' '}
-          <button type="button" className="font-semibold text-[#1a1d1f] underline" onClick={onSwitchRegister}>
-            Sign up
-          </button>
-        </p>
-      </div>
+
+      <Link
+        to={registerTo}
+        replace
+        aria-label="Create an account — register"
+        className="mt-3 flex w-full items-center justify-center gap-1.5 py-0.5 text-xs text-casino-muted transition hover:text-casino-foreground"
+      >
+        <span>Don&apos;t have an account?</span>
+        <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">Register</span>
+      </Link>
     </div>
   )
 }
 
-export function RegisterForm({ onSwitchLogin, idPrefix = 'm' }: { onSwitchLogin: () => void; idPrefix?: string }) {
+export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
+  const { schedulePostAuthContinuation } = useAuthModal()
+  const location = useLocation()
+  const loginTo = useMemo(() => {
+    const q = new URLSearchParams(location.search)
+    q.set('auth', 'login')
+    return { pathname: location.pathname, search: `?${q.toString()}` }
+  }, [location.pathname, location.search])
+
   const { register } = usePlayerAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -125,101 +267,108 @@ export function RegisterForm({ onSwitchLogin, idPrefix = 'm' }: { onSwitchLogin:
       captchaToken: captcha ?? undefined,
     })
     setLoading(false)
-    if (!r.ok) setErr(formatApiError(r.error, 'Registration failed'))
+    if (!r.ok) {
+      setErr(formatApiError(r.error, 'Registration failed'))
+      return
+    }
+    schedulePostAuthContinuation()
   }
 
   return (
-    <div className="space-y-4">
-      {err && (
-        <p className="rounded-2xl border border-red-600/30 bg-red-500/15 px-3 py-2 text-sm text-red-900">
-          {err}
-        </p>
-      )}
-      <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
-        <div>
-          <label htmlFor={`${idPrefix}-reg-email`} className="mb-1 block text-xs font-medium text-[#1a1d1f]/80">
-            Email
-          </label>
-          <input
-            id={`${idPrefix}-reg-email`}
-            className="auth-modal-input"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
+    <div className="flex flex-col gap-2">
+      {err ? <AuthError>{err}</AuthError> : null}
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor={`${idPrefix}-reg-email`}>Email</FieldLabel>
+          <InputRow>
+            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <input
+              id={`${idPrefix}-reg-email`}
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </InputRow>
         </div>
-        <div>
-          <label htmlFor={`${idPrefix}-reg-pw`} className="mb-1 block text-xs font-medium text-[#1a1d1f]/80">
-            Create password
-          </label>
-          <div className="relative">
+
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor={`${idPrefix}-reg-pw`}>Create password</FieldLabel>
+          <InputRow
+            right={
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground"
+                onClick={() => setShowPw((v) => !v)}
+                aria-label={showPw ? 'Hide password' : 'Show password'}
+              >
+                {showPw ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+              </button>
+            }
+          >
+            <IconLock size={14} className="shrink-0 text-casino-muted" aria-hidden />
             <input
               id={`${idPrefix}-reg-pw`}
-              className="auth-modal-input pr-12"
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
               type={showPw ? 'text' : 'password'}
               autoComplete="new-password"
               required
               minLength={12}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
             />
-            <button
-              type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#1a1d1f]/60"
-              onClick={() => setShowPw((v) => !v)}
-              aria-label={showPw ? 'Hide password' : 'Show password'}
-            >
-              {showPw ? 'Hide' : 'Show'}
-            </button>
-          </div>
+          </InputRow>
         </div>
-        <div>
-          <label htmlFor={`${idPrefix}-reg-confirm`} className="mb-1 block text-xs font-medium text-[#1a1d1f]/80">
-            Confirm password
-          </label>
-          <input
-            id={`${idPrefix}-reg-confirm`}
-            className="auth-modal-input"
-            type={showPw ? 'text' : 'password'}
-            autoComplete="new-password"
-            required
-            minLength={12}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
+
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor={`${idPrefix}-reg-confirm`}>Confirm password</FieldLabel>
+          <InputRow>
+            <IconLock size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <input
+              id={`${idPrefix}-reg-confirm`}
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              type={showPw ? 'text' : 'password'}
+              autoComplete="new-password"
+              required
+              minLength={12}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Re-enter password"
+            />
+          </InputRow>
         </div>
-        <p className="text-xs text-[#1a1d1f]/70">12+ characters with letters and numbers.</p>
-        <label className="flex cursor-pointer items-start gap-2 text-sm text-[#1a1d1f]">
-          <input
-            type="checkbox"
-            className="mt-0.5 rounded border-[#1a1d1f]/30"
-            checked={acceptTerms}
-            onChange={(e) => setAcceptTerms(e.target.checked)}
-          />
-          <span>I accept the Terms of Service.</span>
-        </label>
-        <label className="flex cursor-pointer items-start gap-2 text-sm text-[#1a1d1f]">
-          <input
-            type="checkbox"
-            className="mt-0.5 rounded border-[#1a1d1f]/30"
-            checked={acceptPrivacy}
-            onChange={(e) => setAcceptPrivacy(e.target.checked)}
-          />
-          <span>I accept the Privacy Policy.</span>
-        </label>
+
+        <CheckLine checked={acceptTerms} onChange={setAcceptTerms}>
+          I accept the <strong>Terms of Service</strong>.
+        </CheckLine>
+        <CheckLine checked={acceptPrivacy} onChange={setAcceptPrivacy}>
+          I accept the <strong>Privacy Policy</strong>.
+        </CheckLine>
+
         <TurnstileField onToken={setCaptcha} />
-        <button type="submit" disabled={loading} className="auth-modal-btn-primary disabled:opacity-50">
-          {loading ? 'Creating…' : 'Sign up'}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50"
+        >
+          {loading ? 'Creating…' : 'Register'}
         </button>
       </form>
-      <p className="text-center text-sm text-[#1a1d1f]/80">
-        Already have an account?{' '}
-        <button type="button" className="font-semibold text-[#1a1d1f] underline" onClick={onSwitchLogin}>
-          Log in
-        </button>
-      </p>
+
+      <Link
+        to={loginTo}
+        replace
+        aria-label="Sign in — already have an account"
+        className="mt-3 flex w-full items-center justify-center gap-1.5 py-0.5 text-xs text-casino-muted transition hover:text-casino-foreground"
+      >
+        <span>Already have an account?</span>
+        <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">Sign in</span>
+      </Link>
     </div>
   )
 }
@@ -243,9 +392,13 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
 
   if (done) {
     return (
-      <div className="space-y-4 text-center text-sm text-[#1a1d1f]/85">
+      <div className="flex flex-col gap-3 text-center text-xs text-casino-muted">
         <p>If an account exists for that email, we sent reset instructions.</p>
-        <button type="button" className="auth-modal-btn-primary" onClick={onBack}>
+        <button
+          type="button"
+          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110"
+          onClick={onBack}
+        >
           Back to log in
         </button>
       </div>
@@ -253,27 +406,37 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className="space-y-4">
-      <form onSubmit={(e) => void onSubmit(e)} className="space-y-3">
-        <div>
-          <label htmlFor="m-forgot-email" className="mb-1 block text-xs font-medium text-[#1a1d1f]/80">
-            Email
-          </label>
-          <input
-            id="m-forgot-email"
-            className="auth-modal-input"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
+    <div className="flex flex-col gap-2">
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor="m-forgot-email">Email</FieldLabel>
+          <InputRow>
+            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <input
+              id="m-forgot-email"
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </InputRow>
         </div>
-        <button type="submit" disabled={loading} className="auth-modal-btn-primary disabled:opacity-50">
+        <button
+          type="submit"
+          disabled={loading}
+          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110 disabled:opacity-50"
+        >
           {loading ? 'Sending…' : 'Send reset link'}
         </button>
       </form>
-      <button type="button" className="w-full text-sm text-[#1a1d1f] underline" onClick={onBack}>
+      <button
+        type="button"
+        className="w-full text-[11px] font-semibold text-casino-foreground transition hover:text-casino-primary"
+        onClick={onBack}
+      >
         Back to log in
       </button>
     </div>
