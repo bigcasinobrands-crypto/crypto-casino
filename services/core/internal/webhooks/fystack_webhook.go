@@ -104,10 +104,11 @@ func HandleFystackWebhook(pool *pgxpool.Pool, rdb *redis.Client, client *fystack
 				http.Error(w, "store failed", http.StatusInternalServerError)
 				return
 			}
-			rawID, _ := json.Marshal(map[string]int64{"delivery_id": deliveryID})
-			if err := jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "fystack_webhook", Data: rawID}); err != nil {
-				_ = ProcessFystackWebhookDelivery(r.Context(), pool, deliveryID)
-			}
+		if err := ProcessFystackWebhookDelivery(r.Context(), pool, deliveryID); err != nil {
+			log.Printf("fystack webhook: inline processing delivery %d failed: %v", deliveryID, err)
+		}
+		rawID, _ := json.Marshal(map[string]int64{"delivery_id": deliveryID})
+		_ = jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "fystack_webhook", Data: rawID})
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -175,6 +176,7 @@ func ProcessFystackWebhookDelivery(ctx context.Context, pool *pgxpool.Pool, deli
 
 func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[string]any, resourceID string) error {
 	if inner == nil {
+		log.Printf("fystack deposit: nil inner payload for resource %s", resourceID)
 		return nil
 	}
 	walletID := strings.TrimSpace(str(inner["wallet_id"]))
@@ -183,10 +185,12 @@ func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[stri
 		SELECT user_id::text FROM fystack_wallets WHERE provider_wallet_id = $1
 	`, walletID).Scan(&userID)
 	if err != nil {
-		return nil // wallet not mapped yet
+		log.Printf("fystack deposit: wallet %s not found: %v", walletID, err)
+		return nil
 	}
 	amt, ok := parseAmountMinor(inner)
 	if !ok || amt <= 0 {
+		log.Printf("fystack deposit: cannot parse amount for resource %s, amount=%v price_token=%v", resourceID, inner["amount"], inner["price_token"])
 		return nil
 	}
 	ccy := ledgerCurrencyFromAsset(inner)
@@ -195,7 +199,12 @@ func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[stri
 		idem = "fystack:deposit:" + strings.TrimSpace(str(inner["id"]))
 	}
 	meta := map[string]any{"source": "fystack", "wallet_id": walletID, "tx_hash": str(inner["tx_hash"])}
-	_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "deposit.credit", idem, amt, meta)
+	inserted, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, "deposit.credit", idem, amt, meta)
+	if err != nil {
+		log.Printf("fystack deposit: ledger credit failed for user %s: %v", userID, err)
+	} else {
+		log.Printf("fystack deposit: credited %d cents (%s) to user %s (inserted=%v, resource=%s)", amt, ccy, userID, inserted, resourceID)
+	}
 	return err
 }
 
@@ -279,21 +288,44 @@ func parseAmountMinor(inner map[string]any) (int64, bool) {
 	if err != nil || f <= 0 {
 		return 0, false
 	}
-	usdVal := f
+
+	// Compute USD value: amount * price_token, or explicit usd_value/fiat_value fields.
+	usdVal := 0.0
 	if v := strings.TrimSpace(str(inner["usd_value"])); v != "" {
 		if uv, err := strconv.ParseFloat(v, 64); err == nil && uv > 0 {
 			usdVal = uv
 		}
-	} else if v := strings.TrimSpace(str(inner["fiat_value"])); v != "" {
-		if fv, err := strconv.ParseFloat(v, 64); err == nil && fv > 0 {
-			usdVal = fv
+	}
+	if usdVal <= 0 {
+		if v := strings.TrimSpace(str(inner["fiat_value"])); v != "" {
+			if fv, err := strconv.ParseFloat(v, 64); err == nil && fv > 0 {
+				usdVal = fv
+			}
 		}
 	}
+	if usdVal <= 0 {
+		if pt := strings.TrimSpace(str(inner["price_token"])); pt != "" {
+			if pf, err := strconv.ParseFloat(pt, 64); err == nil && pf > 0 {
+				usdVal = f * pf
+			}
+		}
+	}
+	if usdVal <= 0 {
+		if pt := strings.TrimSpace(str(inner["price_native_token"])); pt != "" {
+			if pf, err := strconv.ParseFloat(pt, 64); err == nil && pf > 0 {
+				usdVal = f * pf
+			}
+		}
+	}
+	if usdVal <= 0 {
+		usdVal = f
+	}
+
 	cents := int64(usdVal*100 + 0.5)
 	if cents <= 0 {
-		cents = int64(f*100 + 0.5)
+		return 0, false
 	}
-	return cents, cents > 0
+	return cents, true
 }
 
 // HandleFystackLegacyPayment stores flat payment-shaped webhooks and enqueues fystack_payment jobs.
@@ -354,5 +386,5 @@ func ledgerCurrencyFromAsset(inner map[string]any) string {
 			return strings.ToUpper(s)
 		}
 	}
-	return "USDT"
+	return "USD"
 }
