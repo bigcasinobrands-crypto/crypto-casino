@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
@@ -18,10 +19,11 @@ import (
 type withdrawReq struct {
 	AmountMinor int64  `json:"amount_minor"`
 	Currency    string `json:"currency"`
+	Network     string `json:"network"`
 	Destination string `json:"destination"`
 }
 
-// WithdrawHandler records a withdrawal, debits the ledger, and calls Fystack when treasury is configured.
+// WithdrawHandler debits the ledger and sends from the user's own Fystack wallet.
 func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
@@ -43,10 +45,30 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client)
 			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "amount and destination required")
 			return
 		}
-		ccy := strings.TrimSpace(body.Currency)
+		ccy := strings.ToUpper(strings.TrimSpace(body.Currency))
 		if ccy == "" {
 			ccy = "USDT"
 		}
+		network := config.NormalizeDepositNetwork(body.Network)
+		if network == "" {
+			network = "ERC20"
+		}
+
+		// Resolve the Fystack asset ID from symbol+network.
+		assetID := resolveWithdrawAssetID(cfg, ccy, network)
+		if assetID == "" {
+			playerapi.WriteError(w, http.StatusBadRequest, "unsupported_asset", "no Fystack asset configured for "+ccy+" on "+network)
+			return
+		}
+
+		// Look up the user's own Fystack wallet.
+		var userWalletID string
+		err = pool.QueryRow(r.Context(), `SELECT provider_wallet_id FROM fystack_wallets WHERE user_id = $1::uuid AND status = 'active'`, uid).Scan(&userWalletID)
+		if err != nil || userWalletID == "" {
+			playerapi.WriteError(w, http.StatusConflict, "wallet_pending", "wallet not provisioned yet; try again shortly")
+			return
+		}
+
 		idem := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 		if idem == "" {
 			var b [16]byte
@@ -101,11 +123,11 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client)
 			return
 		}
 
-		rawInit, _ := json.Marshal(map[string]any{"destination": body.Destination})
+		rawInit, _ := json.Marshal(map[string]any{"destination": body.Destination, "network": network})
 		_, err = tx.Exec(r.Context(), `
 			INSERT INTO fystack_withdrawals (id, user_id, status, amount_minor, currency, destination, idempotency_key, raw, fystack_asset_id)
 			VALUES ($1, $2::uuid, 'pending', $3, $4, $5, $6, $7::jsonb, NULLIF($8,''))
-		`, wid, uid, body.AmountMinor, ccy, body.Destination, idem, rawInit, nullString(cfg.FystackWithdrawAssetID))
+		`, wid, uid, body.AmountMinor, ccy, body.Destination, idem, rawInit, assetID)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "withdraw create failed")
 			return
@@ -117,20 +139,23 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client)
 
 		providerWid := ""
 		status := "pending"
-		if cfg != nil && cfg.FystackWithdrawConfigured() && fs != nil {
-			dec := 6
-			if cfg.FystackWithdrawAssetDecimals > 0 {
-				dec = cfg.FystackWithdrawAssetDecimals
-			}
-			amtStr := minorToDecimalString(body.AmountMinor, dec)
-			apiIDem := idem
-			resp, st, rerr := fs.RequestWithdrawal(r.Context(), cfg.FystackTreasuryWalletID, cfg.FystackWithdrawAssetID, amtStr, body.Destination, apiIDem)
+		if cfg != nil && cfg.FystackConfigured() && fs != nil {
+			// Ledger stores USD cents; convert to token amount (stablecoins ≈ 1:1 USD).
+			amtStr := minorToDecimalString(body.AmountMinor, 2)
+			log.Printf("fystack withdraw: user=%s wid=%s wallet=%s asset=%s amount=%s dest=%s", uid, wid, userWalletID, assetID, amtStr, body.Destination)
+			resp, st, rerr := fs.RequestWithdrawal(r.Context(), userWalletID, assetID, amtStr, body.Destination, idem)
 			if rerr != nil || st < 200 || st >= 300 {
+				log.Printf("fystack withdraw: FAILED wid=%s status=%d err=%v resp=%v", wid, st, rerr, resp)
 				_, _ = ledger.ApplyCredit(r.Context(), pool, uid, ccy, "withdrawal.compensation", "fystack:wdr_api_fail:"+wid, body.AmountMinor, map[string]any{"withdrawal_id": wid})
-				_, _ = pool.Exec(r.Context(), `UPDATE fystack_withdrawals SET status = 'provider_error', raw = COALESCE(raw, '{}'::jsonb) || $2::jsonb WHERE id = $1`, wid, mustJSON(map[string]any{"http_status": st, "err": errString(rerr)}))
+				errInfo := map[string]any{"http_status": st, "err": errString(rerr)}
+				if resp != nil {
+					errInfo["provider_response"] = resp
+				}
+				_, _ = pool.Exec(r.Context(), `UPDATE fystack_withdrawals SET status = 'provider_error', raw = COALESCE(raw, '{}'::jsonb) || $2::jsonb WHERE id = $1`, wid, mustJSON(errInfo))
 				status = "provider_error"
 			} else {
 				providerWid = withdrawalIDFromFystack(resp)
+				log.Printf("fystack withdraw: SUCCESS wid=%s provider_wid=%s", wid, providerWid)
 				_, _ = pool.Exec(r.Context(), `
 					UPDATE fystack_withdrawals SET provider_withdrawal_id = NULLIF($2,''), status = 'submitted',
 					raw = COALESCE(raw, '{}'::jsonb) || $3::jsonb
@@ -143,12 +168,32 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"withdrawal_id":          wid,
-			"provider_withdrawal_id":   providerWid,
-			"status":                   status,
-			"amount_minor":             body.AmountMinor,
-			"currency":                 ccy,
+			"provider_withdrawal_id": providerWid,
+			"status":                 status,
+			"amount_minor":           body.AmountMinor,
+			"currency":               ccy,
 		})
 	}
+}
+
+// resolveWithdrawAssetID finds the Fystack asset UUID for a given symbol+network
+// from FYSTACK_DEPOSIT_ASSETS_JSON (same map used for deposits).
+func resolveWithdrawAssetID(cfg *config.Config, symbol, network string) string {
+	if cfg == nil {
+		return ""
+	}
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	network = config.NormalizeDepositNetwork(network)
+	if symbol != "" && network != "" && cfg.FystackDepositAssets != nil {
+		key := symbol + "_" + network
+		if id := strings.TrimSpace(cfg.FystackDepositAssets[key]); id != "" {
+			return id
+		}
+	}
+	if id := strings.TrimSpace(cfg.FystackWithdrawAssetID); id != "" {
+		return id
+	}
+	return ""
 }
 
 func nullString(s string) any {

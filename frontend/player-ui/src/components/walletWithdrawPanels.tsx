@@ -13,7 +13,7 @@ import { transactionExplorerUrl } from '../lib/walletExplorer'
 import { usePlayerAuth } from '../playerAuth'
 
 export type WithdrawPanelNetwork = 'ERC20' | 'TRC20'
-export type WithdrawPanelSymbol = 'USDT' | 'USDC'
+export type WithdrawPanelSymbol = 'ETH' | 'USDT' | 'USDC' | 'TRX'
 
 type WithdrawFormPanelProps = {
   network: WithdrawPanelNetwork
@@ -58,6 +58,7 @@ export function WithdrawFormPanel({ network, symbol, onNetwork, onSymbol, onSucc
         body: JSON.stringify({
           amount_minor: amt,
           currency: symbol,
+          network,
           destination: destination.trim(),
         }),
       })

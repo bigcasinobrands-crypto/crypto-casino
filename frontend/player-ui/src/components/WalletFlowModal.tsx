@@ -53,7 +53,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
     symbol: WithdrawPanelSymbol
   } | null>(null)
   const [wdNetwork, setWdNetwork] = useState<WithdrawPanelNetwork>('ERC20')
-  const [wdSymbol, setWdSymbol] = useState<WithdrawPanelSymbol>('USDT')
+  const [wdSymbol, setWdSymbol] = useState<WithdrawPanelSymbol>('ETH')
 
   const balanceLabel = useMemo(() => {
     if (balanceMinor == null) return '0.00'
@@ -82,7 +82,8 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
   useEffect(() => {
     if (!open || mainTab !== 'withdraw') return
     if (withdrawFlowStep === 'success') return
-    setWdSymbol(symbol === 'USDC' ? 'USDC' : symbol === 'ETH' ? 'USDT' : 'USDT')
+    const symMap: Record<string, WithdrawPanelSymbol> = { ETH: 'ETH', USDC: 'USDC', USDT: 'USDT', TRX: 'TRX' }
+    setWdSymbol(symMap[symbol] ?? 'ETH')
     setWdNetwork(network === 'TRC20' ? 'TRC20' : 'ERC20')
   }, [open, mainTab, withdrawFlowStep, symbol, network])
 
