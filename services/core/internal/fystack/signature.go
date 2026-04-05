@@ -17,7 +17,7 @@ func SignAccessSign(apiSecret, method, path, body string) (timestamp string, acc
 	if apiSecret == "" {
 		return "", "", fmt.Errorf("fystack: empty api secret")
 	}
-	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	canonical := "method=" + method + "&path=" + path + "&timestamp=" + ts + "&body=" + body
 	mac := hmac.New(sha256.New, []byte(apiSecret))
 	_, _ = mac.Write([]byte(canonical))

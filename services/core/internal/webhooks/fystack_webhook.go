@@ -272,11 +272,28 @@ func parseAmountMinor(inner map[string]any) (int64, bool) {
 	if s == "" {
 		return 0, false
 	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
+		return n, true
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 {
 		return 0, false
 	}
-	return n, true
+	usdVal := f
+	if v := strings.TrimSpace(str(inner["usd_value"])); v != "" {
+		if uv, err := strconv.ParseFloat(v, 64); err == nil && uv > 0 {
+			usdVal = uv
+		}
+	} else if v := strings.TrimSpace(str(inner["fiat_value"])); v != "" {
+		if fv, err := strconv.ParseFloat(v, 64); err == nil && fv > 0 {
+			usdVal = fv
+		}
+	}
+	cents := int64(usdVal*100 + 0.5)
+	if cents <= 0 {
+		cents = int64(f*100 + 0.5)
+	}
+	return cents, cents > 0
 }
 
 // HandleFystackLegacyPayment stores flat payment-shaped webhooks and enqueues fystack_payment jobs.

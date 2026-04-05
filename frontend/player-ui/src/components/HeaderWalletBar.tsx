@@ -26,12 +26,12 @@ type WalletOption = {
 }
 
 const WALLET_OPTIONS: WalletOption[] = [
+  { symbol: 'ETH', network: 'ERC20', chainTitle: 'Ethereum', accent: 'bg-[#627EEA]', glyph: 'Ξ' },
   { symbol: 'USDT', network: 'ERC20', chainTitle: 'Ethereum', accent: 'bg-[#627EEA]', glyph: 'Ξ' },
   { symbol: 'USDT', network: 'TRC20', chainTitle: 'Tron', accent: 'bg-[#EB0029]', glyph: 'T' },
   { symbol: 'USDT', network: 'BEP20', chainTitle: 'BSC', accent: 'bg-[#F0B90B]', glyph: 'B' },
   { symbol: 'USDC', network: 'ERC20', chainTitle: 'Ethereum', accent: 'bg-[#627EEA]', glyph: 'Ξ' },
-  { symbol: 'USDC', network: 'TRC20', chainTitle: 'Tron', accent: 'bg-[#EB0029]', glyph: 'T' },
-  { symbol: 'USDC', network: 'BEP20', chainTitle: 'BSC', accent: 'bg-[#F0B90B]', glyph: 'B' },
+  { symbol: 'TRX', network: 'TRC20', chainTitle: 'Tron', accent: 'bg-[#EB0029]', glyph: 'T' },
 ]
 
 const PERSIST_KEY = 'player_active_wallet'
@@ -111,8 +111,10 @@ function AssetLogo({
       />
     )
   }
-  const bg = symbol === 'USDT' ? 'bg-[#26A17B]' : 'bg-[#2775CA]'
-  const char = symbol === 'USDT' ? '₮' : '$'
+  const bgMap: Record<string, string> = { ETH: 'bg-[#627EEA]', USDT: 'bg-[#26A17B]', USDC: 'bg-[#2775CA]', TRX: 'bg-[#EB0029]' }
+  const charMap: Record<string, string> = { ETH: 'Ξ', USDT: '₮', USDC: '$', TRX: 'T' }
+  const bg = bgMap[symbol] ?? 'bg-[#627EEA]'
+  const char = charMap[symbol] ?? symbol[0]
   return (
     <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white ${bg}`} aria-hidden>
       {char}
@@ -134,7 +136,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
 
   const [search, setSearch] = useState('')
   const [panelTab, setPanelTab] = useState<PanelTab>('crypto')
-  const [assetFilter, setAssetFilter] = useState<DepositAssetSymbol>('USDT')
+  const [assetFilter, setAssetFilter] = useState<DepositAssetSymbol>('ETH')
   const [hideZero, setHideZero] = useState(() => localStorage.getItem(HIDE_ZERO_KEY) === '1')
 
   const recalcPos = useCallback(() => {
@@ -269,8 +271,8 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
 
               {panelTab === 'crypto' ? (
                 <div className="p-3">
-                  <div className="mb-3 grid grid-cols-2 gap-1.5">
-                    {(['USDT', 'USDC'] as const).map((s) => {
+                  <div className="mb-3 grid grid-cols-4 gap-1.5">
+                    {(['ETH', 'USDT', 'USDC', 'TRX'] as const).map((s) => {
                       const on = assetFilter === s
                       return (
                         <button

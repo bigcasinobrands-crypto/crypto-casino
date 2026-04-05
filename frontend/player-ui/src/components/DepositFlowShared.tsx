@@ -2,9 +2,9 @@ import { useState, type ReactNode } from 'react'
 import { IconCopy, IconSearch } from './icons'
 
 export type DepositNetworkId = 'BEP20' | 'ERC20' | 'TRC20'
-export type DepositAssetSymbol = 'USDT' | 'USDC'
+export type DepositAssetSymbol = 'USDT' | 'USDC' | 'ETH' | 'TRX'
 
-export const DEPOSIT_NETWORK_ORDER: DepositNetworkId[] = ['BEP20', 'ERC20', 'TRC20']
+export const DEPOSIT_NETWORK_ORDER: DepositNetworkId[] = ['ERC20', 'TRC20', 'BEP20']
 
 /** Logo.dev /crypto/{symbol} slug per chain card */
 export const NETWORK_CHAIN_LOGO: Record<DepositNetworkId, string> = {
@@ -12,6 +12,13 @@ export const NETWORK_CHAIN_LOGO: Record<DepositNetworkId, string> = {
   ERC20: 'eth',
   TRC20: 'trx',
 }
+
+export const DEPOSIT_ASSET_OPTIONS: { symbol: DepositAssetSymbol; label: string; networks: DepositNetworkId[] }[] = [
+  { symbol: 'ETH', label: 'Ethereum', networks: ['ERC20'] },
+  { symbol: 'USDT', label: 'Tether', networks: ['ERC20', 'TRC20', 'BEP20'] },
+  { symbol: 'USDC', label: 'USD Coin', networks: ['ERC20'] },
+  { symbol: 'TRX', label: 'Tron', networks: ['TRC20'] },
+]
 
 const NETWORK_META: Record<
   DepositNetworkId,
@@ -122,9 +129,11 @@ export function AssetToggleRow({
   logoUrls?: Record<string, string>
 }) {
   const q = searchFilter.trim().toLowerCase()
-  const assets: { id: DepositAssetSymbol; label: string; sub: string; ring: string }[] = [
-    { id: 'USDT', label: 'USDT', sub: 'Tether', ring: 'ring-[#26A17B]/50' },
-    { id: 'USDC', label: 'USDC', sub: 'USD Coin', ring: 'ring-[#2775CA]/50' },
+  const assets: { id: DepositAssetSymbol; label: string; sub: string; ring: string; glyph: string; bg: string }[] = [
+    { id: 'ETH', label: 'ETH', sub: 'Ethereum', ring: 'ring-[#627EEA]/50', glyph: 'Ξ', bg: 'bg-[#627EEA]' },
+    { id: 'USDT', label: 'USDT', sub: 'Tether', ring: 'ring-[#26A17B]/50', glyph: '₮', bg: 'bg-[#26A17B]' },
+    { id: 'USDC', label: 'USDC', sub: 'USD Coin', ring: 'ring-[#2775CA]/50', glyph: '$', bg: 'bg-[#2775CA]' },
+    { id: 'TRX', label: 'TRX', sub: 'Tron', ring: 'ring-[#EB0029]/50', glyph: 'T', bg: 'bg-[#EB0029]' },
   ]
   const visible = assets.filter(
     (a) => !q || a.label.toLowerCase().includes(q) || a.sub.toLowerCase().includes(q),
@@ -133,7 +142,7 @@ export function AssetToggleRow({
     return <p className="mb-2 text-xs text-casino-muted">No match.</p>
   }
   return (
-    <div className="mb-3 grid grid-cols-2 gap-1.5">
+    <div className="mb-3 grid grid-cols-4 gap-1.5">
       {visible.map((a) => {
         const on = symbol === a.id
         return (
@@ -141,7 +150,7 @@ export function AssetToggleRow({
             key={a.id}
             type="button"
             onClick={() => onSymbol(a.id)}
-            className={`flex items-center gap-2 rounded-lg border px-2 py-2 text-left transition ${
+            className={`flex flex-col items-center gap-1 rounded-lg border px-1.5 py-2 text-center transition ${
               on
                 ? `border-casino-primary bg-casino-elevated ring-1 ${a.ring}`
                 : 'border-casino-border hover:border-casino-border/80'
@@ -152,17 +161,15 @@ export function AssetToggleRow({
               className="size-8 shrink-0 rounded-full bg-white object-cover ring-1 ring-white/10"
               fallback={
                 <div
-                  className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${
-                    a.id === 'USDT' ? 'bg-[#26A17B]' : 'bg-[#2775CA]'
-                  }`}
+                  className={`flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${a.bg}`}
                 >
-                  {a.id === 'USDT' ? '₮' : '$'}
+                  {a.glyph}
                 </div>
               }
             />
-            <div className="min-w-0">
-              <div className="text-sm font-bold leading-tight text-casino-foreground">{a.label}</div>
-              <div className="truncate text-[10px] leading-tight text-casino-muted">{a.sub}</div>
+            <div className="min-w-0 text-center">
+              <div className="text-xs font-bold leading-tight text-casino-foreground">{a.label}</div>
+              <div className="truncate text-[9px] leading-tight text-casino-muted">{a.sub}</div>
             </div>
           </button>
         )
@@ -197,11 +204,13 @@ export function NetworkCardGrid({
   const balNum = Number(bal.replace(',', '.')) || 0
   const addAmt = parseAmountInput(depositAmountInput)
   const newBal = addAmt > 0 ? (balNum + addAmt).toFixed(2) : null
+  const assetDef = DEPOSIT_ASSET_OPTIONS.find((a) => a.symbol === symbol)
+  const availableNetworks = assetDef ? DEPOSIT_NETWORK_ORDER.filter((n) => assetDef.networks.includes(n)) : DEPOSIT_NETWORK_ORDER
   return (
     <div>
       <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">Network</p>
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
-        {DEPOSIT_NETWORK_ORDER.map((id) => {
+        {availableNetworks.map((id) => {
           const m = NETWORK_META[id]
           const selected = network === id
           return (

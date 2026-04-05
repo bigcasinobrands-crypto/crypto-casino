@@ -4,6 +4,7 @@ import { usePlayerAuth } from '../playerAuth'
 import {
   AssetToggleRow,
   ChooseAssetNetworkHint,
+  DEPOSIT_ASSET_OPTIONS,
   DepositWrongChainWarning,
   NetworkCardGrid,
   UsdAmountField,
@@ -36,8 +37,8 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
   const [mainTab, setMainTab] = useState<WalletMainTab>(initialTab)
   const [amountUsd, setAmountUsd] = useState('10.00')
   const [amountErr, setAmountErr] = useState<string | null>(null)
-  const [symbol, setSymbol] = useState<DepositAssetSymbol>('USDT')
-  const [network, setNetwork] = useState<DepositNetworkId>('BEP20')
+  const [symbol, setSymbol] = useState<DepositAssetSymbol>('ETH')
+  const [network, setNetwork] = useState<DepositNetworkId>('ERC20')
   const [txs, setTxs] = useState<
     { id: string; amount_minor: number; currency: string; entry_type: string; created_at: string }[]
   >([])
@@ -72,9 +73,16 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
   }, [mainTab])
 
   useEffect(() => {
+    const def = DEPOSIT_ASSET_OPTIONS.find((a) => a.symbol === symbol)
+    if (def && !def.networks.includes(network)) {
+      setNetwork(def.networks[0])
+    }
+  }, [symbol, network])
+
+  useEffect(() => {
     if (!open || mainTab !== 'withdraw') return
     if (withdrawFlowStep === 'success') return
-    setWdSymbol(symbol === 'USDC' ? 'USDC' : 'USDT')
+    setWdSymbol(symbol === 'USDC' ? 'USDC' : symbol === 'ETH' ? 'USDT' : 'USDT')
     setWdNetwork(network === 'TRC20' ? 'TRC20' : 'ERC20')
   }, [open, mainTab, withdrawFlowStep, symbol, network])
 

@@ -37,9 +37,11 @@ export default function WalletDepositPage() {
   })
   const [amountErr, setAmountErr] = useState<string | null>(null)
 
-  const [symbol, setSymbol] = useState<DepositAssetSymbol>(() =>
-    searchParams.get('symbol') === 'USDC' ? 'USDC' : 'USDT',
-  )
+  const [symbol, setSymbol] = useState<DepositAssetSymbol>(() => {
+    const s = (searchParams.get('symbol') || '').toUpperCase()
+    if (s === 'USDC' || s === 'ETH' || s === 'TRX') return s as DepositAssetSymbol
+    return 'ETH'
+  })
   const [network, setNetwork] = useState<DepositNetworkId>(() => {
     const raw = searchParams.get('network')
     return raw ? parseDepositNetworkParam(raw) : 'BEP20'
@@ -60,7 +62,9 @@ export default function WalletDepositPage() {
 
   const symbolForStep = useMemo((): DepositAssetSymbol => {
     if (phase === 'form') return symbol
-    return (searchParams.get('symbol') || 'USDT').toUpperCase() === 'USDC' ? 'USDC' : 'USDT'
+    const s = (searchParams.get('symbol') || 'ETH').toUpperCase()
+    if (s === 'USDC' || s === 'ETH' || s === 'TRX' || s === 'USDT') return s as DepositAssetSymbol
+    return 'ETH'
   }, [phase, searchParams, symbol])
 
   const networkForStep = useMemo((): DepositNetworkId => {

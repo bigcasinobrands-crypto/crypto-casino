@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/singleflight"
 )
 
 type depositCacheEntry struct {
@@ -25,6 +27,7 @@ func DepositAddressHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.C
 	var mu sync.Mutex
 	cache := make(map[string]depositCacheEntry)
 	const cacheTTL = 5 * time.Minute
+	var sfGroup singleflight.Group
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
@@ -52,7 +55,15 @@ func DepositAddressHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.C
 			return
 		}
 
+		if symbol == "" {
+			symbol = "USDT"
+		}
+		if network == "" {
+			network = "ERC20"
+		}
+
 		cacheKey := walletID + "|" + assetID + "|" + network
+
 		mu.Lock()
 		if entry, found := cache[cacheKey]; found && time.Now().Before(entry.expiresAt) {
 			mu.Unlock()
@@ -62,28 +73,39 @@ func DepositAddressHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.C
 		}
 		mu.Unlock()
 
-		addressType := networkToAddressType(network)
-		resp, st, rerr := fs.GetDepositAddress(r.Context(), walletID, assetID, addressType)
-		if rerr != nil || st < 200 || st >= 300 {
-			log.Printf("fystack deposit-address: wallet=%s asset=%s type=%s status=%d err=%v resp=%v", walletID, assetID, addressType, st, rerr, resp)
+		type sfResult struct {
+			data map[string]any
+			err  error
+		}
+
+		v, _, _ := sfGroup.Do(cacheKey, func() (any, error) {
+			addressType := networkToAddressType(network)
+			resp, st, rerr := fs.GetDepositAddress(r.Context(), walletID, assetID, addressType)
+			if rerr != nil {
+				return &sfResult{err: fmt.Errorf("fystack: %w", rerr)}, nil
+			}
+			if st < 200 || st >= 300 {
+				log.Printf("fystack deposit-address: wallet=%s asset=%s type=%s status=%d resp=%v", walletID, assetID, addressType, st, resp)
+				return &sfResult{err: fmt.Errorf("fystack: HTTP %d", st)}, nil
+			}
+			out := normalizeDepositAddressResponse(resp, strings.ToUpper(symbol), network)
+			out["qr_url"] = safeDepositQRURL(out["qr_url"], cfg)
+
+			mu.Lock()
+			cache[cacheKey] = depositCacheEntry{data: out, expiresAt: time.Now().Add(cacheTTL)}
+			mu.Unlock()
+
+			return &sfResult{data: out}, nil
+		})
+
+		result := v.(*sfResult)
+		if result.err != nil {
 			playerapi.WriteError(w, http.StatusBadGateway, "fystack_error", "could not load deposit address")
 			return
 		}
-		if symbol == "" {
-			symbol = "USDT"
-		}
-		if network == "" {
-			network = "ERC20"
-		}
-		out := normalizeDepositAddressResponse(resp, strings.ToUpper(symbol), network)
-		out["qr_url"] = safeDepositQRURL(out["qr_url"], cfg)
-
-		mu.Lock()
-		cache[cacheKey] = depositCacheEntry{data: out, expiresAt: time.Now().Add(cacheTTL)}
-		mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		_ = json.NewEncoder(w).Encode(result.data)
 	}
 }
 
