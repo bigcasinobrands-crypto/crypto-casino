@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -17,6 +18,11 @@ func LaunchAllowed(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, 
 	}
 	if cfg.DisableGameLaunch {
 		return false, "launch_disabled"
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.BlueOceanLaunchMode), "real") {
+		if f, err := paymentflags.Load(ctx, pool); err == nil && !f.RealPlayEnabled {
+			return false, "real_play_paused"
+		}
 	}
 	cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
 	if cc != "" && len(cfg.BlockedCountryCodes) > 0 {

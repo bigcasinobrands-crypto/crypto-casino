@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
@@ -36,6 +37,25 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	go func() {
+		t := time.NewTicker(3 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				n, err := webhooks.ReconcileStaleFystackDeliveries(context.Background(), pool)
+				if err != nil {
+					log.Printf("fystack reconcile: %v", err)
+				} else if n > 0 {
+					log.Printf("fystack reconcile: processed %d deliveries", n)
+				}
+			}
+		}
+	}()
+
 	log.Println("worker consuming casino:jobs")
 	for {
 		j, err := jobs.Pop(ctx, rdb)
@@ -56,6 +76,18 @@ func main() {
 			_ = json.Unmarshal(j.Data, &m)
 			if err := webhooks.ProcessFystackPayment(ctx, pool, m["id"]); err != nil {
 				log.Printf("fystack %s: %v", m["id"], err)
+			}
+		case "fystack_webhook":
+			var wrap struct {
+				DeliveryID int64 `json:"delivery_id"`
+			}
+			_ = json.Unmarshal(j.Data, &wrap)
+			if wrap.DeliveryID == 0 {
+				log.Printf("fystack_webhook: missing delivery_id")
+				continue
+			}
+			if err := webhooks.ProcessFystackWebhookDelivery(ctx, pool, wrap.DeliveryID); err != nil {
+				log.Printf("fystack webhook delivery %d: %v", wrap.DeliveryID, err)
 			}
 		default:
 			log.Printf("unknown job type %q", j.Type)

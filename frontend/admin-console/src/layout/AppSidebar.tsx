@@ -67,6 +67,7 @@ const othersItems: NavItem[] = [
       { name: "BlueOcean events", path: "/blueocean", pro: false },
       { name: "Fystack payments", path: "/fystack", pro: false },
       { name: "Fystack withdrawals", path: "/fystack-wd", pro: false },
+      { name: "Payments ops", path: "/payments-ops", pro: false },
     ],
   },
   {

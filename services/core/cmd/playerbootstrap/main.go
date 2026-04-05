@@ -9,6 +9,7 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
+	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/playerauth"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -50,12 +51,20 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_, err = pool.Exec(ctx, `
+	var userID string
+	err = pool.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, terms_accepted_at, terms_version, privacy_version, email_verified_at)
-		VALUES ($1, $2, now(), '1', '1', now())
-	`, email, string(hash))
+		VALUES ($1, $2, now(), '1', '1', now()) RETURNING id::text
+	`, email, string(hash)).Scan(&userID)
 	if err != nil {
 		log.Fatalf("insert: %v", err)
+	}
+	if cfg.FystackConfigured() {
+		fs := fystack.NewClient(cfg.FystackBaseURL, cfg.FystackAPIKey, cfg.FystackAPISecret, cfg.FystackWorkspaceID)
+		p := &fystack.WalletProvisioner{Pool: pool, Client: fs}
+		if err := p.Provision(ctx, userID); err != nil {
+			log.Printf("fystack wallet provision (will retry via reconciler): %v", err)
+		}
 	}
 	log.Printf("created player: %s", email)
 }

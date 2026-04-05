@@ -10,15 +10,19 @@ import (
 	"github.com/crypto-casino/core/internal/adminapi"
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/fystack"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
-	Pool *pgxpool.Pool
-	BOG  *blueocean.Client
-	Cfg  *config.Config
+	Pool    *pgxpool.Pool
+	BOG     *blueocean.Client
+	Cfg     *config.Config
+	Redis   *redis.Client
+	Fystack *fystack.Client
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -33,6 +37,9 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Post("/integrations/blueocean/sync-catalog", h.SyncBlueOceanCatalog)
 	r.Get("/integrations/blueocean/status", h.BlueOceanStatus)
 	r.Get("/system/operational-flags", h.OperationalFlags)
+	r.Get("/ops/summary", h.OpsSummary)
+	r.Get("/ops/payment-flags", h.GetPaymentFlags)
+	r.Get("/ops/deposit-assets", h.GetDepositAssets)
 	r.Post("/client-logs", h.IngestClientLog)
 	r.Get("/client-logs", h.ListClientLogs)
 	r.Get("/client-logs/count", h.CountClientLogsSince)
@@ -44,6 +51,9 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Use(adminapi.RequireAnyRole("superadmin"))
 		r.Patch("/games/{id}/hidden", h.PatchGameHidden)
 		r.Patch("/game-providers/lobby-hidden", h.PatchProviderLobbyHidden)
+		r.Patch("/ops/payment-flags", h.PatchPaymentFlags)
+		r.Post("/ops/reconcile-fystack", h.PostOpsReconcileFystack)
+		r.Post("/ops/provision-fystack-wallet", h.PostOpsProvisionFystackWallet)
 	})
 }
 

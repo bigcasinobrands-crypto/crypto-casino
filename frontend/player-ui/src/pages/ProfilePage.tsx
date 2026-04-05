@@ -73,7 +73,7 @@ export default function ProfilePage() {
         <div>
           <div className="text-xs text-casino-muted">Email verified</div>
           <div className="text-casino-foreground">
-            {me?.email_verified ? 'Yes' : 'No — verify to deposit or withdraw'}
+            {me?.email_verified ? 'Yes' : 'No'}
           </div>
         </div>
         {!me?.email_verified && (

@@ -1,4 +1,4 @@
-﻿import { adminAppHref, installPlayerCrossAppBridge } from '@repo/cross-app'
+import { adminAppHref, installPlayerCrossAppBridge } from '@repo/cross-app'
 import { useEffect, useState, useCallback } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
@@ -27,6 +27,7 @@ import LobbyPage from './pages/LobbyPage'
 import ProfilePage from './pages/ProfilePage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
+import WalletDepositPage from './pages/WalletDepositPage'
 
 function LegacyCasinoRedirect() {
   const loc = useLocation()
@@ -37,6 +38,26 @@ function LegacyPlayToGameLobby() {
   const { gameId } = useParams()
   if (!gameId) return <Navigate to="/casino/games" replace />
   return <Navigate to={`/casino/game-lobby/${encodeURIComponent(gameId)}`} replace />
+}
+
+/** Old bookmarked URLs → single `/wallet/deposit` flow with `step` query. */
+function LegacyDepositInstructionsRedirect() {
+  const [sp] = useSearchParams()
+  const q = new URLSearchParams(sp)
+  q.set('step', 'address')
+  return <Navigate to={`/wallet/deposit?${q}`} replace />
+}
+
+function LegacyDepositSubmittedRedirect() {
+  const [sp] = useSearchParams()
+  const q = new URLSearchParams(sp)
+  q.set('step', 'sent')
+  return <Navigate to={`/wallet/deposit?${q}`} replace />
+}
+
+/** Old `/wallet/withdraw` URLs → lobby + open wallet (Withdraw tab in modal). */
+function LegacyWalletWithdrawPathRedirect() {
+  return <Navigate to="/casino/games?walletTab=withdraw" replace />
 }
 
 function CatalogFooter() {
@@ -80,7 +101,7 @@ function AppShell() {
   }, [catalogSyncOk, op.data])
 
   const { pathname } = useLocation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const catalogSearchQ = searchParams.get('q') ?? ''
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [walletOpen, setWalletOpen] = useState(false)
@@ -105,6 +126,16 @@ function AppShell() {
     setWalletTab(tab)
     setWalletOpen(true)
   }
+
+  useEffect(() => {
+    if (searchParams.get('walletTab') !== 'withdraw') return
+    if (!accessToken) return
+    setWalletTab('withdraw')
+    setWalletOpen(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('walletTab')
+    setSearchParams(next, { replace: true })
+  }, [accessToken, searchParams, setSearchParams])
 
   return (
     <div className="flex h-full min-h-0 w-full overflow-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased">
@@ -195,6 +226,11 @@ function AppShell() {
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/wallet/deposit" element={<WalletDepositPage />} />
+            <Route path="/wallet/deposit/instructions" element={<LegacyDepositInstructionsRedirect />} />
+            <Route path="/wallet/deposit/submitted" element={<LegacyDepositSubmittedRedirect />} />
+            <Route path="/wallet/withdraw" element={<LegacyWalletWithdrawPathRedirect />} />
+            <Route path="/wallet/withdraw/success" element={<LegacyWalletWithdrawPathRedirect />} />
             <Route path="/embed/demo/:demoId" element={<DemoEmbedPage />} />
           </Routes>
           <CatalogFooter />

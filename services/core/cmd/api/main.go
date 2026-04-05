@@ -17,6 +17,7 @@ import (
 	"github.com/crypto-casino/core/internal/captcha"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
+	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/games"
 	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/mail"
@@ -65,12 +66,22 @@ func main() {
 	jwtPlayer := []byte(cfg.PlayerJWTSecret)
 	staffSvc := &staffauth.Service{Pool: pool, Secret: jwtStaff}
 	bog := blueocean.NewClient(&cfg)
-	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg}
-	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH}
 	gameSrv := games.NewServer(pool, bog, &cfg)
 	cmcTickers := market.NewCryptoTickers(cfg.CoinMarketCapAPIKey)
 
 	mailSender := mail.ChooseSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
+	var fsClient *fystack.Client
+	if cfg.FystackConfigured() {
+		fsClient = fystack.NewClient(cfg.FystackBaseURL, cfg.FystackAPIKey, cfg.FystackAPISecret, cfg.FystackWorkspaceID)
+		log.Printf("fystack: connected to %s (workspace %s)", cfg.FystackBaseURL, cfg.FystackWorkspaceID)
+	} else {
+		log.Printf("WARNING: Fystack not configured — deposit addresses, wallet provisioning, and withdrawals are disabled. Set FYSTACK_BASE_URL, FYSTACK_API_KEY, FYSTACK_API_SECRET, and FYSTACK_WORKSPACE_ID in .env")
+	}
+	if cfg.FystackDepositAssetID == "" && len(cfg.FystackDepositAssets) == 0 {
+		log.Printf("WARNING: No deposit assets configured — set FYSTACK_DEPOSIT_ASSET_ID or FYSTACK_DEPOSIT_ASSETS_JSON in .env")
+	}
+	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient}
+	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH}
 	playerSvc := &playerauth.Service{
 		Pool:            pool,
 		Secret:          jwtPlayer,
@@ -78,6 +89,9 @@ func main() {
 		PublicPlayerURL: cfg.PublicPlayerURL,
 		TermsVersion:    cfg.TermsVersion,
 		PrivacyVersion:  cfg.PrivacyVersion,
+	}
+	if fsClient != nil {
+		playerSvc.Fystack = &fystack.WalletProvisioner{Pool: pool, Client: fsClient}
 	}
 	playerH := &playerauth.Handler{
 		Svc:     playerSvc,
@@ -119,7 +133,9 @@ func main() {
 	r.Get("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg))
 
 	r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
-	r.Post("/v1/webhooks/fystack", webhooks.HandleFystack(pool, rdb))
+	fystackHMAC := strings.TrimSpace(os.Getenv("WEBHOOK_FYSTACK_SECRET"))
+	r.Post("/v1/webhooks/fystack", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
+	r.Post("/v1/webhooks/fystack/workspace", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
 
 	r.Route("/v1/admin", func(r chi.Router) {
 		r.Use(adminCORS.Handler)
@@ -133,6 +149,7 @@ func main() {
 			r.Use(httprate.LimitByIP(180, time.Minute))
 			r.Get("/games", gameSrv.ListHandler())
 			r.Get("/market/crypto-tickers", cmcTickers.ServeHTTP)
+			r.Get("/market/crypto-logo-urls", market.CryptoLogoURLsHandler(&cfg))
 		})
 		r.Route("/auth", func(r chi.Router) {
 			r.Use(httprate.LimitByIP(40, time.Minute))
@@ -158,8 +175,14 @@ func main() {
 			})
 			r.Get("/games/{gameID}/blueocean-info", gameSrv.BlueOceanGameInfoHandler())
 			r.Get("/wallet/balance", wallet.BalanceHandler(pool))
-			r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool))
-			r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool))
+			r.Get("/wallet/transactions", wallet.TransactionsHandler(pool))
+			r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
+			r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient))
+			r.Group(func(r chi.Router) {
+				r.Use(httprate.LimitByIP(60, time.Minute))
+				r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg, fsClient))
+				r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg, fsClient))
+			})
 		})
 	})
 

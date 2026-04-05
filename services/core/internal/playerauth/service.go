@@ -22,6 +22,11 @@ const refreshTTL = 7 * 24 * time.Hour
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrTermsNotAccepted = errors.New("terms not accepted")
 
+// FystackWalletProvisioner creates a custodial wallet after signup (optional).
+type FystackWalletProvisioner interface {
+	Provision(ctx context.Context, userID string) error
+}
+
 type Service struct {
 	Pool            *pgxpool.Pool
 	Secret          []byte
@@ -29,6 +34,7 @@ type Service struct {
 	PublicPlayerURL string
 	TermsVersion    string
 	PrivacyVersion  string
+	Fystack         FystackWalletProvisioner
 }
 
 func (s *Service) Register(ctx context.Context, email, password string, acceptTerms, acceptPrivacy bool) (accessToken, refreshToken string, exp int64, err error) {
@@ -77,6 +83,13 @@ func (s *Service) Register(ctx context.Context, email, password string, acceptTe
 			_ = s.sendVerificationEmail(ctx, uid, em)
 		}(id, email)
 	}
+	if s.Fystack != nil {
+		go func(uid string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			_ = s.Fystack.Provision(ctx, uid)
+		}(id)
+	}
 	return accessToken, refreshToken, exp, nil
 }
 
@@ -94,6 +107,13 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 	}
 	if err := s.assertUserPlayAllowed(ctx, id); err != nil {
 		return "", "", 0, err
+	}
+	if s.Fystack != nil {
+		go func(uid string) {
+			pctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			_ = s.Fystack.Provision(pctx, uid)
+		}(id)
 	}
 	return s.issueSession(ctx, id)
 }

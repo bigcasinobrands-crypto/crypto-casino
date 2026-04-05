@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -50,6 +52,33 @@ type Config struct {
 	BlockedCountryCodes []string
 	// CoinMarketCap Pro API (server-side only; used for public /v1/market/crypto-tickers)
 	CoinMarketCapAPIKey string
+	// Logo.dev — crypto/blockchain logos (https://img.logo.dev/crypto/{symbol}?token=pk_…)
+	LogoDevPublishableKey string
+	// Logo.dev secret (Bearer) for search/describe APIs only — never expose to clients; optional until you use those APIs.
+	LogoDevSecretKey string
+	// Fystack (MPC wallets, checkout, withdrawals) — HMAC auth per docs.fystack.io/authentication
+	FystackBaseURL     string
+	FystackAPIKey      string
+	FystackAPISecret   string
+	FystackWorkspaceID string
+	// Ed25519 public key hex for the configured workspace (sandbox vs prod each has its own); when set, webhook verify skips API key fetch.
+	FystackWebhookVerificationKey string
+	// Outbound withdrawals (treasury wallet on Fystack)
+	FystackTreasuryWalletID      string
+	FystackWithdrawAssetID       string
+	FystackWithdrawAssetDecimals int // default 6
+	// Hosted checkout (USD-priced)
+	FystackCheckoutSuccessURL string
+	FystackCheckoutCancelURL  string
+	FystackCheckoutAssets     string // comma-separated e.g. USDC:1,ETH:1
+	FystackDepositAssetID     string // optional: default deposit address asset
+	// FystackDepositAssets maps keys like USDT_ERC20 → Fystack asset UUID (from FYSTACK_DEPOSIT_ASSETS_JSON).
+	FystackDepositAssets map[string]string
+}
+
+// FystackDepositAssetCanonicalKeys are the standard on-chain deposit combinations we surface in admin UI.
+func FystackDepositAssetCanonicalKeys() []string {
+	return []string{"USDT_ERC20", "USDT_TRC20", "USDT_BEP20", "USDC_ERC20", "USDC_TRC20", "USDC_BEP20"}
 }
 
 func Load() (Config, error) {
@@ -143,6 +172,47 @@ func Load() (Config, error) {
 	if c.CoinMarketCapAPIKey == "" {
 		c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("CMC_API_KEY"))
 	}
+	c.LogoDevPublishableKey = strings.TrimSpace(os.Getenv("LOGO_DEV_PUBLISHABLE_KEY"))
+	c.LogoDevSecretKey = strings.TrimSpace(os.Getenv("LOGO_DEV_SECRET_KEY"))
+	c.FystackBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("FYSTACK_BASE_URL")), "/")
+	c.FystackAPIKey = strings.TrimSpace(os.Getenv("FYSTACK_API_KEY"))
+	c.FystackAPISecret = strings.TrimSpace(os.Getenv("FYSTACK_API_SECRET"))
+	c.FystackWorkspaceID = strings.TrimSpace(os.Getenv("FYSTACK_WORKSPACE_ID"))
+	c.FystackWebhookVerificationKey = strings.TrimSpace(os.Getenv("FYSTACK_WEBHOOK_VERIFICATION_KEY"))
+	c.FystackTreasuryWalletID = strings.TrimSpace(os.Getenv("FYSTACK_TREASURY_WALLET_ID"))
+	c.FystackWithdrawAssetID = strings.TrimSpace(os.Getenv("FYSTACK_WITHDRAW_ASSET_ID"))
+	c.FystackWithdrawAssetDecimals = 6
+	if s := strings.TrimSpace(os.Getenv("FYSTACK_WITHDRAW_ASSET_DECIMALS")); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 && n <= 18 {
+			c.FystackWithdrawAssetDecimals = n
+		}
+	}
+	c.FystackCheckoutSuccessURL = strings.TrimSpace(os.Getenv("FYSTACK_CHECKOUT_SUCCESS_URL"))
+	if c.FystackCheckoutSuccessURL == "" {
+		c.FystackCheckoutSuccessURL = strings.TrimSuffix(c.PublicPlayerURL, "/") + "/wallet/deposit/submitted?checkout=success"
+	}
+	c.FystackCheckoutCancelURL = strings.TrimSpace(os.Getenv("FYSTACK_CHECKOUT_CANCEL_URL"))
+	if c.FystackCheckoutCancelURL == "" {
+		c.FystackCheckoutCancelURL = strings.TrimSuffix(c.PublicPlayerURL, "/") + "/wallet/deposit?checkout=cancel"
+	}
+	c.FystackCheckoutAssets = strings.TrimSpace(os.Getenv("FYSTACK_CHECKOUT_SUPPORTED_ASSETS"))
+	if c.FystackCheckoutAssets == "" {
+		c.FystackCheckoutAssets = "USDC:1,ETH:1,ETH:8453"
+	}
+	c.FystackDepositAssetID = strings.TrimSpace(os.Getenv("FYSTACK_DEPOSIT_ASSET_ID"))
+	if raw := strings.TrimSpace(os.Getenv("FYSTACK_DEPOSIT_ASSETS_JSON")); raw != "" {
+		var m map[string]string
+		if err := json.Unmarshal([]byte(raw), &m); err == nil && len(m) > 0 {
+			c.FystackDepositAssets = make(map[string]string, len(m))
+			for k, v := range m {
+				k = strings.ToUpper(strings.TrimSpace(k))
+				v = strings.TrimSpace(v)
+				if k != "" && v != "" {
+					c.FystackDepositAssets[k] = v
+				}
+			}
+		}
+	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")
 	}
@@ -153,6 +223,37 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("PLAYER_JWT_SECRET must be at least 32 characters when set; defaults to JWT_SECRET")
 	}
 	return c, nil
+}
+
+// FystackConfigured is true when base URL, API key, secret, and workspace id are set (server-side Fystack calls).
+func (c *Config) FystackConfigured() bool {
+	if c == nil {
+		return false
+	}
+	return c.FystackBaseURL != "" && c.FystackAPIKey != "" && c.FystackAPISecret != "" && c.FystackWorkspaceID != ""
+}
+
+// FystackWithdrawConfigured is true when treasury + asset are set for on-chain payouts.
+func (c *Config) FystackWithdrawConfigured() bool {
+	if c == nil || !c.FystackConfigured() {
+		return false
+	}
+	return c.FystackTreasuryWalletID != "" && c.FystackWithdrawAssetID != ""
+}
+
+// FystackCheckoutAssetList parses FYSTACK_CHECKOUT_SUPPORTED_ASSETS into tokens like USDC:1.
+func (c *Config) FystackCheckoutAssetList() []string {
+	if c == nil || strings.TrimSpace(c.FystackCheckoutAssets) == "" {
+		return []string{"USDC:1", "ETH:1"}
+	}
+	var out []string
+	for _, p := range strings.Split(c.FystackCheckoutAssets, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func parseBoolEnv(s string) bool {
@@ -175,4 +276,51 @@ func parseOriginsList(raw string, defaultOrigins []string) []string {
 		}
 	}
 	return list
+}
+
+// NormalizeDepositNetwork maps common aliases to ERC20, TRC20, or BEP20 (BNB Smart Chain).
+func NormalizeDepositNetwork(s string) string {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	switch s {
+	case "ERC20", "ETH", "ETHEREUM", "EVM":
+		return "ERC20"
+	case "TRC20", "TRX", "TRON":
+		return "TRC20"
+	case "BEP20", "BSC", "BSC20", "BNB", "BNB SMART CHAIN":
+		return "BEP20"
+	default:
+		return s
+	}
+}
+
+// DepositAssetKeyConfigured is true when FYSTACK_DEPOSIT_ASSETS_JSON contains a non-empty UUID for the canonical key.
+func (c *Config) DepositAssetKeyConfigured(key string) bool {
+	if c == nil || c.FystackDepositAssets == nil {
+		return false
+	}
+	return strings.TrimSpace(c.FystackDepositAssets[strings.ToUpper(strings.TrimSpace(key))]) != ""
+}
+
+// IsTrustedFystackHTTPSURL rejects open redirects from checkout responses (https only, Fystack-hosted hosts).
+func (c *Config) IsTrustedFystackHTTPSURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return false
+	}
+	host := strings.ToLower(u.Host)
+	if strings.HasSuffix(host, ".fystack.io") || host == "fystack.io" {
+		return true
+	}
+	if c != nil && c.FystackBaseURL != "" {
+		if bu, err := url.Parse(c.FystackBaseURL); err == nil && bu.Host != "" {
+			if strings.EqualFold(host, bu.Host) {
+				return true
+			}
+		}
+	}
+	return false
 }

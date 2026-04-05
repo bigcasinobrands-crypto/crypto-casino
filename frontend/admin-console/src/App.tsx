@@ -1,4 +1,4 @@
-﻿import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminAuthProvider } from './authContext'
 import { AppToaster } from './components/AppToaster'
 import { ReportingErrorBoundary } from './components/ReportingErrorBoundary'
@@ -13,6 +13,7 @@ import LogsPage from './pages/LogsPage'
 import PlayerDetailPage from './pages/PlayerDetailPage'
 import SettingsPage from './pages/SettingsPage'
 import SupportLookupPage from './pages/SupportLookupPage'
+import PaymentOpsPage from './pages/PaymentOpsPage'
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
               <Route path="/support" element={<SupportLookupPage />} />
               <Route path="/support/player/:id" element={<PlayerDetailPage />} />
               <Route path="/bog" element={<BlueOceanOpsPage />} />
+              <Route path="/payments-ops" element={<PaymentOpsPage />} />
               <Route path="/games" element={<GamesCatalogPage />} />
               <Route path="/games-catalog" element={<Navigate to="/games" replace />} />
               <Route
