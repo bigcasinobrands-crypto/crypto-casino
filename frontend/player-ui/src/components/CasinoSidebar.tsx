@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
 import {
   IconBanknote,
@@ -26,11 +26,13 @@ import {
 
 const navItem =
   'flex w-full items-center justify-between rounded-[4px] px-3 py-2.5 text-left text-[13px] font-semibold text-casino-muted transition hover:bg-casino-elevated/60 hover:text-casino-foreground'
-const navItemActive = 'bg-casino-primary-dim text-casino-foreground'
+const navItemActive =
+  'bg-casino-primary-dim text-casino-foreground hover:bg-casino-primary-dim/90 hover:text-casino-foreground'
 
 const subLink =
   'flex w-full items-center gap-2.5 rounded-[4px] py-1.5 pl-2.5 pr-2 text-left text-[12px] font-medium text-casino-muted transition hover:bg-casino-elevated/50 hover:text-casino-foreground'
-const subActive = 'bg-casino-primary-dim font-medium text-casino-foreground'
+const subActive =
+  'bg-casino-primary-dim font-medium text-casino-foreground hover:bg-casino-primary-dim/90 hover:text-casino-foreground'
 
 type CasinoSidebarProps = {
   mobileOpen: boolean
@@ -39,6 +41,15 @@ type CasinoSidebarProps = {
 
 export default function CasinoSidebar({ mobileOpen, onClose }: CasinoSidebarProps) {
   const [casinoOpen, setCasinoOpen] = useState(true)
+  const { pathname, hash } = useLocation()
+
+  /** NavLink matches pathname only; /casino/games and /casino/games#foo both matched. Scope active styles by hash. */
+  const onGamesCatalog = pathname === '/casino/games'
+  /** Match CasinoCategoryPills “Lobby”: games root only, no fragment. */
+  const hotNowSidebarActive = onGamesCatalog && hash === ''
+  const providersSidebarActive = onGamesCatalog && hash === '#providers'
+  const helpSidebarActive = onGamesCatalog && hash === '#help'
+  const blogSidebarActive = onGamesCatalog && hash === '#blog'
 
   const closeIfMobile = () => {
     if (window.matchMedia('(max-width: 1023px)').matches) onClose()
@@ -85,7 +96,11 @@ export default function CasinoSidebar({ mobileOpen, onClose }: CasinoSidebarProp
             </button>
             {casinoOpen ? (
               <div className="mb-2 ml-3.5 mt-0.5 flex flex-col gap-0.5 border-l border-casino-border/40 pl-2">
-                <NavLink to="/casino/games" end className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}>
+                <NavLink
+                  to="/casino/games"
+                  end
+                  className={`${subLink} ${hotNowSidebarActive ? subActive : ''}`}
+                >
                   <IconSwords size={15} aria-hidden />
                   Hot now
                 </NavLink>
@@ -109,7 +124,7 @@ export default function CasinoSidebar({ mobileOpen, onClose }: CasinoSidebarProp
                   Live
                 </RequireAuthNavLink>
                 <RequireAuthNavLink
-                  to="/casino/featured"
+                  to="/casino/challenges"
                   className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}
                 >
                   <IconTarget size={15} aria-hidden />
@@ -128,7 +143,7 @@ export default function CasinoSidebar({ mobileOpen, onClose }: CasinoSidebarProp
                 </RequireAuthNavLink>
                 <RequireAuthNavLink
                   to="/casino/games#providers"
-                  className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}
+                  className={`${subLink} ${providersSidebarActive ? subActive : ''}`}
                 >
                   <IconBuilding2 size={15} aria-hidden />
                   Providers
@@ -170,7 +185,7 @@ export default function CasinoSidebar({ mobileOpen, onClose }: CasinoSidebarProp
               Farming
             </span>
           </span>
-          <RequireAuthNavLink to="/casino/games" className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
+          <RequireAuthNavLink to="/casino/games" className={navItem}>
             <span className="flex items-center gap-2.5">
               <IconTicket size={15} aria-hidden />
               $25K Raffle
@@ -186,13 +201,19 @@ export default function CasinoSidebar({ mobileOpen, onClose }: CasinoSidebarProp
             </span>
             <IconChevronDown size={15} aria-hidden />
           </button>
-          <NavLink to="/casino/games#help" className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
+          <NavLink
+            to="/casino/games#help"
+            className={`${navItem} ${helpSidebarActive ? navItemActive : ''}`}
+          >
             <span className="flex items-center gap-2.5">
               <IconHeadphones size={15} aria-hidden />
               Live Support
             </span>
           </NavLink>
-          <NavLink to="/casino/games#help" className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
+          <NavLink
+            to="/casino/games#blog"
+            className={`${navItem} ${blogSidebarActive ? navItemActive : ''}`}
+          >
             <span className="flex items-center gap-2.5">
               <IconFileText size={15} aria-hidden />
               Blog

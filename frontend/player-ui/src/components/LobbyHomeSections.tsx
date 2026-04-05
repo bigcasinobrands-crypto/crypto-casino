@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FC } from 'react'
 import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import { playerApiUrl } from '../lib/playerApiUrl'
+import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -175,6 +176,9 @@ function GameSection({
 }
 
 function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
+  const reduceMotion = usePrefersReducedMotion()
+  const loop = reduceMotion ? providers : [...providers, ...providers]
+
   return (
     <section className="mb-7" id="providers">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -192,20 +196,36 @@ function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
           View all
         </Link>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-        {providers.map((p) => (
-          <Link
-            key={p.code}
-            to={`/casino/games?provider=${encodeURIComponent(p.code)}`}
-            className="flex aspect-[2.1/1] flex-col items-center justify-center gap-1 rounded-[4px] bg-casino-surface px-2 text-center transition hover:border hover:border-casino-primary/30"
+      {providers.length === 0 ? (
+        <p className="text-center text-xs text-casino-muted">No provider data yet.</p>
+      ) : (
+        <div
+          className="relative -mx-1 overflow-hidden py-0.5"
+          role="region"
+          aria-label="Top providers, scrolling"
+        >
+          <div
+            className={
+              reduceMotion
+                ? 'flex flex-wrap justify-center gap-3'
+                : 'infinite-marquee-track gap-3'
+            }
           >
-            <span className="text-[11px] font-extrabold tracking-wide text-casino-foreground">
-              {p.code.toUpperCase()}
-            </span>
-            <span className="text-[10px] font-medium text-casino-muted">{p.count} games</span>
-          </Link>
-        ))}
-      </div>
+            {loop.map((p, i) => (
+              <Link
+                key={`${p.code}-${i}`}
+                to={`/casino/games?provider=${encodeURIComponent(p.code)}`}
+                className="flex h-[52px] w-[100px] shrink-0 flex-col items-center justify-center gap-1 rounded-[4px] bg-casino-surface px-2 text-center transition hover:border hover:border-casino-primary/30 sm:w-[108px]"
+              >
+                <span className="text-[11px] font-extrabold tracking-wide text-casino-foreground">
+                  {p.code.toUpperCase()}
+                </span>
+                <span className="text-[10px] font-medium text-casino-muted">{p.count} games</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -249,7 +269,7 @@ const LobbyHomeSections: FC = () => {
 
   return (
     <div className="min-w-0">
-      <GameSection title="Hot now" viewAllTo="/casino/featured" games={logoRowGames} />
+      <GameSection title="Hot now" viewAllTo="/casino/challenges" games={logoRowGames} />
       <GameSection title="Slots" viewAllTo="/casino/slots" games={slots} />
       <ProviderSection providers={providers} />
       <GameSection title="New Releases" viewAllTo="/casino/new" games={newRel} />

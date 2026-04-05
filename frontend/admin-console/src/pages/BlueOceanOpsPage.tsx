@@ -1,25 +1,35 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { readApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
+import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
 
 export default function BlueOceanOpsPage() {
   const { apiFetch } = useAdminAuth()
+  const { reportApiFailure, reportNetworkFailure } = useAdminActivityLog()
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
   const [flags, setFlags] = useState<Record<string, unknown> | null>(null)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const [s, f] = await Promise.all([
-      apiFetch('/v1/admin/integrations/blueocean/status'),
-      apiFetch('/v1/admin/system/operational-flags'),
-    ])
+    const pathS = '/v1/admin/integrations/blueocean/status'
+    const pathF = '/v1/admin/system/operational-flags'
+    const [s, f] = await Promise.all([apiFetch(pathS), apiFetch(pathF)])
     if (s.ok) setStatus((await s.json()) as Record<string, unknown>)
+    else {
+      const parsed = await readApiError(s)
+      reportApiFailure({ res: s, parsed, method: 'GET', path: pathS })
+    }
     if (f.ok) setFlags((await f.json()) as Record<string, unknown>)
-  }, [apiFetch])
+    else {
+      const parsed = await readApiError(f)
+      reportApiFailure({ res: f, parsed, method: 'GET', path: pathF })
+    }
+  }, [apiFetch, reportApiFailure])
 
   useEffect(() => {
     void load()
@@ -28,17 +38,25 @@ export default function BlueOceanOpsPage() {
   const sync = async () => {
     setBusy(true)
     setSyncMsg(null)
+    const syncPath = '/v1/admin/integrations/blueocean/sync-catalog'
     try {
-      const res = await apiFetch('/v1/admin/integrations/blueocean/sync-catalog', {
+      const res = await apiFetch(syncPath, {
         method: 'POST',
       })
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        reportApiFailure({ res, parsed, method: 'POST', path: syncPath })
+        setSyncMsg(`Sync failed (HTTP ${res.status}).`)
+        return
+      }
       const j = (await res.json().catch(() => ({}))) as Record<string, unknown>
-      setSyncMsg(
-        res.ok
-          ? `Catalog sync OK — upserted ${String(j.upserted ?? '?')} game(s).`
-          : `Sync failed (HTTP ${res.status}).`,
-      )
+      setSyncMsg(`Catalog sync OK — upserted ${String(j.upserted ?? '?')} game(s).`)
     } catch {
+      reportNetworkFailure({
+        message: 'Network error during sync.',
+        method: 'POST',
+        path: syncPath,
+      })
       setSyncMsg('Network error during sync.')
     } finally {
       setBusy(false)

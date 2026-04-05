@@ -45,6 +45,31 @@ body {
   .overscroll-y-contain {
     overscroll-behavior-y: contain;
   }
+
+  /* Infinite horizontal marquee (content duplicated; -50% width = one seamless loop). */
+  @keyframes infinite-marquee-x {
+    0% {
+      transform: translate3d(0, 0, 0);
+    }
+    100% {
+      transform: translate3d(-50%, 0, 0);
+    }
+  }
+
+  .infinite-marquee-track {
+    display: flex;
+    width: max-content;
+    /* ease-in-out: gentle accel/decel; velocity ~0 at seam keeps the reset invisible */
+    animation: infinite-marquee-x 58s ease-in-out infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .infinite-marquee-track {
+      animation: none;
+      transform: none;
+    }
+  }
 }
 
 @layer components {

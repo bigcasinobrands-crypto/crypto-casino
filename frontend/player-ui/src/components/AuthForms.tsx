@@ -1,8 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuthModal } from '../authModalContext'
-import { formatApiError } from '../api/errors'
-import { playerApiUrl } from '../lib/playerApiUrl'
+import { formatApiError, readApiError } from '../api/errors'
+import { playerFetch } from '../lib/playerFetch'
+import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { TurnstileField } from './TurnstileField'
 import { usePlayerAuth } from '../playerAuth'
 import { IconCheck, IconEye, IconEyeOff, IconLock, IconUser } from './icons'
@@ -110,6 +111,7 @@ export function LoginForm({
     const r = await login(email, password, captcha ?? undefined)
     setLoading(false)
     if (!r.ok) {
+      toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/login')
       setErr(formatApiError(r.error, 'Sign in failed'))
       return
     }
@@ -268,6 +270,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
     })
     setLoading(false)
     if (!r.ok) {
+      toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/register')
       setErr(formatApiError(r.error, 'Registration failed'))
       return
     }
@@ -381,13 +384,23 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    await fetch(playerApiUrl('/v1/auth/forgot-password'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    })
-    setLoading(false)
-    setDone(true)
+    try {
+      const res = await playerFetch('/v1/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (!res.ok) {
+        const p = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(p, res.status, 'POST /v1/auth/forgot-password', rid)
+      }
+    } catch {
+      toastPlayerNetworkError('Could not reach server.', 'POST /v1/auth/forgot-password')
+    } finally {
+      setLoading(false)
+      setDone(true)
+    }
   }
 
   if (done) {

@@ -1,22 +1,10 @@
 import { Link, type LinkProps } from 'react-router-dom'
 import { useAuthModal } from '../authModalContext'
 import { saveCatalogReturnBeforeGameOpen } from '../lib/catalogReturn'
+import { authNavigateTarget, isGameLobbyNavTarget } from '../lib/linkTargets'
 import { usePlayerAuth } from '../playerAuth'
 
-/** String path for post-login navigation (includes hash when relevant). */
-export function authNavigateTarget(to: LinkProps['to']): string {
-  if (typeof to === 'string') return to
-  const p = to.pathname ?? ''
-  const s = to.search ?? ''
-  const h = to.hash ?? ''
-  return `${p}${s}${h}` || '/'
-}
-
-export function isGameLobbyNavTarget(to: LinkProps['to']): boolean {
-  return authNavigateTarget(to).startsWith('/casino/game-lobby/')
-}
-
-type Props = LinkProps & { to: LinkProps['to'] }
+type Props = LinkProps
 
 /**
  * If the player is signed out, opens the auth modal and continues to `to` after success.

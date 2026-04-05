@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
-import { playerApiUrl } from '../lib/playerApiUrl'
+import { playerFetch } from '../lib/playerFetch'
+import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 
 export default function VerifyEmailPage() {
   const [params] = useSearchParams()
@@ -17,17 +18,26 @@ export default function VerifyEmailPage() {
     }
     setErr(null)
     setLoading(true)
-    const res = await fetch(playerApiUrl('/v1/auth/verify-email'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    })
-    setLoading(false)
-    if (!res.ok) {
-      setErr(formatApiError(await readApiError(res), 'Verification failed'))
-      return
+    try {
+      const res = await playerFetch('/v1/auth/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      if (!res.ok) {
+        const p = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(p, res.status, 'POST /v1/auth/verify-email', rid)
+        setErr(formatApiError(p, 'Verification failed'))
+        return
+      }
+      setOk(true)
+    } catch {
+      toastPlayerNetworkError('Network error.', 'POST /v1/auth/verify-email')
+      setErr('Network error.')
+    } finally {
+      setLoading(false)
     }
-    setOk(true)
   }
 
   if (ok) {

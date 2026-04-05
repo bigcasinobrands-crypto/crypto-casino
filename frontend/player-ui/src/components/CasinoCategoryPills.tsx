@@ -36,10 +36,10 @@ const PILLS: PillDef[] = [
   },
   {
     key: 'hot',
-    to: '/casino/featured',
+    to: '/casino/challenges',
     label: 'Hot now',
     icon: IconSwords,
-    match: (path) => path.includes('/casino/featured'),
+    match: (path) => path.includes('/casino/challenges'),
   },
   {
     key: 'slots',

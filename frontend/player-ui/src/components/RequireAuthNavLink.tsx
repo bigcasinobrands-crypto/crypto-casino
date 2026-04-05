@@ -2,7 +2,7 @@ import { NavLink, type NavLinkProps } from 'react-router-dom'
 import { useAuthModal } from '../authModalContext'
 import { saveCatalogReturnBeforeGameOpen } from '../lib/catalogReturn'
 import { usePlayerAuth } from '../playerAuth'
-import { authNavigateTarget, isGameLobbyNavTarget } from './RequireAuthLink'
+import { authNavigateTarget, isGameLobbyNavTarget } from '../lib/linkTargets'
 
 type Props = NavLinkProps
 

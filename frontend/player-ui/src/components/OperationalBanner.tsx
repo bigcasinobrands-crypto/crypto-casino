@@ -54,14 +54,6 @@ const OperationalBanner: FC<Props> = ({ data, error }) => {
       </div>
     )
   }
-  if (data.catalog_sync_ok === false) {
-    return (
-      <div className="border-b border-amber-500/35 bg-amber-950/25 px-4 py-2 text-center text-xs text-amber-100">
-        Catalog sync reported a problem. Staff: open Blue Ocean ops, check status, and run{' '}
-        <span className="font-medium">Sync catalog</span> again. Game counts in the casino view still reflect the database.
-      </div>
-    )
-  }
   return null
 }
 

@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
+import { readApiError } from '../api/errors'
+import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
 
 const supportUrl = import.meta.env.VITE_SUPPORT_URL as string | undefined
@@ -19,18 +21,25 @@ export default function ProfilePage() {
 
   const resend = useCallback(async () => {
     setResendMsg(null)
-    const res = await apiFetch('/v1/auth/verify-email/resend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    })
-    if (!res.ok) {
-      const j = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
-      setResendMsg(j?.error?.message ?? 'Could not send email')
-      return
+    try {
+      const res = await apiFetch('/v1/auth/verify-email/resend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (!res.ok) {
+        const p = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(p, res.status, 'POST /v1/auth/verify-email/resend', rid)
+        setResendMsg(p?.message ?? 'Could not send email')
+        return
+      }
+      setResendMsg('Check your inbox for a new verification link.')
+      void refreshProfile()
+    } catch {
+      toastPlayerNetworkError('Network error.', 'POST /v1/auth/verify-email/resend')
+      setResendMsg('Network error.')
     }
-    setResendMsg('Check your inbox for a new verification link.')
-    void refreshProfile()
   }, [apiFetch, refreshProfile])
 
   if (!accessToken) return <Navigate to="/?auth=login" replace />

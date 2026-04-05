@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
+import { toastApiError } from '../notifications/adminToast'
 import GridShape from '../components/common/GridShape'
 import PageMeta from '../components/common/PageMeta'
 import { EyeCloseIcon, EyeIcon } from '../icons'
@@ -77,6 +78,7 @@ export default function LoginPage() {
     const r = await login(email, password)
     setLoading(false)
     if (!r.ok) {
+      toastApiError(r.error, r.error.status, 'POST /v1/admin/auth/login')
       setErr(formatApiError(r.error, 'Invalid credentials'))
       return
     }

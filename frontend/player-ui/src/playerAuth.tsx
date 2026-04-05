@@ -10,6 +10,7 @@ import {
 } from 'react'
 
 import { readApiError, type ApiErr } from './api/errors'
+import { playerFetch } from './lib/playerFetch'
 import { playerApiUrl } from './lib/playerApiUrl'
 
 const ACCESS = 'player_access_token'
@@ -95,7 +96,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       clearSession()
       return false
     }
-    const res = await fetch(playerApiUrl('/v1/auth/refresh'), {
+    const res = await playerFetch('/v1/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: rt }),
@@ -124,6 +125,9 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       const headers = new Headers(init.headers)
       const t = localStorage.getItem(ACCESS)
       if (t) headers.set('Authorization', `Bearer ${t}`)
+      if (!headers.has('X-Request-Id')) {
+        headers.set('X-Request-Id', crypto.randomUUID())
+      }
       let res = await fetch(playerApiUrl(path), { ...init, headers })
       if (
         res.status === 401 &&
@@ -165,7 +169,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       password: string,
       captchaToken?: string,
     ): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
-      const res = await fetch(playerApiUrl('/v1/auth/login'), {
+      const res = await playerFetch('/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -197,7 +201,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       acceptPrivacy: boolean
       captchaToken?: string
     }): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
-      const res = await fetch(playerApiUrl('/v1/auth/register'), {
+      const res = await playerFetch('/v1/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

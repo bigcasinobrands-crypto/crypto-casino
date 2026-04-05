@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FC } from 'react'
 import { formatApiError, readApiError } from '../../api/errors'
+import { useAdminActivityLog } from '../../notifications/AdminActivityLogContext'
 import { AngleDownIcon, AngleUpIcon } from '../../icons'
 import {
   extractAdminListRows,
@@ -36,6 +37,7 @@ const PAGE_SIZES = [10, 25, 50, 100] as const
 const FETCH_LIMIT = 500
 
 const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
+  const { reportApiFailure, reportClientError } = useAdminActivityLog()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
@@ -51,6 +53,12 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
     const res = await apiFetch(`${apiPath}${q}limit=${FETCH_LIMIT}`)
     if (!res.ok) {
       const err = await readApiError(res)
+      reportApiFailure({
+        res,
+        parsed: err,
+        method: 'GET',
+        path: `${apiPath}?limit=${FETCH_LIMIT}`,
+      })
       setError(formatApiError(err, `Request failed (${res.status})`))
       setRows([])
       setLoading(false)
@@ -60,6 +68,7 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
     try {
       data = (await res.json()) as unknown
     } catch {
+      reportClientError({ code: 'invalid_json', message: 'Invalid JSON response from admin API' })
       setError('Invalid JSON response')
       setRows([])
       setLoading(false)
@@ -67,7 +76,10 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
     }
     const list = extractAdminListRows(apiPath, data)
     if (!list) {
-      setError('Response has no list array (users, entries, events, …).')
+      reportClientError({
+        code: 'unexpected_shape',
+        message: 'Response has no list array (users, entries, events, …).',
+      })
       setRows([])
     } else {
       setRows(list)
@@ -76,7 +88,7 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
     setPage(1)
     setSortKey(null)
     setSortDir('asc')
-  }, [apiFetch, apiPath])
+  }, [apiFetch, apiPath, reportApiFailure, reportClientError])
 
   useEffect(() => {
     let cancelled = false

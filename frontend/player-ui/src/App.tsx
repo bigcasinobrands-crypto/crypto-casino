@@ -1,11 +1,13 @@
 ﻿import { adminAppHref, installPlayerCrossAppBridge } from '@repo/cross-app'
 import { useEffect, useState, useCallback } from 'react'
-import { Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
 import { AuthModalProvider, useAuthModal, type PostAuthWalletTab } from './authModalContext'
 import { AuthModal } from './components/AuthModal'
 import BrandLogo from './components/BrandLogo'
-import CasinoSearchStrip from './components/CasinoSearchStrip'
+import { InstallGlobalPlayerToasts } from './components/InstallGlobalPlayerToasts'
+import { PlayerToaster } from './components/PlayerToaster'
+import GameSearchOverlay from './components/GameSearchOverlay'
 import CasinoSidebar from './components/CasinoSidebar'
 import HeaderWalletBar from './components/HeaderWalletBar'
 import { IconBell, IconMenu, IconMessageSquare, IconSearch, IconUser } from './components/icons'
@@ -14,6 +16,10 @@ import MainScrollRestoration from './components/MainScrollRestoration'
 import OperationalBanner from './components/OperationalBanner'
 import SiteFooter from './components/SiteFooter'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
+import {
+  dismissPlayerCatalogSyncToast,
+  toastPlayerCatalogSyncWarning,
+} from './notifications/playerToast'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
 import DemoEmbedPage from './pages/DemoEmbedPage'
 import GameLobbyPage from './pages/GameLobbyPage'
@@ -50,6 +56,8 @@ export default function App() {
   return (
     <PlayerAuthProvider>
       <AuthModalProvider>
+        <PlayerToaster />
+        <InstallGlobalPlayerToasts />
         <AppShell />
         <AuthModal />
       </AuthModalProvider>
@@ -59,11 +67,28 @@ export default function App() {
 
 function AppShell() {
   const op = useOperationalHealth()
+
+  const catalogSyncOk = op.data?.catalog_sync_ok
+  useEffect(() => {
+    if (!op.data) return
+    if (catalogSyncOk === false) {
+      toastPlayerCatalogSyncWarning()
+    } else {
+      dismissPlayerCatalogSyncToast()
+    }
+  }, [catalogSyncOk, op.data])
+
+  const { pathname } = useLocation()
+  const [searchParams] = useSearchParams()
+  const catalogSearchQ = searchParams.get('q') ?? ''
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [walletOpen, setWalletOpen] = useState(false)
   const [walletTab, setWalletTab] = useState<WalletMainTab>('deposit')
+  const [gameSearchOpen, setGameSearchOpen] = useState(false)
   const { accessToken } = usePlayerAuth()
   const { registerPostAuthWalletHandler } = useAuthModal()
+  const showCasinoSearch =
+    pathname.startsWith('/casino/') && !pathname.startsWith('/embed/')
 
   const openWalletTab = useCallback((tab: PostAuthWalletTab) => {
     setWalletTab(tab)
@@ -74,10 +99,6 @@ function AppShell() {
     registerPostAuthWalletHandler(openWalletTab)
     return () => registerPostAuthWalletHandler(null)
   }, [openWalletTab, registerPostAuthWalletHandler])
-
-  const focusSearch = () => {
-    document.getElementById('player-game-search')?.focus()
-  }
 
   const openWallet = (tab: WalletMainTab) => {
     setWalletTab(tab)
@@ -111,11 +132,18 @@ function AppShell() {
             <HeaderWalletBar onOpenWallet={openWallet} />
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 md:gap-3">
+            {showCasinoSearch ? (
+              <button
+                type="button"
+                className={iconBtn}
+                aria-label="Search games"
+                onClick={() => setGameSearchOpen(true)}
+              >
+                <IconSearch size={18} aria-hidden />
+              </button>
+            ) : null}
             {accessToken ? (
               <>
-                <button type="button" className={iconBtn} aria-label="Focus search" onClick={focusSearch}>
-                  <IconSearch size={18} aria-hidden />
-                </button>
                 <button
                   type="button"
                   className={`${iconBtn} hidden sm:inline-flex`}
@@ -143,7 +171,11 @@ function AppShell() {
           onClose={() => setWalletOpen(false)}
           initialTab={walletTab}
         />
-        <CasinoSearchStrip />
+        <GameSearchOverlay
+          open={gameSearchOpen}
+          onClose={() => setGameSearchOpen(false)}
+          initialQuery={catalogSearchQ}
+        />
         <main
           id={PLAYER_MAIN_SCROLL_ID}
           className="scrollbar-none overscroll-y-contain flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto scroll-smooth"

@@ -13,6 +13,7 @@ import (
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playcheck"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -95,7 +96,8 @@ func (s *Server) ListHandler() http.HandlerFunc {
 			}
 		}
 		if search != "" {
-			where = append(where, "title ILIKE $"+itoa(argN))
+			where = append(where, "(title ILIKE $"+itoa(argN)+" OR COALESCE(provider,'') ILIKE $"+itoa(argN)+
+				" OR COALESCE(provider_system,'') ILIKE $"+itoa(argN)+")")
 			args = append(args, "%"+search+"%")
 			argN++
 		}
@@ -213,6 +215,9 @@ func parsePublicOffset(s string) int {
 
 type launchReq struct {
 	GameID string `json:"game_id"`
+	// Mode optional: "demo" | "free_play" | "freeplay" (getGameDemo) or "real" (getGame). play_mode is an alias for mode.
+	Mode     string `json:"mode,omitempty"`
+	PlayMode string `json:"play_mode,omitempty"`
 }
 
 // LaunchHandler returns iframe URL from BOG getGameDemo / getGame.
@@ -257,9 +262,21 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		mode := strings.ToLower(strings.TrimSpace(s.Cfg.BlueOceanLaunchMode))
-		if mode == "" {
+		rawMode := strings.ToLower(strings.TrimSpace(body.Mode))
+		if rawMode == "" {
+			rawMode = strings.ToLower(strings.TrimSpace(body.PlayMode))
+		}
+		var mode string
+		switch rawMode {
+		case "demo", "free_play", "freeplay":
 			mode = "demo"
+		case "real":
+			mode = "real"
+		default:
+			mode = strings.ToLower(strings.TrimSpace(s.Cfg.BlueOceanLaunchMode))
+			if mode == "" {
+				mode = "demo"
+			}
 		}
 
 		if bogID == 0 {
@@ -343,6 +360,173 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"url": launchURL, "mode": "iframe"})
+	}
+}
+
+// BlueOceanGameInfoHandler returns catalog fields for one game plus Blue Ocean XAPI payload (getGameDirect, else getGameDemo).
+func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		gameID := strings.TrimSpace(chi.URLParam(r, "gameID"))
+		if gameID == "" {
+			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "game id required")
+			return
+		}
+		uid, ok := playerapi.UserIDFromContext(r.Context())
+		if !ok || uid == "" {
+			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+			return
+		}
+		if ok, code := playcheck.LaunchAllowed(r.Context(), s.Pool, s.Cfg, r, uid); !ok {
+			playerapi.WriteError(w, http.StatusForbidden, code, "play not allowed")
+			return
+		}
+
+		var bogID int64
+		var title, category, gameType, providerSystem, idHash string
+		var metaJSON []byte
+		var featBuy, playFun, isNew, hidden, provHidden bool
+		err := s.Pool.QueryRow(r.Context(), `
+			SELECT COALESCE(g.bog_game_id, 0), COALESCE(g.title, ''), COALESCE(g.category, ''), COALESCE(g.game_type, ''),
+				COALESCE(g.provider_system, ''), COALESCE(g.metadata, '{}'::jsonb),
+				COALESCE(g.featurebuy_supported, false), COALESCE(g.play_for_fun_supported, false), COALESCE(g.is_new, false),
+				COALESCE(g.hidden, false), COALESCE(pls.lobby_hidden, false), COALESCE(NULLIF(TRIM(g.id_hash), ''), '')
+			FROM games g
+			LEFT JOIN provider_lobby_settings pls ON pls.provider = g.provider
+			WHERE g.id = $1
+		`, gameID).Scan(&bogID, &title, &category, &gameType, &providerSystem, &metaJSON, &featBuy, &playFun, &isNew, &hidden, &provHidden, &idHash)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				playerapi.WriteError(w, http.StatusNotFound, "not_found", "unknown game")
+				return
+			}
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		if hidden || provHidden {
+			playerapi.WriteError(w, http.StatusNotFound, "not_found", "unknown game")
+			return
+		}
+
+		local := map[string]any{
+			"id":                     gameID,
+			"title":                  title,
+			"category":               category,
+			"game_type":              gameType,
+			"provider_system":        providerSystem,
+			"bog_game_id":            bogID,
+			"featurebuy_supported":   featBuy,
+			"play_for_fun_supported": playFun,
+			"is_new":                 isNew,
+		}
+		if strings.TrimSpace(idHash) != "" {
+			local["id_hash"] = idHash
+		}
+		var meta any
+		if len(metaJSON) > 0 {
+			_ = json.Unmarshal(metaJSON, &meta)
+		}
+		local["metadata"] = meta
+
+		scope := map[string]any{
+			"game_id":         gameID,
+			"catalog_title":   title,
+			"bog_game_id":     bogID,
+			"provider_system": providerSystem,
+		}
+		if strings.TrimSpace(idHash) != "" {
+			scope["id_hash"] = idHash
+		}
+
+		out := map[string]any{
+			"scope":            scope,
+			"local":            local,
+			"blue_ocean":       nil,
+			"blue_ocean_error": nil,
+		}
+
+		writeOut := func() {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(out)
+		}
+
+		if s.BOG == nil || !s.BOG.Configured() {
+			out["blue_ocean_error"] = "Blue Ocean API is not configured"
+			writeOut()
+			return
+		}
+		if bogID == 0 {
+			out["blue_ocean_error"] = "Game has no Blue Ocean game id (bog_game_id)"
+			writeOut()
+			return
+		}
+
+		mergeAgent := func(m map[string]any) {
+			if s.Cfg == nil {
+				return
+			}
+			if aid := strings.TrimSpace(s.Cfg.BlueOceanAgentID); aid != "" {
+				if n, err := strconv.ParseInt(aid, 10, 64); err == nil && n > 0 {
+					m["agentid"] = n
+				} else {
+					m["associateid"] = aid
+				}
+			}
+		}
+
+		direct := map[string]any{"gameid": bogID}
+		mergeAgent(direct)
+		raw, st, callErr := s.BOG.Call(r.Context(), "getGameDirect", direct)
+		var payload any
+		gotDirect := false
+		if callErr == nil && st >= 200 && st < 300 && len(raw) > 0 {
+			if json.Unmarshal(raw, &payload) == nil && payload != nil {
+				if em, ok := payload.(map[string]any); ok && len(em) == 0 {
+					payload = nil
+				} else {
+					gotDirect = true
+				}
+			}
+		}
+
+		if gotDirect {
+			out["blue_ocean"] = payload
+			writeOut()
+			return
+		}
+
+		remote, rerr := remotePlayerID(r.Context(), s.Pool, uid)
+		if rerr != nil {
+			out["blue_ocean_error"] = "could not resolve player id for provider"
+			writeOut()
+			return
+		}
+
+		currency := ""
+		if s.Cfg != nil {
+			currency = s.Cfg.BlueOceanCurrency
+		}
+		demo := map[string]any{
+			"currency":   currency,
+			"gameid":     bogID,
+			"playforfun": true,
+			"userid":     remote,
+		}
+		if s.Cfg != nil && s.Cfg.BlueOceanMulticurrency {
+			demo["multicurrency"] = 1
+		}
+		mergeAgent(demo)
+		raw, st, callErr = s.BOG.Call(r.Context(), "getGameDemo", demo)
+		if callErr != nil {
+			out["blue_ocean_error"] = "provider connection failed: " + callErr.Error()
+		} else if st < 200 || st >= 300 {
+			out["blue_ocean_error"] = blueocean.FormatAPIError(raw, st)
+		} else {
+			payload = nil
+			if json.Unmarshal(raw, &payload) == nil {
+				out["blue_ocean"] = payload
+			}
+		}
+		writeOut()
 	}
 }
 

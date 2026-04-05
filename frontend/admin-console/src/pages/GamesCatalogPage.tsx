@@ -2,6 +2,7 @@ import { playerAppHref } from '@repo/cross-app'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAdminAuth } from '../authContext'
 import { formatApiError, readApiError } from '../api/errors'
+import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
@@ -182,6 +183,7 @@ function ConfirmDialog({
 
 export default function GamesCatalogPage() {
   const { apiFetch, role } = useAdminAuth()
+  const { reportApiFailure } = useAdminActivityLog()
   const canManageLobby = role === 'superadmin'
 
   const [rows, setRows] = useState<Row[]>([])
@@ -201,9 +203,12 @@ export default function GamesCatalogPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
-    const res = await apiFetch(`/v1/admin/games?limit=${FETCH_LIMIT}`)
+    const gamesPath = `/v1/admin/games?limit=${FETCH_LIMIT}`
+    const res = await apiFetch(gamesPath)
     if (!res.ok) {
-      setErr(formatApiError(await readApiError(res), `HTTP ${res.status}`))
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'GET', path: gamesPath })
+      setErr(formatApiError(parsed, `HTTP ${res.status}`))
       setRows([])
       setLoading(false)
       return
@@ -212,14 +217,17 @@ export default function GamesCatalogPage() {
     setRows(j.games ?? [])
     setLoading(false)
     setPage(1)
-  }, [apiFetch])
+  }, [apiFetch, reportApiFailure])
 
   const loadProviders = useCallback(async () => {
     setProvLoading(true)
     setProvErr(null)
-    const res = await apiFetch('/v1/admin/game-providers')
+    const provPath = '/v1/admin/game-providers'
+    const res = await apiFetch(provPath)
     if (!res.ok) {
-      setProvErr(formatApiError(await readApiError(res), `HTTP ${res.status}`))
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'GET', path: provPath })
+      setProvErr(formatApiError(parsed, `HTTP ${res.status}`))
       setProviders([])
       setProvLoading(false)
       return
@@ -227,14 +235,26 @@ export default function GamesCatalogPage() {
     const j = (await res.json()) as { providers: ProviderRow[] }
     setProviders(j.providers ?? [])
     setProvLoading(false)
-  }, [apiFetch])
+  }, [apiFetch, reportApiFailure])
 
   useEffect(() => {
-    void load()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void load()
+    })
+    return () => {
+      cancelled = true
+    }
   }, [load])
 
   useEffect(() => {
-    void loadProviders()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void loadProviders()
+    })
+    return () => {
+      cancelled = true
+    }
   }, [loadProviders])
 
   const stats = useMemo(() => {
@@ -278,26 +298,32 @@ export default function GamesCatalogPage() {
   }
 
   const runPatchGameHidden = async (id: string, hidden: boolean) => {
-    const res = await apiFetch(`/v1/admin/games/${encodeURIComponent(id)}/hidden`, {
+    const patchPath = `/v1/admin/games/${encodeURIComponent(id)}/hidden`
+    const res = await apiFetch(patchPath, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ hidden, reason: '' }),
     })
     if (!res.ok) {
-      setErr(formatApiError(await readApiError(res), 'Update failed'))
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'PATCH', path: patchPath })
+      setErr(formatApiError(parsed, 'Update failed'))
       return
     }
     void load()
   }
 
   const runPatchProvider = async (provider: string, lobbyHidden: boolean) => {
-    const res = await apiFetch('/v1/admin/game-providers/lobby-hidden', {
+    const lobbyPath = '/v1/admin/game-providers/lobby-hidden'
+    const res = await apiFetch(lobbyPath, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider, lobby_hidden: lobbyHidden, reason: '' }),
     })
     if (!res.ok) {
-      setProvErr(formatApiError(await readApiError(res), 'Update failed'))
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'PATCH', path: lobbyPath })
+      setProvErr(formatApiError(parsed, 'Update failed'))
       return
     }
     void loadProviders()

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type FC } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
 import type { OperationalHealth } from '../hooks/useOperationalHealth'
 import CasinoCategoryPills from '../components/CasinoCategoryPills'
 import { RequireAuthLink } from '../components/RequireAuthLink'
 import { usePlayerAuth } from '../playerAuth'
 import { saveCatalogReturnBeforeGameOpen } from '../lib/catalogReturn'
-import { playerApiUrl } from '../lib/playerApiUrl'
+import { playerFetch } from '../lib/playerFetch'
+import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import {
   getFavouriteIds,
   getRecentIds,
@@ -30,11 +32,21 @@ type Game = {
 /** Page size for API `limit` / `offset` (must match server max 2000). */
 const PAGE_SIZE = 48
 
-type Section = 'games' | 'featured' | 'slots' | 'live' | 'new' | 'favourites' | 'recent' | 'bonus-buys'
+type Section =
+  | 'games'
+  | 'featured'
+  | 'challenges'
+  | 'slots'
+  | 'live'
+  | 'new'
+  | 'favourites'
+  | 'recent'
+  | 'bonus-buys'
 
 const SECTION_SET = new Set<string>([
   'games',
   'featured',
+  'challenges',
   'slots',
   'live',
   'new',
@@ -73,7 +85,7 @@ function emptySectionCopy(
     typeof op?.visible_games_count === 'number' && op.visible_games_count === 0
   const staff = 'Run catalog sync from the staff console (Blue Ocean ops), or check that games are not hidden.'
 
-  if (sec === 'featured') {
+  if (sec === 'featured' || sec === 'challenges') {
     return 'No featured games — set BLUEOCEAN_FEATURED_ID_HASHES on the API (comma-separated id_hash values), then sync the catalog.'
   }
   if (q.trim() || provider.trim() || pillActive('gameshows') || pillActive('blackjack')) {
@@ -91,6 +103,7 @@ function emptySectionCopy(
 const SECTION_TITLE: Record<Section, string> = {
   games: 'Games',
   featured: 'Featured',
+  challenges: 'Challenges',
   slots: 'Slots',
   live: 'Live',
   new: 'New',
@@ -139,6 +152,7 @@ function buildListUrl(
   if (pill.trim()) p.set('pill', pill.trim())
   switch (section) {
     case 'featured':
+    case 'challenges':
       p.set('featured', '1')
       break
     case 'new':
@@ -224,12 +238,12 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
             setListLoading(false)
             return
           }
-          const res = await fetch(
-            playerApiUrl(
-              `/v1/games?integration=blueocean&ids=${encodeURIComponent(ids.join(','))}`,
-            ),
-          )
+          const listPath = `/v1/games?integration=blueocean&ids=${encodeURIComponent(ids.join(','))}`
+          const res = await playerFetch(listPath)
           if (!res.ok) {
+            const parsed = await readApiError(res)
+            const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+            toastPlayerApiError(parsed, res.status, `GET ${listPath}`, rid)
             setLoadErr(apiListErrorMessage(res.status))
             setListLoading(false)
             return
@@ -242,10 +256,12 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         }
 
         const pill = searchParams.get('pill') ?? ''
-        const res = await fetch(
-          playerApiUrl(buildListUrl(sec, q, sort, provider, pill, 0, PAGE_SIZE)),
-        )
+        const listUrl = buildListUrl(sec, q, sort, provider, pill, 0, PAGE_SIZE)
+        const res = await playerFetch(listUrl)
         if (!res.ok) {
+          const parsed = await readApiError(res)
+          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+          toastPlayerApiError(parsed, res.status, `GET ${listUrl}`, rid)
           setLoadErr(apiListErrorMessage(res.status))
           setListLoading(false)
           return
@@ -258,7 +274,10 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         }
         setListLoading(false)
       } catch {
-        if (!cancelled) setLoadErr(NETWORK_ERR)
+        if (!cancelled) {
+          toastPlayerNetworkError(NETWORK_ERR, 'GET /v1/games (lobby)')
+          setLoadErr(NETWORK_ERR)
+        }
         setListLoading(false)
       }
     })()
@@ -275,10 +294,12 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     setLoadErr(null)
     try {
       const pill = searchParams.get('pill') ?? ''
-      const res = await fetch(
-        playerApiUrl(buildListUrl(sec, q, sort, provider, pill, games.length, PAGE_SIZE)),
-      )
+      const moreUrl = buildListUrl(sec, q, sort, provider, pill, games.length, PAGE_SIZE)
+      const res = await playerFetch(moreUrl)
       if (!res.ok) {
+        const parsed = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(parsed, res.status, `GET ${moreUrl}`, rid)
         setLoadErr(apiListErrorMessage(res.status))
         return
       }
@@ -287,6 +308,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
       setGames((prev) => [...prev, ...batch])
       setHasMore(batch.length === PAGE_SIZE)
     } catch {
+      toastPlayerNetworkError(NETWORK_ERR, 'GET /v1/games (load more)')
       setLoadErr(NETWORK_ERR)
     } finally {
       setLoadingMore(false)

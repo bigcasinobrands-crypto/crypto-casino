@@ -18,6 +18,7 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
 	"github.com/crypto-casino/core/internal/games"
+	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/mail"
 	"github.com/crypto-casino/core/internal/playerauth"
 	"github.com/crypto-casino/core/internal/playerapi"
@@ -67,6 +68,7 @@ func main() {
 	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg}
 	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH}
 	gameSrv := games.NewServer(pool, bog, &cfg)
+	cmcTickers := market.NewCryptoTickers(cfg.CoinMarketCapAPIKey)
 
 	mailSender := mail.ChooseSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
 	playerSvc := &playerauth.Service{
@@ -84,6 +86,7 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	r.Use(echoRequestIDHeader)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -129,6 +132,7 @@ func main() {
 		r.Group(func(r chi.Router) {
 			r.Use(httprate.LimitByIP(180, time.Minute))
 			r.Get("/games", gameSrv.ListHandler())
+			r.Get("/market/crypto-tickers", cmcTickers.ServeHTTP)
 		})
 		r.Route("/auth", func(r chi.Router) {
 			r.Use(httprate.LimitByIP(40, time.Minute))
@@ -152,6 +156,7 @@ func main() {
 			r.Post("/games/launch", func(w http.ResponseWriter, r *http.Request) {
 				httprate.LimitByIP(45, time.Minute)(http.HandlerFunc(gameSrv.LaunchHandler())).ServeHTTP(w, r)
 			})
+			r.Get("/games/{gameID}/blueocean-info", gameSrv.BlueOceanGameInfoHandler())
 			r.Get("/wallet/balance", wallet.BalanceHandler(pool))
 			r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool))
 			r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool))
@@ -160,6 +165,8 @@ func main() {
 
 	addr := ":" + strings.TrimPrefix(cfg.Port, ":")
 	srv := &http.Server{Addr: addr, Handler: r}
+
+	go runAdminClientLogPurgeLoop(context.Background(), pool)
 
 	go func() {
 		log.Printf("api listening on %s", addr)
@@ -255,6 +262,43 @@ func readyFail(w http.ResponseWriter, component, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "not_ready", component: msg})
+}
+
+// runAdminClientLogPurgeLoop removes admin_client_logs older than 90 days once per day.
+// echoRequestIDHeader exposes the request ID on the response for client diagnostics.
+func echoRequestIDHeader(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if id := middleware.GetReqID(r.Context()); id != "" {
+			w.Header().Set(middleware.RequestIDHeader, id)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func runAdminClientLogPurgeLoop(ctx context.Context, pool *pgxpool.Pool) {
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		run := func() {
+			n, err := adminops.PurgeAdminClientLogs(ctx, pool)
+			if err != nil {
+				log.Printf("admin_client_logs purge: %v", err)
+				return
+			}
+			if n > 0 {
+				log.Printf("admin_client_logs purge: removed %d rows", n)
+			}
+		}
+		run()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				run()
+			}
+		}
+	}()
 }
 
 func securityHeaders(next http.Handler) http.Handler {

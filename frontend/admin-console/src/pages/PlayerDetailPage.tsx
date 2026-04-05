@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAdminAuth } from '../authContext'
 import { formatApiError, readApiError } from '../api/errors'
+import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
@@ -28,30 +29,43 @@ function SupportCrmLink({ userId }: { userId: string }) {
 export default function PlayerDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { apiFetch } = useAdminAuth()
+  const { reportApiFailure } = useAdminActivityLog()
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
     setErr(null)
-    const res = await apiFetch(`/v1/admin/users/${encodeURIComponent(id)}`)
+    const path = `/v1/admin/users/${encodeURIComponent(id)}`
+    const res = await apiFetch(path)
     if (!res.ok) {
-      setErr(formatApiError(await readApiError(res), `HTTP ${res.status}`))
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'GET', path })
+      setErr(formatApiError(parsed, `HTTP ${res.status}`))
       setData(null)
       return
     }
     setData((await res.json()) as Record<string, unknown>)
-  }, [apiFetch, id])
+  }, [apiFetch, id, reportApiFailure])
 
   useEffect(() => {
-    void load()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void load()
+    })
+    return () => {
+      cancelled = true
+    }
   }, [load])
 
   const downloadExport = async () => {
     if (!id) return
-    const res = await apiFetch(`/v1/admin/users/${encodeURIComponent(id)}/export`)
+    const exportPath = `/v1/admin/users/${encodeURIComponent(id)}/export`
+    const res = await apiFetch(exportPath)
     if (!res.ok) {
-      setErr(formatApiError(await readApiError(res), 'Export failed'))
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'GET', path: exportPath })
+      setErr(formatApiError(parsed, 'Export failed'))
       return
     }
     const blob = await res.blob()

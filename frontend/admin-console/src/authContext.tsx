@@ -103,6 +103,9 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       const headers = new Headers(init.headers)
       const t = localStorage.getItem(ACCESS)
       if (t) headers.set('Authorization', `Bearer ${t}`)
+      if (!headers.has('X-Request-Id')) {
+        headers.set('X-Request-Id', crypto.randomUUID())
+      }
       let res = await fetch(path, { ...init, headers })
       if (
         res.status === 401 &&

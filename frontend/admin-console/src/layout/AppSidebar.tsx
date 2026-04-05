@@ -17,6 +17,7 @@ import {
   UserCircleIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
+import { useAdminActivityLog } from "../notifications/AdminActivityLogContext";
 import SidebarWidget from "./SidebarWidget";
 
 type NavItem = {
@@ -51,6 +52,11 @@ const navItems: NavItem[] = [
 
 const othersItems: NavItem[] = [
   {
+    icon: <TableIcon />,
+    name: "Logs",
+    path: "/logs",
+  },
+  {
     icon: <PlugInIcon />,
     name: "Integrations",
     subItems: [
@@ -73,6 +79,7 @@ const othersItems: NavItem[] = [
 const AppSidebar: FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const location = useLocation();
+  const { unreadCount } = useAdminActivityLog();
 
   const [openSubmenu, setOpenSubmenu] = useState<{
     type: "main" | "others";
@@ -202,7 +209,14 @@ const AppSidebar: FC = () => {
                   {nav.icon}
                 </span>
                 {(isExpanded || isHovered || isMobileOpen) && (
-                  <span className="menu-item-text">{nav.name}</span>
+                  <>
+                    <span className="menu-item-text">{nav.name}</span>
+                    {nav.path === "/logs" && unreadCount > 0 && (
+                      <span className="menu-dropdown-badge ml-auto shrink-0 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                    )}
+                  </>
                 )}
               </Link>
             )

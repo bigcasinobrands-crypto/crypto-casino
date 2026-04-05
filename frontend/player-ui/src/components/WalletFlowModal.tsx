@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useState, type FC } from 'react'
 import { formatApiError, readApiError } from '../api/errors'
+import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
 import { IconCopy, IconChevronDown } from './icons'
 
@@ -80,7 +81,10 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
         body: JSON.stringify({ amount_minor: 10000, currency }),
       })
       if (!res.ok) {
-        setSessionErr(formatApiError(await readApiError(res), 'Could not start deposit'))
+        const parsed = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/deposit-session', rid)
+        setSessionErr(formatApiError(parsed, 'Could not start deposit'))
         return
       }
       const j = (await res.json()) as {
@@ -90,6 +94,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
       }
       setSession(j)
     } catch {
+      toastPlayerNetworkError('Network error — try again.', 'POST /v1/wallet/deposit-session')
       setSessionErr('Network error — try again.')
     } finally {
       setSessionLoading(false)
@@ -140,12 +145,16 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
         }),
       })
       if (!res.ok) {
-        setWithdrawErr(formatApiError(await readApiError(res), 'Withdraw failed'))
+        const parsed = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/withdraw', rid)
+        setWithdrawErr(formatApiError(parsed, 'Withdraw failed'))
         return
       }
       await refreshProfile()
       onClose()
     } catch {
+      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/withdraw')
       setWithdrawErr('Network error.')
     } finally {
       setWithdrawBusy(false)

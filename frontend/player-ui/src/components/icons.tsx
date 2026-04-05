@@ -16,6 +16,15 @@ export function IconSearch(props: IconProps) {
   )
 }
 
+export function IconX(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  )
+}
+
 export function IconMenu(props: IconProps) {
   const b = base(props)
   return (

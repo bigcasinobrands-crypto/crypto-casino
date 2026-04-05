@@ -48,6 +48,8 @@ type Config struct {
 	SupportCRMURLTemplate string // e.g. https://desk.example/ticket?user={user_id}
 	// Phase 2 legal stub: ISO 3166-1 alpha-2 codes, comma-separated (empty = no block)
 	BlockedCountryCodes []string
+	// CoinMarketCap Pro API (server-side only; used for public /v1/market/crypto-tickers)
+	CoinMarketCapAPIKey string
 }
 
 func Load() (Config, error) {
@@ -136,6 +138,10 @@ func Load() (Config, error) {
 				c.BlockedCountryCodes = append(c.BlockedCountryCodes, p)
 			}
 		}
+	}
+	c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("COINMARKETCAP_API_KEY"))
+	if c.CoinMarketCapAPIKey == "" {
+		c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("CMC_API_KEY"))
 	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")

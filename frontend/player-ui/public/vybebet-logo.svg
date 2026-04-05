@@ -1,4 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 46" fill="none" role="img" aria-label="vybebet">
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 200 46"
+  fill="none"
+  role="img"
+  aria-label="vybebet"
+  shape-rendering="geometricPrecision"
+  text-rendering="geometricPrecision"
+>
   <defs>
     <linearGradient id="vbWave" x1="8" y1="0" x2="192" y2="0" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F0C9A8"/>
