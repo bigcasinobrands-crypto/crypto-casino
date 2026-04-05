@@ -45,8 +45,9 @@ function CatalogFooter() {
   return <SiteFooter />
 }
 
+/** Header icon actions: solid brand purple + white glyph (`visited:` covers profile `<Link>`). */
 const iconBtn =
-  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-casino-primary-dim text-casino-foreground transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary'
+  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-casino-primary text-white no-underline shadow-sm transition hover:brightness-110 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary focus-visible:text-white visited:text-white [&_svg]:shrink-0 [&_svg]:text-white'
 
 export default function App() {
   useEffect(() => {

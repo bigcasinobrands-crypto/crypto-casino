@@ -70,6 +70,16 @@ body {
       transform: none;
     }
   }
+
+  /* Scroll region: fade top/bottom so tiles appear to dissolve into the frosted overlay. */
+  .mask-scroll-fade-y {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
+    mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent);
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
 }
 
 @layer components {

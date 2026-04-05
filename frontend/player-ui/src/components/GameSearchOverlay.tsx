@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type FC } from 'react'
-import { IconSearch } from './icons'
+import { IconSearch, IconX } from './icons'
 import { PortraitGameThumb } from './PortraitGameThumb'
 import { RequireAuthLink } from './RequireAuthLink'
 import { playerApiUrl } from '../lib/playerApiUrl'
@@ -126,6 +126,14 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
     }
   }, [open, debounced])
 
+  const closeIfBlankClick = useCallback(
+    (e: React.MouseEvent) => {
+      if ((e.target as HTMLElement).closest('[data-game-search-shield]')) return
+      onClose()
+    },
+    [onClose],
+  )
+
   if (!open) return null
 
   return (
@@ -137,93 +145,117 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/55 backdrop-blur-md"
+        className="absolute inset-0 z-0 bg-white/[0.04] backdrop-blur-sm"
         aria-label="Close search"
         onClick={onClose}
       />
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col pointer-events-none">
-        <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.08] bg-[#101018] px-3 py-3 sm:px-4 pointer-events-auto">
-          <label id={titleId} className="sr-only">
-            Search games by title or provider
-          </label>
-          <div className="relative min-w-0 flex-1">
-            <IconSearch
-              className="pointer-events-none absolute left-3 top-1/2 z-10 size-[18px] -translate-y-1/2 text-white/35"
-              size={18}
-              aria-hidden
-            />
-            <input
-              ref={inputRef}
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search games"
-              aria-label="Search games by title or provider"
-              autoComplete="off"
-              className="min-w-0 w-full rounded-[4px] border border-white/[0.08] bg-[#16161f] py-3 pl-11 pr-3 text-[13px] text-white/90 outline-none transition placeholder:text-white/40 focus:border-casino-primary focus:ring-1 focus:ring-casino-primary/35"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-[4px] px-3 py-2 text-sm font-medium text-white/70 transition hover:bg-white/10 hover:text-white"
+      <div className="relative z-10 flex h-full min-h-0 flex-1 flex-col pointer-events-none">
+        <button
+          type="button"
+          data-game-search-shield
+          onClick={onClose}
+          className="pointer-events-auto absolute right-3 top-3 z-20 inline-flex size-9 shrink-0 items-center justify-center rounded-[6px] bg-casino-primary text-white shadow-sm transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary [&_svg]:text-white"
+          aria-label="Close search"
+        >
+          <IconX size={18} aria-hidden />
+        </button>
+
+        <div className="mx-auto grid h-full min-h-0 w-full max-w-6xl grid-rows-[minmax(0,0.22fr)_auto_minmax(0,1.6fr)] px-3 sm:px-4">
+          <div className="min-h-0" aria-hidden />
+          <div
+            className="pointer-events-auto flex justify-center px-0 pb-3"
+            onMouseDown={closeIfBlankClick}
+            role="presentation"
           >
-            Close
-          </button>
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-casino-bg/98 px-3 py-4 sm:px-4 pointer-events-auto">
-          {!debounced ? (
-            <p className="text-center text-sm text-casino-muted">Type a game or provider name to see matches.</p>
-          ) : null}
-          {debounced && loading && games.length === 0 && !err ? (
-            <p className="text-center text-sm text-casino-muted">Searching…</p>
-          ) : null}
-          {err ? <p className="text-center text-sm text-red-400">{err}</p> : null}
-          {debounced && !loading && !err && games.length === 0 ? (
-            <p className="text-center text-sm text-casino-muted">No games match that search.</p>
-          ) : null}
-
-          {games.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4 lg:grid-cols-5 xl:grid-cols-6">
-              {games.map((g) => {
-                const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
-                return (
-                  <div key={g.id} className="group relative">
-                    <RequireAuthLink to={lobbyTo} className="group game-thumb-link block" onClick={() => onClose()}>
-                      <div className="aspect-[3/4] w-full overflow-hidden rounded-[4px] bg-casino-elevated">
-                        <PortraitGameThumb url={g.thumbnail_url} title={g.title} />
-                      </div>
-                      <p className="mt-1.5 line-clamp-2 text-center text-[11px] font-medium leading-tight text-casino-muted transition group-hover:text-casino-foreground">
-                        {g.title}
-                      </p>
-                      {g.provider ? (
-                        <p className="line-clamp-1 text-center text-[10px] text-casino-muted/80">{g.provider}</p>
-                      ) : null}
-                    </RequireAuthLink>
-                    <button
-                      type="button"
-                      title={isFavourite(g.id) ? 'Remove favourite' : 'Favourite'}
-                      className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-[4px] border border-white/15 bg-black/75 text-lg text-amber-400/90 shadow-sm backdrop-blur-sm hover:bg-black/90"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        if (!accessToken) {
-                          saveCatalogReturnBeforeGameOpen()
-                          openAuth('login', { navigateTo: lobbyTo })
-                          return
-                        }
-                        toggleFavourite(g.id)
-                        refreshFav()
-                      }}
-                    >
-                      {isFavourite(g.id) ? '★' : '☆'}
-                    </button>
-                  </div>
-                )
-              })}
+            <div className="relative w-full max-w-2xl" data-game-search-shield>
+              <label id={titleId} className="sr-only">
+                Search games by title or provider
+              </label>
+              <IconSearch
+                className="pointer-events-none absolute left-4 top-1/2 z-10 size-[18px] -translate-y-1/2 text-white/50"
+                size={18}
+                aria-hidden
+              />
+              <input
+                ref={inputRef}
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search games"
+                aria-label="Search games by title or provider"
+                autoComplete="off"
+                className="min-w-0 w-full rounded-full border border-casino-primary/25 bg-[#1a1722]/75 py-2.5 pl-11 pr-11 text-[13px] text-white/90 shadow-[0_0_0_1px_rgba(124,77,255,0.08)] outline-none backdrop-blur-sm transition placeholder:text-white/45 focus:border-casino-primary/55 focus:shadow-[0_0_0_1px_rgba(124,77,255,0.25),0_0_16px_rgba(124,77,255,0.1)]"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 z-10 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-white/55 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    setQuery('')
+                    inputRef.current?.focus()
+                  }}
+                >
+                  <IconX size={18} aria-hidden />
+                </button>
+              ) : null}
             </div>
-          ) : null}
+          </div>
+
+          <div
+            className="mask-scroll-fade-y scrollbar-none flex min-h-0 flex-col overflow-y-auto overscroll-y-contain scroll-smooth pb-6 pt-1 motion-reduce:scroll-auto pointer-events-auto"
+            onMouseDown={closeIfBlankClick}
+            role="presentation"
+          >
+            {debounced && loading && games.length === 0 && !err ? (
+              <p className="py-6 text-center text-sm text-casino-muted/95">Searching…</p>
+            ) : null}
+            {err ? <p className="py-6 text-center text-sm text-red-400">{err}</p> : null}
+            {debounced && !loading && !err && games.length === 0 ? (
+              <p className="py-6 text-center text-sm text-casino-muted/95">No games match that search.</p>
+            ) : null}
+
+            {games.length > 0 ? (
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2 md:grid-cols-5 md:gap-2">
+                {games.map((g) => {
+                  const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
+                  return (
+                    <div key={g.id} className="group relative" data-game-search-shield>
+                      <RequireAuthLink to={lobbyTo} className="group game-thumb-link block" onClick={() => onClose()}>
+                        <div className="aspect-[3/4] w-full overflow-hidden rounded-[4px] bg-casino-elevated">
+                          <PortraitGameThumb url={g.thumbnail_url} title={g.title} />
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-center text-[11px] font-medium leading-tight text-casino-muted transition group-hover:text-casino-foreground">
+                          {g.title}
+                        </p>
+                        {g.provider ? (
+                          <p className="line-clamp-1 text-center text-[10px] text-casino-muted/80">{g.provider}</p>
+                        ) : null}
+                      </RequireAuthLink>
+                      <button
+                        type="button"
+                        title={isFavourite(g.id) ? 'Remove favourite' : 'Favourite'}
+                        className="absolute right-1 top-1 z-10 flex h-8 w-8 items-center justify-center rounded-[4px] border border-white/15 bg-black/75 text-base text-amber-400/90 shadow-sm backdrop-blur-sm hover:bg-black/90"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          if (!accessToken) {
+                            saveCatalogReturnBeforeGameOpen()
+                            openAuth('login', { navigateTo: lobbyTo })
+                            return
+                          }
+                          toggleFavourite(g.id)
+                          refreshFav()
+                        }}
+                      >
+                        {isFavourite(g.id) ? '★' : '☆'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
