@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,7 +26,7 @@ type withdrawReq struct {
 }
 
 // WithdrawHandler debits the ledger and sends from the user's own Fystack wallet.
-func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client) http.HandlerFunc {
+func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client, tickers *market.CryptoTickers) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
 		if !ok {
@@ -58,6 +60,14 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client)
 		assetID := resolveWithdrawAssetID(cfg, ccy, network)
 		if assetID == "" {
 			playerapi.WriteError(w, http.StatusBadRequest, "unsupported_asset", "no Fystack asset configured for "+ccy+" on "+network)
+			return
+		}
+
+		// Fraud checks before proceeding
+		fc := RunFraudChecks(r.Context(), pool, cfg, uid, body.AmountMinor)
+		if !fc.Allowed {
+			log.Printf("fraud check blocked withdrawal: user=%s amount=%d reason=%s", uid, body.AmountMinor, fc.Reason)
+			playerapi.WriteError(w, http.StatusForbidden, "fraud_check_failed", fc.Reason)
 			return
 		}
 
@@ -140,8 +150,12 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client)
 		providerWid := ""
 		status := "pending"
 		if cfg != nil && cfg.FystackConfigured() && fs != nil {
-			// Ledger stores USD cents; convert to token amount (stablecoins ≈ 1:1 USD).
-			amtStr := minorToDecimalString(body.AmountMinor, 2)
+			amtStr, convErr := centsToTokenAmount(ccy, body.AmountMinor, tickers)
+			if convErr != nil {
+				log.Printf("fystack withdraw: price conversion failed for %s: %v", ccy, convErr)
+				playerapi.WriteError(w, http.StatusBadGateway, "price_unavailable", "cannot get current "+ccy+" price for withdrawal; try again shortly")
+				return
+			}
 			log.Printf("fystack withdraw: user=%s wid=%s wallet=%s asset=%s amount=%s dest=%s", uid, wid, userWalletID, assetID, amtStr, body.Destination)
 			resp, st, rerr := fs.RequestWithdrawal(r.Context(), userWalletID, assetID, amtStr, body.Destination, idem)
 			if rerr != nil || st < 200 || st >= 300 {
@@ -152,7 +166,12 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client)
 					errInfo["provider_response"] = resp
 				}
 				_, _ = pool.Exec(r.Context(), `UPDATE fystack_withdrawals SET status = 'provider_error', raw = COALESCE(raw, '{}'::jsonb) || $2::jsonb WHERE id = $1`, wid, mustJSON(errInfo))
-				status = "provider_error"
+				providerMsg := extractProviderMessage(resp)
+				if providerMsg == "" {
+					providerMsg = "Withdrawal could not be processed right now"
+				}
+				playerapi.WriteError(w, http.StatusBadGateway, "provider_error", providerMsg)
+				return
 			} else {
 				providerWid = withdrawalIDFromFystack(resp)
 				log.Printf("fystack withdraw: SUCCESS wid=%s provider_wid=%s", wid, providerWid)
@@ -196,6 +215,21 @@ func resolveWithdrawAssetID(cfg *config.Config, symbol, network string) string {
 	return ""
 }
 
+func extractProviderMessage(resp map[string]any) string {
+	if resp == nil {
+		return ""
+	}
+	if s, ok := resp["message"].(string); ok && strings.TrimSpace(s) != "" {
+		return strings.TrimSpace(s)
+	}
+	if d, ok := resp["data"].(map[string]any); ok {
+		if s, ok := d["message"].(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
 func nullString(s string) any {
 	if strings.TrimSpace(s) == "" {
 		return nil
@@ -226,12 +260,35 @@ func withdrawalIDFromFystack(m map[string]any) string {
 		return s
 	}
 	if d, ok := m["data"].(map[string]any); ok {
-		if s, ok := d["id"].(string); ok {
+		if s, ok := d["id"].(string); ok && s != "" {
 			return s
 		}
-		if s, ok := d["withdrawal_id"].(string); ok {
+		if s, ok := d["withdrawal_id"].(string); ok && s != "" {
 			return s
+		}
+		if w, ok := d["withdrawal"].(map[string]any); ok {
+			if s, ok := w["id"].(string); ok && s != "" {
+				return s
+			}
 		}
 	}
 	return ""
+}
+
+// centsToTokenAmount converts USD cents to the correct token amount string for Fystack.
+// Stablecoins (USDT, USDC) are 1:1 with USD; volatile assets use the live CMC price.
+func centsToTokenAmount(symbol string, cents int64, tickers *market.CryptoTickers) (string, error) {
+	usd := float64(cents) / 100.0
+	sym := strings.ToUpper(strings.TrimSpace(symbol))
+	switch sym {
+	case "USDT", "USDC":
+		return fmt.Sprintf("%.2f", usd), nil
+	default:
+		price := tickers.PriceUSD(sym)
+		if price <= 0 {
+			return "", fmt.Errorf("no price available for %s", sym)
+		}
+		tokenAmt := usd / price
+		return fmt.Sprintf("%.8f", tokenAmt), nil
+	}
 }

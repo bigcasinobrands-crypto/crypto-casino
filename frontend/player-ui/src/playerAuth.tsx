@@ -243,6 +243,63 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     clearSession()
   }, [clearSession])
 
+  // Live balance: SSE stream for instant updates + 30s poll fallback
+  useEffect(() => {
+    if (!accessToken) return
+    void refreshProfile()
+    const t = window.setInterval(() => void refreshProfile(), 30_000)
+    return () => window.clearInterval(t)
+  }, [accessToken, refreshProfile])
+
+  // SSE balance stream — pushes every balance change within ~2s
+  useEffect(() => {
+    if (!accessToken) return
+    let cancelled = false
+    const controller = new AbortController()
+
+    async function connectStream() {
+      while (!cancelled) {
+        try {
+          const res = await fetch(playerApiUrl('/v1/wallet/balance/stream'), {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+          })
+          if (!res.ok || !res.body) return
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          let buf = ''
+          while (!cancelled) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += decoder.decode(value, { stream: true })
+            const lines = buf.split('\n')
+            buf = lines.pop() ?? ''
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const j = JSON.parse(line.slice(6)) as { balance_minor?: number }
+                  if (typeof j.balance_minor === 'number') {
+                    setBal(j.balance_minor)
+                  }
+                } catch { /* malformed SSE line */ }
+              }
+            }
+          }
+        } catch {
+          if (cancelled) return
+        }
+        // Reconnect after a short delay on disconnect
+        if (!cancelled) await new Promise((r) => setTimeout(r, 3000))
+      }
+    }
+
+    void connectStream()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [accessToken])
+
   const refreshAccess = useCallback(async () => refreshAccessInner(), [refreshAccessInner])
 
   const v = useMemo(

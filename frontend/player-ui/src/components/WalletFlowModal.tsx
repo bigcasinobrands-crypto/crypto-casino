@@ -192,7 +192,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
           </button>
           <button
             type="button"
-            className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg bg-casino-bg text-base text-casino-muted hover:text-casino-foreground"
+            className="flex w-10 shrink-0 items-center justify-center text-base text-casino-muted hover:text-casino-foreground"
             onClick={onClose}
             aria-label="Close"
           >

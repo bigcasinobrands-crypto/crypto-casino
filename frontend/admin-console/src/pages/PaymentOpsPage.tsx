@@ -56,6 +56,12 @@ export default function PaymentOpsPage() {
     void load()
   }, [load])
 
+  // Auto-refresh ops data every 10s
+  useEffect(() => {
+    const t = window.setInterval(() => void load(), 10_000)
+    return () => window.clearInterval(t)
+  }, [load])
+
   const reconcile = async () => {
     setBusy(true)
     setErr(null)
@@ -93,13 +99,18 @@ export default function PaymentOpsPage() {
         ) : (
           <p className="text-sm text-gray-500">No summary loaded.</p>
         )}
-        <button
-          type="button"
-          className="mt-4 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          onClick={() => void load()}
-        >
-          Refresh
-        </button>
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            type="button"
+            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            onClick={() => void load()}
+          >
+            Refresh
+          </button>
+          <span className="text-[10px] text-gray-400 dark:text-gray-500">
+            Auto-refresh every 10s
+          </span>
+        </div>
       </ComponentCard>
 
       <ComponentCard

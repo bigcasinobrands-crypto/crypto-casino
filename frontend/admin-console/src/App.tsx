@@ -45,7 +45,7 @@ export default function App() {
               />
               <Route
                 path="/ledger"
-                element={<DataTablePage title="Ledger" path="/v1/admin/ledger" />}
+                element={<DataTablePage title="Ledger" path="/v1/admin/ledger" refreshIntervalMs={10000} />}
               />
               <Route
                 path="/blueocean"
@@ -59,6 +59,7 @@ export default function App() {
                   <DataTablePage
                     title="Fystack payments"
                     path="/v1/admin/integrations/fystack/payments"
+                    refreshIntervalMs={10000}
                   />
                 }
               />
@@ -68,6 +69,7 @@ export default function App() {
                   <DataTablePage
                     title="Fystack withdrawals"
                     path="/v1/admin/integrations/fystack/withdrawals"
+                    refreshIntervalMs={10000}
                   />
                 }
               />

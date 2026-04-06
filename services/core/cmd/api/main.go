@@ -175,9 +175,10 @@ func main() {
 			})
 			r.Get("/games/{gameID}/blueocean-info", gameSrv.BlueOceanGameInfoHandler())
 			r.Get("/wallet/balance", wallet.BalanceHandler(pool))
+			r.Get("/wallet/balance/stream", wallet.BalanceStreamHandler(pool))
 			r.Get("/wallet/transactions", wallet.TransactionsHandler(pool))
 			r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
-			r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient))
+			r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient, cmcTickers))
 			r.Group(func(r chi.Router) {
 				r.Use(httprate.LimitByIP(60, time.Minute))
 				r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg, fsClient))

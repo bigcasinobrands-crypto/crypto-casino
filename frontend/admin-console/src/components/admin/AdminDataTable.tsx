@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FC } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react'
 import { formatApiError, readApiError } from '../../api/errors'
 import { useAdminActivityLog } from '../../notifications/AdminActivityLogContext'
 import { AngleDownIcon, AngleUpIcon } from '../../icons'
@@ -13,6 +13,8 @@ type SortDir = 'asc' | 'desc'
 type Props = {
   apiPath: string
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>
+  /** Auto-refresh interval in ms; 0 or undefined = no auto-refresh */
+  refreshIntervalMs?: number
 }
 
 function compareValues(a: unknown, b: unknown): number {
@@ -36,7 +38,7 @@ function compareValues(a: unknown, b: unknown): number {
 const PAGE_SIZES = [10, 25, 50, 100] as const
 const FETCH_LIMIT = 500
 
-const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
+const AdminDataTable: FC<Props> = ({ apiPath, apiFetch, refreshIntervalMs }) => {
   const { reportApiFailure, reportClientError } = useAdminActivityLog()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -90,15 +92,42 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
     setSortDir('asc')
   }, [apiFetch, apiPath, reportApiFailure, reportClientError])
 
+  // Silent refresh: updates rows without resetting sort/page
+  const silentRefresh = useCallback(async () => {
+    const q = apiPath.includes('?') ? '&' : '?'
+    try {
+      const res = await apiFetch(`${apiPath}${q}limit=${FETCH_LIMIT}`)
+      if (!res.ok) return
+      const data = (await res.json()) as unknown
+      const list = extractAdminListRows(apiPath, data)
+      if (list) setRows(list)
+    } catch {
+      // silent — don't overwrite UI on background failure
+    }
+  }, [apiFetch, apiPath])
+
+  const hasMounted = useRef(false)
+
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
-      if (!cancelled) void load()
+      if (!cancelled) {
+        hasMounted.current = true
+        void load()
+      }
     })
     return () => {
       cancelled = true
     }
   }, [load])
+
+  // Auto-refresh polling
+  useEffect(() => {
+    if (!refreshIntervalMs || refreshIntervalMs <= 0) return
+    if (!hasMounted.current) return
+    const t = window.setInterval(() => void silentRefresh(), refreshIntervalMs)
+    return () => window.clearInterval(t)
+  }, [refreshIntervalMs, silentRefresh])
 
   const columns = useMemo(() => inferColumns(rows), [rows])
 
@@ -152,11 +181,26 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch }) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Showing <span className="font-medium text-gray-800 dark:text-white/90">{rows.length}</span>{' '}
-          row{rows.length === 1 ? '' : 's'}
-          {rows.length >= FETCH_LIMIT ? ` (capped at ${FETCH_LIMIT})` : ''}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Showing <span className="font-medium text-gray-800 dark:text-white/90">{rows.length}</span>{' '}
+            row{rows.length === 1 ? '' : 's'}
+            {rows.length >= FETCH_LIMIT ? ` (capped at ${FETCH_LIMIT})` : ''}
+          </p>
+          <button
+            type="button"
+            onClick={() => void silentRefresh()}
+            className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+            title="Refresh data"
+          >
+            ↻ Refresh
+          </button>
+          {refreshIntervalMs ? (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+              Auto-refresh every {Math.round(refreshIntervalMs / 1000)}s
+            </span>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
           <label htmlFor="admin-page-size" className="text-sm text-gray-600 dark:text-gray-400">
             Per page

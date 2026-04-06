@@ -79,6 +79,22 @@ func NewCryptoTickers(apiKey string) *CryptoTickers {
 	}
 }
 
+// PriceUSD returns the cached USD price for a symbol, or 0 if unavailable.
+func (h *CryptoTickers) PriceUSD(symbol string) float64 {
+	if h == nil {
+		return 0
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	for _, t := range h.cached {
+		if strings.EqualFold(t.Symbol, symbol) {
+			return t.PriceUSD
+		}
+	}
+	return 0
+}
+
 // ServeHTTP implements http.Handler.
 func (h *CryptoTickers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

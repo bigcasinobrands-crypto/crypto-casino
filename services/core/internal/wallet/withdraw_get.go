@@ -43,7 +43,7 @@ func WithdrawalGetHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusNotFound, "not_found", "withdrawal not found")
 			return
 		}
-		txHash, explorerURL := extractWithdrawalTxFromRaw(raw)
+		txHash, explorerURL, errorMsg := extractWithdrawalTxFromRaw(raw, status)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id":            id,
@@ -53,14 +53,15 @@ func WithdrawalGetHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			"destination":   destination,
 			"tx_hash":       txHash,
 			"explorer_url":  explorerURL,
+			"error_message": errorMsg,
 		})
 	}
 }
 
-func extractWithdrawalTxFromRaw(raw []byte) (txHash, explorerURL string) {
+func extractWithdrawalTxFromRaw(raw []byte, status string) (txHash, explorerURL, errorMsg string) {
 	var m map[string]any
 	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
-		return "", ""
+		return "", "", ""
 	}
 	txHash = firstNonEmptyStringInMap(m, "tx_hash", "transaction_hash", "txHash", "hash")
 	explorerURL = firstNonEmptyStringInMap(m, "explorer_url", "explorerUrl", "block_explorer_url")
@@ -78,7 +79,15 @@ func extractWithdrawalTxFromRaw(raw []byte) (txHash, explorerURL string) {
 			}
 		}
 	}
-	return strings.TrimSpace(txHash), strings.TrimSpace(explorerURL)
+	if status == "provider_error" || status == "failed" {
+		if pr, ok := m["provider_response"].(map[string]any); ok {
+			errorMsg = firstNonEmptyStringInMap(pr, "message", "error_message", "error")
+		}
+		if errorMsg == "" {
+			errorMsg = firstNonEmptyStringInMap(m, "message", "err", "error_message")
+		}
+	}
+	return strings.TrimSpace(txHash), strings.TrimSpace(explorerURL), strings.TrimSpace(errorMsg)
 }
 
 func firstNonEmptyStringInMap(m map[string]any, keys ...string) string {

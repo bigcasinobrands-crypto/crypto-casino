@@ -269,11 +269,39 @@ func applyFystackWithdrawalStatus(ctx context.Context, tx pgx.Tx, inner map[stri
 	if pid == "" {
 		return nil
 	}
+	log.Printf("fystack withdrawal webhook: pid=%s status=%s inner_keys=%v", pid, status, mapKeys(inner))
+
+	txHash := strings.TrimSpace(str(inner["transaction_hash"]))
+	if txHash == "" {
+		if txn, ok := inner["transaction"].(map[string]any); ok {
+			txHash = strings.TrimSpace(str(txn["hash"]))
+			if txHash == "" {
+				txHash = strings.TrimSpace(str(txn["transaction_hash"]))
+			}
+		}
+	}
+
+	if txHash != "" {
+		rawPatch, _ := json.Marshal(map[string]any{"tx_hash": txHash})
+		_, err := tx.Exec(ctx, `
+			UPDATE fystack_withdrawals SET status = $2, raw = COALESCE(raw, '{}'::jsonb) || $3::jsonb
+			WHERE provider_withdrawal_id = $1 OR id = $1
+		`, pid, status, rawPatch)
+		return err
+	}
 	_, err := tx.Exec(ctx, `
 		UPDATE fystack_withdrawals SET status = $2
 		WHERE provider_withdrawal_id = $1 OR id = $1
 	`, pid, status)
 	return err
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func parseAmountMinor(inner map[string]any) (int64, bool) {

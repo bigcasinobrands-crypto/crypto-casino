@@ -74,6 +74,11 @@ type Config struct {
 	FystackDepositAssetID     string // optional: default deposit address asset
 	// FystackDepositAssets maps keys like USDT_ERC20 → Fystack asset UUID (from FYSTACK_DEPOSIT_ASSETS_JSON).
 	FystackDepositAssets map[string]string
+	// Withdrawal fraud parameters (all in USD cents unless noted)
+	WithdrawMaxSingleCents  int64 // max single withdrawal; 0 = no limit
+	WithdrawDailyLimitCents int64 // max total per user per 24h; 0 = no limit
+	WithdrawDailyCountLimit int   // max number of withdrawals per user per 24h; 0 = no limit
+	WithdrawMinAccountAgeSec int  // minimum account age in seconds; 0 = no restriction
 }
 
 // FystackDepositAssetCanonicalKeys are the standard on-chain deposit combinations we surface in admin UI.
@@ -213,6 +218,10 @@ func Load() (Config, error) {
 			}
 		}
 	}
+	c.WithdrawMaxSingleCents = parseIntEnv(os.Getenv("WITHDRAW_MAX_SINGLE_CENTS"), 0)
+	c.WithdrawDailyLimitCents = parseIntEnv(os.Getenv("WITHDRAW_DAILY_LIMIT_CENTS"), 0)
+	c.WithdrawDailyCountLimit = int(parseIntEnv(os.Getenv("WITHDRAW_DAILY_COUNT_LIMIT"), 0))
+	c.WithdrawMinAccountAgeSec = int(parseIntEnv(os.Getenv("WITHDRAW_MIN_ACCOUNT_AGE_SEC"), 0))
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")
 	}
@@ -259,6 +268,18 @@ func (c *Config) FystackCheckoutAssetList() []string {
 func parseBoolEnv(s string) bool {
 	s = strings.TrimSpace(strings.ToLower(s))
 	return s == "1" || s == "true" || s == "yes"
+}
+
+func parseIntEnv(s string, defaultVal int64) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return defaultVal
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return defaultVal
+	}
+	return n
 }
 
 func parseOriginsList(raw string, defaultOrigins []string) []string {
