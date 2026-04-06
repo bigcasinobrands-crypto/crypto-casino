@@ -35,10 +35,12 @@ type Service struct {
 	TermsVersion    string
 	PrivacyVersion  string
 	Fystack         FystackWalletProvisioner
+	DataDir         string
 }
 
-func (s *Service) Register(ctx context.Context, email, password string, acceptTerms, acceptPrivacy bool) (accessToken, refreshToken string, exp int64, err error) {
+func (s *Service) Register(ctx context.Context, email, password, username string, acceptTerms, acceptPrivacy bool) (accessToken, refreshToken string, exp int64, err error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+	username = strings.TrimSpace(username)
 	if email == "" {
 		return "", "", 0, ErrInvalidCredentials
 	}
@@ -48,10 +50,22 @@ func (s *Service) Register(ctx context.Context, email, password string, acceptTe
 	if err := ValidatePassword(password); err != nil {
 		return "", "", 0, err
 	}
+	if username != "" {
+		if err := validateUsername(username); err != nil {
+			return "", "", 0, err
+		}
+	}
 	var taken bool
 	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = lower($1))`, email).Scan(&taken)
 	if taken {
 		return "", "", 0, ErrInvalidCredentials
+	}
+	if username != "" {
+		var nameTaken bool
+		_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE lower(username) = lower($1))`, username).Scan(&nameTaken)
+		if nameTaken {
+			return "", "", 0, ErrUsernameTaken
+		}
 	}
 	tv, pv := s.TermsVersion, s.PrivacyVersion
 	if tv == "" {
@@ -64,11 +78,15 @@ func (s *Service) Register(ctx context.Context, email, password string, acceptTe
 	if err != nil {
 		return "", "", 0, err
 	}
+	var usernameVal *string
+	if username != "" {
+		usernameVal = &username
+	}
 	var id string
 	err = s.Pool.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, terms_accepted_at, terms_version, privacy_version)
-		VALUES ($1, $2, now(), $3, $4) RETURNING id::text
-	`, email, string(hash), tv, pv).Scan(&id)
+		INSERT INTO users (email, password_hash, username, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1, $2, $3, now(), $4, $5) RETURNING id::text
+	`, email, string(hash), usernameVal, tv, pv).Scan(&id)
 	if err != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}

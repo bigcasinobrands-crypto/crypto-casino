@@ -86,12 +86,54 @@ export default function PlayerDetailPage() {
           ← Player lookup
         </Link>
       </div>
-      <ComponentCard title="Profile" desc={`GET /v1/admin/users/${id ?? ''}`}>
+      <ComponentCard title="Profile" desc={`Player ${id ?? ''}`}>
         {err ? <p className="text-sm text-red-600 dark:text-red-400">{err}</p> : null}
         {data ? (
-          <pre className="overflow-auto rounded-lg bg-gray-50 p-3 text-xs dark:bg-gray-900/60">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+          <div className="flex flex-col gap-6">
+            {/* Player card */}
+            <div className="flex items-center gap-5">
+              <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-brand-200 bg-gray-100 dark:border-brand-700 dark:bg-gray-800">
+                {data.avatar_url ? (
+                  <img
+                    src={String(data.avatar_url)}
+                    alt="Avatar"
+                    className="size-full object-cover"
+                  />
+                ) : (
+                  <span className="text-xl font-bold text-gray-400 dark:text-gray-500">
+                    {(String(data.username ?? data.email ?? '?'))[0]?.toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                {data.username ? (
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">
+                    {String(data.username)}
+                  </p>
+                ) : null}
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {String(data.email ?? '')}
+                </p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  Joined {data.created_at ? new Date(String(data.created_at)).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '—'}
+                </p>
+              </div>
+            </div>
+
+            {/* Details table */}
+            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {Object.entries(data).map(([key, val]) => (
+                    <tr key={key}>
+                      <td className="whitespace-nowrap px-4 py-2.5 font-medium text-gray-500 dark:text-gray-400">{key}</td>
+                      <td className="break-all px-4 py-2.5 font-mono text-xs text-gray-900 dark:text-gray-100">{val == null ? '—' : String(val)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : !err ? (
           <p className="text-sm text-gray-500">Loading…</p>
         ) : null}

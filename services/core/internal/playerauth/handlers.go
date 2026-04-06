@@ -3,6 +3,7 @@ package playerauth
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ type Handler struct {
 type regReq struct {
 	Email          string `json:"email"`
 	Password       string `json:"password"`
+	Username       string `json:"username"`
 	AcceptTerms    bool   `json:"accept_terms"`
 	AcceptPrivacy  bool   `json:"accept_privacy"`
 	CaptchaToken   string `json:"captcha_token"`
@@ -76,7 +78,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.AcceptTerms, body.AcceptPrivacy)
+	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.Username, body.AcceptTerms, body.AcceptPrivacy)
 	if err != nil {
 		if errors.Is(err, ErrTermsNotAccepted) {
 			playerapi.WriteError(w, http.StatusBadRequest, "terms_required", "you must accept the terms and privacy policy")
@@ -84,6 +86,14 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, ErrWeakPassword) {
 			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
+			return
+		}
+		if errors.Is(err, ErrUsernameTaken) {
+			playerapi.WriteError(w, http.StatusConflict, "username_taken", "this username is already taken")
+			return
+		}
+		if errors.Is(err, ErrInvalidUsername) {
+			playerapi.WriteError(w, http.StatusBadRequest, "invalid_username", "username must be 3-20 characters, letters/numbers/underscores only")
 			return
 		}
 		if errors.Is(err, ErrInvalidCredentials) {
@@ -171,13 +181,20 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		verifiedAt = nil
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	out := map[string]any{
 		"id":                 p.ID,
 		"email":              p.Email,
 		"created_at":         p.CreatedAt.UTC().Format(time.RFC3339),
 		"email_verified":     verified,
 		"email_verified_at":  verifiedAt,
-	})
+	}
+	if p.Username != nil {
+		out["username"] = *p.Username
+	}
+	if p.AvatarURL != nil {
+		out["avatar_url"] = *p.AvatarURL
+	}
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
@@ -235,6 +252,160 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	var body struct {
+		Username *string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	if body.Username != nil {
+		u := strings.TrimSpace(*body.Username)
+		if err := h.Svc.UpdateUsername(r.Context(), id, u); err != nil {
+			if errors.Is(err, ErrUsernameTaken) {
+				playerapi.WriteError(w, http.StatusConflict, "username_taken", "this username is already taken")
+				return
+			}
+			if errors.Is(err, ErrInvalidUsername) {
+				playerapi.WriteError(w, http.StatusBadRequest, "invalid_username", "username must be 3-20 characters, letters/numbers/underscores only")
+				return
+			}
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "update failed")
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	if body.CurrentPassword == "" || body.NewPassword == "" {
+		playerapi.WriteError(w, http.StatusBadRequest, "missing_fields", "current and new password required")
+		return
+	}
+	if err := h.Svc.ChangePassword(r.Context(), id, body.CurrentPassword, body.NewPassword); err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			playerapi.WriteError(w, http.StatusUnauthorized, "wrong_password", "current password is incorrect")
+			return
+		}
+		if errors.Is(err, ErrWeakPassword) {
+			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
+			return
+		}
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not change password")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) GetPreferences(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	prefs, err := h.Svc.GetPreferences(r.Context(), id)
+	if err != nil {
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not load preferences")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(prefs)
+}
+
+func (h *Handler) UpdatePreferences(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	var patch map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	if err := h.Svc.UpdatePreferences(r.Context(), id, patch); err != nil {
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not save preferences")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) RedeemPromo(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	if err := h.Svc.RedeemPromo(r.Context(), id, body.Code); err != nil {
+		if errors.Is(err, ErrPromoAlreadyUsed) {
+			playerapi.WriteError(w, http.StatusConflict, "already_used", "you have already used this promo code")
+			return
+		}
+		playerapi.WriteError(w, http.StatusBadRequest, "invalid_code", "invalid promo code")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20) // 2 MB
+	if err := r.ParseMultipartForm(2 << 20); err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "too_large", "file must be under 2 MB")
+		return
+	}
+	file, hdr, err := r.FormFile("avatar")
+	if err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "missing_file", "avatar file required")
+		return
+	}
+	defer file.Close()
+
+	url, err := h.Svc.SaveAvatar(r.Context(), id, file, hdr.Filename)
+	if err != nil {
+		log.Printf("avatar upload error for user %s: %v", id, err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not save avatar")
+		return
+	}
+	log.Printf("avatar saved for user %s: %s", id, url)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"avatar_url": url})
 }
 
 func writeTokens(w http.ResponseWriter, access, refresh string, exp int64) {

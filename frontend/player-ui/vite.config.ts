@@ -9,7 +9,7 @@ export default defineConfig({
     proxy: {
       // Player API routes (add /v1/auth, etc. on the backend); admin stays on /v1/admin only.
       // 127.0.0.1 avoids Windows localhost → IPv6 (::1) mismatches when the API binds IPv4 only.
-      '/v1': { target: 'http://127.0.0.1:8080', changeOrigin: true },
+      '/v1': { target: 'http://127.0.0.1:8080', changeOrigin: true, ws: true },
       '/health': { target: 'http://127.0.0.1:8080', changeOrigin: true },
     },
   },

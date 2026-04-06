@@ -23,6 +23,8 @@ export type MeResponse = {
   created_at: string
   email_verified: boolean
   email_verified_at: string | null
+  username?: string
+  avatar_url?: string
 }
 
 type P = {
@@ -38,6 +40,7 @@ type P = {
   register: (input: {
     email: string
     password: string
+    username: string
     acceptTerms: boolean
     acceptPrivacy: boolean
     captchaToken?: string
@@ -197,6 +200,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     async (input: {
       email: string
       password: string
+      username: string
       acceptTerms: boolean
       acceptPrivacy: boolean
       captchaToken?: string
@@ -207,6 +211,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({
           email: input.email,
           password: input.password,
+          username: input.username,
           accept_terms: input.acceptTerms,
           accept_privacy: input.acceptPrivacy,
           ...(input.captchaToken ? { captcha_token: input.captchaToken } : {}),

@@ -11,6 +11,7 @@ import GamesCatalogPage from './pages/GamesCatalogPage'
 import LoginPage from './pages/LoginPage'
 import LogsPage from './pages/LogsPage'
 import PlayerDetailPage from './pages/PlayerDetailPage'
+import PlayersPage from './pages/PlayersPage'
 import SettingsPage from './pages/SettingsPage'
 import SupportLookupPage from './pages/SupportLookupPage'
 import PaymentOpsPage from './pages/PaymentOpsPage'
@@ -25,10 +26,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route element={<AdminLayout />}>
               <Route path="/" element={<DashboardPage />} />
-              <Route
-                path="/users"
-                element={<DataTablePage title="Players" path="/v1/admin/users" />}
-              />
+              <Route path="/users" element={<PlayersPage />} />
               <Route path="/support" element={<SupportLookupPage />} />
               <Route path="/support/player/:id" element={<PlayerDetailPage />} />
               <Route path="/bog" element={<BlueOceanOpsPage />} />

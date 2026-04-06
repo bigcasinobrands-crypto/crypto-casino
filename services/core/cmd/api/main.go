@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/crypto-casino/core/internal/adminops"
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/captcha"
+	"github.com/crypto-casino/core/internal/chat"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
 	"github.com/crypto-casino/core/internal/fystack"
@@ -82,6 +84,14 @@ func main() {
 	}
 	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient}
 	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH}
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	if abs, err := filepath.Abs(dataDir); err == nil {
+		dataDir = abs
+	}
+	log.Printf("DATA_DIR: %s", dataDir)
 	playerSvc := &playerauth.Service{
 		Pool:            pool,
 		Secret:          jwtPlayer,
@@ -89,6 +99,7 @@ func main() {
 		PublicPlayerURL: cfg.PublicPlayerURL,
 		TermsVersion:    cfg.TermsVersion,
 		PrivacyVersion:  cfg.PrivacyVersion,
+		DataDir:         dataDir,
 	}
 	if fsClient != nil {
 		playerSvc.Fystack = &fystack.WalletProvisioner{Pool: pool, Client: fsClient}
@@ -98,14 +109,8 @@ func main() {
 		Captcha: &captcha.Turnstile{Secret: cfg.TurnstileSecret},
 	}
 
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(echoRequestIDHeader)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
-	r.Use(securityHeaders)
+	chatHub := chat.NewHub()
+	go chatHub.Run()
 
 	adminCORS := cors.New(cors.Options{
 		AllowedOrigins:   cfg.AdminCORSOrigins,
@@ -116,73 +121,109 @@ func main() {
 	})
 	playerCORS := cors.New(cors.Options{
 		AllowedOrigins:   cfg.PlayerCORSOrigins,
-		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PATCH", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key", "X-Geo-Country"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	})
 
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
-	r.Get("/health/ready", readyHandler(pool, rdb))
-	r.Get("/health/operational", operationalHandler(pool, &cfg, bog))
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(echoRequestIDHeader)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
 
-	// BOG-registered seamless wallet path (proxy to same handler as needed in prod).
-	r.Get("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg))
-
-	r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
-	fystackHMAC := strings.TrimSpace(os.Getenv("WEBHOOK_FYSTACK_SECRET"))
-	r.Post("/v1/webhooks/fystack", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
-	r.Post("/v1/webhooks/fystack/workspace", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
-
-	r.Route("/v1/admin", func(r chi.Router) {
-		r.Use(adminCORS.Handler)
-		r.Use(httprate.LimitByIP(120, time.Minute))
-		staffH.Mount(r, jwtStaff)
-	})
-
-	r.Route("/v1", func(r chi.Router) {
+	// Long-lived connections (WebSocket, SSE) bypass the 60s Timeout middleware.
+	r.Group(func(r chi.Router) {
 		r.Use(playerCORS.Handler)
-		r.Group(func(r chi.Router) {
-			r.Use(httprate.LimitByIP(180, time.Minute))
-			r.Get("/games", gameSrv.ListHandler())
-			r.Get("/market/crypto-tickers", cmcTickers.ServeHTTP)
-			r.Get("/market/crypto-logo-urls", market.CryptoLogoURLsHandler(&cfg))
+		r.Get("/v1/chat/ws", chat.HandleWebSocket(chatHub, pool, jwtPlayer))
+	})
+
+	// All other routes get a 60s context deadline.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(60 * time.Second))
+
+		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		})
-		r.Route("/auth", func(r chi.Router) {
-			r.Use(httprate.LimitByIP(40, time.Minute))
-			r.Post("/register", playerH.Register)
-			r.Post("/login", playerH.Login)
-			r.Post("/refresh", playerH.Refresh)
-			r.Post("/logout", playerH.Logout)
-			r.Post("/verify-email", playerH.VerifyEmail)
-			r.Post("/forgot-password", playerH.ForgotPassword)
-			r.Post("/reset-password", playerH.ResetPassword)
+		r.Get("/health/ready", readyHandler(pool, rdb))
+		r.Get("/health/operational", operationalHandler(pool, &cfg, bog))
+
+		r.Get("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg))
+
+		r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
+		fystackHMAC := strings.TrimSpace(os.Getenv("WEBHOOK_FYSTACK_SECRET"))
+		r.Post("/v1/webhooks/fystack", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
+		r.Post("/v1/webhooks/fystack/workspace", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
+
+		r.Route("/v1/admin", func(r chi.Router) {
+			r.Use(adminCORS.Handler)
+			r.Use(httprate.LimitByIP(120, time.Minute))
+			staffH.Mount(r, jwtStaff)
+		})
+
+		r.Route("/v1", func(r chi.Router) {
+			r.Use(playerCORS.Handler)
+			r.Group(func(r chi.Router) {
+				r.Use(httprate.LimitByIP(180, time.Minute))
+				r.Get("/games", gameSrv.ListHandler())
+				r.Get("/market/crypto-tickers", cmcTickers.ServeHTTP)
+				r.Get("/market/crypto-logo-urls", market.CryptoLogoURLsHandler(&cfg))
+				avatarDir := http.Dir(dataDir + "/avatars")
+				r.Get("/avatars/*", http.StripPrefix("/v1/avatars/", http.FileServer(avatarDir)).ServeHTTP)
+			})
+			r.Route("/auth", func(r chi.Router) {
+				r.Use(httprate.LimitByIP(40, time.Minute))
+				r.Post("/register", playerH.Register)
+				r.Post("/login", playerH.Login)
+				r.Post("/refresh", playerH.Refresh)
+				r.Post("/logout", playerH.Logout)
+				r.Post("/verify-email", playerH.VerifyEmail)
+				r.Post("/forgot-password", playerH.ForgotPassword)
+				r.Post("/reset-password", playerH.ResetPassword)
 			r.Group(func(r chi.Router) {
 				r.Use(playerapi.BearerMiddleware(jwtPlayer))
 				r.Get("/me", playerH.Me)
+				r.Patch("/profile", playerH.UpdateProfile)
+				r.Post("/profile/avatar", playerH.UploadAvatar)
+				r.Post("/profile/change-password", playerH.ChangePassword)
+				r.Get("/profile/preferences", playerH.GetPreferences)
+				r.Patch("/profile/preferences", playerH.UpdatePreferences)
+				r.Post("/profile/redeem-promo", playerH.RedeemPromo)
 				r.Post("/verify-email/resend", playerH.ResendVerification)
 			})
-		})
-		r.Group(func(r chi.Router) {
-			r.Use(playerCORS.Handler)
-			r.Use(httprate.LimitByIP(180, time.Minute))
-			r.Use(playerapi.BearerMiddleware(jwtPlayer))
-			r.Post("/games/launch", func(w http.ResponseWriter, r *http.Request) {
-				httprate.LimitByIP(45, time.Minute)(http.HandlerFunc(gameSrv.LaunchHandler())).ServeHTTP(w, r)
 			})
-			r.Get("/games/{gameID}/blueocean-info", gameSrv.BlueOceanGameInfoHandler())
-			r.Get("/wallet/balance", wallet.BalanceHandler(pool))
-			r.Get("/wallet/balance/stream", wallet.BalanceStreamHandler(pool))
-			r.Get("/wallet/transactions", wallet.TransactionsHandler(pool))
-			r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
-			r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient, cmcTickers))
 			r.Group(func(r chi.Router) {
-				r.Use(httprate.LimitByIP(60, time.Minute))
-				r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg, fsClient))
-				r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg, fsClient))
+				r.Use(playerCORS.Handler)
+				r.Use(httprate.LimitByIP(180, time.Minute))
+				r.Use(playerapi.BearerMiddleware(jwtPlayer))
+				r.Post("/games/launch", func(w http.ResponseWriter, r *http.Request) {
+					httprate.LimitByIP(45, time.Minute)(http.HandlerFunc(gameSrv.LaunchHandler())).ServeHTTP(w, r)
+				})
+				r.Get("/games/{gameID}/blueocean-info", gameSrv.BlueOceanGameInfoHandler())
+				r.Get("/wallet/balance", wallet.BalanceHandler(pool))
+				r.Get("/wallet/balances", wallet.BalancesHandler(pool))
+				r.Get("/wallet/balance/stream", wallet.BalanceStreamHandler(pool))
+				r.Get("/wallet/transactions", wallet.TransactionsHandler(pool))
+				r.Get("/wallet/game-history", wallet.GameHistoryHandler(pool))
+				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
+				r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
+				r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient, cmcTickers))
+				r.Group(func(r chi.Router) {
+					r.Use(httprate.LimitByIP(60, time.Minute))
+					r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg, fsClient))
+					r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg, fsClient))
+				})
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(playerapi.BearerMiddleware(jwtPlayer))
+				r.Get("/chat/history", chat.HandleHistory(pool))
+				r.Post("/chat/delete", chat.HandleDeleteMessage(chatHub, pool))
+				r.Post("/chat/mute", chat.HandleMuteUser(pool))
+				r.Post("/chat/ban", chat.HandleBanUser(chatHub, pool))
 			})
 		})
 	})

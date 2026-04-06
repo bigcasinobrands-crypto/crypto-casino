@@ -13,6 +13,10 @@
   --color-casino-elevated: #1b1520;
   --color-casino-border: rgb(0 0 0 / 0.08);
   --color-casino-muted: #a099a8;
+  --color-casino-success: #14f195;
+  --color-casino-warning: #ffaa00;
+  --color-casino-destructive: #ff4b4b;
+  --color-casino-card: rgba(255, 255, 255, 0.03);
   --radius-casino-sm: 4px;
   --radius-casino-md: 6px;
   --radius-casino-lg: 8px;
@@ -79,6 +83,22 @@ body {
     mask-size: 100% 100%;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
+  }
+
+  /* Chat panel: thin 4px scrollbar. */
+  .scrollbar-chat {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  }
+  .scrollbar-chat::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-chat::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+  }
+  .scrollbar-chat::-webkit-scrollbar-track {
+    background: transparent;
   }
 }
 

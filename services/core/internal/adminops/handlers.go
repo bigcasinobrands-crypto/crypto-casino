@@ -60,7 +60,7 @@ func (h *Handler) Mount(r chi.Router) {
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 50)
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT id::text, email, created_at FROM users ORDER BY created_at DESC LIMIT $1
+		SELECT id::text, email, created_at, username, avatar_url FROM users ORDER BY created_at DESC LIMIT $1
 	`, limit)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
@@ -71,10 +71,18 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, email string
 		var ct time.Time
-		if err := rows.Scan(&id, &email, &ct); err != nil {
+		var uname, avatar *string
+		if err := rows.Scan(&id, &email, &ct, &uname, &avatar); err != nil {
 			continue
 		}
-		list = append(list, map[string]any{"id": id, "email": email, "created_at": ct.UTC().Format(time.RFC3339)})
+		u := map[string]any{"id": id, "email": email, "created_at": ct.UTC().Format(time.RFC3339)}
+		if uname != nil {
+			u["username"] = *uname
+		}
+		if avatar != nil {
+			u["avatar_url"] = *avatar
+		}
+		list = append(list, u)
 	}
 	writeJSON(w, map[string]any{"users": list})
 }

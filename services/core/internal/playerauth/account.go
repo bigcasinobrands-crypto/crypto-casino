@@ -3,6 +3,9 @@ package playerauth
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,17 +22,147 @@ type MeProfile struct {
 	Email           string
 	CreatedAt       time.Time
 	EmailVerifiedAt *time.Time
+	Username        *string
+	AvatarURL       *string
 }
 
 func (s *Service) MeProfile(ctx context.Context, userID string) (MeProfile, error) {
 	var p MeProfile
 	var ev *time.Time
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id::text, email, created_at, email_verified_at
+		SELECT id::text, email, created_at, email_verified_at, username, avatar_url
 		FROM users WHERE id = $1::uuid
-	`, userID).Scan(&p.ID, &p.Email, &p.CreatedAt, &ev)
+	`, userID).Scan(&p.ID, &p.Email, &p.CreatedAt, &ev, &p.Username, &p.AvatarURL)
 	p.EmailVerifiedAt = ev
 	return p, err
+}
+
+var ErrUsernameTaken = fmt.Errorf("username taken")
+var ErrInvalidUsername = fmt.Errorf("invalid username")
+
+func validateUsername(u string) error {
+	if len(u) < 3 || len(u) > 20 {
+		return ErrInvalidUsername
+	}
+	for _, c := range u {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return ErrInvalidUsername
+		}
+	}
+	return nil
+}
+
+func (s *Service) UpdateUsername(ctx context.Context, userID, username string) error {
+	if username == "" {
+		_, err := s.Pool.Exec(ctx, `UPDATE users SET username = NULL WHERE id = $1::uuid`, userID)
+		return err
+	}
+	if err := validateUsername(username); err != nil {
+		return err
+	}
+	var taken bool
+	_ = s.Pool.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM users WHERE lower(username) = lower($1) AND id != $2::uuid)
+	`, username, userID).Scan(&taken)
+	if taken {
+		return ErrUsernameTaken
+	}
+	_, err := s.Pool.Exec(ctx, `UPDATE users SET username = $1 WHERE id = $2::uuid`, username, userID)
+	return err
+}
+
+func (s *Service) SaveAvatar(ctx context.Context, userID string, file io.Reader, filename string) (string, error) {
+	ext := ".png"
+	if idx := strings.LastIndex(filename, "."); idx >= 0 {
+		ext = strings.ToLower(filename[idx:])
+	}
+	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true}
+	if !allowed[ext] {
+		ext = ".png"
+	}
+	dir := filepath.Join(s.DataDir, "avatars")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	dest := filepath.Join(dir, userID+ext)
+	f, err := os.Create(dest)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, file); err != nil {
+		return "", err
+	}
+	url := "/v1/avatars/" + userID + ext
+	_, err = s.Pool.Exec(ctx, `UPDATE users SET avatar_url = $1 WHERE id = $2::uuid`, url, userID)
+	return url, err
+}
+
+// ChangePassword validates the current password and sets a new one.
+func (s *Service) ChangePassword(ctx context.Context, userID, currentPw, newPw string) error {
+	if err := ValidatePassword(newPw); err != nil {
+		return err
+	}
+	var phash string
+	err := s.Pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1::uuid`, userID).Scan(&phash)
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+	if bcrypt.CompareHashAndPassword([]byte(phash), []byte(currentPw)) != nil {
+		return ErrInvalidCredentials
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newPw), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = s.Pool.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2::uuid`, string(newHash), userID)
+	return err
+}
+
+// GetPreferences returns the user's preferences JSON.
+func (s *Service) GetPreferences(ctx context.Context, userID string) (map[string]any, error) {
+	var prefs map[string]any
+	err := s.Pool.QueryRow(ctx, `SELECT COALESCE(preferences, '{}') FROM users WHERE id = $1::uuid`, userID).Scan(&prefs)
+	if err != nil {
+		return map[string]any{}, err
+	}
+	if prefs == nil {
+		prefs = map[string]any{}
+	}
+	return prefs, nil
+}
+
+// UpdatePreferences merges the given keys into the user's preferences JSON.
+func (s *Service) UpdatePreferences(ctx context.Context, userID string, patch map[string]any) error {
+	current, err := s.GetPreferences(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for k, v := range patch {
+		current[k] = v
+	}
+	_, err = s.Pool.Exec(ctx, `UPDATE users SET preferences = $1 WHERE id = $2::uuid`, current, userID)
+	return err
+}
+
+// RedeemPromo records a promo code redemption. Returns ErrPromoAlreadyUsed if already redeemed.
+var ErrPromoAlreadyUsed = fmt.Errorf("promo code already used")
+
+func (s *Service) RedeemPromo(ctx context.Context, userID, code string) error {
+	code = strings.TrimSpace(strings.ToUpper(code))
+	if code == "" {
+		return fmt.Errorf("empty promo code")
+	}
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO promo_redemptions (user_id, code) VALUES ($1::uuid, $2)
+	`, userID, code)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
+			return ErrPromoAlreadyUsed
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Service) sendVerificationEmail(ctx context.Context, userID, email string) error {

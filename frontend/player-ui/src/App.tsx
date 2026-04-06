@@ -2,9 +2,11 @@ import { adminAppHref, installPlayerCrossAppBridge } from '@repo/cross-app'
 import { useEffect, useState, useCallback } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
+import { playerApiUrl } from './lib/playerApiUrl'
 import { AuthModalProvider, useAuthModal, type PostAuthWalletTab } from './authModalContext'
 import { AuthModal } from './components/AuthModal'
 import BrandLogo from './components/BrandLogo'
+import ChatDrawer from './components/ChatDrawer'
 import { InstallGlobalPlayerToasts } from './components/InstallGlobalPlayerToasts'
 import { PlayerToaster } from './components/PlayerToaster'
 import GameSearchOverlay from './components/GameSearchOverlay'
@@ -15,6 +17,7 @@ import WalletFlowModal, { type WalletMainTab } from './components/WalletFlowModa
 import MainScrollRestoration from './components/MainScrollRestoration'
 import OperationalBanner from './components/OperationalBanner'
 import SiteFooter from './components/SiteFooter'
+import { useChat } from './hooks/useChat'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
 import {
   dismissPlayerCatalogSyncToast,
@@ -66,9 +69,11 @@ function CatalogFooter() {
   return <SiteFooter />
 }
 
-/** Header icon actions: solid brand purple + white glyph (`visited:` covers profile `<Link>`). */
 const iconBtn =
-  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-casino-primary text-white no-underline shadow-sm transition hover:brightness-110 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary focus-visible:text-white visited:text-white [&_svg]:shrink-0 [&_svg]:text-white'
+  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-white/[0.04] text-casino-muted no-underline shadow-sm transition hover:bg-casino-primary-dim hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary [&_svg]:shrink-0'
+
+const iconBtnActive =
+  'bg-casino-primary-dim text-casino-foreground [&_svg]:text-casino-foreground'
 
 export default function App() {
   useEffect(() => {
@@ -104,10 +109,15 @@ function AppShell() {
   const [searchParams, setSearchParams] = useSearchParams()
   const catalogSearchQ = searchParams.get('q') ?? ''
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('sidebar_collapsed') === 'true',
+  )
   const [walletOpen, setWalletOpen] = useState(false)
   const [walletTab, setWalletTab] = useState<WalletMainTab>('deposit')
   const [gameSearchOpen, setGameSearchOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const { accessToken } = usePlayerAuth()
+  const chat = useChat(accessToken, chatOpen)
   const { registerPostAuthWalletHandler } = useAuthModal()
   const showCasinoSearch =
     pathname.startsWith('/casino/') && !pathname.startsWith('/embed/')
@@ -139,7 +149,17 @@ function AppShell() {
 
   return (
     <div className="flex h-full min-h-0 w-full overflow-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased">
-      <CasinoSidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <CasinoSidebar
+        mobileOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => {
+          setSidebarCollapsed(c => {
+            localStorage.setItem('sidebar_collapsed', String(!c))
+            return !c
+          })
+        }}
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0">
           <OperationalBanner data={op.data} error={op.error} />
@@ -167,7 +187,7 @@ function AppShell() {
             {showCasinoSearch ? (
               <button
                 type="button"
-                className={iconBtn}
+                className={`${iconBtn} ${gameSearchOpen ? iconBtnActive : ''}`}
                 aria-label="Search games"
                 onClick={() => setGameSearchOpen(true)}
               >
@@ -178,10 +198,16 @@ function AppShell() {
               <>
                 <button
                   type="button"
-                  className={`${iconBtn} hidden sm:inline-flex`}
-                  aria-label="Messages (demo)"
+                  className={`${iconBtn} ${chatOpen ? iconBtnActive : ''} relative hidden sm:inline-flex`}
+                  aria-label="Chat"
+                  onClick={() => { setChatOpen(o => !o); if (!chatOpen) chat.resetUnread() }}
                 >
                   <IconMessageSquare size={18} aria-hidden />
+                  {chat.unreadCount > 0 && !chatOpen && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-casino-destructive px-1 text-[10px] font-bold text-white">
+                      {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
+                    </span>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -236,6 +262,7 @@ function AppShell() {
           <CatalogFooter />
         </main>
       </div>
+      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} chat={chat} />
     </div>
   )
 }
@@ -284,14 +311,31 @@ function HeaderAccount() {
 function HeaderProfileIcon() {
   const { accessToken, me } = usePlayerAuth()
   if (!accessToken) return null
+  const avatarSrc = me?.avatar_url ? playerApiUrl(me.avatar_url) : null
+  const label = me?.username ?? me?.email ?? 'Profile'
   return (
     <Link
       to="/profile"
-      className={iconBtn}
-      aria-label={me?.email ? `Account: ${me.email}` : 'Account and profile'}
-      title={me?.email ?? 'Profile'}
+      className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground"
+      aria-label={`Account: ${label}`}
+      title={label}
     >
-      <IconUser size={18} aria-hidden />
+      {avatarSrc ? (
+        <img
+          src={avatarSrc}
+          alt=""
+          className="size-7 rounded-full object-cover ring-2 ring-casino-primary/40"
+        />
+      ) : (
+        <div className="flex size-7 items-center justify-center rounded-full bg-casino-elevated ring-2 ring-casino-primary/40">
+          <IconUser size={14} aria-hidden />
+        </div>
+      )}
+      {me?.username && (
+        <span className="hidden text-sm font-semibold text-casino-foreground sm:inline">
+          {me.username}
+        </span>
+      )}
     </Link>
   )
 }

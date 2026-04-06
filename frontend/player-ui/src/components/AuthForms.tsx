@@ -240,6 +240,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
 
   const { register } = usePlayerAuth()
   const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -252,6 +253,10 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setErr(null)
+    if (!username.trim()) {
+      setErr('Please choose a username')
+      return
+    }
     if (password !== confirm) {
       setErr('Passwords do not match')
       return
@@ -264,6 +269,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
     const r = await register({
       email,
       password,
+      username: username.trim(),
       acceptTerms,
       acceptPrivacy,
       captchaToken: captcha ?? undefined,
@@ -296,6 +302,27 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               placeholder="you@example.com"
             />
           </InputRow>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <FieldLabel htmlFor={`${idPrefix}-reg-username`}>Username</FieldLabel>
+          <InputRow>
+            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <input
+              id={`${idPrefix}-reg-username`}
+              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              type="text"
+              autoComplete="username"
+              required
+              minLength={3}
+              maxLength={20}
+              pattern="[a-zA-Z0-9_]+"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Choose a username"
+            />
+          </InputRow>
+          <span className="text-[10px] text-casino-muted">3-20 characters, letters, numbers, and underscores</span>
         </div>
 
         <div className="flex flex-col gap-1">

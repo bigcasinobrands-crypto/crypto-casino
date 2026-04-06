@@ -230,16 +230,23 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	var email string
 	var created time.Time
 	var selfExcl, closed *time.Time
+	var uname, avatar *string
 	err := h.Pool.QueryRow(r.Context(), `
-		SELECT email, created_at, self_excluded_until, account_closed_at
+		SELECT email, created_at, self_excluded_until, account_closed_at, username, avatar_url
 		FROM users WHERE id = $1::uuid
-	`, id).Scan(&email, &created, &selfExcl, &closed)
+	`, id).Scan(&email, &created, &selfExcl, &closed, &uname, &avatar)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusNotFound, "not_found", "user not found")
 		return
 	}
 	out := map[string]any{
 		"id": id, "email": email, "created_at": created.UTC().Format(time.RFC3339),
+	}
+	if uname != nil {
+		out["username"] = *uname
+	}
+	if avatar != nil {
+		out["avatar_url"] = *avatar
 	}
 	if selfExcl != nil {
 		out["self_excluded_until"] = selfExcl.UTC().Format(time.RFC3339)
