@@ -125,7 +125,7 @@ function AssetLogo({
 type PanelTab = 'crypto' | 'fiat'
 
 const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
-  const { accessToken, balanceMinor } = usePlayerAuth()
+  const { accessToken, balanceMinor, balanceBreakdown } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const logoUrls = useCryptoLogoUrlMap()
   const [active, setActive] = useState<WalletOption>(loadSavedWallet)
@@ -200,9 +200,16 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
 
   const walletBarInner = (
     <>
-      <span className="shrink-0 pl-3 text-sm font-semibold tabular-nums text-white">
-        {formatBalance(accessToken ? balanceMinor : 0)}
-      </span>
+      <div className="flex shrink-0 flex-col items-end pl-3">
+        <span className="text-sm font-semibold tabular-nums text-white">
+          {formatBalance(accessToken ? balanceMinor : 0)}
+        </span>
+        {accessToken && balanceBreakdown && balanceBreakdown.bonusLockedMinor > 0 ? (
+          <span className="text-[10px] tabular-nums text-casino-muted">
+            Bonus {formatBalance(balanceBreakdown.bonusLockedMinor)}
+          </span>
+        ) : null}
+      </div>
       <div className="ml-1 shrink-0">
         <button
           type="button"

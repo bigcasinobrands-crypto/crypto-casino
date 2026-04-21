@@ -44,6 +44,11 @@ type Config struct {
 	BlueOceanCatalogPageSize    int    // 0 = single request (no limit/offset params); default 500
 	BlueOceanCatalogPagingStyle string // offset | page | from — query param shape for paging
 	BlueOceanImageBaseURL       string // optional origin for relative thumbnail paths from the API
+	// Full sportsbook (distinct BO product id / XAPI method — see BLUEOCEAN_SPORTSBOOK_* envs in .env.example)
+	BlueOceanSportsbookBOGID            int64
+	BlueOceanSportsbookCatalogGameID    string // optional internal games.id for the main sportsbook tile
+	BlueOceanSportsbookXAPIMethod       string // optional: non-empty → Call(method, params) instead of getGame/getGameDemo
+	BlueOceanSportsbookXAPIExtraParams  map[string]any
 	// Operations
 	MaintenanceMode       bool
 	DisableGameLaunch     bool
@@ -74,6 +79,10 @@ type Config struct {
 	FystackDepositAssetID     string // optional: default deposit address asset
 	// FystackDepositAssets maps keys like USDT_ERC20 → Fystack asset UUID (from FYSTACK_DEPOSIT_ASSETS_JSON).
 	FystackDepositAssets map[string]string
+	// Data directory for uploads and other local files
+	DataDir string
+	// BlueOceanBonusSyncEnabled logs dry-run mapping for promotion sync (no dual-grant without full integration).
+	BlueOceanBonusSyncEnabled bool
 	// Withdrawal fraud parameters (all in USD cents unless noted)
 	WithdrawMaxSingleCents  int64 // max single withdrawal; 0 = no limit
 	WithdrawDailyLimitCents int64 // max total per user per 24h; 0 = no limit
@@ -162,6 +171,20 @@ func Load() (Config, error) {
 		c.BlueOceanCatalogPagingStyle = "offset"
 	}
 	c.BlueOceanImageBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("BLUEOCEAN_IMAGE_BASE_URL")), "/")
+	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_SPORTSBOOK_BOG_GAME_ID")); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
+			c.BlueOceanSportsbookBOGID = n
+		}
+	}
+	c.BlueOceanSportsbookCatalogGameID = strings.TrimSpace(os.Getenv("BLUEOCEAN_SPORTSBOOK_GAME_ID"))
+	c.BlueOceanSportsbookXAPIMethod = strings.TrimSpace(os.Getenv("BLUEOCEAN_SPORTSBOOK_XAPI_METHOD"))
+	if raw := strings.TrimSpace(os.Getenv("BLUEOCEAN_SPORTSBOOK_XAPI_EXTRA_JSON")); raw != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err == nil && len(m) > 0 {
+			c.BlueOceanSportsbookXAPIExtraParams = m
+		}
+	}
+	c.BlueOceanBonusSyncEnabled = parseBoolEnv(os.Getenv("BLUEOCEAN_BONUS_SYNC_ENABLED"))
 	c.MaintenanceMode = parseBoolEnv(os.Getenv("MAINTENANCE_MODE"))
 	c.DisableGameLaunch = parseBoolEnv(os.Getenv("DISABLE_GAME_LAUNCH"))
 	c.SupportCRMURLTemplate = strings.TrimSpace(os.Getenv("SUPPORT_CRM_URL_TEMPLATE"))
@@ -218,12 +241,16 @@ func Load() (Config, error) {
 			}
 		}
 	}
+	c.DataDir = strings.TrimSpace(os.Getenv("DATA_DIR"))
+	if c.DataDir == "" {
+		c.DataDir = "./data"
+	}
 	c.WithdrawMaxSingleCents = parseIntEnv(os.Getenv("WITHDRAW_MAX_SINGLE_CENTS"), 0)
 	c.WithdrawDailyLimitCents = parseIntEnv(os.Getenv("WITHDRAW_DAILY_LIMIT_CENTS"), 0)
 	c.WithdrawDailyCountLimit = int(parseIntEnv(os.Getenv("WITHDRAW_DAILY_COUNT_LIMIT"), 0))
 	c.WithdrawMinAccountAgeSec = int(parseIntEnv(os.Getenv("WITHDRAW_MIN_ACCOUNT_AGE_SEC"), 0))
 	if c.DatabaseURL == "" {
-		return c, fmt.Errorf("DATABASE_URL is required")
+		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
 	}
 	if len(c.JWTSecret) < 32 {
 		return c, fmt.Errorf("JWT_SECRET must be at least 32 characters")

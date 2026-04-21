@@ -82,7 +82,10 @@ func main() {
 	if cfg.FystackDepositAssetID == "" && len(cfg.FystackDepositAssets) == 0 {
 		log.Printf("WARNING: No deposit assets configured — set FYSTACK_DEPOSIT_ASSET_ID or FYSTACK_DEPOSIT_ASSETS_JSON in .env")
 	}
-	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient}
+	chatHub := chat.NewHub()
+	go chatHub.Run()
+
+	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient, ChatHub: chatHub}
 	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH}
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
@@ -108,9 +111,6 @@ func main() {
 		Svc:     playerSvc,
 		Captcha: &captcha.Turnstile{Secret: cfg.TurnstileSecret},
 	}
-
-	chatHub := chat.NewHub()
-	go chatHub.Run()
 
 	adminCORS := cors.New(cors.Options{
 		AllowedOrigins:   cfg.AdminCORSOrigins,
@@ -168,8 +168,17 @@ func main() {
 		r.Route("/v1", func(r chi.Router) {
 			r.Use(playerCORS.Handler)
 			r.Group(func(r chi.Router) {
+				r.Use(httprate.LimitByIP(120, time.Minute))
+				adminH.MountPublicRoutes(r)
+				r.Get("/vip/program", wallet.VIPProgramHandler(pool))
+				uploadsRoot := filepath.Join(cfg.DataDir, "uploads")
+				_ = os.MkdirAll(uploadsRoot, 0o755)
+				r.Get("/uploads/*", http.StripPrefix("/v1/uploads/", http.FileServer(http.Dir(uploadsRoot))).ServeHTTP)
+			})
+			r.Group(func(r chi.Router) {
 				r.Use(httprate.LimitByIP(180, time.Minute))
 				r.Get("/games", gameSrv.ListHandler())
+				r.Get("/sportsbook/context", gameSrv.SportsbookContextHandler())
 				r.Get("/market/crypto-tickers", cmcTickers.ServeHTTP)
 				r.Get("/market/crypto-logo-urls", market.CryptoLogoURLsHandler(&cfg))
 				avatarDir := http.Dir(dataDir + "/avatars")
@@ -203,10 +212,22 @@ func main() {
 				r.Post("/games/launch", func(w http.ResponseWriter, r *http.Request) {
 					httprate.LimitByIP(45, time.Minute)(http.HandlerFunc(gameSrv.LaunchHandler())).ServeHTTP(w, r)
 				})
+				r.Post("/sportsbook/launch", func(w http.ResponseWriter, r *http.Request) {
+					httprate.LimitByIP(45, time.Minute)(http.HandlerFunc(gameSrv.SportsbookLaunchHandler())).ServeHTTP(w, r)
+				})
 				r.Get("/games/{gameID}/blueocean-info", gameSrv.BlueOceanGameInfoHandler())
 				r.Get("/wallet/balance", wallet.BalanceHandler(pool))
 				r.Get("/wallet/balances", wallet.BalancesHandler(pool))
 				r.Get("/wallet/balance/stream", wallet.BalanceStreamHandler(pool))
+				r.Get("/wallet/bonuses", wallet.BonusesHandler(pool))
+				r.With(httprate.LimitByIP(20, time.Minute)).Post("/wallet/bonuses/{bonusID}/forfeit", wallet.PlayerBonusForfeitHandler(pool))
+				r.With(httprate.LimitByIP(30, time.Minute)).Get("/bonuses/available", wallet.AvailableBonusesHandler(pool))
+				r.Get("/vip/status", wallet.VIPStatusHandler(pool))
+				r.Get("/rewards/hub", wallet.RewardsHubHandler(pool))
+				r.Get("/rewards/calendar", wallet.RewardsCalendarHandler(pool))
+				r.With(httprate.LimitByIP(40, time.Minute)).Post("/rewards/daily/claim", wallet.RewardsDailyClaimHandler(pool))
+				r.Get("/notifications", wallet.NotificationsHandler(pool))
+				r.Post("/notifications/read", wallet.PatchNotificationReadHandler(pool))
 				r.Get("/wallet/transactions", wallet.TransactionsHandler(pool))
 				r.Get("/wallet/game-history", wallet.GameHistoryHandler(pool))
 				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
@@ -221,9 +242,6 @@ func main() {
 			r.Group(func(r chi.Router) {
 				r.Use(playerapi.BearerMiddleware(jwtPlayer))
 				r.Get("/chat/history", chat.HandleHistory(pool))
-				r.Post("/chat/delete", chat.HandleDeleteMessage(chatHub, pool))
-				r.Post("/chat/mute", chat.HandleMuteUser(pool))
-				r.Post("/chat/ban", chat.HandleBanUser(chatHub, pool))
 			})
 		})
 	})

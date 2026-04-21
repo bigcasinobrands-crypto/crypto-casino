@@ -14,7 +14,7 @@ const maxSessionMinutes = 120.0
 
 // GameHistoryHandler returns per-game stats for the authenticated player:
 // sessions played, estimated avg session duration, first/last played, and
-// aggregate wager stats from game.debit / game.credit ledger entries.
+// aggregate wager stats from ledger game.debit|game.bet / game.credit|game.win entries.
 func GameHistoryHandler(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
@@ -104,18 +104,12 @@ func GameHistoryHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			}
 		}
 
-		// Aggregate wager stats from ledger
-		var totalWagered, totalWon int64
-		var totalBets, totalWins int
-		_ = pool.QueryRow(r.Context(), `
-			SELECT
-				COALESCE(SUM(CASE WHEN entry_type = 'game.debit' THEN ABS(amount_minor) ELSE 0 END), 0)::bigint,
-				COALESCE(COUNT(*) FILTER (WHERE entry_type = 'game.debit'), 0)::int,
-				COALESCE(SUM(CASE WHEN entry_type = 'game.credit' THEN amount_minor ELSE 0 END), 0)::bigint,
-				COALESCE(COUNT(*) FILTER (WHERE entry_type = 'game.credit'), 0)::int
-			FROM ledger_entries
-			WHERE user_id = $1::uuid AND entry_type IN ('game.debit', 'game.credit')
-		`, uid).Scan(&totalWagered, &totalBets, &totalWon, &totalWins)
+		// Aggregate wager stats (same rules as GET /v1/wallet/stats)
+		totalWagered, totalBets, totalWon, _, totalWins, err := QueryPlayerBettingTotals(r.Context(), pool, uid)
+		if err != nil {
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "ledger stats failed")
+			return
+		}
 
 		if games == nil {
 			games = []map[string]any{}

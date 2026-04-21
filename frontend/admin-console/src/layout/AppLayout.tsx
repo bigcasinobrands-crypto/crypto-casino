@@ -4,6 +4,7 @@ import { Outlet } from "react-router-dom";
 import AppHeader from "./AppHeader";
 import Backdrop from "./Backdrop";
 import AppSidebar from "./AppSidebar";
+import GlobalSearch from "../components/GlobalSearch";
 
 const LayoutContent: FC = () => {
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
@@ -24,6 +25,7 @@ const LayoutContent: FC = () => {
           <Outlet />
         </div>
       </div>
+      <GlobalSearch />
     </div>
   );
 };

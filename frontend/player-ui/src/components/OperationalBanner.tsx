@@ -3,17 +3,10 @@ import type { OperationalHealth } from '../hooks/useOperationalHealth'
 
 type Props = {
   data: OperationalHealth | null
-  error: string | null
 }
 
-const OperationalBanner: FC<Props> = ({ data, error }) => {
-  if (error && !data) {
-    return (
-      <div className="border-b border-amber-500/40 bg-amber-950/40 px-4 py-2 text-center text-xs text-amber-200">
-        Could not load service status ({error}).
-      </div>
-    )
-  }
+const OperationalBanner: FC<Props> = ({ data }) => {
+  // Connectivity / HTTP errors are surfaced via Sonner in AppShell (deduped), not this bar.
   if (!data) return null
   if (data.maintenance_mode) {
     return (

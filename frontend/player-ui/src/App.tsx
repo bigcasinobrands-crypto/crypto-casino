@@ -12,22 +12,26 @@ import { PlayerToaster } from './components/PlayerToaster'
 import GameSearchOverlay from './components/GameSearchOverlay'
 import CasinoSidebar from './components/CasinoSidebar'
 import HeaderWalletBar from './components/HeaderWalletBar'
-import { IconBell, IconMenu, IconMessageSquare, IconSearch, IconUser } from './components/icons'
+import { IconCrown, IconMenu, IconMessageSquare, IconSearch, IconUser } from './components/icons'
+import NotificationBell from './components/NotificationBell'
 import WalletFlowModal, { type WalletMainTab } from './components/WalletFlowModal'
 import MainScrollRestoration from './components/MainScrollRestoration'
 import OperationalBanner from './components/OperationalBanner'
 import SiteFooter from './components/SiteFooter'
 import { useChat } from './hooks/useChat'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
-import {
-  dismissPlayerCatalogSyncToast,
-  toastPlayerCatalogSyncWarning,
-} from './notifications/playerToast'
+import { SiteContentProvider } from './hooks/useSiteContent'
+import { dismissPlayerCatalogSyncToast, toastPlayerCatalogSyncWarning } from './notifications/playerToast'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
 import DemoEmbedPage from './pages/DemoEmbedPage'
 import GameLobbyPage from './pages/GameLobbyPage'
+import SportsPage from './pages/SportsPage'
+import LegalPage from './pages/LegalPage'
 import LobbyPage from './pages/LobbyPage'
 import ProfilePage from './pages/ProfilePage'
+import RewardsPage from './pages/RewardsPage'
+import RewardsPreviewPage from './pages/RewardsPreviewPage'
+import VipPage from './pages/VipPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import WalletDepositPage from './pages/WalletDepositPage'
@@ -65,7 +69,13 @@ function LegacyWalletWithdrawPathRedirect() {
 
 function CatalogFooter() {
   const { pathname } = useLocation()
-  if (pathname.startsWith('/casino/game-lobby/') || pathname.startsWith('/embed/')) return null
+  if (
+    pathname.startsWith('/casino/game-lobby/') ||
+    pathname.startsWith('/casino/sports') ||
+    pathname.startsWith('/embed/')
+  ) {
+    return null
+  }
   return <SiteFooter />
 }
 
@@ -81,14 +91,16 @@ export default function App() {
   }, [])
 
   return (
-    <PlayerAuthProvider>
-      <AuthModalProvider>
-        <PlayerToaster />
-        <InstallGlobalPlayerToasts />
-        <AppShell />
-        <AuthModal />
-      </AuthModalProvider>
-    </PlayerAuthProvider>
+    <SiteContentProvider>
+      <PlayerAuthProvider>
+        <AuthModalProvider>
+          <PlayerToaster />
+          <InstallGlobalPlayerToasts />
+          <AppShell />
+          <AuthModal />
+        </AuthModalProvider>
+      </PlayerAuthProvider>
+    </SiteContentProvider>
   )
 }
 
@@ -162,7 +174,7 @@ function AppShell() {
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0">
-          <OperationalBanner data={op.data} error={op.error} />
+          <OperationalBanner data={op.data} />
         </div>
         <header className="relative z-50 flex h-16 shrink-0 items-center gap-2 border-b border-casino-border bg-casino-topbar px-3 sm:px-5 md:px-6">
           <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
@@ -209,13 +221,7 @@ function AppShell() {
                     </span>
                   )}
                 </button>
-                <button
-                  type="button"
-                  className={`${iconBtn} hidden sm:inline-flex`}
-                  aria-label="Notifications"
-                >
-                  <IconBell size={18} aria-hidden />
-                </button>
+                <NotificationBell className={`${iconBtn} relative inline-flex`} />
                 <HeaderProfileIcon />
                 <StaffConsoleLink />
               </>
@@ -244,6 +250,7 @@ function AppShell() {
             <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
             <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
             <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPage />} />
+            <Route path="/casino/sports" element={<SportsPage />} />
             <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
             <Route path="/casino/:section" element={<LobbyPage operationalData={op.data} />} />
             <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />
@@ -252,11 +259,18 @@ function AppShell() {
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/rewards/preview" element={<RewardsPreviewPage />} />
+            <Route path="/rewards" element={<RewardsPage />} />
+            <Route path="/vip" element={<VipPage />} />
             <Route path="/wallet/deposit" element={<WalletDepositPage />} />
             <Route path="/wallet/deposit/instructions" element={<LegacyDepositInstructionsRedirect />} />
             <Route path="/wallet/deposit/submitted" element={<LegacyDepositSubmittedRedirect />} />
             <Route path="/wallet/withdraw" element={<LegacyWalletWithdrawPathRedirect />} />
             <Route path="/wallet/withdraw/success" element={<LegacyWalletWithdrawPathRedirect />} />
+            <Route path="/terms" element={<LegalPage contentKey="legal.terms_of_service" fallbackTitle="Terms of Service" />} />
+            <Route path="/privacy" element={<LegalPage contentKey="legal.privacy_policy" fallbackTitle="Privacy Policy" />} />
+            <Route path="/responsible-gambling" element={<LegalPage contentKey="legal.responsible_gambling" fallbackTitle="Responsible Gambling" />} />
+            <Route path="/fairness" element={<LegalPage contentKey="legal.fairness" fallbackTitle="Fairness" />} />
             <Route path="/embed/demo/:demoId" element={<DemoEmbedPage />} />
           </Routes>
           <CatalogFooter />
@@ -313,29 +327,43 @@ function HeaderProfileIcon() {
   if (!accessToken) return null
   const avatarSrc = me?.avatar_url ? playerApiUrl(me.avatar_url) : null
   const label = me?.username ?? me?.email ?? 'Profile'
+  const vip = me?.vip_tier?.trim()
   return (
     <Link
       to="/profile"
       className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground"
-      aria-label={`Account: ${label}`}
-      title={label}
+      aria-label={`Account: ${label}${vip ? ` · VIP ${vip}` : ''}`}
+      title={vip ? `${label} · VIP ${vip}` : label}
     >
-      {avatarSrc ? (
-        <img
-          src={avatarSrc}
-          alt=""
-          className="size-7 rounded-full object-cover ring-2 ring-casino-primary/40"
-        />
-      ) : (
-        <div className="flex size-7 items-center justify-center rounded-full bg-casino-elevated ring-2 ring-casino-primary/40">
-          <IconUser size={14} aria-hidden />
-        </div>
-      )}
-      {me?.username && (
-        <span className="hidden text-sm font-semibold text-casino-foreground sm:inline">
-          {me.username}
-        </span>
-      )}
+      <div className="relative shrink-0">
+        {avatarSrc ? (
+          <img
+            src={avatarSrc}
+            alt=""
+            className="size-7 rounded-full object-cover ring-2 ring-casino-primary/40"
+          />
+        ) : (
+          <div className="flex size-7 items-center justify-center rounded-full bg-casino-elevated ring-2 ring-casino-primary/40">
+            <IconUser size={14} aria-hidden />
+          </div>
+        )}
+        {vip ? (
+          <span
+            className="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full bg-casino-primary text-white shadow-md ring-2 ring-casino-bg"
+            title={`VIP ${vip}`}
+          >
+            <IconCrown size={10} aria-hidden />
+          </span>
+        ) : null}
+      </div>
+      <span className="hidden min-w-0 flex-col sm:flex">
+        {me?.username ? (
+          <span className="truncate text-sm font-semibold text-casino-foreground">{me.username}</span>
+        ) : null}
+        {vip ? (
+          <span className="truncate text-[10px] font-bold uppercase tracking-wide text-casino-primary">{vip}</span>
+        ) : null}
+      </span>
     </Link>
   )
 }

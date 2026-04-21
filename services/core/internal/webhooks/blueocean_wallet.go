@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,9 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playcheck"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -70,6 +73,8 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config) http.HandlerF
 			txnID = "na"
 		}
 
+		gameID := firstNonEmpty(q, "game_id", "gameid", "gid", "game", "game_code")
+
 		switch action {
 		case "", "balance":
 			sum, err := ledger.AvailableBalance(ctx, pool, userID)
@@ -85,7 +90,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config) http.HandlerF
 				writeBOWallet(w, "400", "0")
 				return
 			}
-			sum, st, err := applyBOSeamless(ctx, pool, userID, ccy, action, remote, txnID, amt)
+			sum, st, err := applyBOSeamless(ctx, pool, userID, ccy, action, remote, txnID, amt, gameID)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
 				writeBOWallet(w, "500", strconv.FormatInt(sum, 10))
@@ -146,7 +151,18 @@ func firstNonEmpty(q url.Values, keys ...string) string {
 	return ""
 }
 
-func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, action, remote, txnID string, amount int64) (balance int64, status string, err error) {
+func debitMagnitudeByIdem(ctx context.Context, tx pgx.Tx, idem string) int64 {
+	var sum int64
+	_ = tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries WHERE idempotency_key = $1
+	`, idem).Scan(&sum)
+	if sum >= 0 {
+		return 0
+	}
+	return -sum
+}
+
+func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, action, remote, txnID string, amount int64, gameID string) (balance int64, status string, err error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, "500", err
@@ -162,27 +178,84 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, actio
 		return 0, "500", err
 	}
 
+	meta := map[string]any{"remote_id": remote, "txn": txnID, "game_id": gameID}
+
 	switch action {
 	case "debit":
+		if err := bonus.CheckBetAllowedTx(ctx, tx, userID, gameID, amount); err != nil {
+			if errors.Is(err, bonus.ErrExcludedGame) || errors.Is(err, bonus.ErrMaxBetExceeded) {
+				return bal, "403", nil
+			}
+			return bal, "500", err
+		}
 		if bal < amount {
 			return bal, "402", nil
 		}
-		idem := fmt.Sprintf("bo:game:debit:%s:%s", remote, txnID)
-		_, err = ledger.ApplyDebitTx(ctx, tx, userID, ccy, "game.debit", idem, amount, map[string]any{"remote_id": remote, "txn": txnID})
+		bonusBal, err := ledger.BalanceBonusLockedTx(ctx, tx, userID)
 		if err != nil {
+			return bal, "500", err
+		}
+		cashBal, err := ledger.BalanceCashTx(ctx, tx, userID)
+		if err != nil {
+			return bal, "500", err
+		}
+		fromBonus := amount
+		if fromBonus > bonusBal {
+			fromBonus = bonusBal
+		}
+		fromCash := amount - fromBonus
+		if cashBal < fromCash {
+			return bal, "402", nil
+		}
+		if fromBonus > 0 {
+			idemB := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID)
+			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
+			if err != nil {
+				return bal, "500", err
+			}
+		}
+		if fromCash > 0 {
+			idemC := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, txnID)
+			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta)
+			if err != nil {
+				return bal, "500", err
+			}
+		}
+		if err := bonus.ApplyPostBetWagering(ctx, tx, userID, gameID, fromBonus); err != nil {
 			return bal, "500", err
 		}
 	case "credit":
 		idem := fmt.Sprintf("bo:game:credit:%s:%s", remote, txnID)
-		_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idem, amount, map[string]any{"remote_id": remote, "txn": txnID})
+		_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idem, amount, meta)
 		if err != nil {
 			return bal, "500", err
 		}
 	case "rollback":
-		idem := fmt.Sprintf("bo:game:rollback:%s:%s", remote, txnID)
-		_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.rollback", idem, amount, map[string]any{"remote_id": remote, "txn": txnID})
-		if err != nil {
-			return bal, "500", err
+		bKey := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID)
+		cKey := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, txnID)
+		fb := debitMagnitudeByIdem(ctx, tx, bKey)
+		fc := debitMagnitudeByIdem(ctx, tx, cKey)
+		if fb+fc == 0 {
+			idem := fmt.Sprintf("bo:game:rollback:%s:%s", remote, txnID)
+			_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.rollback", idem, amount, meta)
+			if err != nil {
+				return bal, "500", err
+			}
+		} else {
+			if fb > 0 {
+				idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s", remote, txnID)
+				_, err = ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
+				if err != nil {
+					return bal, "500", err
+				}
+			}
+			if fc > 0 {
+				idemRC := fmt.Sprintf("bo:game:rollback:cash:%s:%s", remote, txnID)
+				_, err = ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
+				if err != nil {
+					return bal, "500", err
+				}
+			}
 		}
 	}
 

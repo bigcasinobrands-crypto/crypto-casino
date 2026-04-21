@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
@@ -30,6 +30,7 @@ import {
   IconWallet,
 } from '../components/icons'
 import { playerApiUrl } from '../lib/playerApiUrl'
+import { useVipStatus } from '../hooks/useVipStatus'
 
 const supportUrl = import.meta.env.VITE_SUPPORT_URL as string | undefined
 const rgUrl = import.meta.env.VITE_RG_URL as string | undefined
@@ -223,37 +224,296 @@ interface PlayerStats {
 const EMPTY_STATS: PlayerStats = { totalWagered: 0, totalBets: 0, highestWin: 0, netProfit: 0 }
 
 function usePlayerStats(): { stats: PlayerStats; loading: boolean } {
-  const { apiFetch } = usePlayerAuth()
+  const { apiFetch, accessToken } = usePlayerAuth()
   const [stats, setStats] = useState<PlayerStats>(EMPTY_STATS)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!accessToken) {
+      setStats(EMPTY_STATS)
+      setLoading(false)
+      return
+    }
+
     let cancelled = false
-    ;(async () => {
+
+    const load = async () => {
+      setLoading(true)
       try {
         const res = await apiFetch('/v1/wallet/stats')
-        if (!res.ok) { setLoading(false); return }
+        if (!res.ok) {
+          if (!cancelled) setStats(EMPTY_STATS)
+          return
+        }
         const j = (await res.json()) as {
-          total_wagered: number
-          total_bets: number
-          highest_win: number
-          net_profit: number
+          total_wagered?: number
+          total_bets?: number
+          highest_win?: number
+          net_profit?: number
         }
         if (!cancelled) {
           setStats({
-            totalWagered: j.total_wagered,
-            totalBets: j.total_bets,
-            highestWin: j.highest_win,
-            netProfit: j.net_profit,
+            totalWagered: Number(j.total_wagered ?? 0),
+            totalBets: Number(j.total_bets ?? 0),
+            highestWin: Number(j.highest_win ?? 0),
+            netProfit: Number(j.net_profit ?? 0),
           })
         }
-      } catch { /* ignore */ }
-      if (!cancelled) setLoading(false)
-    })()
-    return () => { cancelled = true }
-  }, [apiFetch])
+      } catch {
+        if (!cancelled) setStats(EMPTY_STATS)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+
+    const poll = window.setInterval(() => void load(), 30_000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVis)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(poll)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [apiFetch, accessToken])
 
   return { stats, loading }
+}
+
+function formatMinorUsd(minor: number) {
+  return `$${(minor / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+type PlayerBonusRow = {
+  id: string
+  promotion_version_id: number
+  status: string
+  granted_amount_minor: number
+  currency: string
+  wr_required_minor: number
+  wr_contributed_minor: number
+  created_at: string
+  title?: string
+  bonus_type?: string
+}
+
+type OfferRow = {
+  promotion_version_id: number
+  title: string
+  description: string
+  kind: string
+  schedule_summary?: string
+  trigger_type?: string
+}
+
+type BonusListFilter = 'active' | 'past' | 'all'
+
+function statusBucket(status: string): 'active' | 'past' {
+  const s = status.toLowerCase()
+  if (s === 'active' || s === 'pending' || s === 'pending_review') return 'active'
+  return 'past'
+}
+
+function PlayerBonusesPanel() {
+  const { apiFetch, refreshProfile } = usePlayerAuth()
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [bonuses, setBonuses] = useState<PlayerBonusRow[]>([])
+  const [offers, setOffers] = useState<OfferRow[]>([])
+  const [bonusLockedMinor, setBonusLockedMinor] = useState<number | null>(null)
+  const [listFilter, setListFilter] = useState<BonusListFilter>('active')
+  const [reloadTick, setReloadTick] = useState(0)
+  const [forfeitBusyId, setForfeitBusyId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setLoading(true)
+      setErr(null)
+      try {
+        const [bRes, oRes] = await Promise.all([
+          apiFetch('/v1/wallet/bonuses'),
+          apiFetch('/v1/bonuses/available'),
+        ])
+        if (cancelled) return
+        if (bRes.ok) {
+          const j = (await bRes.json()) as {
+            bonuses?: PlayerBonusRow[]
+            wallet?: { bonus_locked_minor?: number }
+          }
+          setBonuses(Array.isArray(j.bonuses) ? j.bonuses : [])
+          setBonusLockedMinor(typeof j.wallet?.bonus_locked_minor === 'number' ? j.wallet.bonus_locked_minor : null)
+        } else {
+          setBonuses([])
+          setBonusLockedMinor(null)
+        }
+        if (oRes.ok) {
+          const j2 = (await oRes.json()) as { offers?: OfferRow[] }
+          setOffers(Array.isArray(j2.offers) ? j2.offers : [])
+        } else {
+          setOffers([])
+        }
+        if (!bRes.ok && !oRes.ok) {
+          setErr('Could not load bonuses')
+        }
+      } catch {
+        if (!cancelled) setErr('Network error')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch, reloadTick])
+
+  const filteredBonuses = useMemo(() => {
+    if (listFilter === 'all') return bonuses
+    return bonuses.filter((b) => statusBucket(b.status) === listFilter)
+  }, [bonuses, listFilter])
+
+  const forfeitBonus = useCallback(
+    async (id: string) => {
+      if (
+        !window.confirm(
+          'Forfeit this bonus? Remaining locked bonus funds from this offer will be removed and wagering progress will be lost.',
+        )
+      ) {
+        return
+      }
+      setForfeitBusyId(id)
+      try {
+        const res = await apiFetch(`/v1/wallet/bonuses/${encodeURIComponent(id)}/forfeit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        if (!res.ok) {
+          const apiErr = await readApiError(res)
+          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+          toastPlayerApiError(apiErr, res.status, 'POST /v1/wallet/bonuses/forfeit', rid)
+          return
+        }
+        void refreshProfile()
+        setReloadTick((t) => t + 1)
+      } catch {
+        toastPlayerNetworkError('Network error.', 'POST /v1/wallet/bonuses/forfeit')
+      } finally {
+        setForfeitBusyId(null)
+      }
+    },
+    [apiFetch, refreshProfile],
+  )
+
+  return (
+    <div className="rounded-casino-lg border border-white/[0.06] bg-casino-card p-4 sm:p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <IconGift size={20} className="text-casino-primary" aria-hidden />
+        <h2 className="text-sm font-extrabold tracking-wide text-casino-foreground">Bonuses</h2>
+      </div>
+      <p className="mb-3 text-xs leading-relaxed text-casino-muted">
+        Eligible deposit offers can credit automatically after a qualifying deposit (when the platform worker is
+        running). Promo codes use Settings → Promo Code.
+      </p>
+      {loading ? <p className="text-sm text-casino-muted">Loading…</p> : null}
+      {err ? <p className="text-sm text-red-400">{err}</p> : null}
+      {!loading && bonusLockedMinor != null ? (
+        <p className="mb-3 text-xs text-casino-muted">
+          Locked bonus balance: <span className="font-semibold text-casino-foreground">{formatMinorUsd(bonusLockedMinor)}</span>
+        </p>
+      ) : null}
+      {!loading && !err && offers.length > 0 ? (
+        <div className="mb-4">
+          <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-casino-muted">Eligible for you</h3>
+          <ul className="space-y-2">
+            {offers.map((o) => (
+              <li
+                key={o.promotion_version_id}
+                className="rounded-casino-md border border-white/[0.06] bg-casino-elevated/40 px-3 py-2 text-sm"
+              >
+                <div className="font-semibold text-casino-foreground">{o.title || 'Offer'}</div>
+                {o.description ? <p className="mt-1 text-xs text-casino-muted">{o.description}</p> : null}
+                <p className="mt-1 text-[11px] text-casino-muted">
+                  {o.kind === 'redeem_code' ? 'Redeem with a code' : 'Auto on deposit'} ·{' '}
+                  {o.schedule_summary ?? 'Active'}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {!loading && bonuses.length > 0 ? (
+        <div>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-[11px] font-bold uppercase tracking-wide text-casino-muted">Your bonus instances</h3>
+            <div className="flex gap-1 rounded-casino-md border border-white/[0.08] p-0.5">
+              {(['active', 'past', 'all'] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setListFilter(key)}
+                  className={`rounded-casino-sm px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                    listFilter === key
+                      ? 'bg-casino-primary/20 text-casino-foreground'
+                      : 'text-casino-muted hover:text-casino-foreground'
+                  }`}
+                >
+                  {key === 'all' ? 'All' : key === 'past' ? 'History' : 'Active'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {filteredBonuses.length === 0 ? (
+            <p className="text-xs text-casino-muted">Nothing in this tab.</p>
+          ) : (
+            <ul className="space-y-2">
+              {filteredBonuses.map((b) => {
+                const st = b.status.toLowerCase()
+                const canForfeit = st === 'active' || st === 'pending'
+                return (
+                  <li
+                    key={b.id}
+                    className="rounded-casino-md border border-white/[0.06] bg-casino-elevated/40 px-3 py-2 text-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="min-w-0 font-semibold text-casino-foreground">
+                        {b.title?.trim() || `Promotion #${b.promotion_version_id}`}
+                        <span className="ml-2 text-xs font-normal capitalize text-casino-muted">({b.status})</span>
+                      </span>
+                      <span className="text-xs text-casino-muted">{b.currency}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-casino-muted">
+                      Granted {formatMinorUsd(b.granted_amount_minor)} · WR {formatMinorUsd(b.wr_contributed_minor)} /{' '}
+                      {formatMinorUsd(b.wr_required_minor)}
+                    </p>
+                    {canForfeit ? (
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          disabled={forfeitBusyId === b.id}
+                          onClick={() => void forfeitBonus(b.id)}
+                          className="rounded-casino-sm border border-red-500/40 px-2 py-1 text-[11px] font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          {forfeitBusyId === b.id ? 'Working…' : 'Forfeit'}
+                        </button>
+                      </div>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      ) : null}
+      {!loading && !err && offers.length === 0 && bonuses.length === 0 ? (
+        <p className="text-sm text-casino-muted">No active bonuses yet. Published deposit offers appear here when you qualify.</p>
+      ) : null}
+    </div>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -329,6 +589,15 @@ export default function ProfilePage() {
                   Unverified
                 </span>
               )}
+              {me?.vip_tier ? (
+                <Link
+                  to="/vip"
+                  className="inline-flex items-center gap-1 rounded-casino-sm bg-casino-primary/20 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-primary ring-1 ring-casino-primary/35 transition hover:bg-casino-primary/30"
+                >
+                  <IconCrown size={12} aria-hidden />
+                  VIP · {me.vip_tier}
+                </Link>
+              ) : null}
             </div>
           </div>
         </div>
@@ -389,7 +658,8 @@ export default function ProfilePage() {
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
-          <div>
+          <div className="flex flex-col gap-6">
+            <PlayerBonusesPanel />
             <TransactionsPanel txs={recentTxs.slice(0, 10)} loading={txLoading} />
           </div>
           <div className="flex flex-col gap-6">
@@ -565,19 +835,46 @@ function AvatarUpload({
 /* ------------------------------------------------------------------ */
 
 function VipProgressPanel() {
+  const { data, loading, err } = useVipStatus()
+  const nextMin = data?.progress?.next_tier_min_wager_minor
+  const life = data?.progress?.lifetime_wager_minor ?? 0
+  const pct =
+    nextMin && nextMin > 0 ? Math.min(100, Math.round((life / nextMin) * 100)) : loading ? 0 : 0
+  const remain = data?.progress?.remaining_wager_minor
+
   return (
     <div className="flex w-full max-w-sm flex-col gap-3 rounded-casino-md bg-white/[0.02] p-4 sm:p-5">
       <div className="flex items-center justify-between text-[13px] font-bold">
         <div className="flex items-center gap-2 text-casino-foreground">
           <IconCrown size={16} className="text-casino-primary" />
-          <span>Member</span>
+          <span>{loading ? '…' : data?.tier ?? 'Member'}</span>
         </div>
-        <span className="text-xs text-casino-muted">Next: Bronze</span>
+        <span className="text-xs text-casino-muted">
+          {data?.next_tier ? `Next: ${data.next_tier}` : 'VIP'}
+        </span>
       </div>
+      {err ? <p className="text-xs text-red-400">{err}</p> : null}
       <div className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
-        <div className="h-full w-[5%] rounded-full bg-casino-primary transition-all duration-500" />
+        <div
+          className="h-full rounded-full bg-casino-primary transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
       </div>
-      <div className="text-right text-xs font-bold text-casino-primary">5% to Bronze</div>
+      <div className="text-right text-xs font-bold text-casino-primary">
+        {loading
+          ? 'Loading…'
+          : remain != null && nextMin
+            ? `${formatMinorUsd(remain)} to go`
+            : pct > 0
+              ? `${pct}% toward next tier`
+              : 'Play to progress'}
+      </div>
+      <Link
+        to="/vip"
+        className="text-center text-[11px] font-semibold text-casino-muted underline transition hover:text-casino-primary"
+      >
+        View VIP programme
+      </Link>
     </div>
   )
 }

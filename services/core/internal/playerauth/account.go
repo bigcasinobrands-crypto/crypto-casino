@@ -24,17 +24,26 @@ type MeProfile struct {
 	EmailVerifiedAt *time.Time
 	Username        *string
 	AvatarURL       *string
+	VIPTierID       *int
+	VIPTierName     *string
 }
 
 func (s *Service) MeProfile(ctx context.Context, userID string) (MeProfile, error) {
 	var p MeProfile
 	var ev *time.Time
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id::text, email, created_at, email_verified_at, username, avatar_url
-		FROM users WHERE id = $1::uuid
-	`, userID).Scan(&p.ID, &p.Email, &p.CreatedAt, &ev, &p.Username, &p.AvatarURL)
+		SELECT u.id::text, u.email, u.created_at, u.email_verified_at, u.username, u.avatar_url,
+			pvs.tier_id, vt.name
+		FROM users u
+		LEFT JOIN player_vip_state pvs ON pvs.user_id = u.id
+		LEFT JOIN vip_tiers vt ON vt.id = pvs.tier_id
+		WHERE u.id = $1::uuid
+	`, userID).Scan(&p.ID, &p.Email, &p.CreatedAt, &ev, &p.Username, &p.AvatarURL, &p.VIPTierID, &p.VIPTierName)
 	p.EmailVerifiedAt = ev
-	return p, err
+	if err != nil {
+		return p, err
+	}
+	return p, nil
 }
 
 var ErrUsernameTaken = fmt.Errorf("username taken")

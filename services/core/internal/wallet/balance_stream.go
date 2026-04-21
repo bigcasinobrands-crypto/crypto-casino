@@ -31,13 +31,24 @@ func BalanceStreamHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 
-		// Send initial balance immediately
-		var lastBalance int64 = -1
-		if bal, err := ledger.BalanceMinor(r.Context(), pool, uid); err == nil {
-			lastBalance = bal
-			fmt.Fprintf(w, "data: {\"balance_minor\":%d}\n\n", bal)
+		lastSig := ""
+		writeBal := func() {
+			ctx := r.Context()
+			bal, err := ledger.BalanceMinor(ctx, pool, uid)
+			if err != nil {
+				return
+			}
+			cash, _ := ledger.BalanceCash(ctx, pool, uid)
+			bon, _ := ledger.BalanceBonusLocked(ctx, pool, uid)
+			sig := fmt.Sprintf("%d:%d:%d", bal, cash, bon)
+			if sig == lastSig {
+				return
+			}
+			lastSig = sig
+			fmt.Fprintf(w, "data: {\"balance_minor\":%d,\"cash_minor\":%d,\"bonus_locked_minor\":%d}\n\n", bal, cash, bon)
 			flusher.Flush()
 		}
+		writeBal()
 
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -47,15 +58,7 @@ func BalanceStreamHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			case <-r.Context().Done():
 				return
 			case <-ticker.C:
-				bal, err := ledger.BalanceMinor(r.Context(), pool, uid)
-				if err != nil {
-					continue
-				}
-				if bal != lastBalance {
-					lastBalance = bal
-					fmt.Fprintf(w, "data: {\"balance_minor\":%d}\n\n", bal)
-					flusher.Flush()
-				}
+				writeBal()
 			}
 		}
 	}

@@ -114,14 +114,14 @@ func (s *Server) ListHandler() http.HandlerFunc {
 				hashes = s.Cfg.BlueOceanFeaturedIDHashes
 			}
 			if len(hashes) == 0 {
-				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]any{"games": []listRow{}})
-				return
+				// No BLUEOCEAN_FEATURED_ID_HASHES: avoid an empty "Hot now" row; show newest titles.
+				order = "is_new DESC, title ASC"
+			} else {
+				where = append(where, "id_hash = ANY($"+itoa(argN)+"::text[])")
+				order = "array_position($" + itoa(argN) + "::text[], id_hash) NULLS LAST, title ASC"
+				args = append(args, hashes)
+				argN++
 			}
-			where = append(where, "id_hash = ANY($"+itoa(argN)+"::text[])")
-			order = "array_position($" + itoa(argN) + "::text[], id_hash) NULLS LAST, title ASC"
-			args = append(args, hashes)
-			argN++
 		} else {
 			switch sort {
 			case "new":
@@ -307,50 +307,18 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		method := "getGameDemo"
-		params := map[string]any{
-			"currency":   s.Cfg.BlueOceanCurrency,
-			"gameid":     bogID,
-			"playforfun": true,
-			"userid":     remote,
-		}
-		if s.Cfg != nil && s.Cfg.BlueOceanMulticurrency {
-			params["multicurrency"] = 1
-		}
-		if mode == "real" {
-			method = "getGame"
-			params["playforfun"] = false
-		} else {
-			if !playFun {
+		launchURL, err := s.blueOceanLaunchFromBogID(r.Context(), remote, bogID, mode, playFun)
+		if err != nil {
+			if errors.Is(err, errDemoNotSupported) {
 				playerapi.WriteError(w, http.StatusConflict, "demo_unavailable", "demo not supported for this game")
 				return
 			}
-		}
-		if aid := strings.TrimSpace(s.Cfg.BlueOceanAgentID); aid != "" {
-			if n, err := strconv.ParseInt(aid, 10, 64); err == nil && n > 0 {
-				params["agentid"] = n
-			} else {
-				params["associateid"] = aid
+			if errors.Is(err, errBogUnconfigured) {
+				playerapi.WriteError(w, http.StatusServiceUnavailable, "bog_unconfigured", "Blue Ocean API is not configured")
+				return
 			}
-		}
-
-		raw, status, err := s.BOG.Call(r.Context(), method, params)
-		if err != nil {
-			log.Printf("games launch: transport error method=%s game_id=%s bog_id=%d: %v", method, body.GameID, bogID, err)
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "provider connection failed: "+err.Error())
-			return
-		}
-		if status < 200 || status >= 300 {
-			msg := blueocean.FormatAPIError(raw, status)
-			log.Printf("games launch: provider HTTP %d method=%s game_id=%s bog_id=%d: %s", status, method, body.GameID, bogID, msg)
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", msg)
-			return
-		}
-		launchURL, err := blueocean.ExtractLaunchURL(raw)
-		if err != nil || launchURL == "" {
-			msg := blueocean.FormatAPIError(raw, status)
-			log.Printf("games launch: no URL method=%s game_id=%s bog_id=%d body=%.300q", method, body.GameID, bogID, string(raw))
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "no launch URL in provider response — "+msg)
+			log.Printf("games launch: game_id=%s bog_id=%d: %v", body.GameID, bogID, err)
+			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", err.Error())
 			return
 		}
 

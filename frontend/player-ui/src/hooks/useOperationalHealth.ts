@@ -17,9 +17,13 @@ export type OperationalHealth = {
   last_catalog_sync_at?: string | null
 }
 
+/**
+ * Polls GET /health/operational for banners and catalog warnings.
+ * Best-effort: transient failures (API restarting, dev player-only) do not clear last good data
+ * and do not surface connection errors in the UI.
+ */
 export function useOperationalHealth(pollMs = 60_000) {
   const [data, setData] = useState<OperationalHealth | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -27,16 +31,17 @@ export function useOperationalHealth(pollMs = 60_000) {
       try {
         const res = await fetch(playerApiUrl('/health/operational'))
         if (!res.ok) {
-          if (!cancelled) setError(`HTTP ${res.status}`)
+          if (import.meta.env.DEV && !cancelled) {
+            console.debug(`[operational] HTTP ${res.status} — keeping last payload if any`)
+          }
           return
         }
         const j = (await res.json()) as OperationalHealth
-        if (!cancelled) {
-          setData(j)
-          setError(null)
-        }
+        if (!cancelled) setData(j)
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'fetch failed')
+        if (import.meta.env.DEV && !cancelled) {
+          console.debug('[operational] fetch failed — keeping last payload if any', e)
+        }
       }
     }
     void load()
@@ -47,5 +52,5 @@ export function useOperationalHealth(pollMs = 60_000) {
     }
   }, [pollMs])
 
-  return { data, error }
+  return { data }
 }

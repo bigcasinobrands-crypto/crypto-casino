@@ -3,6 +3,7 @@ package webhooks
 import (
 	"context"
 
+	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,10 +29,14 @@ func ReconcileStaleFystackDeliveries(ctx context.Context, pool *pgxpool.Pool) (i
 	}
 	n := 0
 	for _, id := range ids {
-		if err := ProcessFystackWebhookDelivery(ctx, pool, id); err != nil {
+		settled, err := ProcessFystackWebhookDelivery(ctx, pool, id)
+		if err != nil {
 			continue
 		}
 		n++
+		if settled != nil {
+			_ = bonus.EvaluatePaymentSettled(ctx, pool, *settled)
+		}
 	}
 	return n, nil
 }

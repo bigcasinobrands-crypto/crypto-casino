@@ -9,8 +9,11 @@ func TestPrimaryLobbyKey(t *testing.T) {
 	}{
 		{"live-casino-table", "live"},
 		{"live-casino", "live"},
+		{"slots", "slots"},
+		{"slot", "slots"},
 		{"video-slots", "slots"},
 		{"video-slot-mega", "slots"},
+		{"live", "live"},
 		{"table-games", "table"},
 		{"crash-games", "crash"},
 		{"something-unknown", "other"},

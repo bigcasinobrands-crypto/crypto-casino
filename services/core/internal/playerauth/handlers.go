@@ -194,6 +194,12 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	if p.AvatarURL != nil {
 		out["avatar_url"] = *p.AvatarURL
 	}
+	if p.VIPTierID != nil {
+		out["vip_tier_id"] = *p.VIPTierID
+	}
+	if p.VIPTierName != nil && *p.VIPTierName != "" {
+		out["vip_tier"] = *p.VIPTierName
+	}
 	_ = json.NewEncoder(w).Encode(out)
 }
 

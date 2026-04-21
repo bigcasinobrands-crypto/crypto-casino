@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAdminAuth } from '../authContext'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
+import { AreaChart, ChartCard, StatCard } from '../components/dashboard'
+import { formatCompact, formatPct } from '../lib/format'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
@@ -37,6 +39,16 @@ type ProviderRow = {
 
 type SortKey = keyof Row
 type SortDir = 'asc' | 'desc'
+
+type GameRtpStats = {
+  total_bets_minor?: number
+  total_wins_minor?: number
+  ggr_minor?: number
+  rtp_pct?: number
+  unique_players?: number
+  total_sessions?: number
+  rtp_by_day?: { date: string; bets_minor: number; wins_minor: number; rtp_pct: number }[]
+}
 
 type ConfirmState =
   | {
@@ -200,6 +212,11 @@ export default function GamesCatalogPage() {
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
 
+  const [rtpGame, setRtpGame] = useState<Row | null>(null)
+  const [rtpData, setRtpData] = useState<GameRtpStats | null>(null)
+  const [rtpLoading, setRtpLoading] = useState(false)
+  const [rtpErr, setRtpErr] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     setErr(null)
@@ -218,6 +235,35 @@ export default function GamesCatalogPage() {
     setLoading(false)
     setPage(1)
   }, [apiFetch, reportApiFailure])
+
+  const loadRtpStats = useCallback(
+    async (gameId: string) => {
+      setRtpErr(null)
+      setRtpLoading(true)
+      setRtpData(null)
+      try {
+        const path = `/v1/admin/games/${encodeURIComponent(gameId)}/rtp-stats`
+        const res = await apiFetch(path)
+        if (!res.ok) {
+          const parsed = await readApiError(res)
+          reportApiFailure({ res, parsed, method: 'GET', path })
+          setRtpErr(formatApiError(parsed, `HTTP ${res.status}`))
+          return
+        }
+        setRtpData((await res.json()) as GameRtpStats)
+      } catch {
+        setRtpErr('Network error')
+      } finally {
+        setRtpLoading(false)
+      }
+    },
+    [apiFetch, reportApiFailure],
+  )
+
+  const openRtpPanel = (row: Row) => {
+    setRtpGame(row)
+    void loadRtpStats(row.id)
+  }
 
   const loadProviders = useCallback(async () => {
     setProvLoading(true)
@@ -256,6 +302,23 @@ export default function GamesCatalogPage() {
       cancelled = true
     }
   }, [loadProviders])
+
+  const [launches24h, setLaunches24h] = useState<number | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch('/v1/admin/dashboard/kpis')
+        if (cancelled || !res.ok) return
+        const j = (await res.json()) as { game_launches_24h?: number }
+        if (!cancelled && typeof j.game_launches_24h === 'number') {
+          setLaunches24h(j.game_launches_24h)
+        }
+      } catch { /* stat card degrades gracefully */ }
+    })()
+    return () => { cancelled = true }
+  }, [apiFetch])
 
   const stats = useMemo(() => {
     const total = rows.length
@@ -383,6 +446,21 @@ export default function GamesCatalogPage() {
     <>
       <PageMeta title="Games · Admin" description="Catalog, visibility, and monitoring" />
       <PageBreadcrumb pageTitle="Games" />
+
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Total games"
+          value={loading ? '—' : formatCompact(stats.total)}
+        />
+        <StatCard
+          label="Active providers"
+          value={loading ? '—' : formatCompact(stats.providerKeys)}
+        />
+        <StatCard
+          label="Launches 24h"
+          value={launches24h != null ? formatCompact(launches24h) : '—'}
+        />
+      </div>
 
       <ComponentCard
         title="Providers"
@@ -568,6 +646,7 @@ export default function GamesCatalogPage() {
                     <th className="px-3 py-2 font-medium">{sortBtn('bog_game_id', 'BOG id')}</th>
                     <th className="px-3 py-2 font-medium">{sortBtn('updated_at', 'Updated')}</th>
                     <th className="px-3 py-2 font-medium">{sortBtn('effective_in_lobby', 'Player lobby')}</th>
+                    <th className="px-3 py-2 font-medium">RTP</th>
                     <th className="px-3 py-2 font-medium">Player</th>
                     {canManageLobby ? <th className="px-3 py-2 font-medium">Actions</th> : null}
                   </tr>
@@ -623,6 +702,15 @@ export default function GamesCatalogPage() {
                             Off
                           </span>
                         )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          className="text-xs text-brand-600 underline dark:text-brand-400"
+                          onClick={() => openRtpPanel(r)}
+                        >
+                          Stats
+                        </button>
                       </td>
                       <td className="px-3 py-2">
                         <a
@@ -706,6 +794,67 @@ export default function GamesCatalogPage() {
           </>
         )}
       </ComponentCard>
+
+      {rtpGame ? (
+        <ComponentCard
+          className="mt-6"
+          title={`RTP & sessions · ${rtpGame.title || rtpGame.id}`}
+          desc={`Game id ${rtpGame.id}. Based on ledger / launch aggregates in admin dashboard.`}
+        >
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-600"
+              onClick={() => {
+                setRtpGame(null)
+                setRtpData(null)
+                setRtpErr(null)
+              }}
+            >
+              Close panel
+            </button>
+            <button
+              type="button"
+              className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs text-white hover:bg-brand-600 disabled:opacity-50"
+              disabled={rtpLoading}
+              onClick={() => void loadRtpStats(rtpGame.id)}
+            >
+              {rtpLoading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
+          {rtpErr ? <p className="text-sm text-red-600 dark:text-red-400">{rtpErr}</p> : null}
+          {rtpData && !rtpLoading ? (
+            <div className="space-y-4">
+              <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <dt className="text-xs text-gray-500">Observed RTP</dt>
+                  <dd className="font-medium">{formatPct(rtpData.rtp_pct ?? 0)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Unique players</dt>
+                  <dd className="font-medium">{rtpData.unique_players ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-gray-500">Sessions</dt>
+                  <dd className="font-medium">{rtpData.total_sessions ?? '—'}</dd>
+                </div>
+              </dl>
+              {rtpData.rtp_by_day && rtpData.rtp_by_day.length > 0 ? (
+                <ChartCard title="RTP by day">
+                  <AreaChart
+                    categories={rtpData.rtp_by_day.map((d) => d.date)}
+                    series={[{ name: 'RTP %', data: rtpData.rtp_by_day.map((d) => d.rtp_pct), color: '#7C3AED' }]}
+                    height={220}
+                    yFormatter={(v) => `${v.toFixed(1)}%`}
+                  />
+                </ChartCard>
+              ) : (
+                <p className="text-sm text-gray-500">No daily RTP breakdown yet.</p>
+              )}
+            </div>
+          ) : null}
+        </ComponentCard>
+      ) : null}
 
       <ConfirmDialog
         open={confirmOpen}

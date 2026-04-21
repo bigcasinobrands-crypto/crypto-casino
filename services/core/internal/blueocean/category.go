@@ -12,6 +12,10 @@ func PrimaryLobbyKey(gameType string) string {
 	switch {
 	case gt == "live-casino" || strings.HasPrefix(gt, "live-casino"):
 		return "live"
+	case gt == "live":
+		return "live"
+	case gt == "slots" || gt == "slot":
+		return "slots"
 	case gt == "video-slots" || strings.HasPrefix(gt, "video-slot"):
 		return "slots"
 	case gt == "table-games" || gt == "video-poker":

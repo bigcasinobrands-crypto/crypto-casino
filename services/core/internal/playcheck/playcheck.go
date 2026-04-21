@@ -8,6 +8,7 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/paymentflags"
+	"github.com/crypto-casino/core/internal/sitegeo"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,8 +26,12 @@ func LaunchAllowed(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, 
 		}
 	}
 	cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
-	if cc != "" && len(cfg.BlockedCountryCodes) > 0 {
-		for _, b := range cfg.BlockedCountryCodes {
+	if cc != "" {
+		blocked := cfg.BlockedCountryCodes
+		if dbCodes, err := sitegeo.BlockedCountryCodesFromDB(ctx, pool); err == nil && len(dbCodes) > 0 {
+			blocked = dbCodes
+		}
+		for _, b := range blocked {
 			if b == cc {
 				return false, "geo_blocked"
 			}

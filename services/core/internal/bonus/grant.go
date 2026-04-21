@@ -1,0 +1,250 @@
+package bonus
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/obs"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// ErrBonusesDisabled is returned when global bonus kill switch is off.
+var ErrBonusesDisabled = errors.New("bonuses are disabled")
+
+// ErrBonusInstanceNotFound is returned when a bonus instance id does not exist.
+var ErrBonusInstanceNotFound = errors.New("bonus: instance not found")
+
+// ErrBonusInstanceForbidden is returned when a user does not own the instance.
+var ErrBonusInstanceForbidden = errors.New("bonus: instance forbidden")
+
+// GrantArgs is a server-side grant request (never trust client amounts).
+type GrantArgs struct {
+	UserID             string
+	PromotionVersionID int64
+	IdempotencyKey     string
+	GrantAmountMinor   int64
+	Currency           string
+	DepositAmountMinor int64 // stored in snapshot for disputes
+	// AllowPausedPromotion skips grants_paused when true (e.g. superadmin manual grant).
+	AllowPausedPromotion bool
+}
+
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// CountActiveIncompleteWagering returns active bonus instances that still owe wagering.
+// New promo grants (including daily calendar claims) are blocked while this is > 0.
+func CountActiveIncompleteWagering(ctx context.Context, pool *pgxpool.Pool, userID string) (int64, error) {
+	return countActiveIncompleteWagering(ctx, pool, userID)
+}
+
+func countActiveIncompleteWagering(ctx context.Context, q rowQuerier, userID string) (int64, error) {
+	var n int64
+	err := q.QueryRow(ctx, `
+		SELECT COUNT(*)::bigint FROM user_bonus_instances
+		WHERE user_id = $1::uuid AND status = 'active' AND wr_required_minor > 0 AND wr_contributed_minor < wr_required_minor
+	`, userID).Scan(&n)
+	return n, err
+}
+
+// GrantFromPromotionVersion creates a bonus instance and credits bonus_locked idempotently.
+func GrantFromPromotionVersion(ctx context.Context, pool *pgxpool.Pool, a GrantArgs) (inserted bool, err error) {
+	if a.GrantAmountMinor <= 0 {
+		return false, fmt.Errorf("bonus: grant amount must be positive")
+	}
+	bf, err := LoadFlags(ctx, pool)
+	if err != nil {
+		return false, err
+	}
+	if !bf.BonusesEnabled {
+		return false, ErrBonusesDisabled
+	}
+
+	if !a.AllowPausedPromotion {
+		rd := PreGrantRiskCheck(ctx, pool, a.UserID, a.PromotionVersionID, a.GrantAmountMinor)
+		PersistRiskDecision(ctx, pool, a.UserID, a.PromotionVersionID, rd)
+		if rd.Decision == "denied" {
+			obs.IncBonusEvalError()
+			return false, nil
+		}
+		if rd.Decision == "manual_review" {
+			return false, nil
+		}
+	}
+
+	var rulesJSON []byte
+	var termsText, termsHash string
+	err = pool.QueryRow(ctx, `
+		SELECT pv.rules, COALESCE(pv.terms_text,''), COALESCE(pv.terms_hash,'')
+		FROM promotion_versions pv
+		JOIN promotions p ON p.id = pv.promotion_id
+		WHERE pv.id = $1 AND p.status != 'archived' AND pv.published_at IS NOT NULL
+		  AND ($2::bool OR COALESCE(p.grants_paused, false) = false)
+	`, a.PromotionVersionID, a.AllowPausedPromotion).Scan(&rulesJSON, &termsText, &termsHash)
+	if err != nil {
+		return false, fmt.Errorf("bonus: promotion version not publishable")
+	}
+	rules, err := parseRules(rulesJSON)
+	if err != nil {
+		return false, err
+	}
+	wrReq := rules.wrRequired(a.GrantAmountMinor)
+	maxBet := rules.Wagering.MaxBetMinor
+
+	snap := map[string]any{
+		"rules":              json.RawMessage(rulesJSON),
+		"deposit_minor":      a.DepositAmountMinor,
+		"grant_minor":        a.GrantAmountMinor,
+		"withdraw_policy":    rules.WithdrawPolicy,
+		"excluded_game_ids":  rules.ExcludedGameIDs,
+		"game_weight_pct":    rules.Wagering.GameWeightPct,
+		"max_bet_minor":      maxBet,
+	}
+	snapJSON, _ := json.Marshal(snap)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE`, a.UserID); err != nil {
+		return false, err
+	}
+
+	activeWR, err := countActiveIncompleteWagering(ctx, tx, a.UserID)
+	if err != nil {
+		return false, err
+	}
+	if activeWR > 0 {
+		return false, nil
+	}
+
+	var dup int
+	err = tx.QueryRow(ctx, `SELECT 1 FROM user_bonus_instances WHERE idempotency_key = $1`, a.IdempotencyKey).Scan(&dup)
+	if err == nil {
+		return false, tx.Commit(ctx)
+	}
+	if err != pgx.ErrNoRows {
+		return false, err
+	}
+
+	var instID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO user_bonus_instances (
+			user_id, promotion_version_id, status, granted_amount_minor, currency,
+			wr_required_minor, wr_contributed_minor, max_bet_minor, snapshot, rules_snapshot, terms_version, idempotency_key
+		) VALUES (
+			$1::uuid, $2, 'active', $3, $4, $5, 0, NULLIF($6,0), $7::jsonb, $8::jsonb, NULLIF($9,''), $10
+		) RETURNING id::text
+	`, a.UserID, a.PromotionVersionID, a.GrantAmountMinor, a.Currency, wrReq, maxBet, snapJSON, rulesJSON, termsHash, a.IdempotencyKey).Scan(&instID)
+	if err != nil {
+		return false, err
+	}
+
+	meta := map[string]any{"promotion_version_id": a.PromotionVersionID, "bonus_instance_id": instID}
+	ins, err := ledger.ApplyCreditTxWithPocket(ctx, tx, a.UserID, a.Currency, "promo.grant",
+		"promo.grant:"+a.IdempotencyKey, a.GrantAmountMinor, ledger.PocketBonusLocked, meta)
+	if err != nil {
+		return false, err
+	}
+	if !ins {
+		return false, fmt.Errorf("bonus: duplicate promo.grant ledger line")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+
+	_ = EmitOutbound(ctx, pool, "BonusGranted", map[string]any{
+		"user_id": a.UserID, "promotion_version_id": a.PromotionVersionID,
+		"bonus_instance_id": instID, "grant_amount_minor": a.GrantAmountMinor, "currency": a.Currency,
+		"idempotency_key": a.IdempotencyKey,
+	})
+
+	_ = insertNotification(ctx, pool, a.UserID, "bonus_granted", "Bonus credited",
+		fmt.Sprintf("You received a bonus of %d minor units.", a.GrantAmountMinor),
+		map[string]any{"bonus_instance_id": instID, "promotion_version_id": a.PromotionVersionID})
+
+	obs.IncBonusGrant()
+	return true, nil
+}
+
+// ForfeitInstance marks forfeited and removes remaining bonus_locked (best-effort single bonus pool).
+func ForfeitInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorStaffID, reason string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var uid, ccy string
+	var status string
+	var granted int64
+	err = tx.QueryRow(ctx, `
+		SELECT user_id::text, currency, status, granted_amount_minor
+		FROM user_bonus_instances WHERE id = $1::uuid FOR UPDATE
+	`, instanceID).Scan(&uid, &ccy, &status, &granted)
+	if err != nil {
+		return err
+	}
+	if status != "active" && status != "pending" {
+		return fmt.Errorf("bonus: instance not forfeitable")
+	}
+
+	bonusBal, _ := ledger.BalanceBonusLockedTx(ctx, tx, uid)
+	debit := bonusBal
+	if debit <= 0 {
+		debit = 0
+	} else {
+		idem := fmt.Sprintf("promo.forfeit:bonus:%s", instanceID)
+		_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, uid, ccy, "promo.forfeit", idem, debit, ledger.PocketBonusLocked,
+			map[string]any{"bonus_instance_id": instanceID, "reason": reason})
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE user_bonus_instances SET status = 'forfeited', updated_at = now() WHERE id = $1::uuid
+	`, instanceID)
+	if err != nil {
+		return err
+	}
+	if actorStaffID != "" {
+		meta, _ := json.Marshal(map[string]any{"bonus_instance_id": instanceID, "reason": reason})
+		_, _ = tx.Exec(ctx, `
+			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
+			VALUES ($1::uuid, 'bonushub.forfeit', 'user_bonus_instances', $2::jsonb)
+		`, actorStaffID, meta)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	_ = EmitOutbound(ctx, pool, "BonusForfeited", map[string]any{
+		"user_id": uid, "bonus_instance_id": instanceID, "reason": reason,
+		"granted_amount_minor": granted, "currency": ccy,
+	})
+	return nil
+}
+
+// PlayerForfeitInstance lets the authenticated player forfeit their own instance (active or pending).
+func PlayerForfeitInstance(ctx context.Context, pool *pgxpool.Pool, userID, instanceID, reason string) error {
+	var owner string
+	err := pool.QueryRow(ctx, `SELECT user_id::text FROM user_bonus_instances WHERE id = $1::uuid`, instanceID).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrBonusInstanceNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if owner != userID {
+		return ErrBonusInstanceForbidden
+	}
+	return ForfeitInstance(ctx, pool, instanceID, "", reason)
+}

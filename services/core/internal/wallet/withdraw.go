@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/ledger"
@@ -60,6 +61,11 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client,
 		assetID := resolveWithdrawAssetID(cfg, ccy, network)
 		if assetID == "" {
 			playerapi.WriteError(w, http.StatusBadRequest, "unsupported_asset", "no Fystack asset configured for "+ccy+" on "+network)
+			return
+		}
+
+		if blocked, msg, err := bonus.WithdrawPolicyBlock(r.Context(), pool, uid); err == nil && blocked {
+			playerapi.WriteError(w, http.StatusForbidden, "bonus_blocks_withdraw", msg)
 			return
 		}
 
@@ -116,13 +122,13 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client,
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "user lock failed")
 			return
 		}
-		bal, err := ledger.BalanceMinorTx(r.Context(), tx, uid)
+		cashBal, err := ledger.BalanceCashTx(r.Context(), tx, uid)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "balance failed")
 			return
 		}
-		if bal < body.AmountMinor {
-			playerapi.WriteError(w, http.StatusBadRequest, "insufficient_balance", "not enough balance")
+		if cashBal < body.AmountMinor {
+			playerapi.WriteError(w, http.StatusBadRequest, "insufficient_balance", "not enough withdrawable cash balance")
 			return
 		}
 

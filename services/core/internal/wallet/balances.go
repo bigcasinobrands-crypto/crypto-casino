@@ -17,11 +17,11 @@ func BalancesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 		rows, err := pool.Query(r.Context(), `
-			SELECT currency, COALESCE(SUM(amount_minor), 0)::bigint AS balance_minor
+			SELECT currency, pocket, COALESCE(SUM(amount_minor), 0)::bigint AS balance_minor
 			FROM ledger_entries
-			WHERE user_id = $1::uuid
-			GROUP BY currency
-			ORDER BY COALESCE(SUM(amount_minor), 0) DESC
+			WHERE user_id = $1::uuid AND pocket IN ('cash', 'bonus_locked')
+			GROUP BY currency, pocket
+			ORDER BY currency, pocket
 		`, uid)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "query failed")
@@ -29,24 +29,43 @@ func BalancesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		defer rows.Close()
 
-		seen := map[string]bool{}
-		var wallets []map[string]any
+		type agg struct {
+			cash, bonus int64
+		}
+		byCcy := map[string]*agg{}
 		for rows.Next() {
-			var ccy string
+			var ccy, pocket string
 			var bal int64
-			if err := rows.Scan(&ccy, &bal); err != nil {
+			if err := rows.Scan(&ccy, &pocket, &bal); err != nil {
 				continue
 			}
-			seen[ccy] = true
+			a := byCcy[ccy]
+			if a == nil {
+				a = &agg{}
+				byCcy[ccy] = a
+			}
+			switch pocket {
+			case "bonus_locked":
+				a.bonus += bal
+			default:
+				a.cash += bal
+			}
+		}
+		var wallets []map[string]any
+		for ccy, a := range byCcy {
 			wallets = append(wallets, map[string]any{
-				"currency":      ccy,
-				"balance_minor": bal,
+				"currency":           ccy,
+				"cash_minor":         a.cash,
+				"bonus_locked_minor": a.bonus,
+				"balance_minor":      a.cash + a.bonus,
 			})
 		}
-		if !seen["USDT"] {
+		if _, ok := byCcy["USDT"]; !ok {
 			wallets = append(wallets, map[string]any{
-				"currency":      "USDT",
-				"balance_minor": int64(0),
+				"currency":           "USDT",
+				"cash_minor":         int64(0),
+				"bonus_locked_minor": int64(0),
+				"balance_minor":      int64(0),
 			})
 		}
 		if wallets == nil {

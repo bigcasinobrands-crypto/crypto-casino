@@ -90,6 +90,11 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 	if err != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}
+	_, _ = s.Pool.Exec(ctx, `
+		INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
+		VALUES ($1::uuid, (SELECT id FROM vip_tiers ORDER BY sort_order ASC, id ASC LIMIT 1), 0, 0, now())
+		ON CONFLICT (user_id) DO NOTHING
+	`, id)
 	accessToken, refreshToken, exp, err = s.issueSession(ctx, id)
 	if err != nil {
 		return "", "", 0, err

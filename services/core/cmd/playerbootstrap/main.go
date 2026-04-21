@@ -59,6 +59,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("insert: %v", err)
 	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
+		VALUES ($1::uuid, (SELECT id FROM vip_tiers ORDER BY sort_order ASC, id ASC LIMIT 1), 0, 0, now())
+		ON CONFLICT (user_id) DO NOTHING
+	`, userID)
+	if err != nil {
+		log.Fatalf("player_vip_state: %v", err)
+	}
 	if cfg.FystackConfigured() {
 		fs := fystack.NewClient(cfg.FystackBaseURL, cfg.FystackAPIKey, cfg.FystackAPISecret, cfg.FystackWorkspaceID)
 		p := &fystack.WalletProvisioner{Pool: pool, Client: fs}

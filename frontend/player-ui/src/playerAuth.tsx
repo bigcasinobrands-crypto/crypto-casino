@@ -25,12 +25,21 @@ export type MeResponse = {
   email_verified_at: string | null
   username?: string
   avatar_url?: string
+  /** Resolved VIP tier name (from player_vip_state + vip_tiers); updates with periodic profile refresh. */
+  vip_tier?: string
+  vip_tier_id?: number
+}
+
+export type BalanceBreakdown = {
+  cashMinor: number
+  bonusLockedMinor: number
 }
 
 type P = {
   accessToken: string | null
   me: MeResponse | null
   balanceMinor: number | null
+  balanceBreakdown: BalanceBreakdown | null
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>
   login: (
     email: string,
@@ -56,6 +65,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
   const [accessToken, setAccess] = useState<string | null>(() => localStorage.getItem(ACCESS))
   const [me, setMe] = useState<MeResponse | null>(null)
   const [balanceMinor, setBal] = useState<number | null>(null)
+  const [balanceBreakdown, setBalanceBreakdown] = useState<BalanceBreakdown | null>(null)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshInnerRef = useRef<() => Promise<boolean>>(async () => false)
 
@@ -74,6 +84,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     setAccess(null)
     setMe(null)
     setBal(null)
+    setBalanceBreakdown(null)
   }, [clearRefreshTimer])
 
   const persistTokens = useCallback(
@@ -161,8 +172,15 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     }
     const bal = await apiFetch('/v1/wallet/balance')
     if (bal.ok) {
-      const j = (await bal.json()) as { balance_minor: number }
+      const j = (await bal.json()) as {
+        balance_minor: number
+        cash_minor?: number
+        bonus_locked_minor?: number
+      }
       setBal(j.balance_minor)
+      const cash = typeof j.cash_minor === 'number' ? j.cash_minor : j.balance_minor
+      const bonus = typeof j.bonus_locked_minor === 'number' ? j.bonus_locked_minor : 0
+      setBalanceBreakdown({ cashMinor: cash, bonusLockedMinor: bonus })
     }
   }, [apiFetch])
 
@@ -282,9 +300,22 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             for (const line of lines) {
               if (line.startsWith('data: ')) {
                 try {
-                  const j = JSON.parse(line.slice(6)) as { balance_minor?: number }
+                  const j = JSON.parse(line.slice(6)) as {
+                    balance_minor?: number
+                    cash_minor?: number
+                    bonus_locked_minor?: number
+                  }
                   if (typeof j.balance_minor === 'number') {
                     setBal(j.balance_minor)
+                  }
+                  if (
+                    typeof j.cash_minor === 'number' &&
+                    typeof j.bonus_locked_minor === 'number'
+                  ) {
+                    setBalanceBreakdown({
+                      cashMinor: j.cash_minor,
+                      bonusLockedMinor: j.bonus_locked_minor,
+                    })
                   }
                 } catch { /* malformed SSE line */ }
               }
@@ -312,6 +343,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       accessToken,
       me,
       balanceMinor,
+      balanceBreakdown,
       apiFetch,
       login,
       register,
@@ -323,6 +355,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       accessToken,
       me,
       balanceMinor,
+      balanceBreakdown,
       apiFetch,
       login,
       register,

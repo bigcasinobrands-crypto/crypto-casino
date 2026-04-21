@@ -1,6 +1,19 @@
-import { useState, type FC } from 'react'
+import { useState, useMemo, type FC } from 'react'
+import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import { IconChevronDown, IconChevronUp } from './icons'
+import { useSiteContent } from '../hooks/useSiteContent'
+
+type HeroSlide = {
+  enabled?: boolean
+  tag?: string
+  title?: string
+  subtitle?: string
+  cta_label?: string
+  cta_link?: string
+  image_url?: string
+  interactive?: 'raffle_tickets' | null
+}
 
 const RAFFLE_IMG =
   'https://storage.googleapis.com/banani-generated-images/generated-images/ff84ae00-578c-4baa-91ea-961d23910749.jpg'
@@ -9,100 +22,133 @@ const ROULETTE_IMG =
 const VIP_IMG =
   'https://storage.googleapis.com/banani-generated-images/generated-images/2dca9e52-ef12-4d8c-9660-031082ff2696.jpg'
 
+const FALLBACK_SLIDES: HeroSlide[] = [
+  {
+    enabled: true,
+    tag: '1d 9h 35m',
+    title: '$25K Raffle',
+    cta_label: 'Learn more',
+    cta_link: '/casino/games',
+    image_url: RAFFLE_IMG,
+    interactive: 'raffle_tickets',
+  },
+  {
+    enabled: true,
+    tag: 'New Release',
+    title: 'vybebet Roulette',
+    subtitle: 'Half the house edge of normal roulette!',
+    cta_label: 'Play Now!',
+    cta_link: '/casino/live',
+    image_url: ROULETTE_IMG,
+  },
+  {
+    enabled: true,
+    tag: 'Rewards',
+    title: 'Become a vybebet VIP',
+    subtitle: 'The worlds most lucrative VIP programme',
+    cta_label: 'Explore VIP',
+    cta_link: '/vip',
+    image_url: VIP_IMG,
+  },
+]
+
 const tagClass =
   'inline-flex rounded-[4px] bg-casino-accent px-[7px] py-0.5 text-[9px] font-extrabold uppercase leading-tight text-white'
 
 const promoTileClass =
   'relative z-0 flex min-h-[126px] items-center justify-between overflow-hidden rounded-casino-md bg-casino-surface px-4 py-3.5 transition-[transform,box-shadow] duration-300 ease-out hover:z-10 hover:scale-[1.025] hover:shadow-[0_12px_40px_rgba(0,0,0,0.35)] motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:hover:shadow-none'
 
-const PromoHero: FC = () => {
+function gridCols(count: number) {
+  if (count === 1) return 'grid-cols-1'
+  if (count === 2) return 'grid-cols-1 md:grid-cols-2'
+  return 'grid-cols-1 md:grid-cols-3'
+}
+
+const RaffleTicketWidget: FC = () => {
   const [tickets, setTickets] = useState(0)
+  return (
+    <div className="text-[11px] leading-snug text-casino-muted">
+      <span className="text-casino-foreground">Your tickets:</span>
+      <div className="mt-1.5 flex items-center overflow-hidden rounded-[4px] bg-casino-elevated">
+        <span className="px-2.5 py-1 text-xs font-semibold text-casino-foreground">{tickets}</span>
+        <div className="flex flex-col border-l border-casino-border">
+          <button
+            type="button"
+            className="flex h-2.5 w-[18px] items-center justify-center bg-casino-primary-dim text-casino-muted hover:text-casino-foreground"
+            aria-label="Increase tickets"
+            onClick={() => setTickets((n) => Math.min(99, n + 1))}
+          >
+            <IconChevronUp size={10} aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="flex h-2.5 w-[18px] items-center justify-center border-t border-casino-border bg-casino-primary-dim text-casino-muted hover:text-casino-foreground"
+            aria-label="Decrease tickets"
+            onClick={() => setTickets((n) => Math.max(0, n - 1))}
+          >
+            <IconChevronDown size={10} aria-hidden />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const SlideCard: FC<{ slide: HeroSlide }> = ({ slide }) => (
+  <article className={promoTileClass}>
+    <div className="relative z-[2] flex max-w-[58%] flex-col items-start gap-2">
+      {slide.tag && <span className={tagClass}>{slide.tag}</span>}
+      <h2 className="text-sm font-extrabold leading-tight text-casino-foreground">
+        {slide.title}
+      </h2>
+      {slide.interactive === 'raffle_tickets' ? (
+        <RaffleTicketWidget />
+      ) : slide.subtitle ? (
+        <p className="text-[11px] leading-snug text-casino-muted">{slide.subtitle}</p>
+      ) : null}
+      {slide.cta_label && slide.cta_link && (
+        slide.cta_link === '/vip' ? (
+          <Link
+            to={slide.cta_link}
+            className="mt-0.5 inline-flex rounded-[4px] bg-casino-primary px-3.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110"
+          >
+            {slide.cta_label}
+          </Link>
+        ) : (
+          <RequireAuthLink
+            to={slide.cta_link}
+            className="mt-0.5 rounded-[4px] bg-casino-primary px-3.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110"
+          >
+            {slide.cta_label}
+          </RequireAuthLink>
+        )
+      )}
+    </div>
+    {slide.image_url && (
+      <img
+        src={slide.image_url}
+        alt=""
+        className="absolute bottom-0 right-0 z-[1] h-full w-[118px] object-cover [mask-image:linear-gradient(to_right,transparent,black_34%)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_34%)]"
+      />
+    )}
+  </article>
+)
+
+const PromoHero: FC = () => {
+  const { getContent } = useSiteContent()
+  const slides = useMemo(() => {
+    const cms = getContent<HeroSlide[] | undefined>('hero_slides')
+    const raw = Array.isArray(cms) && cms.length > 0 ? cms : FALLBACK_SLIDES
+    return raw.filter((s) => s.enabled !== false)
+  }, [getContent])
+
+  if (slides.length === 0) return null
 
   return (
-    <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-      <article className={promoTileClass}>
-        <div className="relative z-[2] flex max-w-[58%] flex-col items-start gap-2">
-          <span className={tagClass}>1d 9h 35m</span>
-          <h2 className="text-sm font-extrabold leading-tight text-casino-foreground">$25K Raffle</h2>
-          <div className="text-[11px] leading-snug text-casino-muted">
-            <span className="text-casino-foreground">Your tickets:</span>
-            <div className="mt-1.5 flex items-center overflow-hidden rounded-[4px] bg-casino-elevated">
-              <span className="px-2.5 py-1 text-xs font-semibold text-casino-foreground">{tickets}</span>
-              <div className="flex flex-col border-l border-casino-border">
-                <button
-                  type="button"
-                  className="flex h-2.5 w-[18px] items-center justify-center bg-casino-primary-dim text-casino-muted hover:text-casino-foreground"
-                  aria-label="Increase tickets"
-                  onClick={() => setTickets((n) => Math.min(99, n + 1))}
-                >
-                  <IconChevronUp size={10} aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  className="flex h-2.5 w-[18px] items-center justify-center border-t border-casino-border bg-casino-primary-dim text-casino-muted hover:text-casino-foreground"
-                  aria-label="Decrease tickets"
-                  onClick={() => setTickets((n) => Math.max(0, n - 1))}
-                >
-                  <IconChevronDown size={10} aria-hidden />
-                </button>
-              </div>
-            </div>
-          </div>
-          <RequireAuthLink
-            to="/casino/games"
-            className="mt-0.5 rounded-[4px] bg-casino-primary px-3.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110"
-          >
-            Learn more
-          </RequireAuthLink>
-        </div>
-        <img
-          src={RAFFLE_IMG}
-          alt=""
-          className="absolute bottom-0 right-0 z-[1] h-full w-[118px] object-cover [mask-image:linear-gradient(to_right,transparent,black_34%)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_34%)]"
-        />
-      </article>
-
-      <article className={promoTileClass}>
-        <div className="relative z-[2] flex max-w-[58%] flex-col items-start gap-2">
-          <span className={tagClass}>New Release</span>
-          <h2 className="text-sm font-extrabold leading-tight text-casino-foreground">vybebet Roulette</h2>
-          <p className="text-[11px] leading-snug text-casino-muted">
-            Half the house edge of normal roulette!
-          </p>
-          <RequireAuthLink
-            to="/casino/live"
-            className="mt-0.5 rounded-[4px] bg-casino-primary px-3.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110"
-          >
-            Play Now!
-          </RequireAuthLink>
-        </div>
-        <img
-          src={ROULETTE_IMG}
-          alt=""
-          className="absolute bottom-0 right-0 z-[1] h-full w-[118px] object-cover [mask-image:linear-gradient(to_right,transparent,black_34%)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_34%)]"
-        />
-      </article>
-
-      <article className={promoTileClass}>
-        <div className="relative z-[2] flex max-w-[58%] flex-col items-start gap-2">
-          <span className={tagClass}>Rewards</span>
-          <h2 className="text-sm font-extrabold leading-tight text-casino-foreground">Become a vybebet VIP</h2>
-          <p className="text-[11px] leading-snug text-casino-muted">
-            The worlds most lucrative VIP programme
-          </p>
-          <RequireAuthLink
-            to="/profile"
-            className="mt-0.5 rounded-[4px] bg-casino-primary px-3.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110"
-          >
-            Claim
-          </RequireAuthLink>
-        </div>
-        <img
-          src={VIP_IMG}
-          alt=""
-          className="absolute bottom-0 right-0 z-[1] h-full w-[118px] object-cover [mask-image:linear-gradient(to_right,transparent,black_34%)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_34%)]"
-        />
-      </article>
+    <div className={`mb-4 grid gap-4 ${gridCols(slides.length)}`}>
+      {slides.map((slide, i) => (
+        <SlideCard key={slide.title ?? i} slide={slide} />
+      ))}
     </div>
   )
 }

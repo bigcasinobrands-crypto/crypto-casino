@@ -3,13 +3,117 @@ import { RequireAuthLink } from './RequireAuthLink'
 import AcceptedCurrenciesStrip from './AcceptedCurrenciesStrip'
 import { adminAppHref } from '@repo/cross-app'
 import { useState, type FC } from 'react'
+import { useSiteContent } from '../hooks/useSiteContent'
 
 const linkMuted = 'text-[10px] font-medium leading-snug text-casino-muted transition hover:text-casino-primary'
 const colTitle = 'mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-casino-foreground'
 
+type FooterLink = { label: string; to?: string; href?: string; requireAuth?: boolean }
+type SocialLink = { label: string; url?: string }
+
+const FALLBACK_SEO_TITLE = 'Play Online Casino Games for Real Money at vybebet'
+const FALLBACK_SEO_BLOCKS = [
+  {
+    heading: 'The best online casino you will come across in 2026',
+    paragraphs: [
+      'vybebet is a fast-growing crypto casino built for players who want to play online casino games for real money using cryptocurrency. With thousands of games available, the platform delivers a complete real money crypto casino experience focused on performance, variety, and transparent gameplay.',
+      'We support a wide range of immersive crypto casino games, including slots, table games, live dealers, and more.',
+    ],
+  },
+  {
+    heading: null,
+    paragraphs: [
+      'Shows include Crazy Time, Monopoly Live, Sweet Bonanza, and many more, offering dynamic gameplay for players looking for a unique crypto casino games experience.',
+    ],
+    sub: {
+      heading: 'Saga Games',
+      paragraphs: [
+        'vybebet features an exciting collection of games from top providers in the industry. These titles are designed to offer engaging mechanics and high-quality gameplay.',
+      ],
+    },
+  },
+]
+
+const FALLBACK_GAMES_LINKS: FooterLink[] = [
+  { label: 'Slots', to: '/casino/slots', requireAuth: true },
+  { label: 'Bonus Buys', to: '/casino/bonus-buys', requireAuth: true },
+  { label: 'Challenges', to: '/casino/challenges', requireAuth: true },
+  { label: 'Favourites', to: '/casino/favourites', requireAuth: true },
+  { label: 'Providers', to: '/casino/games#providers', requireAuth: true },
+  { label: 'Live Casino', to: '/casino/live', requireAuth: true },
+]
+
+const FALLBACK_ORIGINALS_LINKS: FooterLink[] = [
+  { label: 'Blackjack' },
+  { label: 'Mines' },
+  { label: 'Dice' },
+  { label: 'Limbo' },
+  { label: 'Keno' },
+]
+
+const FALLBACK_ABOUT_LINKS: FooterLink[] = [
+  { label: 'VIP Program', to: '/vip', requireAuth: false },
+  { label: 'Affiliate' },
+  { label: 'Rewards', to: '/rewards', requireAuth: true },
+  { label: 'Terms of Service', to: '/terms' },
+  { label: 'Privacy Policy', to: '/privacy' },
+  { label: 'Fairness', to: '/fairness' },
+]
+
+const FALLBACK_SOCIAL: SocialLink[] = [
+  { label: 'Discord' },
+  { label: 'Twitter / X' },
+  { label: 'Instagram' },
+]
+
+const FALLBACK_DISCLAIMER =
+  "vybebet, crypto's best casino for real money slots, is a demonstration brand for Crypto Casino. Demo wallet uses USDT minor units."
+
+function renderLinkList(links: FooterLink[]) {
+  return (
+    <ul className="flex flex-col gap-1">
+      {links.map((lk) => (
+        <li key={lk.label}>
+          {lk.href ? (
+            <a href={lk.href} target="_blank" rel="noreferrer" className={linkMuted}>
+              {lk.label}
+            </a>
+          ) : lk.to && lk.requireAuth ? (
+            <RequireAuthLink className={linkMuted} to={lk.to}>
+              {lk.label}
+            </RequireAuthLink>
+          ) : lk.to ? (
+            <Link className={linkMuted} to={lk.to}>
+              {lk.label}
+            </Link>
+          ) : (
+            <span className={linkMuted}>{lk.label}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 const SiteFooter: FC = () => {
   const staff = adminAppHref(import.meta.env, '/login')
   const [seoOpen, setSeoOpen] = useState(false)
+  const { getContent } = useSiteContent()
+
+  const seoTitle = getContent<string>('footer.seo_title', FALLBACK_SEO_TITLE)
+  const seoBlocks = getContent('footer.seo_blocks', FALLBACK_SEO_BLOCKS)
+  const copyright = getContent<string>('footer.copyright', '18+ · Play responsibly.')
+  const disclaimer = getContent<string>('footer.disclaimer', FALLBACK_DISCLAIMER)
+
+  const gamesLinks = getContent<FooterLink[]>('links.games', FALLBACK_GAMES_LINKS)
+  const originalsLinks = getContent<FooterLink[]>('links.originals', FALLBACK_ORIGINALS_LINKS)
+  const aboutLinks = getContent<FooterLink[]>('links.about', FALLBACK_ABOUT_LINKS)
+
+  const socials = getContent<SocialLink[]>('social.links', FALLBACK_SOCIAL)
+
+  const currencyLabels = getContent<string[]>('footer.currencies', [
+    'Solana', 'Bitcoin', 'Ethereum', 'Litecoin', 'Tether', 'USDC', 'Dogecoin',
+  ])
 
   return (
     <footer id="help" className="mt-auto border-t border-casino-border bg-casino-bg px-5 pb-8 pt-10 md:px-6">
@@ -17,34 +121,28 @@ const SiteFooter: FC = () => {
         id="blog"
         className="relative mx-auto max-w-[1200px] scroll-mt-24 rounded-casino-md bg-casino-surface p-6"
       >
-        <h2 className="mb-4 text-sm font-extrabold text-casino-foreground">
-          Play Online Casino Games for Real Money at vybebet
-        </h2>
+        <h2 className="mb-4 text-sm font-extrabold text-casino-foreground">{seoTitle}</h2>
         <div
           className={`grid gap-8 text-[11px] leading-relaxed text-casino-muted md:grid-cols-2 ${seoOpen ? '' : 'max-h-[220px] overflow-hidden'}`}
         >
-          <div>
-            <h3 className="mb-2.5 text-xs font-bold text-casino-foreground">
-              The best online casino you will come across in 2026
-            </h3>
-            <p className="mb-3">
-              vybebet is a fast-growing crypto casino built for players who want to play online casino games for real money
-              using cryptocurrency. With thousands of games available, the platform delivers a complete real money crypto
-              casino experience focused on performance, variety, and transparent gameplay.
-            </p>
-            <p>We support a wide range of immersive crypto casino games, including slots, table games, live dealers, and more.</p>
-          </div>
-          <div>
-            <p className="mb-3">
-              Shows include Crazy Time, Monopoly Live, Sweet Bonanza, and many more, offering dynamic gameplay for players
-              looking for a unique crypto casino games experience.
-            </p>
-            <h3 className="mb-2.5 text-xs font-bold text-casino-foreground">Saga Games</h3>
-            <p>
-              vybebet features an exciting collection of games from top providers in the industry. These titles are designed
-              to offer engaging mechanics and high-quality gameplay.
-            </p>
-          </div>
+          {(seoBlocks as any[]).map((block: any, idx: number) => (
+            <div key={idx}>
+              {block.heading && (
+                <h3 className="mb-2.5 text-xs font-bold text-casino-foreground">{block.heading}</h3>
+              )}
+              {(block.paragraphs as string[])?.map((p: string, pi: number) => (
+                <p key={pi} className={pi > 0 ? 'mt-3' : 'mb-3'}>{p}</p>
+              ))}
+              {block.sub && (
+                <>
+                  <h3 className="mb-2.5 text-xs font-bold text-casino-foreground">{block.sub.heading}</h3>
+                  {(block.sub.paragraphs as string[])?.map((p: string, pi: number) => (
+                    <p key={pi}>{p}</p>
+                  ))}
+                </>
+              )}
+            </div>
+          ))}
         </div>
         {!seoOpen ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-[90px] items-end justify-center rounded-b-casino-md bg-gradient-to-t from-casino-surface from-70% to-transparent pb-4">
@@ -80,126 +178,42 @@ const SiteFooter: FC = () => {
           >
             <div className="flex flex-col lg:shrink-0">
               <div className={colTitle}>Games</div>
+              {renderLinkList(gamesLinks)}
+            </div>
+            <div className="flex flex-col lg:shrink-0">
+              <div className={colTitle}>Originals</div>
+              {renderLinkList(originalsLinks)}
+            </div>
+            <div className="flex flex-col lg:shrink-0">
+              <div className={colTitle}>About Us</div>
+              {renderLinkList(aboutLinks)}
+            </div>
+            <div className="flex flex-col lg:shrink-0">
+              <div className={colTitle}>Communities</div>
               <ul className="flex flex-col gap-1">
-              <li>
-                <RequireAuthLink className={linkMuted} to="/casino/slots">
-                  Slots
-                </RequireAuthLink>
-              </li>
-              <li>
-                <RequireAuthLink className={linkMuted} to="/casino/bonus-buys">
-                  Bonus Buys
-                </RequireAuthLink>
-              </li>
-              <li>
-                <RequireAuthLink className={linkMuted} to="/casino/challenges">
-                  Challenges
-                </RequireAuthLink>
-              </li>
-              <li>
-                <RequireAuthLink className={linkMuted} to="/casino/favourites">
-                  Favourites
-                </RequireAuthLink>
-              </li>
-              <li>
-                <RequireAuthLink className={linkMuted} to="/casino/games#providers">
-                  Providers
-                </RequireAuthLink>
-              </li>
-              <li>
-                <RequireAuthLink className={linkMuted} to="/casino/live">
-                  Live Casino
-                </RequireAuthLink>
-              </li>
-            </ul>
-          </div>
-          <div className="flex flex-col lg:shrink-0">
-            <div className={colTitle}>Originals</div>
-            <ul className="flex flex-col gap-1">
-              <li>
-                <span className={linkMuted}>Blackjack</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Mines</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Dice</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Limbo</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Keno</span>
-              </li>
-            </ul>
-          </div>
-          <div className="flex flex-col lg:shrink-0">
-            <div className={colTitle}>About Us</div>
-            <ul className="flex flex-col gap-1">
-              <li>
-                <RequireAuthLink className={linkMuted} to="/profile">
-                  VIP Program
-                </RequireAuthLink>
-              </li>
-              <li>
-                <span className={linkMuted}>Affiliate</span>
-              </li>
-              <li>
-                <RequireAuthLink className={linkMuted} to="/casino/featured">
-                  Rewards
-                </RequireAuthLink>
-              </li>
-              <li>
-                <span className={linkMuted}>Terms of Service</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Blog</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Fairness</span>
-              </li>
-            </ul>
-          </div>
-          <div className="flex flex-col lg:shrink-0">
-            <div className={colTitle}>Communities</div>
-            <ul className="flex flex-col gap-1">
-              <li>
-                <span className={linkMuted}>Discord</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Twitter / X</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Instagram</span>
-              </li>
-            </ul>
-          </div>
-          <div className="flex flex-col lg:shrink-0">
-            <div className={colTitle}>Currencies</div>
-            <ul className="flex flex-col gap-1">
-              <li>
-                <span className={linkMuted}>Solana</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Bitcoin</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Ethereum</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Litecoin</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Tether</span>
-              </li>
-              <li>
-                <span className={linkMuted}>USDC</span>
-              </li>
-              <li>
-                <span className={linkMuted}>Dogecoin</span>
-              </li>
-            </ul>
-          </div>
+                {socials.map((s) => (
+                  <li key={s.label}>
+                    {s.url ? (
+                      <a href={s.url} target="_blank" rel="noreferrer" className={linkMuted}>
+                        {s.label}
+                      </a>
+                    ) : (
+                      <span className={linkMuted}>{s.label}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex flex-col lg:shrink-0">
+              <div className={colTitle}>Currencies</div>
+              <ul className="flex flex-col gap-1">
+                {currencyLabels.map((c) => (
+                  <li key={c}>
+                    <span className={linkMuted}>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </nav>
         </div>
 
@@ -217,16 +231,13 @@ const SiteFooter: FC = () => {
         </div>
 
         <div className="text-center text-[10px] leading-relaxed text-casino-muted">
-          <p>
-            vybebet, crypto&apos;s best casino for real money slots, is a demonstration brand for Crypto Casino. Demo wallet
-            uses USDT minor units.
-          </p>
+          <p>{disclaimer}</p>
           <p className="mt-3">
             <a href={staff} target="_blank" rel="noreferrer" className="text-casino-primary underline">
               Staff console
             </a>
           </p>
-          <p className="mt-3">18+ · Play responsibly.</p>
+          <p className="mt-3">{copyright}</p>
         </div>
       </div>
     </footer>

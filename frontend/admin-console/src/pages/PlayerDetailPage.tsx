@@ -6,6 +6,72 @@ import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
+import { AreaChart, ChartCard, StatusBadge } from '../components/dashboard'
+import { formatCurrency } from '../lib/format'
+import { ApiResultSummary } from '../components/admin/ApiResultSummary'
+
+type EconomicTimelineBalances = {
+  cash_minor?: number
+  bonus_locked_minor?: number
+  playable_minor?: number
+}
+
+type EconomicTimelinePayload = {
+  user_id?: string
+  balances?: EconomicTimelineBalances
+  ledger?: Record<string, unknown>[]
+  bonus_instances?: Record<string, unknown>[]
+  fystack_webhooks_guess?: Record<string, unknown>[]
+}
+
+type RiskDecisionRow = {
+  id?: number
+  promotion_version_id?: number | null
+  decision?: string
+  rule_codes?: string[]
+  inputs?: unknown
+  created_at?: string
+}
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null
+  const star = /filename\*=UTF-8''([^;\n]+)/i.exec(header)
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim())
+    } catch {
+      return star[1].trim()
+    }
+  }
+  const q = /filename="([^"]+)"/i.exec(header)
+  if (q) return q[1]
+  const plain = /filename=([^;\s]+)/i.exec(header)
+  if (plain) return plain[1].replace(/^"|"$/g, '')
+  return null
+}
+
+function decisionClass(decision: string): string {
+  const d = decision.toLowerCase()
+  if (d === 'allowed') return 'font-medium text-green-600 dark:text-green-400'
+  if (d === 'denied') return 'font-medium text-red-600 dark:text-red-400'
+  if (d === 'manual_review') return 'font-medium text-yellow-600 dark:text-yellow-400'
+  return ''
+}
+
+function isoToDatetimeLocal(iso: unknown): string {
+  if (typeof iso !== 'string' || !iso.trim()) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function localInputToRFC3339(v: string): string {
+  if (!v.trim()) return ''
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString()
+}
 
 function SupportCrmLink({ userId }: { userId: string }) {
   const href = useMemo(() => {
@@ -28,10 +94,28 @@ function SupportCrmLink({ userId }: { userId: string }) {
 
 export default function PlayerDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const { apiFetch } = useAdminAuth()
+  const { apiFetch, role } = useAdminAuth()
+  const isSuper = role === 'superadmin'
   const { reportApiFailure } = useAdminActivityLog()
   const [data, setData] = useState<Record<string, unknown> | null>(null)
   const [err, setErr] = useState<string | null>(null)
+
+  const [economicTimeline, setEconomicTimeline] = useState<EconomicTimelinePayload | null>(null)
+  const [economicTimelineErr, setEconomicTimelineErr] = useState<string | null>(null)
+  const [economicTimelineLoading, setEconomicTimelineLoading] = useState(false)
+
+  const [riskDecisions, setRiskDecisions] = useState<RiskDecisionRow[] | null>(null)
+  const [riskErr, setRiskErr] = useState<string | null>(null)
+  const [riskLoading, setRiskLoading] = useState(false)
+
+  const [complianceMsg, setComplianceMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [rgReason, setRgReason] = useState('')
+  const [rgSelfExInput, setRgSelfExInput] = useState('')
+  const [rgClosedInput, setRgClosedInput] = useState('')
+  const [rgBusy, setRgBusy] = useState(false)
+
+  const [facts, setFacts] = useState<Record<string, unknown> | null>(null)
+  const [factsErr, setFactsErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -48,6 +132,25 @@ export default function PlayerDetailPage() {
     setData((await res.json()) as Record<string, unknown>)
   }, [apiFetch, id, reportApiFailure])
 
+  const loadFacts = useCallback(async () => {
+    if (!id) return
+    setFactsErr(null)
+    const path = `/v1/admin/users/${encodeURIComponent(id)}/facts`
+    try {
+      const res = await apiFetch(path)
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        reportApiFailure({ res, parsed, method: 'GET', path })
+        setFactsErr(formatApiError(parsed, `HTTP ${res.status}`))
+        setFacts(null)
+        return
+      }
+      setFacts((await res.json()) as Record<string, unknown>)
+    } catch {
+      setFactsErr('Network error')
+    }
+  }, [apiFetch, id, reportApiFailure])
+
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
@@ -57,6 +160,22 @@ export default function PlayerDetailPage() {
       cancelled = true
     }
   }, [load])
+
+  useEffect(() => {
+    if (!data) return
+    setRgSelfExInput(isoToDatetimeLocal(data.self_excluded_until))
+    setRgClosedInput(isoToDatetimeLocal(data.account_closed_at))
+  }, [data])
+
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void loadFacts()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [loadFacts])
 
   const downloadExport = async () => {
     if (!id) return
@@ -77,6 +196,101 @@ export default function PlayerDetailPage() {
     URL.revokeObjectURL(url)
   }
 
+  const loadEconomicTimeline = useCallback(async () => {
+    if (!id) return
+    const path = `/v1/admin/users/${encodeURIComponent(id)}/economic-timeline`
+    setEconomicTimelineErr(null)
+    setEconomicTimelineLoading(true)
+    try {
+      const res = await apiFetch(path)
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        reportApiFailure({ res, parsed, method: 'GET', path })
+        setEconomicTimelineErr(formatApiError(parsed, `HTTP ${res.status}`))
+        setEconomicTimeline(null)
+        return
+      }
+      setEconomicTimeline((await res.json()) as EconomicTimelinePayload)
+    } finally {
+      setEconomicTimelineLoading(false)
+    }
+  }, [apiFetch, id, reportApiFailure])
+
+  const loadRiskDecisions = useCallback(async () => {
+    if (!id) return
+    const path = `/v1/admin/users/${encodeURIComponent(id)}/bonus-risk`
+    setRiskErr(null)
+    setRiskLoading(true)
+    try {
+      const res = await apiFetch(path)
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        reportApiFailure({ res, parsed, method: 'GET', path })
+        setRiskErr(formatApiError(parsed, `HTTP ${res.status}`))
+        setRiskDecisions(null)
+        return
+      }
+      const j = (await res.json()) as { decisions?: RiskDecisionRow[] }
+      setRiskDecisions(Array.isArray(j.decisions) ? j.decisions : [])
+    } finally {
+      setRiskLoading(false)
+    }
+  }, [apiFetch, id, reportApiFailure])
+
+  const patchRgCompliance = async (patch: Record<string, string>) => {
+    if (!id || !isSuper) return
+    setRgBusy(true)
+    setComplianceMsg(null)
+    try {
+      const body: Record<string, unknown> = { ...patch }
+      const r = rgReason.trim()
+      if (r) body.reason = r
+      const res = await apiFetch(`/v1/admin/users/${encodeURIComponent(id)}/compliance`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        reportApiFailure({ res, parsed, method: 'PATCH', path: `/users/${id}/compliance` })
+        setComplianceMsg({ kind: 'err', text: formatApiError(parsed, 'Update failed') })
+        return
+      }
+      setComplianceMsg({ kind: 'ok', text: 'Compliance fields updated.' })
+      await load()
+    } catch {
+      setComplianceMsg({ kind: 'err', text: 'Network error' })
+    } finally {
+      setRgBusy(false)
+    }
+  }
+
+  const downloadComplianceExport = useCallback(async () => {
+    if (!id) return
+    const path = `/v1/admin/users/${encodeURIComponent(id)}/compliance-export`
+    setComplianceMsg(null)
+    const res = await apiFetch(path)
+    if (!res.ok) {
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'GET', path })
+      setComplianceMsg({ kind: 'err', text: formatApiError(parsed, 'Download failed') })
+      return
+    }
+    const blob = await res.blob()
+    const cd = res.headers.get('Content-Disposition')
+    const fromHeader = filenameFromContentDisposition(cd)
+    const filename = fromHeader ?? `compliance-${id}.json`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+    setComplianceMsg({ kind: 'ok', text: `Saved as ${filename}` })
+  }, [apiFetch, id, reportApiFailure])
+
+  const tableWrapClass = 'overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700'
+
   return (
     <>
       <PageMeta title="Player detail · Admin" description="Support view for a single user" />
@@ -86,6 +300,130 @@ export default function PlayerDetailPage() {
           ← Player lookup
         </Link>
       </div>
+
+      {/* Risk badge — visible once risk decisions are loaded */}
+      {riskDecisions && riskDecisions.length > 0 && (() => {
+        const denied = riskDecisions.filter((r) => r.decision?.toLowerCase() === 'denied')
+        const review = riskDecisions.filter((r) => r.decision?.toLowerCase() === 'manual_review')
+        if (denied.length === 0 && review.length === 0) return null
+        return (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            {denied.length > 0 && (
+              <StatusBadge label={`${denied.length} denied risk decision${denied.length > 1 ? 's' : ''}`} variant="error" dot />
+            )}
+            {review.length > 0 && (
+              <StatusBadge label={`${review.length} pending review`} variant="warning" dot />
+            )}
+          </div>
+        )
+      })()}
+
+      <ComponentCard
+        title="Facts & VIP"
+        desc="Rolling activity windows, VIP snapshot, and risk summary for this player."
+        className="mb-6"
+      >
+        {factsErr ? <p className="mb-2 text-sm text-red-600 dark:text-red-400">{factsErr}</p> : null}
+        {!facts && !factsErr ? <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p> : null}
+        {facts ? (
+          <div className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 bg-white/50 p-3 dark:border-gray-700 dark:bg-white/5">
+              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">VIP</p>
+              <ApiResultSummary data={facts.vip ?? {}} embedded />
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white/50 p-3 dark:border-gray-700 dark:bg-white/5">
+              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Recent activity windows</p>
+              <ApiResultSummary data={facts.windows ?? {}} embedded />
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white/50 p-3 dark:border-gray-700 dark:bg-white/5">
+              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Risk summary</p>
+              <ApiResultSummary data={facts.risk_summary ?? {}} embedded />
+            </div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="mt-3 rounded-lg bg-brand-500 px-3 py-1.5 text-sm text-white hover:bg-brand-600"
+          onClick={() => void loadFacts()}
+        >
+          Refresh facts
+        </button>
+      </ComponentCard>
+
+      {/* Deposit / withdrawal mini chart from economic timeline */}
+      {economicTimeline?.ledger && economicTimeline.ledger.length > 0 && (() => {
+        const deposits: Record<string, number> = {}
+        const withdrawals: Record<string, number> = {}
+        for (const row of economicTimeline.ledger) {
+          const t = String(row.entry_type ?? '').toLowerCase()
+          const day = String(row.at ?? '').slice(0, 10)
+          if (!day) continue
+          const amt = Math.abs(Number(row.amount_minor) || 0)
+          if (t === 'deposit') deposits[day] = (deposits[day] || 0) + amt
+          else if (t === 'withdrawal') withdrawals[day] = (withdrawals[day] || 0) + amt
+        }
+        const allDays = [...new Set([...Object.keys(deposits), ...Object.keys(withdrawals)])].sort()
+        if (allDays.length < 2) return null
+        return (
+          <ChartCard title="Deposit / Withdrawal History" className="mb-6">
+            <AreaChart
+              categories={allDays}
+              series={[
+                { name: 'Deposits', data: allDays.map((d) => deposits[d] || 0), color: '#22c55e' },
+                { name: 'Withdrawals', data: allDays.map((d) => withdrawals[d] || 0), color: '#ef4444' },
+              ]}
+              height={220}
+              yFormatter={(v) => formatCurrency(v)}
+            />
+          </ChartCard>
+        )
+      })()}
+
+      {/* Bonus timeline from bonus instances */}
+      {economicTimeline?.bonus_instances && economicTimeline.bonus_instances.length > 0 && (
+        <ComponentCard title="Bonus Timeline" desc="Grant → WR progress → outcome" className="mb-6">
+          <div className="relative space-y-0 border-l-2 border-gray-200 pl-6 dark:border-gray-700">
+            {economicTimeline.bonus_instances.map((bi, i) => {
+              const status = String(bi.status ?? '').toLowerCase()
+              const dotColor = status === 'active' ? 'bg-green-500' : status === 'forfeited' ? 'bg-red-500' : status === 'completed' ? 'bg-blue-500' : 'bg-gray-400'
+              const wrRequired = Number(bi.wr_required_minor) || 0
+              const wrDone = Number(bi.wr_contributed_minor) || 0
+              const pct = wrRequired > 0 ? Math.min(100, Math.round((wrDone / wrRequired) * 100)) : 0
+              return (
+                <div key={`${bi.id ?? i}-${i}`} className="relative pb-5">
+                  <span className={`absolute -left-[31px] top-1 h-3 w-3 rounded-full ring-2 ring-white dark:ring-gray-900 ${dotColor}`} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge label={String(bi.status ?? '—')} variant={status === 'active' ? 'success' : status === 'forfeited' ? 'error' : status === 'completed' ? 'info' : 'neutral'} />
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Promo v{String(bi.promotion_version_id ?? '?')}
+                    </span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                      {bi.at ? String(bi.at) : '—'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                    Granted {formatCurrency(Number(bi.granted_amount_minor) || 0)}
+                    {wrRequired > 0 && (
+                      <span className="ml-2 text-xs text-gray-500">
+                        WR {formatCurrency(wrDone)} / {formatCurrency(wrRequired)} ({pct}%)
+                      </span>
+                    )}
+                  </p>
+                  {wrRequired > 0 && (
+                    <div className="mt-1.5 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div
+                        className={`h-full rounded-full ${pct >= 100 ? 'bg-green-500' : 'bg-brand-500'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </ComponentCard>
+      )}
+
       <ComponentCard title="Profile" desc={`Player ${id ?? ''}`}>
         {err ? <p className="text-sm text-red-600 dark:text-red-400">{err}</p> : null}
         {data ? (
@@ -149,6 +487,387 @@ export default function PlayerDetailPage() {
             </button>
           </div>
         ) : null}
+      </ComponentCard>
+
+      <ComponentCard
+        className="mt-6"
+        title="Economic Timeline"
+        desc="FR-OPS-02 · Ledger, bonus instances, and Fystack webhook hints"
+      >
+        <div className="flex flex-col gap-4">
+          <button
+            type="button"
+            disabled={!id || economicTimelineLoading}
+            className="w-fit rounded-lg bg-brand-500 px-3 py-1.5 text-sm text-white hover:bg-brand-600 disabled:opacity-50"
+            onClick={() => void loadEconomicTimeline()}
+          >
+            {economicTimelineLoading ? 'Loading…' : 'Load Economic Timeline'}
+          </button>
+          {economicTimelineErr ? (
+            <p className="text-sm text-red-600 dark:text-red-400">{economicTimelineErr}</p>
+          ) : null}
+          {economicTimeline ? (
+            <div className="flex flex-col gap-3">
+              <details className="rounded-lg border border-gray-200 dark:border-gray-700" open>
+                <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
+                  Balances
+                </summary>
+                <div className="border-t border-gray-200 p-4 dark:border-gray-700">
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm dark:border-gray-600 dark:bg-gray-800/50">
+                    <dl className="grid gap-2 sm:grid-cols-3">
+                      <div>
+                        <dt className="text-gray-500 dark:text-gray-400">cash_minor</dt>
+                        <dd className="font-mono text-gray-900 dark:text-gray-100">
+                          {economicTimeline.balances?.cash_minor ?? '—'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-gray-500 dark:text-gray-400">bonus_locked_minor</dt>
+                        <dd className="font-mono text-gray-900 dark:text-gray-100">
+                          {economicTimeline.balances?.bonus_locked_minor ?? '—'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-gray-500 dark:text-gray-400">playable_minor</dt>
+                        <dd className="font-mono text-gray-900 dark:text-gray-100">
+                          {economicTimeline.balances?.playable_minor ?? '—'}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+              </details>
+
+              <details className="rounded-lg border border-gray-200 dark:border-gray-700" open>
+                <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
+                  Ledger entries
+                </summary>
+                <div className="border-t border-gray-200 p-2 dark:border-gray-700">
+                  <div className={tableWrapClass}>
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+                          <th className="px-3 py-2 font-medium">ID</th>
+                          <th className="px-3 py-2 font-medium">Amount</th>
+                          <th className="px-3 py-2 font-medium">Currency</th>
+                          <th className="px-3 py-2 font-medium">Type</th>
+                          <th className="px-3 py-2 font-medium">Pocket</th>
+                          <th className="px-3 py-2 font-medium">Idempotency Key</th>
+                          <th className="px-3 py-2 font-medium">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {(economicTimeline.ledger ?? []).map((row, i) => (
+                          <tr key={`${row.id ?? i}-${i}`}>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                              {String(row.id ?? '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                              {String(row.amount_minor ?? '—')}
+                            </td>
+                            <td className="px-3 py-2">{String(row.currency ?? '—')}</td>
+                            <td className="px-3 py-2">{String(row.entry_type ?? '—')}</td>
+                            <td className="px-3 py-2">{String(row.pocket ?? '—')}</td>
+                            <td className="max-w-[12rem] break-all px-3 py-2 font-mono text-xs">
+                              {String(row.idempotency_key ?? '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                              {row.at ? String(row.at) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </details>
+
+              <details className="rounded-lg border border-gray-200 dark:border-gray-700" open>
+                <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
+                  Bonus instances
+                </summary>
+                <div className="border-t border-gray-200 p-2 dark:border-gray-700">
+                  <div className={tableWrapClass}>
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+                          <th className="px-3 py-2 font-medium">ID</th>
+                          <th className="px-3 py-2 font-medium">Version</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
+                          <th className="px-3 py-2 font-medium">Granted</th>
+                          <th className="px-3 py-2 font-medium">WR Required</th>
+                          <th className="px-3 py-2 font-medium">WR Done</th>
+                          <th className="px-3 py-2 font-medium">Idempotency Key</th>
+                          <th className="px-3 py-2 font-medium">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {(economicTimeline.bonus_instances ?? []).map((row, i) => (
+                          <tr key={`${row.id ?? i}-${i}`}>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                              {String(row.id ?? '—')}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {String(row.promotion_version_id ?? '—')}
+                            </td>
+                            <td className="px-3 py-2">{String(row.status ?? '—')}</td>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                              {String(row.granted_amount_minor ?? '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                              {String(row.wr_required_minor ?? '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                              {String(row.wr_contributed_minor ?? '—')}
+                            </td>
+                            <td className="max-w-[12rem] break-all px-3 py-2 font-mono text-xs">
+                              {String(row.idempotency_key ?? '—')}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                              {row.at ? String(row.at) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </details>
+
+              <details className="rounded-lg border border-gray-200 dark:border-gray-700" open>
+                <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
+                  Fystack webhooks
+                </summary>
+                <div className="border-t border-gray-200 p-2 dark:border-gray-700">
+                  <div className={tableWrapClass}>
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+                          <th className="px-3 py-2 font-medium">Dedupe Key</th>
+                          <th className="px-3 py-2 font-medium">Event Type</th>
+                          <th className="px-3 py-2 font-medium">Resource ID</th>
+                          <th className="px-3 py-2 font-medium">Processed</th>
+                          <th className="px-3 py-2 font-medium">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {(economicTimeline.fystack_webhooks_guess ?? []).map((row, i) => (
+                          <tr key={`${row.dedupe_key ?? i}-${i}`}>
+                            <td className="max-w-[14rem] break-all px-3 py-2 font-mono text-xs">
+                              {String(row.dedupe_key ?? '—')}
+                            </td>
+                            <td className="px-3 py-2">{String(row.event_type ?? '—')}</td>
+                            <td className="max-w-[12rem] break-all px-3 py-2 font-mono text-xs">
+                              {String(row.resource_id ?? '—')}
+                            </td>
+                            <td className="px-3 py-2">{String(row.processed ?? '—')}</td>
+                            <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                              {row.at ? String(row.at) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </details>
+            </div>
+          ) : null}
+        </div>
+      </ComponentCard>
+
+      <ComponentCard className="mt-6" title="Risk Decisions" desc="FR-OPS-05 · Bonus eligibility / risk decisions">
+        <div className="flex flex-col gap-4">
+          <button
+            type="button"
+            disabled={!id || riskLoading}
+            className="w-fit rounded-lg bg-brand-500 px-3 py-1.5 text-sm text-white hover:bg-brand-600 disabled:opacity-50"
+            onClick={() => void loadRiskDecisions()}
+          >
+            {riskLoading ? 'Loading…' : 'Load Risk Decisions'}
+          </button>
+          {riskErr ? <p className="text-sm text-red-600 dark:text-red-400">{riskErr}</p> : null}
+          {riskDecisions ? (
+            <div className={tableWrapClass}>
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+                    <th className="px-3 py-2 font-medium">ID</th>
+                    <th className="px-3 py-2 font-medium">Promo Version</th>
+                    <th className="px-3 py-2 font-medium">Decision</th>
+                    <th className="px-3 py-2 font-medium">Rule Codes</th>
+                    <th className="px-3 py-2 font-medium">What we checked</th>
+                    <th className="px-3 py-2 font-medium">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {riskDecisions.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-4 text-gray-500 dark:text-gray-400">
+                        No decisions recorded.
+                      </td>
+                    </tr>
+                  ) : (
+                    riskDecisions.map((row) => {
+                      const dec = String(row.decision ?? '')
+                      return (
+                        <tr key={row.id}>
+                          <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{String(row.id ?? '—')}</td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {row.promotion_version_id != null ? String(row.promotion_version_id) : '—'}
+                          </td>
+                          <td className={`px-3 py-2 ${decisionClass(dec)}`}>{dec || '—'}</td>
+                          <td className="max-w-[10rem] break-words px-3 py-2 text-xs">
+                            {Array.isArray(row.rule_codes) ? row.rule_codes.join(', ') : '—'}
+                          </td>
+                          <td className="max-w-md px-3 py-2">
+                            {row.inputs !== undefined ? (
+                              <div className="max-h-40 overflow-auto">
+                                <ApiResultSummary data={row.inputs} embedded />
+                              </div>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                            {row.created_at ?? '—'}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      </ComponentCard>
+
+      <ComponentCard
+        className="mt-6"
+        title="Responsible gambling & account status"
+        desc="Superadmin only. Sets self-exclusion end and account closure timestamps (audited). Use RFC3339 via the datetime pickers; empty string clears a field."
+      >
+        <div className="space-y-4 text-sm">
+          {!isSuper ? (
+            <p className="text-amber-700 dark:text-amber-400">Superadmin role required to edit compliance fields.</p>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Self-exclusion until</p>
+              <p className="mb-2 text-xs text-gray-600 dark:text-gray-300">
+                Current:{' '}
+                <span className="font-mono">
+                  {typeof data?.self_excluded_until === 'string' && data.self_excluded_until
+                    ? data.self_excluded_until
+                    : '—'}
+                </span>
+              </p>
+              <input
+                type="datetime-local"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                value={rgSelfExInput}
+                disabled={!isSuper || rgBusy}
+                onChange={(e) => setRgSelfExInput(e.target.value)}
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!isSuper || rgBusy || !rgSelfExInput.trim()}
+                  className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs text-white hover:bg-brand-600 disabled:opacity-50"
+                  onClick={() => void patchRgCompliance({ self_excluded_until: localInputToRFC3339(rgSelfExInput) })}
+                >
+                  Save self-exclusion
+                </button>
+                <button
+                  type="button"
+                  disabled={!isSuper || rgBusy}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-600"
+                  onClick={() => void patchRgCompliance({ self_excluded_until: '' })}
+                >
+                  Clear self-exclusion
+                </button>
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Account closed at</p>
+              <p className="mb-2 text-xs text-gray-600 dark:text-gray-300">
+                Current:{' '}
+                <span className="font-mono">
+                  {typeof data?.account_closed_at === 'string' && data.account_closed_at
+                    ? data.account_closed_at
+                    : '—'}
+                </span>
+              </p>
+              <input
+                type="datetime-local"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                value={rgClosedInput}
+                disabled={!isSuper || rgBusy}
+                onChange={(e) => setRgClosedInput(e.target.value)}
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!isSuper || rgBusy || !rgClosedInput.trim()}
+                  className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs text-white hover:bg-brand-600 disabled:opacity-50"
+                  onClick={() => void patchRgCompliance({ account_closed_at: localInputToRFC3339(rgClosedInput) })}
+                >
+                  Save closure time
+                </button>
+                <button
+                  type="button"
+                  disabled={!isSuper || rgBusy}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-600"
+                  onClick={() => void patchRgCompliance({ account_closed_at: '' })}
+                >
+                  Clear closure
+                </button>
+              </div>
+            </div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+              Reason (optional, stored in audit log)
+            </span>
+            <input
+              type="text"
+              className="w-full max-w-xl rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+              value={rgReason}
+              disabled={!isSuper || rgBusy}
+              onChange={(e) => setRgReason(e.target.value)}
+              placeholder="e.g. Player request CHAT-1234"
+            />
+          </label>
+        </div>
+      </ComponentCard>
+
+      <ComponentCard
+        className="mt-6"
+        title="Compliance Export"
+        desc="FR-OPS-06 · JSON download (Content-Disposition attachment)"
+      >
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            disabled={!id}
+            className="w-fit rounded-lg bg-brand-500 px-3 py-1.5 text-sm text-white hover:bg-brand-600 disabled:opacity-50"
+            onClick={() => void downloadComplianceExport()}
+          >
+            Download Compliance Export
+          </button>
+          {complianceMsg ? (
+            <p
+              className={
+                complianceMsg.kind === 'ok'
+                  ? 'text-sm text-green-600 dark:text-green-400'
+                  : 'text-sm text-red-600 dark:text-red-400'
+              }
+            >
+              {complianceMsg.text}
+            </p>
+          ) : null}
+        </div>
       </ComponentCard>
     </>
   )

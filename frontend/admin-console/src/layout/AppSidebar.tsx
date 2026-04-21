@@ -8,17 +8,158 @@ import {
 } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-import {
-  ChevronDownIcon,
-  GridIcon,
-  HorizontaLDots,
-  PlugInIcon,
-  TableIcon,
-  UserCircleIcon,
-} from "../icons";
+import { ChevronDownIcon, HorizontaLDots } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
 import { useAdminActivityLog } from "../notifications/AdminActivityLogContext";
-import SidebarWidget from "./SidebarWidget";
+
+const DashboardIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const PlayersIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M9 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM6.5 11a3.48 3.48 0 0 0-3.45 3.02L3 15.25V17h7v-1.75l-.05-.23A3.48 3.48 0 0 0 6.5 11Zm8.5-2.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.5 11a3.48 3.48 0 0 0-3.45 3.02L9 15.25V17h7.5v-1.75l-.05-.23A3.48 3.48 0 0 0 12.5 11Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const FinanceIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M4 7.5C4 6.12 5.12 5 6.5 5h11C18.88 5 20 6.12 20 7.5v9c0 1.38-1.12 2.5-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9Zm2 .5v9c0 .28.22.5.5.5h11a.5.5 0 0 0 .5-.5V8H6Zm2.5 3h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1Zm0 2.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 1 0-1Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const GamesIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M11.25 3.75a.75.75 0 0 1 .75-.75h.75a2.25 2.25 0 0 1 2.25 2.25v.75H18a2.25 2.25 0 0 1 2.25 2.25V12a2.25 2.25 0 0 1-2.25 2.25h-.75v.75a2.25 2.25 0 0 1-2.25 2.25H12a2.25 2.25 0 0 1-2.25-2.25v-.75H9A2.25 2.25 0 0 1 6.75 15v-2.632a.75.75 0 0 1 .336-.628l.877-.513a.75.75 0 0 0 0-1.295l-.877-.513A.75.75 0 0 1 6.75 9V6.75A2.25 2.25 0 0 1 9 4.5h.75v-.75A2.25 2.25 0 0 1 12 1.5h-.75Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const BonusEngineIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      d="M12 2l1.09 3.36h3.54L14.18 7.1l1.09 3.36L12 8.73 8.73 10.46 9.82 7.1 6.37 5.36h3.54L12 2Z"
+      fill="currentColor"
+    />
+    <path
+      d="M5 11c0-1.66 1.34-3 3-3h8c1.66 0 3 1.34 3 3v1H5v-1Zm0 3h14v6c0 1.1-.9 2-2 2H7c-1.1 0-2-.9-2-2v-6Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const EngagementIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path d="M5 11h14v8a1.5 1.5 0 0 1-1.5 1.5H6.5A1.5 1.5 0 0 1 5 19v-8Z" fill="currentColor" />
+    <path d="M4 8h16v4H4V8Z" fill="currentColor" />
+    <path d="M11 5h2v15h-2V5Z" fill="currentColor" />
+  </svg>
+);
+
+const OpsIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M14.5 3.5a1 1 0 0 1 .87.51l.72 1.25a5.02 5.02 0 0 1 1.73.99l1.43-.25a1 1 0 0 1 1.09.55l1 1.73a1 1 0 0 1-.15 1.16l-1.01 1.17c.08.33.12.67.12 1.02s-.04.69-.12 1.02l1.01 1.17a1 1 0 0 1 .15 1.16l-1 1.73a1 1 0 0 1-1.09.55l-1.43-.25c-.52.43-1.1.78-1.73.99l-.72 1.25a1 1 0 0 1-.87.51h-2a1 1 0 0 1-.87-.51l-.72-1.25a5.02 5.02 0 0 1-1.73-.99l-1.43.25a1 1 0 0 1-1.09-.55l-1-1.73a1 1 0 0 1 .15-1.16l1.01-1.17A5.1 5.1 0 0 1 6.5 12c0-.35.04-.69.12-1.02L5.61 9.81a1 1 0 0 1-.15-1.16l1-1.73a1 1 0 0 1 1.09-.55l1.43.25c.52-.43 1.1-.78 1.73-.99l.72-1.25A1 1 0 0 1 11.5 3.5h2Zm-.5 2h-1l-.65 1.13a1 1 0 0 1-.53.48 3.02 3.02 0 0 0-1.55.87 1 1 0 0 1-.58.28l-1.28.22-.5.87 1.01 1.17a1 1 0 0 1 .2.6c0 .22-.03.44-.03.66s.01.44.03.66a1 1 0 0 1-.2.6l-1.01 1.17.5.87 1.28.22a1 1 0 0 1 .58.28c.45.48.97.86 1.55.87a1 1 0 0 1 .53.48L14 18.5h1l.65-1.13a1 1 0 0 1 .53-.48 3.02 3.02 0 0 0 1.55-.87 1 1 0 0 1 .58-.28l1.28-.22.5-.87-1.01-1.17a1 1 0 0 1-.2-.6c0-.22.03-.44.03-.66s-.01-.44-.03-.66a1 1 0 0 1 .2-.6l1.01-1.17-.5-.87-1.28-.22a1 1 0 0 1-.58-.28 3.02 3.02 0 0 0-1.55-.87 1 1 0 0 1-.53-.48L14 5.5Zm1 5.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+const ComplianceIcon: FC<{ className?: string }> = ({ className }) => (
+  <svg
+    className={className}
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden
+  >
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M12 3.5 18 6v6.5c0 3.5-2.5 6.5-6 7.5-3.5-1-6-4-6-7.5V6l6-2.5Zm-4 4.38V12c0 2.55 1.8 4.85 4 5.85 2.2-1 4-3.3 4-5.85V7.88L12 6.35 8 7.88Zm6.2 2.32-4 4-2.1-2.1 1.06-1.06L14 12.06l2.94-2.94 1.06 1.06Z"
+      fill="currentColor"
+    />
+  </svg>
+);
 
 type NavItem = {
   name: string;
@@ -29,53 +170,79 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   {
-    icon: <GridIcon />,
-    name: "Overview",
-    subItems: [{ name: "Dashboard", path: "/", pro: false }],
+    icon: <DashboardIcon />,
+    name: "Dashboard",
+    path: "/",
   },
   {
-    icon: <UserCircleIcon />,
-    name: "Players",
-    path: "/users",
-  },
-  {
-    icon: <UserCircleIcon />,
-    name: "Support",
-    path: "/support",
-  },
-  {
-    icon: <TableIcon />,
-    name: "Ledger",
-    path: "/ledger",
-  },
-];
-
-const othersItems: NavItem[] = [
-  {
-    icon: <TableIcon />,
-    name: "Logs",
-    path: "/logs",
-  },
-  {
-    icon: <PlugInIcon />,
-    name: "Integrations",
+    icon: <FinanceIcon />,
+    name: "Finance",
     subItems: [
-      { name: "Blue Ocean ops", path: "/bog", pro: false },
-      { name: "Games", path: "/games", pro: false },
-      { name: "Game launches", path: "/game-launches", pro: false },
-      { name: "Game disputes", path: "/game-disputes", pro: false },
-      { name: "BlueOcean events", path: "/blueocean", pro: false },
-      { name: "Fystack payments", path: "/fystack", pro: false },
-      { name: "Fystack withdrawals", path: "/fystack-wd", pro: false },
-      { name: "Payments ops", path: "/payments-ops", pro: false },
+      { name: "Overview", path: "/finance" },
+      { name: "Fystack webhooks", path: "/finance/fystack-webhooks", new: true },
+      { name: "Deposits", path: "/deposits" },
+      { name: "Withdrawals", path: "/withdrawals" },
+      { name: "Withdrawal approvals", path: "/withdrawal-approvals", new: true },
+      { name: "Ledger", path: "/ledger" },
     ],
   },
   {
-    icon: <GridIcon />,
-    name: "Settings",
-    path: "/settings",
+    icon: <PlayersIcon />,
+    name: "Players",
+    subItems: [
+      { name: "All players", path: "/users" },
+      { name: "Player lookup", path: "/support" },
+    ],
+  },
+  {
+    icon: <GamesIcon />,
+    name: "Games",
+    subItems: [
+      { name: "Catalog", path: "/games" },
+      { name: "BlueOcean events", path: "/games/blueocean-events", new: true },
+      { name: "Launches", path: "/game-launches" },
+      { name: "Disputes", path: "/game-disputes" },
+      { name: "Provider ops", path: "/provider-ops" },
+    ],
+  },
+  {
+    icon: <BonusEngineIcon />,
+    name: "Bonus Engine",
+    subItems: [
+      { name: "Promotions", path: "/bonushub" },
+      { name: "Smart suggestions", path: "/bonushub/recommendations" },
+      { name: "Create promotion", path: "/bonushub/wizard/new" },
+      { name: "Calendar", path: "/bonushub/calendar" },
+      { name: "Campaign analytics", path: "/bonushub/campaign-analytics", new: true },
+      { name: "Operations", path: "/bonushub/operations" },
+      { name: "Risk queue", path: "/bonushub/operations?tab=risk" },
+    ],
+  },
+  {
+    icon: <EngagementIcon />,
+    name: "Engagement",
+    subItems: [
+      { name: "VIP system", path: "/engagement/vip", new: true },
+      { name: "Global chat", path: "/global-chat", new: true },
+    ],
+  },
+  {
+    icon: <ComplianceIcon />,
+    name: "Compliance & Risk",
+    subItems: [{ name: "Audit log", path: "/audit-log", new: true }],
+  },
+  {
+    icon: <OpsIcon />,
+    name: "System",
+    subItems: [
+      { name: "Diagnostics", path: "/diagnostics" },
+      { name: "Staff users", path: "/system/staff-users", new: true },
+      { name: "Settings", path: "/settings" },
+    ],
   },
 ];
+
+const othersItems: NavItem[] = [];
 
 const AppSidebar: FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
@@ -93,12 +260,46 @@ const AppSidebar: FC = () => {
 
   const isActive = useCallback(
     (path: string) => {
-      if (path === "/support") return location.pathname.startsWith("/support");
-      if (path === "/games")
-        return location.pathname === "/games" || location.pathname === "/games-catalog";
-      return location.pathname === path;
+      const p = location.pathname;
+      const search = location.search || "";
+      const sp = new URLSearchParams(search);
+      const tab = sp.get("tab") || "dashboard";
+
+      if (path === "/") return p === "/";
+      if (path === "/support") return p.startsWith("/support");
+      if (path === "/games") return p === "/games" || p === "/games-catalog";
+      if (path === "/games/blueocean-events") return p === "/games/blueocean-events";
+
+      // Bonus Engine: one highlighted child at a time
+      if (path === "/bonushub/operations?tab=risk") {
+        return p === "/bonushub/operations" && tab === "risk";
+      }
+      if (path === "/bonushub/operations") {
+        return p === "/bonushub/operations" && tab !== "risk";
+      }
+      if (path === "/bonushub/wizard/new") return p === "/bonushub/wizard/new";
+      if (path === "/bonushub/calendar") return p === "/bonushub/calendar";
+      if (path === "/bonushub/campaign-analytics") return p === "/bonushub/campaign-analytics";
+      if (path === "/bonushub/recommendations") return p === "/bonushub/recommendations";
+      if (path === "/bonushub") {
+        if (p === "/bonushub") return true;
+        if (p.startsWith("/bonushub/promotions/")) return true;
+        return false;
+      }
+
+      if (path === "/global-chat") return p.startsWith("/global-chat");
+      if (path === "/finance/fystack-webhooks") return p === "/finance/fystack-webhooks";
+      if (path === "/system/staff-users") return p === "/system/staff-users";
+      if (path === "/engagement/vip") return p === "/engagement/vip" || p === "/vip-program";
+      if (path.includes("?")) {
+        const base = path.split("?")[0];
+        if (p !== base) return false;
+        const want = new URLSearchParams(path.split("?")[1] || "").get("tab");
+        return want === tab;
+      }
+      return p === path;
     },
-    [location.pathname]
+    [location.pathname, location.search]
   );
 
   useEffect(() => {
@@ -109,7 +310,7 @@ const AppSidebar: FC = () => {
       items.forEach((nav, index) => {
         if (nav.subItems) {
           nav.subItems.forEach((subItem) => {
-            if (isActive(subItem.path)) {
+            if (!submenuMatched && isActive(subItem.path)) {
               next = {
                 type: menuType as "main" | "others",
                 index,
@@ -248,6 +449,11 @@ const AppSidebar: FC = () => {
                     >
                       {subItem.name}
                       <span className="flex items-center gap-1 ml-auto">
+                        {subItem.path === "/logs" && unreadCount > 0 && (
+                          <span className="shrink-0 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            {unreadCount > 99 ? "99+" : unreadCount}
+                          </span>
+                        )}
                         {subItem.new && (
                           <span
                             className={`ml-auto ${
@@ -349,25 +555,26 @@ const AppSidebar: FC = () => {
               </h2>
               {renderMenuItems(navItems, "main")}
             </div>
-            <div className="">
-              <h2
-                className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${
-                  !isExpanded && !isHovered
-                    ? "lg:justify-center"
-                    : "justify-start"
-                }`}
-              >
-                {isExpanded || isHovered || isMobileOpen ? (
-                  "Others"
-                ) : (
-                  <HorizontaLDots />
-                )}
-              </h2>
-              {renderMenuItems(othersItems, "others")}
-            </div>
+            {othersItems.length > 0 ? (
+              <div className="">
+                <h2
+                  className={`mb-4 text-xs uppercase flex leading-[20px] text-gray-400 ${
+                    !isExpanded && !isHovered
+                      ? "lg:justify-center"
+                      : "justify-start"
+                  }`}
+                >
+                  {isExpanded || isHovered || isMobileOpen ? (
+                    "Others"
+                  ) : (
+                    <HorizontaLDots />
+                  )}
+                </h2>
+                {renderMenuItems(othersItems, "others")}
+              </div>
+            ) : null}
           </div>
         </nav>
-        {isExpanded || isHovered || isMobileOpen ? <SidebarWidget /> : null}
       </div>
     </aside>
   );

@@ -100,6 +100,11 @@ func (c *Client) ReadPump(ctx context.Context) {
 			continue
 		}
 
+		if MessageContainsBlockedTerm(ctx, c.pool, body) {
+			c.sendError("filtered", "Message blocked by house rules")
+			continue
+		}
+
 		body = FilterProfanity(body)
 		mentions := ParseMentions(body)
 		c.lastMsg = time.Now()

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
+import { useSiteContent } from '../hooks/useSiteContent'
 import {
   IconBanknote,
   IconBuilding2,
@@ -33,9 +34,85 @@ type CasinoSidebarProps = {
   onToggleCollapse: () => void
 }
 
+type NavCategory = {
+  id: string
+  label: string
+  enabled: boolean
+  coming_soon?: boolean
+}
+
+const ICON_MAP: Record<string, (size: number) => ReactNode> = {
+  hot_now: (s) => <IconSwords size={s} aria-hidden />,
+  new_releases: (s) => <IconSparkles size={s} aria-hidden />,
+  slots: (s) => <IconGem size={s} aria-hidden />,
+  bonus_buys: (s) => <IconBanknote size={s} aria-hidden />,
+  live: (s) => <IconRadio size={s} aria-hidden />,
+  challenges: (s) => <IconTarget size={s} aria-hidden />,
+  favourites: (s) => <IconStar size={s} aria-hidden />,
+  recently_played: (s) => <IconClock size={s} aria-hidden />,
+  providers: (s) => <IconBuilding2 size={s} aria-hidden />,
+  sports: (s) => <IconTrophy size={s} aria-hidden />,
+  rewards: (s) => <IconGift size={s} aria-hidden />,
+  affiliate: (s) => <IconUsers size={s} aria-hidden />,
+  vip: (s) => <IconCrown size={s} aria-hidden />,
+  farming: (s) => <IconTractor size={s} aria-hidden />,
+  raffle: (s) => <IconTicket size={s} aria-hidden />,
+}
+
+const ROUTE_MAP: Record<string, string> = {
+  hot_now: '/casino/games',
+  new_releases: '/casino/new',
+  slots: '/casino/slots',
+  bonus_buys: '/casino/bonus-buys',
+  live: '/casino/live',
+  challenges: '/casino/challenges',
+  favourites: '/casino/favourites',
+  recently_played: '/casino/recent',
+  providers: '/casino/games#providers',
+  sports: '/casino/sports',
+  rewards: '/rewards',
+  affiliate: '',
+  vip: '/vip',
+  farming: '',
+  raffle: '/casino/games',
+}
+
+const FALLBACK_CASINO_ITEMS: NavCategory[] = [
+  { id: 'hot_now', label: 'Hot now', enabled: true },
+  { id: 'new_releases', label: 'New Releases', enabled: true },
+  { id: 'slots', label: 'Slots', enabled: true },
+  { id: 'bonus_buys', label: 'Bonus Buys', enabled: true },
+  { id: 'live', label: 'Live', enabled: true },
+  { id: 'challenges', label: 'Challenges', enabled: true },
+  { id: 'favourites', label: 'Favourites', enabled: true },
+  { id: 'recently_played', label: 'Recently Played', enabled: true },
+  { id: 'providers', label: 'Providers', enabled: true },
+]
+
+const FALLBACK_EXTRAS: NavCategory[] = [{ id: 'sports', label: 'Sports', enabled: true }]
+
+const FALLBACK_PROMO: NavCategory[] = [
+  { id: 'rewards', label: 'Rewards', enabled: true },
+  { id: 'affiliate', label: 'Affiliate', enabled: true, coming_soon: true },
+  { id: 'vip', label: 'VIP', enabled: true },
+  { id: 'farming', label: 'Farming', enabled: true, coming_soon: true },
+  { id: 'raffle', label: '$25K Raffle', enabled: true },
+]
+
+function isHotNow(id: string) { return id === 'hot_now' }
+function isProviders(id: string) { return id === 'providers' }
+
 export default function CasinoSidebar({ mobileOpen, onClose, collapsed, onToggleCollapse }: CasinoSidebarProps) {
   const [casinoOpen, setCasinoOpen] = useState(true)
   const { pathname, hash } = useLocation()
+  const { getContent } = useSiteContent()
+
+  const casinoItems = getContent<NavCategory[]>('nav.categories.casino', FALLBACK_CASINO_ITEMS)
+    .filter((c) => c.enabled !== false)
+  const extraItems = getContent<NavCategory[]>('nav.categories.extras', FALLBACK_EXTRAS)
+    .filter((c) => c.enabled !== false)
+  const promoItems = getContent<NavCategory[]>('nav.categories.promo', FALLBACK_PROMO)
+    .filter((c) => c.enabled !== false)
 
   const onGamesCatalog = pathname === '/casino/games'
   const hotNowSidebarActive = onGamesCatalog && hash === ''
@@ -58,6 +135,109 @@ export default function CasinoSidebar({ mobileOpen, onClose, collapsed, onToggle
     'flex w-full items-center gap-2.5 rounded-[4px] py-1.5 pl-2.5 pr-2 text-left text-[12px] font-medium text-casino-muted transition hover:bg-casino-elevated/50 hover:text-casino-foreground'
   const subActive =
     'bg-casino-primary-dim font-medium text-casino-foreground hover:bg-casino-primary-dim/90 hover:text-casino-foreground'
+
+  const icon = (id: string, size: number) => (ICON_MAP[id] ?? (() => null))(size)
+
+  const renderSubItem = (item: NavCategory) => {
+    const route = ROUTE_MAP[item.id] ?? ''
+    const isEnd = isHotNow(item.id)
+    const activeOverride = isHotNow(item.id)
+      ? hotNowSidebarActive
+      : isProviders(item.id)
+        ? providersSidebarActive
+        : undefined
+
+    if (!route || item.coming_soon) {
+      return (
+        <span key={item.id} className={`${subLink} cursor-default opacity-45`} title={item.coming_soon ? 'Coming soon' : undefined}>
+          {icon(item.id, 15)}
+          {item.label}
+        </span>
+      )
+    }
+
+    if (activeOverride !== undefined) {
+      return (
+        <NavLink
+          key={item.id}
+          to={route}
+          end={isEnd}
+          className={`${subLink} ${activeOverride ? subActive : ''}`}
+        >
+          {icon(item.id, 15)}
+          {item.label}
+        </NavLink>
+      )
+    }
+
+    return (
+      <RequireAuthNavLink
+        key={item.id}
+        to={route}
+        className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}
+      >
+        {icon(item.id, 15)}
+        {item.label}
+      </RequireAuthNavLink>
+    )
+  }
+
+  const renderTopItem = (item: NavCategory) => {
+    const route = ROUTE_MAP[item.id] ?? ''
+    const publicPromo = item.id === 'vip' || item.id === 'sports'
+    if (!route || item.coming_soon) {
+      if (collapsed) {
+        return (
+          <span key={item.id} className={navItem} title={`${item.label}${item.coming_soon ? ' (coming soon)' : ''}`}>
+            {icon(item.id, 15)}
+          </span>
+        )
+      }
+      return (
+        <span key={item.id} className={`${navItem} cursor-default opacity-45`} title={item.coming_soon ? 'Coming soon' : undefined}>
+          <span className="flex items-center gap-2.5">
+            {icon(item.id, 15)}
+            {item.label}
+          </span>
+        </span>
+      )
+    }
+
+    if (collapsed) {
+      if (publicPromo) {
+        return (
+          <NavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title={item.label}>
+            {icon(item.id, 15)}
+          </NavLink>
+        )
+      }
+      return (
+        <RequireAuthNavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title={item.label}>
+          {icon(item.id, 15)}
+        </RequireAuthNavLink>
+      )
+    }
+
+    if (publicPromo) {
+      return (
+        <NavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
+          <span className="flex items-center gap-2.5">
+            {icon(item.id, 15)}
+            {item.label}
+          </span>
+        </NavLink>
+      )
+    }
+
+    return (
+      <RequireAuthNavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
+        <span className="flex items-center gap-2.5">
+          {icon(item.id, 15)}
+          {item.label}
+        </span>
+      </RequireAuthNavLink>
+    )
+  }
 
   return (
     <>
@@ -128,94 +308,18 @@ export default function CasinoSidebar({ mobileOpen, onClose, collapsed, onToggle
 
             {!collapsed && casinoOpen ? (
               <div className="mb-2 ml-3.5 mt-0.5 flex flex-col gap-0.5 border-l border-casino-border/40 pl-2">
-                <NavLink
-                  to="/casino/games"
-                  end
-                  className={`${subLink} ${hotNowSidebarActive ? subActive : ''}`}
-                >
-                  <IconSwords size={15} aria-hidden />
-                  Hot now
-                </NavLink>
-                <RequireAuthNavLink to="/casino/new" className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}>
-                  <IconSparkles size={15} aria-hidden />
-                  New Releases
-                </RequireAuthNavLink>
-                <RequireAuthNavLink to="/casino/slots" className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}>
-                  <IconGem size={15} aria-hidden />
-                  Slots
-                </RequireAuthNavLink>
-                <RequireAuthNavLink
-                  to="/casino/bonus-buys"
-                  className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}
-                >
-                  <IconBanknote size={15} aria-hidden />
-                  Bonus Buys
-                </RequireAuthNavLink>
-                <RequireAuthNavLink to="/casino/live" className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}>
-                  <IconRadio size={15} aria-hidden />
-                  Live
-                </RequireAuthNavLink>
-                <RequireAuthNavLink
-                  to="/casino/challenges"
-                  className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}
-                >
-                  <IconTarget size={15} aria-hidden />
-                  Challenges
-                </RequireAuthNavLink>
-                <RequireAuthNavLink
-                  to="/casino/favourites"
-                  className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}
-                >
-                  <IconStar size={15} aria-hidden />
-                  Favourites
-                </RequireAuthNavLink>
-                <RequireAuthNavLink to="/casino/recent" className={({ isActive }) => `${subLink} ${isActive ? subActive : ''}`}>
-                  <IconClock size={15} aria-hidden />
-                  Recently Played
-                </RequireAuthNavLink>
-                <RequireAuthNavLink
-                  to="/casino/games#providers"
-                  className={`${subLink} ${providersSidebarActive ? subActive : ''}`}
-                >
-                  <IconBuilding2 size={15} aria-hidden />
-                  Providers
-                </RequireAuthNavLink>
+                {casinoItems.map(renderSubItem)}
               </div>
             ) : null}
           </div>
 
-          {collapsed ? (
-            <span className={navItem} title="Sports (coming soon)">
-              <IconTrophy size={15} aria-hidden />
-            </span>
-          ) : (
-            <span className={`${navItem} cursor-default opacity-45`} title="Coming soon">
-              <span className="flex items-center gap-2.5">
-                <IconTrophy size={15} aria-hidden />
-                Sports
-              </span>
-            </span>
-          )}
+          {extraItems.map(renderTopItem)}
 
           <div className={`my-2.5 h-px bg-casino-border ${collapsed ? 'w-full' : ''}`} role="separator" />
 
           {collapsed ? (
             <>
-              <RequireAuthNavLink to="/casino/featured" className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title="Rewards">
-                <IconGift size={15} aria-hidden />
-              </RequireAuthNavLink>
-              <span className={navItem} title="Affiliate">
-                <IconUsers size={15} aria-hidden />
-              </span>
-              <RequireAuthNavLink to="/profile" className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title="VIP">
-                <IconCrown size={15} aria-hidden />
-              </RequireAuthNavLink>
-              <span className={navItem} title="Farming">
-                <IconTractor size={15} aria-hidden />
-              </span>
-              <RequireAuthNavLink to="/casino/games" className={navItem} title="$25K Raffle">
-                <IconTicket size={15} aria-hidden />
-              </RequireAuthNavLink>
+              {promoItems.map(renderTopItem)}
 
               <div className="my-2.5 h-px w-full bg-casino-border" role="separator" />
 
@@ -239,36 +343,7 @@ export default function CasinoSidebar({ mobileOpen, onClose, collapsed, onToggle
             </>
           ) : (
             <>
-              <RequireAuthNavLink to="/casino/featured" className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
-                <span className="flex items-center gap-2.5">
-                  <IconGift size={15} aria-hidden />
-                  Rewards
-                </span>
-              </RequireAuthNavLink>
-              <span className={`${navItem} cursor-default opacity-45`} title="Demo">
-                <span className="flex items-center gap-2.5">
-                  <IconUsers size={15} aria-hidden />
-                  Affiliate
-                </span>
-              </span>
-              <RequireAuthNavLink to="/profile" className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
-                <span className="flex items-center gap-2.5">
-                  <IconCrown size={15} aria-hidden />
-                  VIP
-                </span>
-              </RequireAuthNavLink>
-              <span className={`${navItem} cursor-default opacity-45`}>
-                <span className="flex items-center gap-2.5">
-                  <IconTractor size={15} aria-hidden />
-                  Farming
-                </span>
-              </span>
-              <RequireAuthNavLink to="/casino/games" className={navItem}>
-                <span className="flex items-center gap-2.5">
-                  <IconTicket size={15} aria-hidden />
-                  $25K Raffle
-                </span>
-              </RequireAuthNavLink>
+              {promoItems.map(renderTopItem)}
 
               <div className="my-2.5 h-px bg-casino-border" role="separator" />
 

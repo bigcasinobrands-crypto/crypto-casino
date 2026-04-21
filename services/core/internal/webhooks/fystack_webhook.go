@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/jobs"
+	"github.com/crypto-casino/core/internal/obs"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -104,8 +106,21 @@ func HandleFystackWebhook(pool *pgxpool.Pool, rdb *redis.Client, client *fystack
 				http.Error(w, "store failed", http.StatusInternalServerError)
 				return
 			}
-		if err := ProcessFystackWebhookDelivery(r.Context(), pool, deliveryID); err != nil {
+		settled, err := ProcessFystackWebhookDelivery(r.Context(), pool, deliveryID)
+		if err != nil {
 			log.Printf("fystack webhook: inline processing delivery %d failed: %v", deliveryID, err)
+		}
+		if settled != nil {
+			rawBonus, _ := json.Marshal(settled)
+			if err := jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "bonus_payment_settled", Data: rawBonus}); err != nil {
+				if evErr := bonus.EvaluatePaymentSettled(r.Context(), pool, *settled); evErr != nil {
+					obs.IncBonusEvalError()
+					_, _ = pool.Exec(r.Context(), `
+						INSERT INTO worker_failed_jobs (job_type, payload, error_text, attempts)
+						VALUES ($1, $2::jsonb, $3, 1)
+					`, "bonus_payment_settled", rawBonus, evErr.Error())
+				}
+			}
 		}
 		rawID, _ := json.Marshal(map[string]int64{"delivery_id": deliveryID})
 		_ = jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "fystack_webhook", Data: rawID})
@@ -121,10 +136,11 @@ func HandleFystackWebhook(pool *pgxpool.Pool, rdb *redis.Client, client *fystack
 }
 
 // ProcessFystackWebhookDelivery applies ledger / withdrawal updates for a stored delivery row.
-func ProcessFystackWebhookDelivery(ctx context.Context, pool *pgxpool.Pool, deliveryID int64) error {
+// When a new deposit ledger line is inserted, returns a PaymentSettled fact for BonusHub (idempotent replay returns nil).
+func ProcessFystackWebhookDelivery(ctx context.Context, pool *pgxpool.Pool, deliveryID int64) (*bonus.PaymentSettled, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -135,24 +151,25 @@ func ProcessFystackWebhookDelivery(ctx context.Context, pool *pgxpool.Pool, deli
 		SELECT raw, processed, event_type FROM fystack_webhook_deliveries WHERE id = $1 FOR UPDATE
 	`, deliveryID).Scan(&raw, &processed, &eventType)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if processed {
-		return tx.Commit(ctx)
+		return nil, tx.Commit(ctx)
 	}
 
 	var outer map[string]any
 	if err := json.Unmarshal(raw, &outer); err != nil {
-		return err
+		return nil, err
 	}
 	inner, _ := outer["payload"].(map[string]any)
 	resourceID := strings.TrimSpace(str(outer["resource_id"]))
 
+	var settled *bonus.PaymentSettled
 	switch strings.TrimSpace(eventType) {
 	case "deposit.confirmed":
-		err = applyFystackDepositConfirmed(ctx, tx, inner, resourceID)
+		settled, err = applyFystackDepositConfirmed(ctx, tx, inner, resourceID)
 	case "payment.success":
-		err = applyFystackPaymentSuccess(ctx, tx, inner, resourceID)
+		settled, err = applyFystackPaymentSuccess(ctx, tx, inner, resourceID)
 	case "withdrawal.failed":
 		err = applyFystackWithdrawalFailed(ctx, tx, inner, resourceID)
 	case "withdrawal.confirmed":
@@ -165,19 +182,33 @@ func ProcessFystackWebhookDelivery(ctx context.Context, pool *pgxpool.Pool, deli
 		err = nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_, err = tx.Exec(ctx, `UPDATE fystack_webhook_deliveries SET processed = true WHERE id = $1`, deliveryID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return settled, nil
 }
 
-func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[string]any, resourceID string) error {
+func depositSuccessCountTx(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
+	var n int64
+	err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)::bigint FROM ledger_entries
+		WHERE user_id = $1::uuid
+		  AND entry_type IN ('deposit.credit', 'deposit.checkout')
+		  AND amount_minor > 0
+	`, userID).Scan(&n)
+	return n, err
+}
+
+func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[string]any, resourceID string) (*bonus.PaymentSettled, error) {
 	if inner == nil {
 		log.Printf("fystack deposit: nil inner payload for resource %s", resourceID)
-		return nil
+		return nil, nil
 	}
 	walletID := strings.TrimSpace(str(inner["wallet_id"]))
 	var userID string
@@ -186,44 +217,60 @@ func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[stri
 	`, walletID).Scan(&userID)
 	if err != nil {
 		log.Printf("fystack deposit: wallet %s not found: %v", walletID, err)
-		return nil
+		return nil, nil
 	}
 	amt, ok := parseAmountMinor(inner)
 	if !ok || amt <= 0 {
 		log.Printf("fystack deposit: cannot parse amount for resource %s, amount=%v price_token=%v", resourceID, inner["amount"], inner["price_token"])
-		return nil
+		return nil, nil
 	}
 	ccy := ledgerCurrencyFromAsset(inner)
 	idem := "fystack:deposit:" + resourceID
 	if resourceID == "" {
 		idem = "fystack:deposit:" + strings.TrimSpace(str(inner["id"]))
 	}
+	provID := resourceID
+	if provID == "" {
+		provID = strings.TrimSpace(str(inner["id"]))
+	}
 	meta := map[string]any{"source": "fystack", "wallet_id": walletID, "tx_hash": str(inner["tx_hash"])}
 	inserted, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, "deposit.credit", idem, amt, meta)
 	if err != nil {
 		log.Printf("fystack deposit: ledger credit failed for user %s: %v", userID, err)
-	} else {
-		log.Printf("fystack deposit: credited %d cents (%s) to user %s (inserted=%v, resource=%s)", amt, ccy, userID, inserted, resourceID)
+		return nil, err
 	}
-	return err
+	log.Printf("fystack deposit: credited %d cents (%s) to user %s (inserted=%v, resource=%s)", amt, ccy, userID, inserted, resourceID)
+	if !inserted {
+		return nil, nil
+	}
+	n, err := depositSuccessCountTx(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &bonus.PaymentSettled{
+		UserID: userID, AmountMinor: amt, Currency: ccy, Channel: "on_chain_deposit",
+		ProviderResourceID: provID,
+		DepositIndex:       n,
+		FirstDeposit:       n == 1,
+	}, nil
 }
 
-func applyFystackPaymentSuccess(ctx context.Context, tx pgx.Tx, inner map[string]any, resourceID string) error {
+func applyFystackPaymentSuccess(ctx context.Context, tx pgx.Tx, inner map[string]any, resourceID string) (*bonus.PaymentSettled, error) {
 	if inner == nil {
-		return nil
+		return nil, nil
 	}
 	uid := strings.TrimSpace(str(inner["customer_id"]))
 	if uid == "" {
 		uid = strings.TrimSpace(str(inner["user_id"]))
 	}
 	if uid == "" {
-		return nil
+		return nil, nil
 	}
 	amt, ok := parseUSDCentsFromCheckout(inner)
 	if !ok || amt <= 0 {
 		amt, ok = parseAmountMinor(inner)
 		if !ok || amt <= 0 {
-			return nil
+			return nil, nil
 		}
 	}
 	ccy := strings.TrimSpace(str(inner["currency"]))
@@ -234,9 +281,28 @@ func applyFystackPaymentSuccess(ctx context.Context, tx pgx.Tx, inner map[string
 	if resourceID == "" {
 		idem = "fystack:checkout:" + strings.TrimSpace(str(inner["id"]))
 	}
+	provID := resourceID
+	if provID == "" {
+		provID = strings.TrimSpace(str(inner["id"]))
+	}
 	meta := map[string]any{"source": "fystack_checkout", "checkout_id": str(inner["checkout_id"])}
-	_, err := ledger.ApplyCreditTx(ctx, tx, uid, ccy, "deposit.checkout", idem, amt, meta)
-	return err
+	inserted, err := ledger.ApplyCreditTx(ctx, tx, uid, ccy, "deposit.checkout", idem, amt, meta)
+	if err != nil {
+		return nil, err
+	}
+	if !inserted {
+		return nil, nil
+	}
+	n, err := depositSuccessCountTx(ctx, tx, uid)
+	if err != nil {
+		return nil, err
+	}
+	return &bonus.PaymentSettled{
+		UserID: uid, AmountMinor: amt, Currency: ccy, Channel: "hosted_checkout",
+		ProviderResourceID: provID,
+		DepositIndex:       n,
+		FirstDeposit:       n == 1,
+	}, nil
 }
 
 func applyFystackWithdrawalFailed(ctx context.Context, tx pgx.Tx, inner map[string]any, resourceID string) error {

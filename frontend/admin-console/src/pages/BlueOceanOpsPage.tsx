@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
 import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
+import AdminDataTable from '../components/admin/AdminDataTable'
+import { ApiResultSummary } from '../components/admin/ApiResultSummary'
+
+type Tab = 'status' | 'events'
 
 export default function BlueOceanOpsPage() {
   const { apiFetch } = useAdminAuth()
@@ -14,6 +17,7 @@ export default function BlueOceanOpsPage() {
   const [flags, setFlags] = useState<Record<string, unknown> | null>(null)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [activeTab, setActiveTab] = useState<Tab>('status')
 
   const load = useCallback(async () => {
     const pathS = '/v1/admin/integrations/blueocean/status'
@@ -64,47 +68,72 @@ export default function BlueOceanOpsPage() {
     }
   }
 
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'status', label: 'Status' },
+    { id: 'events', label: 'Events' },
+  ]
+
   return (
     <>
-      <PageMeta title="Blue Ocean · Admin" description="Integration status and catalog sync" />
-      <PageBreadcrumb pageTitle="Blue Ocean" />
-      <div className="space-y-6">
-        <ComponentCard title="Catalog sync" desc="POST /v1/admin/integrations/blueocean/sync-catalog">
-          <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
-            Pulls the remote game list and upserts into the local catalog. Requires API credentials on
-            the core service.
-          </p>
+      <PageMeta title="Provider Operations · Admin" description="Integration status, catalog sync, and event log" />
+      <PageBreadcrumb pageTitle="Provider Operations" />
+
+      <div className="mb-6 flex gap-1 rounded-lg border border-gray-200 bg-gray-100 p-1 dark:border-gray-700 dark:bg-gray-800">
+        {tabs.map((tab) => (
           <button
+            key={tab.id}
             type="button"
-            disabled={busy}
-            onClick={() => void sync()}
-            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+            onClick={() => setActiveTab(tab.id)}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === tab.id
+                ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white'
+                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+            }`}
           >
-            {busy ? 'Syncing…' : 'Sync catalog now'}
+            {tab.label}
           </button>
-          {syncMsg ? (
-            <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">{syncMsg}</p>
-          ) : null}
-        </ComponentCard>
-
-        <ComponentCard title="Integration status" desc="GET /v1/admin/integrations/blueocean/status">
-          <pre className="max-h-64 overflow-auto rounded-lg bg-gray-50 p-3 text-xs dark:bg-gray-900/60">
-            {status ? JSON.stringify(status, null, 2) : 'Loading…'}
-          </pre>
-        </ComponentCard>
-
-        <ComponentCard title="Operational flags" desc="GET /v1/admin/system/operational-flags">
-          <pre className="max-h-48 overflow-auto rounded-lg bg-gray-50 p-3 text-xs dark:bg-gray-900/60">
-            {flags ? JSON.stringify(flags, null, 2) : 'Loading…'}
-          </pre>
-        </ComponentCard>
-
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          <Link className="text-brand-600 underline dark:text-brand-400" to="/blueocean">
-            View BlueOcean webhook events
-          </Link>
-        </p>
+        ))}
       </div>
+
+      {activeTab === 'status' && (
+        <div className="space-y-6">
+          <ComponentCard title="Catalog sync" desc="POST /v1/admin/integrations/blueocean/sync-catalog">
+            <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
+              Pulls the remote game list and upserts into the local catalog. Requires API credentials on
+              the core service.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void sync()}
+              className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+            >
+              {busy ? 'Syncing…' : 'Sync catalog now'}
+            </button>
+            {syncMsg ? (
+              <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">{syncMsg}</p>
+            ) : null}
+          </ComponentCard>
+
+          <ComponentCard title="Integration status" desc="Connection and last catalog sync from the game provider.">
+            {status ? <ApiResultSummary data={status} embedded /> : <p className="text-sm text-gray-500">Loading…</p>}
+          </ComponentCard>
+
+          <ComponentCard title="Operational flags" desc="System-wide switches (maintenance, game launch, provider mode).">
+            {flags ? <ApiResultSummary data={flags} embedded /> : <p className="text-sm text-gray-500">Loading…</p>}
+          </ComponentCard>
+        </div>
+      )}
+
+      {activeTab === 'events' && (
+        <ComponentCard title="BlueOcean Events" desc="GET /v1/admin/events/blueocean">
+          <AdminDataTable
+            apiPath="/v1/admin/events/blueocean"
+            apiFetch={apiFetch}
+            refreshIntervalMs={15000}
+          />
+        </ComponentCard>
+      )}
     </>
   )
 }
