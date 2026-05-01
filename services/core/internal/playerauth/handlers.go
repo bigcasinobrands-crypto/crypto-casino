@@ -3,28 +3,31 @@ package playerauth
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/crypto-casino/core/internal/captcha"
-	"github.com/crypto-casino/core/internal/jwtplayer"
+	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/playerapi"
+	"github.com/crypto-casino/core/internal/playercookies"
 )
 
 type Handler struct {
-	Svc     *Service
-	Captcha *captcha.Turnstile
+	Svc       *Service
+	Captcha   *captcha.Turnstile
+	CookieCfg *config.Config // When PlayerCookieAuth, sets httpOnly cookies; nil skips cookies.
 }
 
 type regReq struct {
-	Email          string `json:"email"`
-	Password       string `json:"password"`
-	Username       string `json:"username"`
-	AcceptTerms    bool   `json:"accept_terms"`
-	AcceptPrivacy  bool   `json:"accept_privacy"`
-	CaptchaToken   string `json:"captcha_token"`
+	Email         string `json:"email"`
+	Password      string `json:"password"`
+	Username      string `json:"username"`
+	AcceptTerms   bool   `json:"accept_terms"`
+	AcceptPrivacy bool   `json:"accept_privacy"`
+	CaptchaToken  string `json:"captcha_token"`
 }
 
 type loginReq struct {
@@ -38,8 +41,8 @@ type refreshReq struct {
 }
 
 type tokenRes struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	AccessToken  string `json:"access_token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 	ExpiresAt    int64  `json:"expires_at"`
 	ExpiresIn    int64  `json:"expires_in"`
 	TokenType    string `json:"token_type"`
@@ -88,6 +91,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
 			return
 		}
+		if errors.Is(err, ErrPwnedPassword) {
+			playerapi.WriteError(w, http.StatusBadRequest, "password_breached", "this password appears in known data breaches; choose a different one")
+			return
+		}
 		if errors.Is(err, ErrUsernameTaken) {
 			playerapi.WriteError(w, http.StatusConflict, "username_taken", "this username is already taken")
 			return
@@ -103,7 +110,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "register failed")
 		return
 	}
-	writeTokens(w, access, refresh, exp)
+	writeTokens(w, h, access, refresh, exp)
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -124,19 +131,24 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 			return
 		}
+		log.Printf("playerauth: login failed: %v", err)
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "login failed")
 		return
 	}
-	writeTokens(w, access, refresh, exp)
+	writeTokens(w, h, access, refresh, exp)
 }
 
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var body refreshReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
 		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
 		return
 	}
-	access, refresh, exp, err := h.Svc.Refresh(r.Context(), body.RefreshToken)
+	rt := strings.TrimSpace(body.RefreshToken)
+	if rt == "" && h.CookieCfg != nil && h.CookieCfg.PlayerCookieAuth {
+		rt = playercookies.RefreshFromCookie(r)
+	}
+	access, refresh, exp, err := h.Svc.Refresh(r.Context(), rt)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
 			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_refresh", "invalid or expired refresh token")
@@ -145,18 +157,31 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "refresh failed")
 		return
 	}
-	writeTokens(w, access, refresh, exp)
+	writeTokens(w, h, access, refresh, exp)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	h.Svc.RevokeAccessJTI(r.Context(), r.Header.Get("Authorization"))
+	if h.CookieCfg != nil && h.CookieCfg.PlayerCookieAuth {
+		if raw := playercookies.AccessFromCookie(r); raw != "" {
+			h.Svc.RevokeAccessRaw(r.Context(), raw)
+		}
+	}
 	var body refreshReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
 		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
 		return
 	}
-	if err := h.Svc.Logout(r.Context(), body.RefreshToken); err != nil {
+	rt := strings.TrimSpace(body.RefreshToken)
+	if rt == "" && h.CookieCfg != nil && h.CookieCfg.PlayerCookieAuth {
+		rt = playercookies.RefreshFromCookie(r)
+	}
+	if err := h.Svc.Logout(r.Context(), rt); err != nil {
 		playerapi.WriteError(w, http.StatusUnauthorized, "invalid_token", "invalid refresh token")
 		return
+	}
+	if h.CookieCfg != nil {
+		playercookies.ClearAuth(w, h.CookieCfg)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -182,11 +207,12 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	out := map[string]any{
-		"id":                 p.ID,
-		"email":              p.Email,
-		"created_at":         p.CreatedAt.UTC().Format(time.RFC3339),
-		"email_verified":     verified,
-		"email_verified_at":  verifiedAt,
+		"id":                p.ID,
+		"participant_id":    p.PublicParticipantID,
+		"email":             p.Email,
+		"created_at":        p.CreatedAt.UTC().Format(time.RFC3339),
+		"email_verified":    verified,
+		"email_verified_at": verifiedAt,
 	}
 	if p.Username != nil {
 		out["username"] = *p.Username
@@ -253,6 +279,10 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
 			return
 		}
+		if errors.Is(err, ErrPwnedPassword) {
+			playerapi.WriteError(w, http.StatusBadRequest, "password_breached", "this password appears in known data breaches; choose a different one")
+			return
+		}
 		playerapi.WriteError(w, http.StatusBadRequest, "invalid_token", "invalid or expired reset link")
 		return
 	}
@@ -317,6 +347,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, ErrWeakPassword) {
 			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
+			return
+		}
+		if errors.Is(err, ErrPwnedPassword) {
+			playerapi.WriteError(w, http.StatusBadRequest, "password_breached", "this password appears in known data breaches; choose a different one")
 			return
 		}
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not change password")
@@ -414,13 +448,27 @@ func (h *Handler) UploadAvatar(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"avatar_url": url})
 }
 
-func writeTokens(w http.ResponseWriter, access, refresh string, exp int64) {
+func writeTokens(w http.ResponseWriter, h *Handler, access, refresh string, exp int64) {
+	expIn := int64(900)
+	if h != nil && h.Svc != nil && h.Svc.Issuer != nil {
+		expIn = h.Svc.Issuer.PlayerAccessTTLSeconds()
+	}
+	if h != nil && h.CookieCfg != nil {
+		playercookies.SetAuth(w, access, refresh, exp, h.CookieCfg)
+		if err := playercookies.SetCSRF(w, h.CookieCfg); err != nil {
+			log.Printf("playerauth: csrf cookie: %v", err)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
+	at, rt := access, refresh
+	if h != nil && h.CookieCfg != nil && h.CookieCfg.PlayerCookieAuth && h.CookieCfg.PlayerCookieOmitJSONTokens {
+		at, rt = "", ""
+	}
 	_ = json.NewEncoder(w).Encode(tokenRes{
-		AccessToken:  access,
-		RefreshToken: refresh,
+		AccessToken:  at,
+		RefreshToken: rt,
 		ExpiresAt:    exp,
-		ExpiresIn:    jwtplayer.AccessTTLSeconds(),
+		ExpiresIn:    expIn,
 		TokenType:    "Bearer",
 	})
 }

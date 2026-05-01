@@ -8,13 +8,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
-	"github.com/crypto-casino/core/internal/jwtplayer"
+	"github.com/crypto-casino/core/internal/jtiredis"
+	"github.com/crypto-casino/core/internal/jwtissuer"
 	"github.com/crypto-casino/core/internal/mail"
+	"github.com/crypto-casino/core/internal/passhash"
+	"github.com/crypto-casino/core/internal/pii"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const refreshTTL = 7 * 24 * time.Hour
@@ -27,15 +30,39 @@ type FystackWalletProvisioner interface {
 	Provision(ctx context.Context, userID string) error
 }
 
+// PwnedPasswordChecker optionally rejects passwords present in the HIBP corpus (k-anonymity range API).
+type PwnedPasswordChecker interface {
+	IsCompromised(ctx context.Context, password string) (bool, error)
+}
+
+// Service holds player-auth business logic.
 type Service struct {
 	Pool            *pgxpool.Pool
-	Secret          []byte
+	Issuer          *jwtissuer.Issuer
+	JTI             *jtiredis.Revoker
 	Mail            mail.Sender
 	PublicPlayerURL string
 	TermsVersion    string
 	PrivacyVersion  string
 	Fystack         FystackWalletProvisioner
+	Pwned           PwnedPasswordChecker
 	DataDir         string
+	// EmailLookupSecret — when non-empty, writes users.email_hmac on register and backfills on login (PII_EMAIL_LOOKUP_SECRET).
+	EmailLookupSecret string
+}
+
+func (s *Service) rejectIfPwnedPassword(ctx context.Context, password string) error {
+	if s == nil || s.Pwned == nil {
+		return nil
+	}
+	bad, err := s.Pwned.IsCompromised(ctx, password)
+	if err != nil {
+		return nil // fail-open when the breach API is unavailable
+	}
+	if bad {
+		return ErrPwnedPassword
+	}
+	return nil
 }
 
 func (s *Service) Register(ctx context.Context, email, password, username string, acceptTerms, acceptPrivacy bool) (accessToken, refreshToken string, exp int64, err error) {
@@ -48,6 +75,9 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 		return "", "", 0, ErrTermsNotAccepted
 	}
 	if err := ValidatePassword(password); err != nil {
+		return "", "", 0, err
+	}
+	if err := s.rejectIfPwnedPassword(ctx, password); err != nil {
 		return "", "", 0, err
 	}
 	if username != "" {
@@ -74,7 +104,7 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 	if pv == "" {
 		pv = "1"
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := passhash.Hash(password)
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -82,17 +112,21 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 	if username != "" {
 		usernameVal = &username
 	}
+	var emailHMAC interface{}
+	if b := pii.EmailLookupHMACBytes(s.EmailLookupSecret, email); len(b) > 0 {
+		emailHMAC = b
+	}
 	var id string
 	err = s.Pool.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, username, terms_accepted_at, terms_version, privacy_version)
-		VALUES ($1, $2, $3, now(), $4, $5) RETURNING id::text
-	`, email, string(hash), usernameVal, tv, pv).Scan(&id)
+		INSERT INTO users (email, password_hash, username, terms_accepted_at, terms_version, privacy_version, email_hmac)
+		VALUES ($1, $2, $3, now(), $4, $5, $6) RETURNING id::text
+	`, email, string(hash), usernameVal, tv, pv, emailHMAC).Scan(&id)
 	if err != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}
 	_, _ = s.Pool.Exec(ctx, `
 		INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
-		VALUES ($1::uuid, (SELECT id FROM vip_tiers ORDER BY sort_order ASC, id ASC LIMIT 1), 0, 0, now())
+		VALUES ($1::uuid, NULL, 0, 0, now())
 		ON CONFLICT (user_id) DO NOTHING
 	`, id)
 	accessToken, refreshToken, exp, err = s.issueSession(ctx, id)
@@ -116,17 +150,32 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 	return accessToken, refreshToken, exp, nil
 }
 
-func (s *Service) Login(ctx context.Context, email, password string) (accessToken, refreshToken string, exp int64, err error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	var id, phash string
+func (s *Service) Login(ctx context.Context, emailOrUsername, password string) (accessToken, refreshToken string, exp int64, err error) {
+	identifier := strings.TrimSpace(emailOrUsername)
+	if identifier == "" {
+		return "", "", 0, ErrInvalidCredentials
+	}
+	var id, phash, emailStored string
 	err = s.Pool.QueryRow(ctx, `
-		SELECT id::text, password_hash FROM users WHERE lower(email) = lower($1)
-	`, email).Scan(&id, &phash)
+		SELECT id::text, password_hash, email FROM users
+		WHERE lower(email) = lower($1)
+		   OR (username IS NOT NULL AND lower(username) = lower($1))
+	`, identifier).Scan(&id, &phash, &emailStored)
 	if err != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}
-	if bcrypt.CompareHashAndPassword([]byte(phash), []byte(password)) != nil {
+	ok, rehash, err := passhash.Verify(password, phash)
+	if err != nil || !ok {
 		return "", "", 0, ErrInvalidCredentials
+	}
+	if rehash {
+		newH, err := passhash.Hash(password)
+		if err == nil {
+			_, _ = s.Pool.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2::uuid`, newH, id)
+		}
+	}
+	if b := pii.EmailLookupHMACBytes(s.EmailLookupSecret, emailStored); len(b) > 0 {
+		_, _ = s.Pool.Exec(ctx, `UPDATE users SET email_hmac = $1 WHERE id = $2::uuid AND email_hmac IS NULL`, b, id)
 	}
 	if err := s.assertUserPlayAllowed(ctx, id); err != nil {
 		return "", "", 0, err
@@ -142,19 +191,25 @@ func (s *Service) Login(ctx context.Context, email, password string) (accessToke
 }
 
 func (s *Service) issueSession(ctx context.Context, userID string) (access, refresh string, exp int64, err error) {
+	if s.Issuer == nil {
+		return "", "", 0, fmt.Errorf("jwt issuer not configured")
+	}
 	plain, hashHex, err := newRefreshToken()
 	if err != nil {
 		return "", "", 0, err
 	}
 	expT := time.Now().UTC().Add(refreshTTL)
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO player_sessions (user_id, refresh_token_hash, expires_at)
-		VALUES ($1::uuid, $2, $3)
+		INSERT INTO player_sessions (user_id, refresh_token_hash, expires_at, family_id)
+		VALUES ($1::uuid, $2, $3, gen_random_uuid())
 	`, userID, hashHex, expT)
 	if err != nil {
+		if strings.Contains(err.Error(), "family_id") {
+			log.Printf("playerauth: player_sessions insert failed — run DB migrations through 00054_session_refresh_family (family_id column): %v", err)
+		}
 		return "", "", 0, fmt.Errorf("session: %w", err)
 	}
-	access, exp, err = jwtplayer.SignAccess(s.Secret, userID)
+	access, _, exp, err = s.Issuer.SignPlayer(userID)
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -166,12 +221,15 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string) (access, ref
 	if refreshPlain == "" {
 		return "", "", 0, ErrInvalidCredentials
 	}
+	if s.Issuer == nil {
+		return "", "", 0, fmt.Errorf("jwt issuer not configured")
+	}
 	h := hashRefresh(refreshPlain)
-	var sid, uid string
+	var sid, uid, fam string
 	var ex time.Time
 	err = s.Pool.QueryRow(ctx, `
-		SELECT id::text, user_id::text, expires_at FROM player_sessions WHERE refresh_token_hash = $1
-	`, h).Scan(&sid, &uid, &ex)
+		SELECT id::text, user_id::text, expires_at, family_id::text FROM player_sessions WHERE refresh_token_hash = $1
+	`, h).Scan(&sid, &uid, &ex, &fam)
 	if err != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}
@@ -188,14 +246,43 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string) (access, ref
 		return "", "", 0, err
 	}
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO player_sessions (user_id, refresh_token_hash, expires_at)
-		VALUES ($1::uuid, $2, $3)
-	`, uid, nh, time.Now().UTC().Add(refreshTTL))
+		INSERT INTO player_sessions (user_id, refresh_token_hash, expires_at, family_id)
+		VALUES ($1::uuid, $2, $3, $4::uuid)
+	`, uid, nh, time.Now().UTC().Add(refreshTTL), fam)
 	if err != nil {
 		return "", "", 0, err
 	}
-	access, exp, err = jwtplayer.SignAccess(s.Secret, uid)
+	access, _, exp, err = s.Issuer.SignPlayer(uid)
 	return access, plain, exp, err
+}
+
+// RevokeAccessJTI invalidates the access token in Authorization header (best-effort).
+func (s *Service) RevokeAccessJTI(ctx context.Context, authHeader string) {
+	s.RevokeAccessRaw(ctx, bearerRawFromHeader(authHeader))
+}
+
+// RevokeAccessRaw revokes a raw JWT access token (e.g. from httpOnly cookie on logout).
+func (s *Service) RevokeAccessRaw(ctx context.Context, rawJWT string) {
+	if s == nil || s.Issuer == nil || s.JTI == nil || s.JTI.Rdb == nil {
+		return
+	}
+	rawJWT = strings.TrimSpace(rawJWT)
+	if rawJWT == "" {
+		return
+	}
+	_, jti, err := s.Issuer.ParsePlayer(rawJWT)
+	if err != nil || jti == "" {
+		return
+	}
+	_ = s.JTI.Revoke(ctx, jti, 30*time.Minute)
+}
+
+func bearerRawFromHeader(authHeader string) string {
+	const p = "bearer "
+	if len(authHeader) < len(p) || strings.ToLower(authHeader[:len(p)]) != p {
+		return ""
+	}
+	return strings.TrimSpace(authHeader[len(p):])
 }
 
 func (s *Service) Logout(ctx context.Context, refreshPlain string) error {
