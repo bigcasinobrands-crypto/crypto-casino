@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
+import { adminApiOriginConfigured } from '../lib/adminApiUrl'
 import PageMeta from '../components/common/PageMeta'
 import { toastApiError } from '../notifications/adminToast'
 
@@ -147,6 +148,13 @@ export default function LoginPage() {
               {import.meta.env.DEV ? (
                 <div className="alert alert-warning py-2 px-3 small mt-3 mb-0 border-warning-subtle">
                   Local dev: form defaults match the seeded admin user after running migrations.
+                </div>
+              ) : null}
+              {import.meta.env.PROD && !adminApiOriginConfigured() ? (
+                <div className="alert alert-danger py-2 px-3 small mt-3 mb-0 border-danger-subtle">
+                  Production build has no <code className="small">VITE_ADMIN_API_ORIGIN</code>. API calls will go to
+                  this site and return 404. Add it under Vercel → Settings → Environment Variables, then redeploy (see{' '}
+                  <code className="small">frontend/admin-console/.env.example</code>).
                 </div>
               ) : null}
 

@@ -14,7 +14,7 @@ import type {
 } from '@simplewebauthn/browser'
 
 import { apiErrFromBody, readApiError, type ApiErr } from './api/errors'
-import { adminApiUrl } from './lib/adminApiUrl'
+import { adminApiOriginConfigured, adminApiUrl } from './lib/adminApiUrl'
 
 const ACCESS = 'admin_access_token'
 const REFRESH = 'admin_refresh_token'
@@ -211,14 +211,18 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         if (parsed) return { status: 'error', error: parsed }
         const unreachable =
           res.status === 502 || res.status === 503 || res.status === 504
+        const missingOrigin404 =
+          res.status === 404 && !adminApiOriginConfigured()
         return {
           status: 'error',
           error: {
             code: 'upstream_error',
             status: res.status,
-            message: unreachable
-              ? 'Backend unreachable. From the repo root run npm run dev:api and ensure Postgres is running (e.g. npm run compose:up).'
-              : `Sign-in failed (HTTP ${res.status}).`,
+            message: missingOrigin404
+              ? 'Sign-in hit the admin host instead of the core API (HTTP 404). Set VITE_ADMIN_API_ORIGIN to your public API base URL in Vercel (Environment Variables), redeploy, and ensure CORS allows this origin.'
+              : unreachable
+                ? 'Backend unreachable. From the repo root run npm run dev:api and ensure Postgres is running (e.g. npm run compose:up).'
+                : `Sign-in failed (HTTP ${res.status}).`,
           },
         }
       } catch {
@@ -248,12 +252,16 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         if (!beginRes.ok) {
           const parsed = await readApiError(beginRes.clone())
           if (parsed) return { status: 'error', error: parsed }
+          const missingOrigin404 =
+            beginRes.status === 404 && !adminApiOriginConfigured()
           return {
             status: 'error',
             error: {
               code: 'mfa_begin_failed',
               status: beginRes.status,
-              message: `MFA step failed (HTTP ${beginRes.status}).`,
+              message: missingOrigin404
+                ? 'MFA request hit the admin host instead of the core API (HTTP 404). Set VITE_ADMIN_API_ORIGIN in Vercel and redeploy.'
+                : `MFA step failed (HTTP ${beginRes.status}).`,
             },
           }
         }
