@@ -6,9 +6,9 @@ import { adminApiOriginConfigured } from '../lib/adminApiUrl'
 import PageMeta from '../components/common/PageMeta'
 import { toastApiError } from '../notifications/adminToast'
 
-/** Default staff login (matches seeded row after migrations; override via bootstrap if needed). */
-const DEFAULT_ADMIN_EMAIL = 'admin@twox.gg'
-const DEFAULT_ADMIN_PASSWORD = 'testadmin123'
+/** Dev-only defaults (seeded admin after migrations). Never pre-fill production builds. */
+const DEV_DEFAULT_EMAIL = 'admin@twox.gg'
+const DEV_DEFAULT_PASSWORD = 'testadmin123'
 
 const LS_REMEMBER = 'admin_login_remember'
 const LS_EMAIL = 'admin_saved_email'
@@ -19,29 +19,37 @@ function readInitialLoginState(): {
   password: string
   rememberPassword: boolean
 } {
+  const prodEmpty = () => ({ email: '', password: '', rememberPassword: false })
+  const devDefaults = () => ({
+    email: DEV_DEFAULT_EMAIL,
+    password: DEV_DEFAULT_PASSWORD,
+    rememberPassword: false,
+  })
+
   if (typeof window === 'undefined') {
-    return {
-      email: DEFAULT_ADMIN_EMAIL,
-      password: DEFAULT_ADMIN_PASSWORD,
-      rememberPassword: false,
-    }
+    return import.meta.env.DEV ? devDefaults() : prodEmpty()
   }
   try {
     if (localStorage.getItem(LS_REMEMBER) === '1') {
+      const savedEmail = localStorage.getItem(LS_EMAIL) ?? ''
+      const savedPassword = localStorage.getItem(LS_PASSWORD) ?? ''
+      if (import.meta.env.DEV) {
+        return {
+          email: savedEmail || DEV_DEFAULT_EMAIL,
+          password: savedPassword || DEV_DEFAULT_PASSWORD,
+          rememberPassword: true,
+        }
+      }
       return {
-        email: localStorage.getItem(LS_EMAIL) || DEFAULT_ADMIN_EMAIL,
-        password: localStorage.getItem(LS_PASSWORD) || DEFAULT_ADMIN_PASSWORD,
+        email: savedEmail,
+        password: savedPassword,
         rememberPassword: true,
       }
     }
   } catch {
     /* storage unavailable */
   }
-  return {
-    email: DEFAULT_ADMIN_EMAIL,
-    password: DEFAULT_ADMIN_PASSWORD,
-    rememberPassword: false,
-  }
+  return import.meta.env.DEV ? devDefaults() : prodEmpty()
 }
 
 function persistLoginCredentials(remember: boolean, email: string, password: string) {
@@ -203,7 +211,9 @@ export default function LoginPage() {
                         required
                         value={email}
                         onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
-                        placeholder={DEFAULT_ADMIN_EMAIL}
+                        placeholder={
+                          import.meta.env.DEV ? DEV_DEFAULT_EMAIL : 'you@company.com'
+                        }
                         className="form-control form-control-lg"
                       />
                     </div>
