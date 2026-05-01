@@ -5,6 +5,7 @@ import { formatApiError, readApiError } from '../api/errors'
 import { playerFetch } from '../lib/playerFetch'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { TurnstileField } from './TurnstileField'
+import { playerApiOriginConfigured } from '../lib/playerApiUrl'
 import { usePlayerAuth } from '../playerAuth'
 import { IconCheck, IconEye, IconEyeOff, IconLock, IconUser } from './icons'
 
@@ -126,6 +127,13 @@ export function LoginForm({
 
   return (
     <div className="flex flex-col gap-2">
+      {import.meta.env.PROD && !playerApiOriginConfigured() ? (
+        <AuthError>
+          Production build has no <span className="font-mono text-[10px]">VITE_PLAYER_API_ORIGIN</span>. Set it in
+          Vercel → Environment Variables to your public core API URL (https://…), redeploy, and add this site URL to{' '}
+          <span className="font-mono text-[10px]">PLAYER_CORS_ORIGINS</span> on the API.
+        </AuthError>
+      ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
       <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
         <div className="flex flex-col gap-1">
@@ -285,6 +293,13 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
 
   return (
     <div className="flex flex-col gap-2">
+      {import.meta.env.PROD && !playerApiOriginConfigured() ? (
+        <AuthError>
+          Production build has no <span className="font-mono text-[10px]">VITE_PLAYER_API_ORIGIN</span>. Set it in
+          Vercel → Environment Variables to your public core API URL (https://…), redeploy, and add this site URL to{' '}
+          <span className="font-mono text-[10px]">PLAYER_CORS_ORIGINS</span> on the API.
+        </AuthError>
+      ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
       <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
         <div className="flex flex-col gap-1">

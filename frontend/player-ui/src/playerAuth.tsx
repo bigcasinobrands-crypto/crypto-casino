@@ -9,9 +9,9 @@ import {
   type ReactNode,
 } from 'react'
 
-import { readApiError, type ApiErr } from './api/errors'
+import { apiErrFromResponse, type ApiErr } from './api/errors'
 import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './lib/playerFetch'
-import { playerApiUrl } from './lib/playerApiUrl'
+import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
 
 const ACCESS = 'player_access_token'
 const REFRESH = 'player_refresh_token'
@@ -239,17 +239,44 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       password: string,
       captchaToken?: string,
     ): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
-      const res = await playerFetch('/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          password,
-          ...(captchaToken ? { captcha_token: captchaToken } : {}),
-        }),
-      })
+      let res: Response
+      try {
+        res = await playerFetch('/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            ...(captchaToken ? { captcha_token: captchaToken } : {}),
+          }),
+        })
+      } catch {
+        return {
+          ok: false,
+          error: {
+            code: 'network',
+            status: 0,
+            message:
+              import.meta.env.PROD && !playerApiOriginConfigured()
+                ? 'Cannot reach API. Set VITE_PLAYER_API_ORIGIN in Vercel to your public core API URL and redeploy.'
+                : 'Cannot reach API. Run the core service (e.g. npm run dev:api) and check DEV_API_PROXY / network.',
+          },
+        }
+      }
       if (!res.ok) {
-        return { ok: false, error: await readApiError(res) }
+        const missingOrigin =
+          import.meta.env.PROD &&
+          !playerApiOriginConfigured() &&
+          (res.status === 404 || res.status === 405)
+        return {
+          ok: false,
+          error: await apiErrFromResponse(
+            res,
+            missingOrigin
+              ? 'Sign-in hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel to your core API https origin and redeploy; add this player URL to PLAYER_CORS_ORIGINS on the API.'
+              : undefined,
+          ),
+        }
       }
       const j = (await res.json()) as {
         access_token?: string
@@ -292,20 +319,47 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       acceptPrivacy: boolean
       captchaToken?: string
     }): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
-      const res = await playerFetch('/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: input.email,
-          password: input.password,
-          username: input.username,
-          accept_terms: input.acceptTerms,
-          accept_privacy: input.acceptPrivacy,
-          ...(input.captchaToken ? { captcha_token: input.captchaToken } : {}),
-        }),
-      })
+      let res: Response
+      try {
+        res = await playerFetch('/v1/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: input.email,
+            password: input.password,
+            username: input.username,
+            accept_terms: input.acceptTerms,
+            accept_privacy: input.acceptPrivacy,
+            ...(input.captchaToken ? { captcha_token: input.captchaToken } : {}),
+          }),
+        })
+      } catch {
+        return {
+          ok: false,
+          error: {
+            code: 'network',
+            status: 0,
+            message:
+              import.meta.env.PROD && !playerApiOriginConfigured()
+                ? 'Cannot reach API. Set VITE_PLAYER_API_ORIGIN in Vercel to your public core API URL and redeploy.'
+                : 'Cannot reach API. Run the core service and check your network.',
+          },
+        }
+      }
       if (!res.ok) {
-        return { ok: false, error: await readApiError(res) }
+        const missingOrigin =
+          import.meta.env.PROD &&
+          !playerApiOriginConfigured() &&
+          (res.status === 404 || res.status === 405)
+        return {
+          ok: false,
+          error: await apiErrFromResponse(
+            res,
+            missingOrigin
+              ? 'Register hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel and redeploy.'
+              : undefined,
+          ),
+        }
       }
       const j = (await res.json()) as {
         access_token?: string

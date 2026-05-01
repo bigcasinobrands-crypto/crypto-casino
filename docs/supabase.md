@@ -41,6 +41,7 @@ The API loads `services/core/.env` via `godotenv` (and optionally the repo-root 
 ## 5. Point the frontends at your API
 
 - **Admin (Vercel or local build):** set `VITE_ADMIN_API_ORIGIN` to your **core API** public URL (e.g. `https://api.yourdomain.com`), not the Supabase project URL. Supabase hosts the **database**; your **Go service** is still the API the UIs call.
+- **Player (Vercel):** set `VITE_PLAYER_API_ORIGIN` to the same **core API** public URL. Without it, the player SPA posts sign-in to its own static origin and requests fail (often shown as HTTP 404 / “network”).
 - **CORS:** set `ADMIN_CORS_ORIGINS` and `PLAYER_CORS_ORIGINS` in the core env to your admin/player origins (e.g. Vercel preview URLs).
 
 ## 6. Redis and other services

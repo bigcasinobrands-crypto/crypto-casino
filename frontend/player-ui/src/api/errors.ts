@@ -4,6 +4,23 @@ export type ApiErr = {
   status: number
 }
 
+/** When the body is HTML or empty, still return a structured error with real HTTP status (avoids misleading HTTP 0 toasts). */
+export async function apiErrFromResponse(
+  res: Response,
+  fallbackMessage?: string,
+): Promise<ApiErr> {
+  const parsed = await readApiError(res)
+  if (parsed) return parsed
+  const msg =
+    fallbackMessage?.trim() ||
+    (res.status ? `Request failed (HTTP ${res.status}).` : 'Request failed.')
+  return {
+    code: 'http_error',
+    message: msg,
+    status: res.status,
+  }
+}
+
 export async function readApiError(res: Response): Promise<ApiErr | null> {
   try {
     const j = (await res.json()) as {
