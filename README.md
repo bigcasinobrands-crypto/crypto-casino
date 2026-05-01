@@ -6,7 +6,7 @@ Phase 1 baseline: **two separate SPAs** (admin vs player), shared design tokens,
 
 ## Prereqs
 
-- **Node 20+**, **Go 1.22+**, **Docker** (Postgres + Redis via `docker-compose.yml`).
+- **Node 20+**, **Go 1.22+**, **Docker** (Postgres + Redis via `docker-compose.yml`). Optional hosted Postgres: [**Supabase**](docs/supabase.md) (`DATABASE_URL` + `npm run migrate:core`).
 
 ## Quick start
 

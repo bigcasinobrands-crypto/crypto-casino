@@ -31,6 +31,7 @@
     "stress:api": "node scripts/stress-api.mjs",
     "k6:api": "node scripts/k6-docker.mjs",
     "dev:api": "node scripts/go-dev.mjs ./cmd/api",
+    "migrate:core": "node scripts/go-dev.mjs ./cmd/migrate",
     "dev:worker": "node scripts/go-dev.mjs ./cmd/worker",
     "ngrok:api": "ngrok http 9090",
     "ngrok:print": "node scripts/print-ngrok-callback.mjs",
