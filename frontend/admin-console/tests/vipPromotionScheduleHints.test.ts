@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { projectNextRunForPipeline } from './vipPromotionScheduleHints'
+import { projectNextRunForPipeline } from '../src/lib/vipPromotionScheduleHints'
 
 describe('projectNextRunForPipeline', () => {
   it('advances weekly anchors that are in the past', () => {
