@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -97,7 +97,7 @@ jobs:
           terraform_version: "1.7.5"
           terraform_wrapper: false
       - name: Install tflint
-        uses: terraform-linters/setup-tflint@v4
+        uses: terraform-linters/setup-tflint@v6
         with:
           tflint_version: v0.51.2
       - name: AWS vault-kms (fmt, validate, tflint)
