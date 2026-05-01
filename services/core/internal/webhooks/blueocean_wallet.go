@@ -7,22 +7,27 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/bonus"
+	"github.com/crypto-casino/core/internal/challenges"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playcheck"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 // HandleBlueOceanWallet handles seamless wallet GET callbacks (balance / debit / credit / rollback).
-func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config) http.HandlerFunc {
+// rdb is optional: when set, successful debits that apply bonus WR publish to Redis (see docs/blue-ocean-bonus-wagering.md).
+func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -85,16 +90,51 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config) http.HandlerF
 			writeBOWallet(w, "200", strconv.FormatInt(sum, 10))
 			return
 		case "debit", "credit", "rollback":
-			amt, ok := parseBOAmount(q)
+			amt, ok := parseBOAmount(q, cfg.BlueOceanWalletFloatAmountIsMajorUnits)
 			if !ok || amt <= 0 {
 				writeBOWallet(w, "400", "0")
 				return
 			}
-			sum, st, err := applyBOSeamless(ctx, pool, userID, ccy, action, remote, txnID, amt, gameID)
+			sum, st, err := applyBOSeamless(ctx, pool, rdb, userID, ccy, action, remote, txnID, amt, gameID)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
 				writeBOWallet(w, "500", strconv.FormatInt(sum, 10))
 				return
+			}
+			if st == "200" {
+				bg := context.Background()
+				switch action {
+				case "debit":
+					p := challenges.BODebitPayload{
+						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
+					}
+					if rdb != nil {
+						if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
+							go func() {
+								_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
+							}()
+						}
+					} else {
+						go func() {
+							_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
+						}()
+					}
+				case "credit":
+					p := challenges.BOCreditPayload{
+						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: ccy,
+					}
+					if rdb != nil {
+						if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
+							go func() {
+								_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
+							}()
+						}
+					} else {
+						go func() {
+							_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
+						}()
+					}
+				}
 			}
 			writeBOWallet(w, st, strconv.FormatInt(sum, 10))
 			return
@@ -109,35 +149,54 @@ func resolveBlueOceanRemoteUser(ctx context.Context, pool *pgxpool.Pool, remote 
 	if remote == "" || pool == nil {
 		return "", fmt.Errorf("missing remote")
 	}
-	var userID string
-	err := pool.QueryRow(ctx, `
-		SELECT user_id::text FROM blueocean_player_links WHERE remote_player_id = $1
-	`, remote).Scan(&userID)
-	if err == nil && userID != "" {
-		return userID, nil
+	candidates := []string{strings.TrimSpace(remote)}
+	if alt := blueocean.AlternateUUIDForm(remote); alt != "" {
+		candidates = append(candidates, alt)
 	}
-	err = pool.QueryRow(ctx, `SELECT id::text FROM users WHERE id::text = $1`, remote).Scan(&userID)
-	if err == nil && userID != "" {
-		return userID, nil
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		var userID string
+		err := pool.QueryRow(ctx, `
+			SELECT user_id::text FROM blueocean_player_links WHERE remote_player_id = $1
+		`, c).Scan(&userID)
+		if err == nil && userID != "" {
+			return userID, nil
+		}
 	}
-	if err != nil {
-		return "", err
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		var userID string
+		err := pool.QueryRow(ctx, `SELECT id::text FROM users WHERE id::text = $1`, c).Scan(&userID)
+		if err == nil && userID != "" {
+			return userID, nil
+		}
 	}
 	return "", fmt.Errorf("user not found")
 }
 
-func parseBOAmount(q url.Values) (int64, bool) {
+func parseBOAmount(q url.Values, floatIsMajor bool) (int64, bool) {
 	for _, k := range []string{"amount", "bet", "win", "sum", "money"} {
 		s := strings.TrimSpace(q.Get(k))
 		if s == "" {
 			continue
 		}
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		s = strings.ReplaceAll(s, ",", ".")
+		if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+			n, _ := strconv.ParseInt(s, 10, 64)
 			return n, true
 		}
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			return int64(f + 0.5), true
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			continue
 		}
+		if !floatIsMajor {
+			return int64(math.Round(f)), true
+		}
+		return int64(math.Round(f * 100)), true
 	}
 	return 0, false
 }
@@ -162,7 +221,7 @@ func debitMagnitudeByIdem(ctx context.Context, tx pgx.Tx, idem string) int64 {
 	return -sum
 }
 
-func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, action, remote, txnID string, amount int64, gameID string) (balance int64, status string, err error) {
+func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy, action, remote, txnID string, amount int64, gameID string) (balance int64, status string, err error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, "500", err
@@ -180,9 +239,12 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, actio
 
 	meta := map[string]any{"remote_id": remote, "txn": txnID, "game_id": gameID}
 
+	var notifyWageringProgress bool
+
 	switch action {
 	case "debit":
-		if err := bonus.CheckBetAllowedTx(ctx, tx, userID, gameID, amount); err != nil {
+		srcRef := remote + ":" + txnID
+		if err := bonus.CheckBetAllowedTx(ctx, tx, userID, gameID, amount, srcRef); err != nil {
 			if errors.Is(err, bonus.ErrExcludedGame) || errors.Is(err, bonus.ErrMaxBetExceeded) {
 				return bal, "403", nil
 			}
@@ -224,6 +286,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, actio
 		if err := bonus.ApplyPostBetWagering(ctx, tx, userID, gameID, fromBonus); err != nil {
 			return bal, "500", err
 		}
+		notifyWageringProgress = fromBonus > 0
 	case "credit":
 		idem := fmt.Sprintf("bo:game:credit:%s:%s", remote, txnID)
 		_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idem, amount, meta)
@@ -237,23 +300,39 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, actio
 		fc := debitMagnitudeByIdem(ctx, tx, cKey)
 		if fb+fc == 0 {
 			idem := fmt.Sprintf("bo:game:rollback:%s:%s", remote, txnID)
-			_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.rollback", idem, amount, meta)
-			if err != nil {
-				return bal, "500", err
+			ins, rerr := ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.rollback", idem, amount, meta)
+			if rerr != nil {
+				return bal, "500", rerr
+			}
+			if ins {
+				if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, amount, idem); err != nil {
+					return bal, "500", err
+				}
 			}
 		} else {
 			if fb > 0 {
 				idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s", remote, txnID)
-				_, err = ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
-				if err != nil {
-					return bal, "500", err
+				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
+				if rerr != nil {
+					return bal, "500", rerr
+				}
+				if ins {
+					notifyWageringProgress = true
+					if err := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, fb); err != nil {
+						return bal, "500", err
+					}
 				}
 			}
 			if fc > 0 {
 				idemRC := fmt.Sprintf("bo:game:rollback:cash:%s:%s", remote, txnID)
-				_, err = ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
-				if err != nil {
-					return bal, "500", err
+				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
+				if rerr != nil {
+					return bal, "500", rerr
+				}
+				if ins {
+					if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
+						return bal, "500", err
+					}
 				}
 			}
 		}
@@ -265,6 +344,12 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, actio
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bal, "500", err
+	}
+	// After commit: notify subscribers of WR progress (bonus stake only; real-cash play does not move WR here).
+	if (action == "debit" || action == "rollback") && notifyWageringProgress && rdb != nil {
+		if pubErr := bonus.PublishWageringProgressFromPool(ctx, pool, rdb, userID); pubErr != nil {
+			log.Printf("blueocean wallet: redis publish wagering progress: %v", pubErr)
+		}
 	}
 	return bal, "200", nil
 }
@@ -290,6 +375,8 @@ func verifyBlueOceanQueryKey(q url.Values, salt, wantKey string) bool {
 		}
 	}
 	qs := v.Encode()
+	// BlueOcean seamless wallet callback verifies key = sha1(salt + query) per provider integration.
+	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-sha1
 	sum := sha1.Sum([]byte(salt + qs))
 	got := fmt.Sprintf("%x", sum)
 	return strings.EqualFold(got, wantKey)

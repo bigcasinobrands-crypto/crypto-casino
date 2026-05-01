@@ -1,5 +1,6 @@
 import { useMemo, type FC } from 'react'
 import { useSiteContent } from '../hooks/useSiteContent'
+import { sanitizeLegalHtml } from '../lib/sanitizeHtml'
 
 type LegalPageProps = {
   contentKey: string
@@ -39,6 +40,8 @@ const LegalPage: FC<LegalPageProps> = ({ contentKey, fallbackTitle }) => {
     }
   }, [updatedAt])
 
+  const safeBody = useMemo(() => sanitizeLegalHtml(body), [body])
+
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center py-24">
@@ -57,7 +60,7 @@ const LegalPage: FC<LegalPageProps> = ({ contentKey, fallbackTitle }) => {
       )}
       <article
         className="legal-prose text-sm leading-relaxed text-casino-muted [&_a]:text-casino-primary [&_a]:underline [&_h2]:mb-3 [&_h2]:mt-8 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-casino-foreground [&_h3]:mb-2 [&_h3]:mt-6 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-casino-foreground [&_li]:ml-5 [&_li]:list-disc [&_ol>li]:list-decimal [&_p+p]:mt-4 [&_ul]:my-3"
-        dangerouslySetInnerHTML={{ __html: body }}
+        dangerouslySetInnerHTML={{ __html: safeBody }}
       />
     </div>
   )

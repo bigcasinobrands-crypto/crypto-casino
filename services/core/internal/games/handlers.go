@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/crypto-casino/core/internal/blueocean"
+	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playcheck"
 	"github.com/go-chi/chi/v5"
@@ -20,10 +21,12 @@ import (
 
 type listRow struct {
 	ID                  string `json:"id"`
+	IDHash              string `json:"id_hash,omitempty"`
 	Title               string `json:"title"`
 	Provider            string `json:"provider"`
 	Category            string `json:"category"`
 	ThumbnailURL        string `json:"thumbnail_url"`
+	ThumbRev            int64  `json:"thumb_rev,omitempty"` // unix seconds; bumps when row/catalog updates (browser cache bust)
 	GameType            string `json:"game_type,omitempty"`
 	ProviderSystem      string `json:"provider_system,omitempty"`
 	IsNew               bool   `json:"is_new"`
@@ -45,21 +48,54 @@ func (s *Server) ListHandler() http.HandlerFunc {
 		sort := strings.TrimSpace(q.Get("sort"))
 		pill := strings.TrimSpace(q.Get("pill"))
 		featured := parseTruthy(q.Get("featured"))
+		bonusRefs := parseTruthy(q.Get("bonus_refs"))
 		if sort == "" {
 			sort = "name"
 		}
 
-		where := []string{
-			"hidden = false",
-			`NOT EXISTS (
+		var idList []string
+		if idsRaw != "" {
+			for _, p := range strings.Split(idsRaw, ",") {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					idList = append(idList, p)
+				}
+			}
+		}
+		idsDisclosure := bonusRefs && len(idList) > 0 && !featured
+
+		var where []string
+		var args []any
+		argN := 1
+		order := "title ASC"
+		limit := parsePublicLimit(q.Get("limit"))
+		offset := parsePublicOffset(q.Get("offset"))
+
+		if idsDisclosure {
+			where = []string{"(id = ANY($1::text[]) OR COALESCE(NULLIF(TRIM(id_hash), ''), '') = ANY($1::text[]))"}
+			args = []any{idList}
+			order = "array_position($1::text[], id)"
+			if limit <= 0 {
+				limit = len(idList)
+			}
+			if limit > len(idList) {
+				limit = len(idList)
+			}
+			if limit > 200 {
+				limit = 200
+			}
+			offset = 0
+		} else {
+			where = []string{
+				"hidden = false",
+				`NOT EXISTS (
 				SELECT 1 FROM provider_lobby_settings pls
 				WHERE pls.provider = games.provider AND pls.lobby_hidden = true
 			)`,
+			}
 		}
-		args := []any{}
-		argN := 1
 
-		if category != "" {
+		if !idsDisclosure && category != "" {
 			switch category {
 			case "new":
 				where = append(where, "is_new = true")
@@ -71,44 +107,47 @@ func (s *Server) ListHandler() http.HandlerFunc {
 				argN++
 			}
 		}
-		if integration == "blueocean" {
+		if !idsDisclosure && integration == "blueocean" {
 			where = append(where, "LOWER(TRIM(COALESCE(provider,''))) = $"+itoa(argN))
 			args = append(args, "blueocean")
 			argN++
 		}
-		if provider != "" {
-			where = append(where, "provider_system = $"+itoa(argN))
-			args = append(args, provider)
+		if !idsDisclosure && provider != "" {
+			// Match studio / sub-provider (Betsoft, Pragmatic Play, …), not exact-only — URLs use labels from the lobby.
+			where = append(where, "COALESCE(provider_system,'') ILIKE $"+itoa(argN))
+			args = append(args, "%"+provider+"%")
 			argN++
 		}
-		if idsRaw != "" {
-			var ids []string
-			for _, p := range strings.Split(idsRaw, ",") {
-				p = strings.TrimSpace(p)
-				if p != "" {
-					ids = append(ids, p)
-				}
-			}
-			if len(ids) > 0 {
-				where = append(where, "id = ANY($"+itoa(argN)+"::text[])")
-				args = append(args, ids)
+		if !idsDisclosure && len(idList) > 0 {
+			where = append(where, "(id = ANY($"+itoa(argN)+"::text[]) OR COALESCE(NULLIF(TRIM(id_hash), ''), '') = ANY($"+itoa(argN)+"::text[]))")
+			args = append(args, idList)
+			argN++
+		}
+		if !idsDisclosure && search != "" {
+			patterns := StudioSearchPatterns(search)
+			var groups []string
+			for _, pat := range patterns {
+				ph := itoa(argN)
+				groups = append(groups, "(title ILIKE $"+ph+" OR COALESCE(provider,'') ILIKE $"+ph+
+					" OR COALESCE(provider_system,'') ILIKE $"+ph+
+					" OR COALESCE(game_type,'') ILIKE $"+ph+
+					" OR COALESCE(category,'') ILIKE $"+ph+
+					" OR id ILIKE $"+ph+
+					" OR COALESCE(metadata::text,'') ILIKE $"+ph+")")
+				args = append(args, pat)
 				argN++
 			}
+			if len(groups) > 0 {
+				where = append(where, "("+strings.Join(groups, " OR ")+")")
+			}
 		}
-		if search != "" {
-			where = append(where, "(title ILIKE $"+itoa(argN)+" OR COALESCE(provider,'') ILIKE $"+itoa(argN)+
-				" OR COALESCE(provider_system,'') ILIKE $"+itoa(argN)+")")
-			args = append(args, "%"+search+"%")
-			argN++
-		}
-		if pill != "" {
+		if !idsDisclosure && pill != "" {
 			where = append(where, "$"+itoa(argN)+" = ANY(lobby_tags)")
 			args = append(args, pill)
 			argN++
 		}
 
-		order := "title ASC"
-		if featured {
+		if !idsDisclosure && featured {
 			var hashes []string
 			if s.Cfg != nil {
 				hashes = s.Cfg.BlueOceanFeaturedIDHashes
@@ -122,7 +161,7 @@ func (s *Server) ListHandler() http.HandlerFunc {
 				args = append(args, hashes)
 				argN++
 			}
-		} else {
+		} else if !idsDisclosure {
 			switch sort {
 			case "new":
 				order = "is_new DESC, title ASC"
@@ -133,14 +172,12 @@ func (s *Server) ListHandler() http.HandlerFunc {
 			}
 		}
 
-		limit := parsePublicLimit(q.Get("limit"))
-		offset := parsePublicOffset(q.Get("offset"))
-
 		sqlStr := `
-			SELECT id, COALESCE(title,''), COALESCE(provider,''), COALESCE(category,''), COALESCE(thumbnail_url,''),
+			SELECT id, COALESCE(NULLIF(TRIM(id_hash), ''), ''), COALESCE(title,''), COALESCE(provider,''), COALESCE(category,''), ` + EffectiveThumbnailSQL + `,
 				COALESCE(game_type,''), COALESCE(provider_system,''),
 				COALESCE(is_new,false), COALESCE(featurebuy_supported,false), COALESCE(play_for_fun_supported,false),
-				(COALESCE(metadata->>'mobile','') IN ('true','1'))
+				(COALESCE(metadata->>'mobile','') IN ('true','1')),
+				COALESCE(EXTRACT(EPOCH FROM updated_at)::bigint, 0)
 			FROM games
 			WHERE ` + strings.Join(where, " AND ") + `
 			ORDER BY ` + order
@@ -160,11 +197,12 @@ func (s *Server) ListHandler() http.HandlerFunc {
 		var out []listRow
 		for rows.Next() {
 			var g listRow
-			if err := rows.Scan(&g.ID, &g.Title, &g.Provider, &g.Category, &g.ThumbnailURL,
-				&g.GameType, &g.ProviderSystem, &g.IsNew, &g.FeatureBuySupported, &g.PlayForFunSupported, &g.Mobile); err != nil {
+			if err := rows.Scan(&g.ID, &g.IDHash, &g.Title, &g.Provider, &g.Category, &g.ThumbnailURL,
+				&g.GameType, &g.ProviderSystem, &g.IsNew, &g.FeatureBuySupported, &g.PlayForFunSupported, &g.Mobile, &g.ThumbRev); err != nil {
 				log.Printf("games list: skip row scan: %v", err)
 				continue
 			}
+			g.IDHash = strings.TrimSpace(g.IDHash)
 			g.Live = g.GameType == "live-casino" || g.Category == "live"
 			out = append(out, g)
 		}
@@ -301,7 +339,7 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, err := remotePlayerID(r.Context(), s.Pool, uid)
+		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "player link failed")
 			return
@@ -462,7 +500,7 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, rerr := remotePlayerID(r.Context(), s.Pool, uid)
+		remote, rerr := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg)
 		if rerr != nil {
 			out["blue_ocean_error"] = "could not resolve player id for provider"
 			writeOut()
@@ -473,11 +511,15 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 		if s.Cfg != nil {
 			currency = s.Cfg.BlueOceanCurrency
 		}
+		demoUser := remote
+		if s.Cfg != nil {
+			demoUser = blueocean.FormatUserIDForXAPI(remote, s.Cfg.BlueOceanUserIDNoHyphens)
+		}
 		demo := map[string]any{
 			"currency":   currency,
 			"gameid":     bogID,
 			"playforfun": true,
-			"userid":     remote,
+			"userid":     demoUser,
 		}
 		if s.Cfg != nil && s.Cfg.BlueOceanMulticurrency {
 			demo["multicurrency"] = 1
@@ -487,6 +529,8 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 		if callErr != nil {
 			out["blue_ocean_error"] = "provider connection failed: " + callErr.Error()
 		} else if st < 200 || st >= 300 {
+			out["blue_ocean_error"] = blueocean.FormatAPIError(raw, st)
+		} else if !blueocean.LaunchPayloadOK(raw) {
 			out["blue_ocean_error"] = blueocean.FormatAPIError(raw, st)
 		} else {
 			payload = nil
@@ -498,19 +542,27 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 	}
 }
 
-func remotePlayerID(ctx context.Context, pool *pgxpool.Pool, userID string) (string, error) {
+func remotePlayerID(ctx context.Context, pool *pgxpool.Pool, userID string, cfg *config.Config) (string, error) {
+	want := strings.TrimSpace(userID)
+	if cfg != nil {
+		want = blueocean.FormatUserIDForXAPI(want, cfg.BlueOceanUserIDNoHyphens)
+	}
 	var remote string
 	err := pool.QueryRow(ctx, `SELECT remote_player_id FROM blueocean_player_links WHERE user_id = $1::uuid`, userID).Scan(&remote)
 	if err == nil && remote != "" {
-		return remote, nil
+		if remote != want {
+			if _, uerr := pool.Exec(ctx, `UPDATE blueocean_player_links SET remote_player_id = $2 WHERE user_id = $1::uuid`, userID, want); uerr != nil {
+				return "", uerr
+			}
+		}
+		return want, nil
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
-	remote = userID
 	_, err = pool.Exec(ctx, `
 		INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)
 		ON CONFLICT (user_id) DO UPDATE SET remote_player_id = EXCLUDED.remote_player_id
-	`, userID, remote)
-	return remote, err
+	`, userID, want)
+	return want, err
 }

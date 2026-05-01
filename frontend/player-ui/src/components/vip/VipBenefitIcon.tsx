@@ -3,6 +3,7 @@ import {
   IconArrowUp,
   IconCloudRain,
   IconCoins,
+  IconGift,
   IconMail,
   IconSparkles,
   IconTrendingUp,
@@ -33,6 +34,8 @@ export function VipBenefitIcon({ name, className }: Props): ReactNode {
       return <IconCloudRain size={14} className={cn} aria-hidden />
     case 'mail':
       return <IconMail size={14} className={cn} aria-hidden />
+    case 'gift':
+      return <IconGift size={14} className={cn} aria-hidden />
     case 'trending-up':
       return <IconTrendingUp size={14} className={cn} aria-hidden />
     case 'sparkles':

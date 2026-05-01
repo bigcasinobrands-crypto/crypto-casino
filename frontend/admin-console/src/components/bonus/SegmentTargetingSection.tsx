@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { readApiError, formatApiError } from '../../api/errors'
 import { CountryPicker } from '../admin-ui/CountryPicker'
+import { adminInputCls } from '../admin-ui/inputStyles'
 import type { CountryRegion } from '../../lib/countryIsoList'
 import { COUNTRY_OPTIONS } from '../../lib/countryIsoList'
 
@@ -14,8 +15,7 @@ function asSeg(r: Record<string, unknown>) {
   return {}
 }
 
-const inputCls =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100'
+const inputCls = adminInputCls
 
 type Props = {
   apiFetch: ApiFetch
@@ -137,7 +137,7 @@ export default function SegmentTargetingSection({ apiFetch, rules, onPatch, onPa
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium dark:border-gray-600 dark:bg-gray-900"
+            className="rounded-lg border border-gray-300 !bg-white px-3 py-1.5 text-xs font-medium !text-gray-900 dark:border-gray-600 dark:!bg-gray-900 dark:!text-gray-100"
             onClick={() => {
               patchSeg({
                 vip_min_tier: 0,
@@ -153,7 +153,7 @@ export default function SegmentTargetingSection({ apiFetch, rules, onPatch, onPa
           </button>
           <button
             type="button"
-            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium dark:border-gray-600 dark:bg-gray-900"
+            className="rounded-lg border border-gray-300 !bg-white px-3 py-1.5 text-xs font-medium !text-gray-900 dark:border-gray-600 dark:!bg-gray-900 dark:!text-gray-100"
             onClick={() => {
               onPatchTrigger?.({ first_deposit_only: true, nth_deposit: 0 })
               patchSeg({ vip_min_tier: 0, explicit_targeting_only: false })
@@ -163,7 +163,7 @@ export default function SegmentTargetingSection({ apiFetch, rules, onPatch, onPa
           </button>
           <button
             type="button"
-            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium dark:border-gray-600 dark:bg-gray-900"
+            className="rounded-lg border border-gray-300 !bg-white px-3 py-1.5 text-xs font-medium !text-gray-900 dark:border-gray-600 dark:!bg-gray-900 dark:!text-gray-100"
             onClick={() => {
               patchSeg({ tags: ['churn_risk'], vip_min_tier: 0, explicit_targeting_only: false })
               onPatchTrigger?.({ first_deposit_only: false })

@@ -16,15 +16,15 @@ type InboundMessage struct {
 
 // OutboundMessage is broadcast to all clients.
 type OutboundMessage struct {
-	ID        int64    `json:"id,omitempty"`
-	UserID    string   `json:"user_id,omitempty"`
-	Username  string   `json:"username,omitempty"`
-	Body      string   `json:"body"`
-	MsgType   string   `json:"msg_type"`
-	VipRank   string   `json:"vip_rank,omitempty"`
-	AvatarURL string   `json:"avatar_url,omitempty"`
-	CreatedAt string   `json:"created_at"`
-	Mentions  []string `json:"mentions,omitempty"`
+	ID            int64    `json:"id,omitempty"`
+	ParticipantID string   `json:"participant_id,omitempty"`
+	Username      string   `json:"username,omitempty"`
+	Body          string   `json:"body"`
+	MsgType       string   `json:"msg_type"`
+	VipRank       string   `json:"vip_rank,omitempty"`
+	AvatarURL     string   `json:"avatar_url,omitempty"`
+	CreatedAt     string   `json:"created_at"`
+	Mentions      []string `json:"mentions,omitempty"`
 }
 
 // ErrorData is sent back to a single client on validation failures.

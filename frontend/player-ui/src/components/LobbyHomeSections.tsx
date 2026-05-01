@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type FC } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
+import { PortraitGameThumb } from './PortraitGameThumb'
 import { playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
-import {
-  IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
-} from './icons'
+import { resolveProviderLogoCandidates } from '../lib/providerLogoUrl'
+import { IconBuilding2, IconChevronLeft, IconChevronRight } from './icons'
 
 type Game = {
   id: string
@@ -15,6 +13,7 @@ type Game = {
   provider: string
   category: string
   thumbnail_url?: string
+  thumb_rev?: number
   provider_system?: string
   live?: boolean
 }
@@ -35,78 +34,77 @@ async function fetchGames(query: string): Promise<Game[]> {
 function aggregateProviders(games: Game[]): ProviderAgg[] {
   const m = new Map<string, number>()
   for (const g of games) {
-    const code = (g.provider_system || g.provider || '').trim() || 'Other'
+    const studio = (g.provider_system ?? '').trim()
+    const fallback = (g.provider ?? '').trim()
+    const code =
+      studio ||
+      (fallback && fallback.toLowerCase() !== 'blueocean' ? fallback : '') ||
+      'Other studios'
     m.set(code, (m.get(code) ?? 0) + 1)
   }
   return [...m.entries()]
     .map(([code, count]) => ({ code, count }))
     .sort((a, b) => b.count - a.count)
-    .slice(0, 6)
+    .slice(0, 16)
 }
 
-const PortraitThumb: FC<{ url?: string; title: string }> = ({ url, title }) => {
-  const [bad, setBad] = useState(false)
-  if (!url || bad) {
-    return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-casino-elevated px-1 text-center text-[10px] text-casino-muted">
-        {title}
-      </div>
-    )
+/** Drop duplicate IDs (keeps order; avoids doubled tiles if the API echoes rows). */
+function dedupeGamesById(games: Game[]): Game[] {
+  const seen = new Set<string>()
+  const out: Game[] = []
+  for (const g of games) {
+    const id = String(g.id ?? '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(g)
   }
-  return (
-    <img
-      src={url}
-      alt=""
-      className="h-full w-full object-cover object-center transition-transform duration-300 ease-out group-hover:scale-[1.04]"
-      loading="lazy"
-      onError={() => setBad(true)}
-    />
-  )
+  return out
 }
 
-function GameRowScroller({
-  children,
-  gameCount,
-}: {
-  children: React.ReactNode
-  gameCount: number
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const scroll = useCallback((dir: -1 | 1) => {
-    const el = ref.current
-    if (!el) return
-    const w = el.clientWidth * 0.85
-    el.scrollBy({ left: dir * w, behavior: 'smooth' })
-  }, [])
+/** Min interval between “tab visible” refetches (navigation refetches always run). */
+const VISIBILITY_REFETCH_MS = 45_000
 
+const outlinedViewAllClass =
+  'inline-flex min-h-9 items-center justify-center rounded-lg border border-white/[0.10] bg-casino-surface px-3.5 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-white/92 no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-white/[0.18] hover:bg-casino-chip-hover hover:text-white active:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50'
+
+/** Pigmo-style: bordered “VIEW ALL” + twin chevron control (scroll strip horizontally). */
+function ViewAllScrollCluster({
+  viewAllTo,
+  onScrollLeft,
+  onScrollRight,
+}: {
+  viewAllTo: string
+  onScrollLeft: () => void
+  onScrollRight: () => void
+}) {
   return (
-    <div className="relative">
+    <div className="flex shrink-0 items-center gap-2">
+      <Link to={viewAllTo} className={outlinedViewAllClass}>
+        View all
+      </Link>
       <div
-        ref={ref}
-        className="scrollbar-none -mx-0.5 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 lg:grid lg:grid-cols-6 lg:overflow-visible lg:pb-0"
+        className="flex min-h-9 overflow-hidden rounded-lg border border-white/[0.10] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-white/[0.14]"
+        role="group"
+        aria-label="Scroll games horizontally"
       >
-        {children}
+        <button
+          type="button"
+          className="flex flex-1 min-w-[2.25rem] items-center justify-center px-2.5 py-2 text-white/82 transition-colors duration-150 hover:bg-white/[0.08] hover:text-white active:bg-white/[0.12] focus-visible:relative focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-casino-primary/50 disabled:pointer-events-none disabled:opacity-35"
+          aria-label="Scroll left"
+          onClick={onScrollLeft}
+        >
+          <IconChevronLeft size={16} aria-hidden />
+        </button>
+        <div className="w-px shrink-0 self-stretch bg-white/[0.10]" aria-hidden />
+        <button
+          type="button"
+          className="flex flex-1 min-w-[2.25rem] items-center justify-center px-2.5 py-2 text-white/82 transition-colors duration-150 hover:bg-white/[0.08] hover:text-white active:bg-white/[0.12] focus-visible:relative focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-casino-primary/50 disabled:pointer-events-none disabled:opacity-35"
+          aria-label="Scroll right"
+          onClick={onScrollRight}
+        >
+          <IconChevronRight size={16} aria-hidden />
+        </button>
       </div>
-      {gameCount > 0 ? (
-        <div className="mt-2 flex justify-center gap-2.5 text-casino-muted lg:hidden">
-          <button
-            type="button"
-            className="flex size-3.5 items-center justify-center rounded border border-casino-border/0 p-0 text-casino-muted hover:text-casino-foreground"
-            aria-label="Scroll games left"
-            onClick={() => scroll(-1)}
-          >
-            <IconChevronLeft size={14} aria-hidden />
-          </button>
-          <button
-            type="button"
-            className="flex size-3.5 items-center justify-center rounded border border-casino-border/0 p-0 text-casino-muted hover:text-casino-foreground"
-            aria-label="Scroll games right"
-            onClick={() => scroll(1)}
-          >
-            <IconChevronRight size={14} aria-hidden />
-          </button>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -120,108 +118,158 @@ function GameSection({
   viewAllTo: string
   games: Game[]
 }) {
+  const stripRef = useRef<HTMLDivElement>(null)
+
+  const scrollStrip = useCallback((dir: -1 | 1) => {
+    const el = stripRef.current
+    if (!el) return
+    const step = Math.max(el.clientWidth * 0.75, 280)
+    el.scrollBy({ left: dir * step, behavior: 'smooth' })
+  }, [])
+
   return (
     <section className="mb-7">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <Link
           to={viewAllTo}
-          className="flex items-center gap-2 text-sm font-extrabold tracking-tight text-casino-foreground hover:text-casino-primary"
+          className="group/rowtitle flex min-w-0 flex-1 items-center gap-2 text-sm font-extrabold tracking-tight text-white transition-colors duration-150 hover:text-white/95"
         >
           {title}
-          <IconChevronRight size={18} className="text-casino-muted" aria-hidden />
+          <IconChevronRight
+            size={18}
+            className="shrink-0 text-white/45 transition-colors duration-150 group-hover/rowtitle:text-casino-primary"
+            aria-hidden
+          />
         </Link>
-        <div className="flex items-center gap-2.5">
-          <Link
-            to={viewAllTo}
-            className="p-0 text-[11px] font-semibold text-casino-foreground underline-offset-2 hover:underline"
-          >
-            View all
-          </Link>
-          <div className="hidden items-center gap-2.5 text-casino-muted lg:flex">
-            <span className="sr-only">Row navigation</span>
-          </div>
+        {games.length > 0 ? (
+          <ViewAllScrollCluster
+            viewAllTo={viewAllTo}
+            onScrollLeft={() => scrollStrip(-1)}
+            onScrollRight={() => scrollStrip(1)}
+          />
+        ) : null}
+      </div>
+      <div className="relative -mx-0.5">
+        <div
+          ref={stripRef}
+          className="scrollbar-none flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]"
+        >
+          {games.map((g) => (
+            <div
+              key={g.id}
+              className="w-[42vw] max-w-[188px] shrink-0 snap-start sm:max-w-[200px]"
+            >
+              <RequireAuthLink
+                to={`/casino/game-lobby/${encodeURIComponent(g.id)}`}
+                className="group game-thumb-link"
+              >
+                <div className="relative aspect-[3/4] w-full overflow-hidden rounded-casino-md bg-casino-elevated ring-1 ring-white/[0.06]">
+                  <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                </div>
+                <span className="sr-only">{g.title}</span>
+              </RequireAuthLink>
+            </div>
+          ))}
         </div>
       </div>
-      <GameRowScroller gameCount={games.length}>
-        {games.map((g) => (
-          <div
-            key={g.id}
-            className="w-[42vw] max-w-[200px] shrink-0 snap-start lg:max-w-none lg:w-auto lg:shrink"
-          >
-            <RequireAuthLink
-              to={`/casino/game-lobby/${encodeURIComponent(g.id)}`}
-              className="group game-thumb-link"
-            >
-              <div className="relative aspect-[3/4] w-full overflow-hidden bg-casino-elevated">
-                <PortraitThumb url={g.thumbnail_url} title={g.title} />
-              </div>
-              <span className="sr-only">{g.title}</span>
-            </RequireAuthLink>
-          </div>
-        ))}
-      </GameRowScroller>
-      {games.length > 0 ? (
-        <Link
-          to={viewAllTo}
-          className="mt-2.5 flex items-center justify-center gap-1 text-center text-[11px] font-semibold text-casino-muted hover:text-casino-foreground"
-        >
-          Load more
-          <IconChevronDown size={14} aria-hidden />
-        </Link>
-      ) : (
+      {games.length === 0 ? (
         <p className="text-center text-xs text-casino-muted">No games in this row yet.</p>
-      )}
+      ) : null}
     </section>
+  )
+}
+
+function ProviderLogoCard({ code, count }: { code: string; count: number }) {
+  const candidates = useMemo(() => [...resolveProviderLogoCandidates(code)], [code])
+  const [tryIndex, setTryIndex] = useState(0)
+
+  useEffect(() => {
+    setTryIndex(0)
+  }, [code])
+
+  const dead = candidates.length === 0 || tryIndex >= candidates.length
+  const src = dead ? undefined : candidates[tryIndex]
+
+  return (
+    <Link
+      to={`/casino/games?provider=${encodeURIComponent(code)}`}
+      title={`${code} · ${count} games · filter by studio`}
+      className="flex h-[52px] w-[148px] shrink-0 flex-col items-center justify-center gap-1 rounded-[10px] border border-white/[0.09] bg-casino-surface px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-casino-primary/40 sm:h-[58px] sm:w-[164px]"
+    >
+      {!dead && src ? (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          draggable={false}
+          className="max-h-[26px] w-auto max-w-[140px] object-contain brightness-0 invert opacity-[0.94] sm:max-h-[28px]"
+          loading="lazy"
+          onError={() => setTryIndex((i) => i + 1)}
+        />
+      ) : (
+        <span className="max-w-full truncate text-[10px] font-extrabold uppercase tracking-[0.06em] text-white/72">
+          {code}
+        </span>
+      )}
+      <span className="sr-only">
+        {count} games · filter catalog by this studio
+      </span>
+    </Link>
   )
 }
 
 function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
   const reduceMotion = usePrefersReducedMotion()
-  const loop = reduceMotion ? providers : [...providers, ...providers]
+  const stripRef = useRef<HTMLDivElement>(null)
+
+  const scrollStrip = useCallback((dir: -1 | 1) => {
+    const el = stripRef.current
+    if (!el) return
+    const step = Math.max(el.clientWidth * 0.65, 220)
+    el.scrollBy({ left: dir * step, behavior: 'smooth' })
+  }, [])
 
   return (
-    <section className="mb-7" id="providers">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section className="mb-7" id="studios">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <Link
-          to="/casino/games#providers"
-          className="flex items-center gap-2 text-sm font-extrabold tracking-tight text-casino-foreground"
+          to="/casino/games#studios"
+          className="group/prov flex min-w-0 flex-1 items-center gap-2 text-xs font-extrabold uppercase tracking-[0.12em] text-white sm:text-sm"
         >
-          Providers
-          <IconChevronRight size={18} className="text-casino-muted" aria-hidden />
+          <IconBuilding2 size={17} className="shrink-0 text-white/55 transition-colors group-hover/prov:text-casino-primary" aria-hidden />
+          Studios
+          <IconChevronRight
+            size={18}
+            className="shrink-0 text-white/40 transition-colors group-hover/prov:text-casino-primary"
+            aria-hidden
+          />
         </Link>
-        <Link
-          to="/casino/games"
-          className="p-0 text-[11px] font-semibold text-casino-foreground underline-offset-2 hover:underline"
-        >
-          View all
-        </Link>
+        {providers.length > 0 && !reduceMotion ? (
+          <ViewAllScrollCluster
+            viewAllTo="/casino/games#studios"
+            onScrollLeft={() => scrollStrip(-1)}
+            onScrollRight={() => scrollStrip(1)}
+          />
+        ) : providers.length > 0 ? (
+          <Link to="/casino/games#studios" className={outlinedViewAllClass}>
+            View all
+          </Link>
+        ) : null}
       </div>
       {providers.length === 0 ? (
-        <p className="text-center text-xs text-casino-muted">No provider data yet.</p>
+        <p className="text-center text-xs text-casino-muted">No studio data yet.</p>
       ) : (
-        <div
-          className="relative -mx-1 overflow-hidden py-0.5"
-          role="region"
-          aria-label="Top providers, scrolling"
-        >
+        <div className="relative -mx-0.5" role="region" aria-label="Top studios">
           <div
+            ref={stripRef}
             className={
               reduceMotion
-                ? 'flex flex-wrap justify-center gap-3'
-                : 'infinite-marquee-track gap-3'
+                ? 'scrollbar-none flex flex-wrap justify-center gap-3 py-0.5'
+                : 'scrollbar-none flex gap-3 overflow-x-auto py-1 [-webkit-overflow-scrolling:touch]'
             }
           >
-            {loop.map((p, i) => (
-              <Link
-                key={`${p.code}-${i}`}
-                to={`/casino/games?provider=${encodeURIComponent(p.code)}`}
-                className="flex h-[52px] w-[100px] shrink-0 flex-col items-center justify-center gap-1 rounded-[4px] bg-casino-surface px-2 text-center transition hover:border hover:border-casino-primary/30 sm:w-[108px]"
-              >
-                <span className="text-[11px] font-extrabold tracking-wide text-casino-foreground">
-                  {p.code.toUpperCase()}
-                </span>
-                <span className="text-[10px] font-medium text-casino-muted">{p.count} games</span>
-              </Link>
+            {providers.map((p) => (
+              <ProviderLogoCard key={p.code} code={p.code} count={p.count} />
             ))}
           </div>
         </div>
@@ -230,42 +278,64 @@ function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
   )
 }
 
-const LobbyHomeSections: FC = () => {
+type LobbyHomeSectionsProps = {
+  /** When operational `/health/operational` reports a new catalog sync time, refetch tiles (new thumb_rev / URLs). */
+  catalogSyncAt?: string | null
+}
+
+const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
+  const location = useLocation()
+  const lastVisFetchAt = useRef(0)
+
   const [featured, setFeatured] = useState<Game[]>([])
-  const [topGames, setTopGames] = useState<Game[]>([])
+  /** Used when `/v1/games?featured=1` returns zero rows — must differ from alphabetical slots strip. */
+  const [hotFallback, setHotFallback] = useState<Game[]>([])
   const [slots, setSlots] = useState<Game[]>([])
   const [newRel, setNewRel] = useState<Game[]>([])
   const [live, setLive] = useState<Game[]>([])
   const [bonus, setBonus] = useState<Game[]>([])
   const [providers, setProviders] = useState<ProviderAgg[]>([])
+  const [visRefresh, setVisRefresh] = useState(0)
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastVisFetchAt.current < VISIBILITY_REFETCH_MS) return
+      lastVisFetchAt.current = now
+      setVisRefresh((n) => n + 1)
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [])
 
   useEffect(() => {
     let cancel = false
     void (async () => {
       const [f, s, n, l, b, bulk] = await Promise.all([
-        fetchGames('integration=blueocean&featured=1&limit=6'),
-        fetchGames('integration=blueocean&category=slots&limit=6'),
-        fetchGames('integration=blueocean&category=new&limit=6'),
-        fetchGames('integration=blueocean&category=live&limit=6'),
-        fetchGames('integration=blueocean&category=bonus-buys&limit=6'),
+        fetchGames('integration=blueocean&featured=1&limit=14'),
+        fetchGames('integration=blueocean&category=slots&limit=14'),
+        fetchGames('integration=blueocean&category=new&limit=14'),
+        fetchGames('integration=blueocean&category=live&limit=14'),
+        fetchGames('integration=blueocean&category=bonus-buys&limit=14'),
         fetchGames('integration=blueocean&limit=200&sort=provider'),
       ])
-      const top = await fetchGames('integration=blueocean&limit=6&sort=name')
+      const hotBack = await fetchGames('integration=blueocean&limit=14&sort=new')
       if (cancel) return
-      setFeatured(f)
-      setTopGames(top)
-      setSlots(s)
-      setNewRel(n)
-      setLive(l)
-      setBonus(b)
-      setProviders(aggregateProviders(bulk))
+      setFeatured(dedupeGamesById(f))
+      setHotFallback(dedupeGamesById(hotBack))
+      setSlots(dedupeGamesById(s))
+      setNewRel(dedupeGamesById(n))
+      setLive(dedupeGamesById(l))
+      setBonus(dedupeGamesById(b))
+      setProviders(aggregateProviders(dedupeGamesById(bulk)))
     })()
     return () => {
       cancel = true
     }
-  }, [])
+  }, [location.pathname, location.key, visRefresh, catalogSyncAt])
 
-  const logoRowGames = featured.length > 0 ? featured : topGames
+  const logoRowGames = featured.length > 0 ? featured : hotFallback
 
   return (
     <div className="min-w-0">

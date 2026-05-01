@@ -19,6 +19,10 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Recommended in react-hooks v7; flags many valid "sync props/API → local editor state" patterns.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
   {
     files: ['src/authContext.tsx'],

@@ -19,22 +19,27 @@ import (
 func (h *Handler) OpsSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var whPending, missingWallet, wdOpen, ledgerRows, wfJobs int64
+	var bonusOutboxPending, bonusOutboxDLQ int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT
 			(SELECT COUNT(*)::bigint FROM fystack_webhook_deliveries WHERE processed = false),
 			(SELECT COUNT(*)::bigint FROM users u WHERE NOT EXISTS (SELECT 1 FROM fystack_wallets w WHERE w.user_id = u.id)),
 			(SELECT COUNT(*)::bigint FROM fystack_withdrawals WHERE status IN ('pending','submitted','pending_approval','executed')),
 			(SELECT COUNT(*)::bigint FROM ledger_entries),
-			(SELECT COUNT(*)::bigint FROM worker_failed_jobs WHERE resolved_at IS NULL)
-	`).Scan(&whPending, &missingWallet, &wdOpen, &ledgerRows, &wfJobs)
+			(SELECT COUNT(*)::bigint FROM worker_failed_jobs WHERE resolved_at IS NULL),
+			(SELECT COUNT(*)::bigint FROM bonus_outbox WHERE processed_at IS NULL AND dlq_at IS NULL),
+			(SELECT COUNT(*)::bigint FROM bonus_outbox WHERE processed_at IS NULL AND dlq_at IS NOT NULL)
+	`).Scan(&whPending, &missingWallet, &wdOpen, &ledgerRows, &wfJobs, &bonusOutboxPending, &bonusOutboxDLQ)
 
 	out := map[string]any{
-		"webhook_deliveries_pending":   whPending,
-		"users_missing_fystack_wallet": missingWallet,
-		"withdrawals_in_flight":        wdOpen,
-		"ledger_entries_total":         ledgerRows,
+		"webhook_deliveries_pending":    whPending,
+		"users_missing_fystack_wallet":  missingWallet,
+		"withdrawals_in_flight":         wdOpen,
+		"ledger_entries_total":          ledgerRows,
 		"worker_failed_jobs_unresolved": wfJobs,
-		"process_metrics":              obs.Snapshot(),
+		"bonus_outbox_pending_delivery": bonusOutboxPending,
+		"bonus_outbox_dead_letter":      bonusOutboxDLQ,
+		"process_metrics":               obs.Snapshot(),
 	}
 	if h.Redis != nil {
 		if n, err := h.Redis.LLen(ctx, "casino:jobs").Result(); err == nil {
@@ -63,20 +68,20 @@ func (h *Handler) GetPaymentFlags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{
-		"deposits_enabled":           f.DepositsEnabled,
-		"withdrawals_enabled":        f.WithdrawalsEnabled,
-		"real_play_enabled":          f.RealPlayEnabled,
-		"bonuses_enabled":            f.BonusesEnabled,
-		"automated_grants_enabled":   f.AutomatedGrantsEnabled,
+		"deposits_enabled":         f.DepositsEnabled,
+		"withdrawals_enabled":      f.WithdrawalsEnabled,
+		"real_play_enabled":        f.RealPlayEnabled,
+		"bonuses_enabled":          f.BonusesEnabled,
+		"automated_grants_enabled": f.AutomatedGrantsEnabled,
 	})
 }
 
 type patchFlagsReq struct {
-	DepositsEnabled          *bool `json:"deposits_enabled"`
-	WithdrawalsEnabled       *bool `json:"withdrawals_enabled"`
-	RealPlayEnabled          *bool `json:"real_play_enabled"`
-	BonusesEnabled           *bool `json:"bonuses_enabled"`
-	AutomatedGrantsEnabled   *bool `json:"automated_grants_enabled"`
+	DepositsEnabled        *bool `json:"deposits_enabled"`
+	WithdrawalsEnabled     *bool `json:"withdrawals_enabled"`
+	RealPlayEnabled        *bool `json:"real_play_enabled"`
+	BonusesEnabled         *bool `json:"bonuses_enabled"`
+	AutomatedGrantsEnabled *bool `json:"automated_grants_enabled"`
 }
 
 func (h *Handler) PatchPaymentFlags(w http.ResponseWriter, r *http.Request) {

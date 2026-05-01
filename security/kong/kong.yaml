@@ -1,0 +1,58 @@
+# Kong OSS declarative config (stub). Enterprise-only plugins noted in comments.
+# Deploy: deck sync -s kong.yaml
+# Edge IP allowlist for /v1/admin: prefer nginx/WAF — see ../nginx/admin-internal.example.conf
+_format_version: "3.0"
+
+services:
+  - name: casino-api
+    url: http://api-upstream:9090
+    routes:
+      - name: health-and-metadata
+        paths:
+          - /health
+          - /health/ready
+          - /health/operational
+          - /.well-known
+        strip_path: false
+        plugins:
+          - name: correlation-id
+            config:
+              header_name: X-Request-ID
+              generator: uuid
+      - name: blueocean-wallet-callback
+        paths:
+          - /api/blueocean/callback
+        strip_path: false
+        plugins:
+          - name: correlation-id
+            config:
+              header_name: X-Request-ID
+              generator: uuid
+          - name: rate-limiting
+            config:
+              minute: 600
+              policy: local
+      - name: public-v1
+        paths:
+          - /v1
+        strip_path: false
+        plugins:
+          - name: correlation-id
+            config:
+              header_name: X-Request-ID
+              generator: uuid
+          - name: rate-limiting
+            config:
+              minute: 300
+              policy: local
+      - name: admin-v1
+        paths:
+          - /v1/admin
+        strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 120
+              policy: local
+# IP restriction for /v1/admin: use Kong Enterprise IP Restriction plugin, or terminate admin on
+# internal nginx/security/terraform/nginx with allowlist. See plan Phase 2.1.

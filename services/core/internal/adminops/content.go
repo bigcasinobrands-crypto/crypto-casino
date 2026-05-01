@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
+	"github.com/crypto-casino/core/internal/safepath"
+	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -162,7 +164,12 @@ func (h *Handler) UploadContentImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dst, err := os.Create(filepath.Join(uploadDir, filename))
+	fullPath := filepath.Join(uploadDir, filename)
+	if !safepath.Within(uploadDir, fullPath) {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_path", "invalid upload path")
+		return
+	}
+	dst, err := os.Create(fullPath) // #nosec G703 -- fullPath checked via safepath.Within(uploadDir,*); filename server-generated
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "fs_error", "cannot create file")
 		return
@@ -174,7 +181,8 @@ func (h *Handler) UploadContentImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, map[string]any{"url": "/v1/uploads/" + filename})
+	out := "/v1/uploads/" + filename
+	writeJSON(w, map[string]any{"url": bonus.PublicizeStoredAssetURL(out)})
 }
 
 func (h *Handler) ContentBundle(w http.ResponseWriter, r *http.Request) {

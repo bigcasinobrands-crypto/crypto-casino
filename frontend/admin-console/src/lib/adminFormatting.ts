@@ -40,6 +40,15 @@ function fmtScalar(v: unknown): string {
   return String(v)
 }
 
+function formatPercent(value: unknown, maxFractionDigits = 2): string {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isFinite(n)) return '?'
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxFractionDigits,
+  }).format(n)
+}
+
 /** One-line summary for reward_programs.config (and similar flat maps). */
 export function formatFlatConfig(config: Record<string, unknown> | undefined | null): string {
   if (!config || typeof config !== 'object') return '—'
@@ -67,10 +76,21 @@ export function formatVipBenefitDetail(b: {
   if (b.benefit_type === 'rebate_percent_add') {
     const key =
       typeof b.config.rebate_program_key === 'string' ? b.config.rebate_program_key : ''
-    const pct = b.config.percent_add
-    const pctStr = typeof pct === 'number' || typeof pct === 'string' ? String(pct) : '?'
+    const pctStr = formatPercent(b.config.percent_add)
     if (key) return `Extra ${pctStr}% on “${key}” rebate`
     return `Extra ${pctStr}% rebate`
+  }
+  if (b.benefit_type === 'vip_card_feature') {
+    const icon = typeof b.config.icon_key === 'string' ? b.config.icon_key : 'sparkles'
+    const title = typeof b.config.title === 'string' ? b.config.title : ''
+    const subtitle = typeof b.config.subtitle === 'string' ? b.config.subtitle : ''
+    return `Card row: ${icon}${title ? ` · ${title}` : ''}${subtitle ? ` — ${subtitle}` : ''}`
+  }
+  if (b.benefit_type === 'rakeback_boost_schedule') {
+    const key = typeof b.config.rebate_program_key === 'string' ? b.config.rebate_program_key : ''
+    const boost = formatPercent(b.config.boost_percent_add)
+    const windows = Array.isArray(b.config.windows) ? b.config.windows.length : 0
+    return `Timed boost +${boost}%${key ? ` on "${key}"` : ''}${windows > 0 ? ` · ${windows} window(s)/day` : ''}`
   }
   return b.benefit_type.replace(/_/g, ' ')
 }
@@ -82,6 +102,8 @@ export function mergeVipTierPerksFromForm(
     headerColor: string
     imageUrl: string
     rankLabel: string
+    weeklyBonusEnabled?: boolean
+    monthlyBonusEnabled?: boolean
   },
 ): Record<string, unknown> {
   const prevDisplay =
@@ -91,6 +113,8 @@ export function mergeVipTierPerksFromForm(
   return {
     ...base,
     hide_from_public_page: !ui.showOnPublicPage,
+    ...(typeof ui.weeklyBonusEnabled === 'boolean' ? { weekly_bonus_enabled: ui.weeklyBonusEnabled } : {}),
+    ...(typeof ui.monthlyBonusEnabled === 'boolean' ? { monthly_bonus_enabled: ui.monthlyBonusEnabled } : {}),
     display: {
       ...prevDisplay,
       header_color: ui.headerColor.trim(),

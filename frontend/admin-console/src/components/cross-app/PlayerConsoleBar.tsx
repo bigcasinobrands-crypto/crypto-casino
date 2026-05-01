@@ -70,19 +70,19 @@ const PlayerConsoleBar: FC = () => {
   }, [ensurePlayerWindow, playerOrigin, clearFailTimer])
 
   return (
-    <div className="mr-3 hidden items-center gap-2 border-r border-gray-200 pr-3 dark:border-gray-800 lg:flex">
+    <div className="me-3 d-none d-lg-flex align-items-center gap-2 border-end border-secondary-subtle pe-3">
       <a
         href={playerUrl}
         target="_blank"
         rel="noreferrer"
-        className="text-sm font-medium text-gray-600 hover:text-brand-600 dark:text-gray-400 dark:hover:text-brand-400"
+        className="small fw-medium link-primary text-decoration-none"
       >
         Player app
       </a>
       <button
         type="button"
         onClick={() => void verifyBridge()}
-        className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:border-brand-300 hover:text-brand-600 dark:border-gray-700 dark:text-gray-400 dark:hover:border-brand-700 dark:hover:text-brand-400"
+        className="btn btn-sm btn-outline-secondary"
       >
         Verify bridge
       </button>

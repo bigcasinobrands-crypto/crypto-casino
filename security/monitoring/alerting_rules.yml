@@ -1,0 +1,18 @@
+# Prometheus alerting rules (sketch). Tune thresholds per environment.
+groups:
+  - name: casino-api
+    rules:
+      - alert: High5xxRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated 5xx on API
+      - alert: VaultSealed
+        expr: vault_core_unsealed == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Vault is sealed

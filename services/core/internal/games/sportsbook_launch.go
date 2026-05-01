@@ -45,7 +45,7 @@ func (s *Server) resolveSportsbook(ctx context.Context) (sportsbookResolve, erro
 		var playFun bool
 		var hidden, provHidden bool
 		err := s.Pool.QueryRow(ctx, `
-			SELECT COALESCE(g.bog_game_id, 0), COALESCE(g.title, ''), COALESCE(g.thumbnail_url, ''),
+			SELECT COALESCE(g.bog_game_id, 0), COALESCE(g.title, ''), `+EffectiveThumbnailAliased("g")+`,
 				COALESCE(g.play_for_fun_supported, true), COALESCE(g.hidden, false), COALESCE(pls.lobby_hidden, false)
 			FROM games g
 			LEFT JOIN provider_lobby_settings pls ON pls.provider = g.provider
@@ -101,7 +101,7 @@ func (s *Server) resolveSportsbook(ctx context.Context) (sportsbookResolve, erro
 	var title, thumb string
 	var playFun bool
 	err := s.Pool.QueryRow(ctx, `
-		SELECT g.id, COALESCE(g.bog_game_id, 0), COALESCE(g.title, ''), COALESCE(g.thumbnail_url, ''),
+		SELECT g.id, COALESCE(g.bog_game_id, 0), COALESCE(g.title, ''), `+EffectiveThumbnailAliased("g")+`,
 			COALESCE(g.play_for_fun_supported, true)
 		FROM games g
 		LEFT JOIN provider_lobby_settings pls ON pls.provider = g.provider
@@ -203,7 +203,7 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, err := remotePlayerID(r.Context(), s.Pool, uid)
+		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -211,9 +211,13 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 
 		customMethod := strings.TrimSpace(s.Cfg.BlueOceanSportsbookXAPIMethod)
 		if customMethod != "" {
+			rUser := remote
+			if s.Cfg != nil {
+				rUser = blueocean.FormatUserIDForXAPI(remote, s.Cfg.BlueOceanUserIDNoHyphens)
+			}
 			params := map[string]any{
 				"currency":   "EUR",
-				"userid":     remote,
+				"userid":     rUser,
 				"playforfun": mode != "real",
 			}
 			if s.Cfg != nil {
@@ -241,6 +245,12 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 			if status < 200 || status >= 300 {
 				msg := blueocean.FormatAPIError(raw, status)
 				log.Printf("sportsbook launch: provider HTTP %d method=%s: %s", status, customMethod, msg)
+				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", msg)
+				return
+			}
+			if !blueocean.LaunchPayloadOK(raw) {
+				msg := appendBlueOceanLaunchHints(blueocean.FormatAPIError(raw, status), s.Cfg)
+				log.Printf("sportsbook launch: provider failure method=%s: %s", customMethod, msg)
 				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", msg)
 				return
 			}

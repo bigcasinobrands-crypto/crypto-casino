@@ -15,7 +15,7 @@ func VIPProgramHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		rows, err := pool.Query(r.Context(), `
 			SELECT id, sort_order, name, min_lifetime_wager_minor, perks
 			FROM vip_tiers
-			ORDER BY sort_order ASC, id ASC
+			ORDER BY min_lifetime_wager_minor ASC, id ASC
 		`)
 		if err != nil {
 			http.Error(w, "db error", http.StatusInternalServerError)
@@ -46,15 +46,18 @@ func VIPProgramHandler(pool *pgxpool.Pool) http.HandlerFunc {
 				tb = []map[string]any{}
 			}
 			tiers = append(tiers, map[string]any{
-				"id":                         id,
-				"sort_order":                 sort,
-				"name":                       name,
-				"min_lifetime_wager_minor":   minW,
-				"perks":                      pm,
-				"tier_benefits":              tb,
+				"id":                       id,
+				"sort_order":               sort,
+				"name":                     name,
+				"min_lifetime_wager_minor": minW,
+				"perks":                    pm,
+				"tier_benefits":            tb,
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 		_ = json.NewEncoder(w).Encode(map[string]any{"tiers": tiers})
 	}
 }

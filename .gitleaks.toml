@@ -1,0 +1,12 @@
+# Repo-local Gitleaks config (CI + scripts/gitleaks-ci.*).
+title = "crypto-casino"
+
+[extend]
+useDefault = true
+
+# Examples and templates may contain realistic-looking placeholders.
+[allowlist]
+paths = [
+  '''\.env\.example$''',
+  '''\.env\.example\.[^/]+$''',
+]

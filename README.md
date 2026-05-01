@@ -1,4 +1,4 @@
-﻿# Crypto Casino — baseline monorepo
+# Crypto Casino — baseline monorepo
 
 Phase 1 baseline: **two separate SPAs** (admin vs player), shared design tokens, **Go** API + **Postgres** + optional **Redis** queue, **staff** and **player** auth, **BlueOcean/Fystack webhook** stubs, **ledger** idempotency, **`cmd/worker`**.
 
@@ -15,13 +15,13 @@ Phase 1 baseline: **two separate SPAs** (admin vs player), shared design tokens,
 3. `npm install` then `npm run build:core` (or `cd services/core && go mod tidy && go build ./cmd/...`)
 4. Staff admin in Postgres: migrations **`00006_seed_default_admin.sql`** (inserts **`admin@twox.gg`** / **`testadmin123`** if missing) and **`00007_align_dev_admin_password.sql`** (sets that password if the row already existed from an earlier bootstrap). Restart the API once so migrations apply. If you still get “invalid email or password”, run from `services/core`: **`go run ./cmd/resetstaffpw admin@twox.gg testadmin123`**. Alternatively create the row with **`go run ./cmd/bootstrap <email> <password>`** (min 8 chars); bootstrap does not change an existing user’s password.
 5. `go run ./cmd/playerbootstrap <player-email> <password>` (optional test user; password **12+ characters**, letters and numbers)
-6. **Player + games:** Terminal A: `npm run dev:api` (or `cd services/core && go run ./cmd/api`). Terminal B: `npm run dev:player` (5174). Or one command: `npm install` then **`npm run dev:casino`** (API + player UI). The player app proxies `/v1` and `/health` to **127.0.0.1:8080** — keep the API running or the lobby shows a connection error.
-7. Optional Terminal C: `npm run dev:worker` (needs working **Redis** when `REDIS_URL` is set; if Redis is down, the API still starts and serves the game list; webhooks fall back to inline processing when the queue is unavailable).
-8. `npm run dev:admin` (5173) when you need the staff console.
+6. **Player + games:** Use **`npm run dev:app`** from the repo root (core API on **:9090**, then **player 5174** and **admin 5173** after `GET /health` is up — no Vite proxy errors before the API is ready). Lighter: **`npm run dev:casino`** (API + player only, same health wait), or two terminals: **`npm run dev:api`** and **`npm run dev:player`**. The player Vite `DEV_API_PROXY` in `frontend/player-ui/.env.development` should match **`PORT`** in `services/core/.env` (commonly **9090**). Keep Postgres up or the API will not start.
+7. Optional: **`npm run dev:with-worker`** (API + player + worker) if you use **Redis** (`REDIS_URL`); or run **`npm run dev:worker`** in another terminal. If Redis is down, the API can still start and serve the game list; the queue may fall back to inline webhooks.
+8. Staff console alone: `npm run dev:admin` (5173) when the API is already running.
 
 ### Notable HTTP routes
 
-- **Staff:** `/v1/admin/auth/login|refresh|logout`, `/v1/admin/me`, `/v1/admin/users`, `/v1/admin/ledger`, `/v1/admin/events/blueocean`, `/v1/admin/integrations/fystack/*`
+- **Staff:** `/v1/admin/auth/login|refresh|logout`, `/v1/admin/me`, `/v1/admin/users`, `/v1/admin/ledger`, `/v1/admin/events/blueocean`, `/v1/admin/integrations/fystack/*`, superadmin **break-glass** `/v1/admin/security/break-glass/grants` (see [`security/docs/custody-key-management.md`](security/docs/custody-key-management.md))
 - **Player:** `/v1/auth/register|login|refresh|logout`, `/v1/auth/me`, `/v1/auth/verify-email`, `/v1/auth/verify-email/resend`, `/v1/auth/forgot-password`, `/v1/auth/reset-password`, `/v1/games`, `/v1/games/launch`, `/v1/wallet/balance`, `/v1/wallet/deposit-session`, `/v1/wallet/withdraw` (deposit/withdraw require **verified email**)
 - **Webhooks:** `POST /v1/webhooks/blueocean`, `POST /v1/webhooks/fystack`
 - **Health:** `/health`, `/health/ready` (DB + Redis when configured)
@@ -35,7 +35,9 @@ npm run build:admin
 npm run build:player
 npm run build:core   # tidy + vet + build api/worker/bootstrap/playerbootstrap
 npm run dev:api      # API from repo root (resolves Go on Windows if IDE PATH is thin)
-npm run dev:casino   # API + player UI together (after npm install for concurrently)
+npm run dev:app      # API + player + admin (waits for http://127.0.0.1:9090/health)
+npm run dev:casino   # API + player (same health wait)
+npm run dev:with-worker   # API + player + worker (player waits for health)
 npm run dev:worker   # worker — needs REDIS_URL in services/core/.env
 ```
 
@@ -62,6 +64,8 @@ npm run dev:worker   # worker — needs REDIS_URL in services/core/.env
 | [`docs/architecture-ops-baseline.md`](docs/architecture-ops-baseline.md) | Ops mapping |
 | [`docs/sdlc-branch-protection.md`](docs/sdlc-branch-protection.md) | CI & branches |
 | [`docs/post-phase1-scale.md`](docs/post-phase1-scale.md) | Scale playbook stub |
+| [`security/README.md`](security/README.md) | Vault policies, Terraform (KMS unseal), custody / break-glass docs |
+| [`security/docs/ENTERPRISE_PROMPT_STATUS.md`](security/docs/ENTERPRISE_PROMPT_STATUS.md) | Enterprise security prompt ↔ monorepo mapping (Vault, Kong, Go vs Node deliverables) |
 
 ## Compliance
 

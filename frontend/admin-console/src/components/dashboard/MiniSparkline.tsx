@@ -9,7 +9,7 @@ interface MiniSparklineProps {
   height?: number
 }
 
-const MiniSparkline: FC<MiniSparklineProps> = ({ data, color = '#4318FF', width = 80, height = 28 }) => {
+const MiniSparkline: FC<MiniSparklineProps> = ({ data, color = '#0d6efd', width = 80, height = 28 }) => {
   const options: ApexOptions = {
     chart: { type: 'area', sparkline: { enabled: true } },
     stroke: { curve: 'smooth', width: 1.5 },

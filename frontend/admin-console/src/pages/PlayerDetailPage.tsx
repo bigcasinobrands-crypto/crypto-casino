@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAdminAuth } from '../authContext'
 import { formatApiError, readApiError } from '../api/errors'
@@ -9,6 +9,8 @@ import PageMeta from '../components/common/PageMeta'
 import { AreaChart, ChartCard, StatusBadge } from '../components/dashboard'
 import { formatCurrency } from '../lib/format'
 import { ApiResultSummary } from '../components/admin/ApiResultSummary'
+import { DefinitionTable, definitionValueBoolean, type DefinitionRow } from '../components/ops'
+import { humanFieldLabel } from '../lib/adminFormatting'
 
 type EconomicTimelineBalances = {
   cash_minor?: number
@@ -73,6 +75,50 @@ function localInputToRFC3339(v: string): string {
   return d.toISOString()
 }
 
+function formatFactsCell(v: unknown, key?: string): ReactNode {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'boolean') return definitionValueBoolean(v)
+  if (typeof v === 'number') {
+    if (key && (key.includes('minor') || key.includes('ggr'))) return formatCurrency(v)
+    return String(v)
+  }
+  if (typeof v === 'object') {
+    return <code className="small text-break d-inline-block">{JSON.stringify(v)}</code>
+  }
+  return String(v)
+}
+
+function objectToDefinitionRows(obj: unknown): DefinitionRow[] {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return []
+  return Object.entries(obj as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => ({
+      field: humanFieldLabel(k),
+      value: formatFactsCell(v, k),
+      mono: true,
+    }))
+}
+
+function accountFactRows(facts: Record<string, unknown>): DefinitionRow[] {
+  const rows: DefinitionRow[] = []
+  if (facts.user_id != null) rows.push({ field: 'Player ID', value: String(facts.user_id), mono: true })
+  if (facts.last_activity_at != null) {
+    rows.push({ field: 'Last activity', value: String(facts.last_activity_at), mono: true })
+  }
+  const notes = facts.internal_notes
+  if (notes != null && String(notes).trim() !== '') {
+    rows.push({ field: 'Internal notes', value: String(notes), mono: false })
+  }
+  if (facts.latest_risk_signal != null) {
+    rows.push({
+      field: 'Latest risk signal',
+      value: formatFactsCell(facts.latest_risk_signal),
+      mono: true,
+    })
+  }
+  return rows
+}
+
 function SupportCrmLink({ userId }: { userId: string }) {
   const href = useMemo(() => {
     const tpl = String(import.meta.env.VITE_SUPPORT_CRM_URL_TEMPLATE ?? '').trim()
@@ -113,9 +159,12 @@ export default function PlayerDetailPage() {
   const [rgSelfExInput, setRgSelfExInput] = useState('')
   const [rgClosedInput, setRgClosedInput] = useState('')
   const [rgBusy, setRgBusy] = useState(false)
+  const [erasureBusy, setErasureBusy] = useState(false)
 
   const [facts, setFacts] = useState<Record<string, unknown> | null>(null)
   const [factsErr, setFactsErr] = useState<string | null>(null)
+  const [vipSupportSnap, setVipSupportSnap] = useState<unknown>(null)
+  const [vipSnapLoading, setVipSnapLoading] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -150,6 +199,21 @@ export default function PlayerDetailPage() {
       setFactsErr('Network error')
     }
   }, [apiFetch, id, reportApiFailure])
+
+  const loadVipSupportSnapshot = useCallback(async () => {
+    if (!id) return
+    setVipSnapLoading(true)
+    try {
+      const res = await apiFetch(`/v1/admin/vip/support/players/${encodeURIComponent(id)}/snapshot`)
+      if (!res.ok) {
+        setVipSupportSnap(null)
+        return
+      }
+      setVipSupportSnap((await res.json()) as unknown)
+    } finally {
+      setVipSnapLoading(false)
+    }
+  }, [apiFetch, id])
 
   useEffect(() => {
     let cancelled = false
@@ -265,6 +329,41 @@ export default function PlayerDetailPage() {
     }
   }
 
+  const queuePlayerErasure = async () => {
+    if (!id || !isSuper) return
+    if (
+      !window.confirm(
+        'Queue full account erasure for this player? The worker will anonymize PII, revoke sessions, and close the account.',
+      )
+    ) {
+      return
+    }
+    setErasureBusy(true)
+    setComplianceMsg(null)
+    try {
+      const res = await apiFetch('/v1/admin/compliance/player-erasure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: id }),
+      })
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        reportApiFailure({ res, parsed, method: 'POST', path: '/v1/admin/compliance/player-erasure' })
+        setComplianceMsg({ kind: 'err', text: formatApiError(parsed, `HTTP ${res.status}`) })
+        return
+      }
+      const j = (await res.json()) as { job_id?: number }
+      setComplianceMsg({
+        kind: 'ok',
+        text: `Erasure job queued${j.job_id != null ? ` (job #${j.job_id})` : ''}.`,
+      })
+    } catch {
+      setComplianceMsg({ kind: 'err', text: 'Network error' })
+    } finally {
+      setErasureBusy(false)
+    }
+  }
+
   const downloadComplianceExport = useCallback(async () => {
     if (!id) return
     const path = `/v1/admin/users/${encodeURIComponent(id)}/compliance-export`
@@ -290,6 +389,17 @@ export default function PlayerDetailPage() {
   }, [apiFetch, id, reportApiFailure])
 
   const tableWrapClass = 'overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700'
+
+  const profileRows = useMemo((): DefinitionRow[] => {
+    if (!data) return []
+    return Object.keys(data)
+      .sort()
+      .map((key) => ({
+        field: humanFieldLabel(key),
+        value: formatFactsCell(data[key], key),
+        mono: true,
+      }))
+  }, [data])
 
   return (
     <>
@@ -326,26 +436,45 @@ export default function PlayerDetailPage() {
         {factsErr ? <p className="mb-2 text-sm text-red-600 dark:text-red-400">{factsErr}</p> : null}
         {!facts && !factsErr ? <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p> : null}
         {facts ? (
-          <div className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-lg border border-gray-200 bg-white/50 p-3 dark:border-gray-700 dark:bg-white/5">
-              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">VIP</p>
-              <ApiResultSummary data={facts.vip ?? {}} embedded />
+          <div className="d-flex flex-column gap-4">
+            <div className="row g-3">
+              <div className="col-lg-4">
+                <p className="text-secondary text-uppercase small fw-semibold mb-2">VIP</p>
+                <DefinitionTable rows={objectToDefinitionRows(facts.vip)} flush />
+                <div className="mt-2 d-flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary btn-sm"
+                    disabled={vipSnapLoading}
+                    onClick={() => void loadVipSupportSnapshot()}
+                  >
+                    {vipSnapLoading ? 'Loading…' : 'VIP delivery snapshot'}
+                  </button>
+                </div>
+                {vipSupportSnap != null ? (
+                  <pre className="mt-2 mb-0 small text-wrap bg-body-secondary p-2 rounded" style={{ maxHeight: 220, overflow: 'auto' }}>
+                    {JSON.stringify(vipSupportSnap, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+              <div className="col-lg-8">
+                <p className="text-secondary text-uppercase small fw-semibold mb-2">Recent activity windows</p>
+                <DefinitionTable rows={objectToDefinitionRows(facts.windows)} flush />
+              </div>
             </div>
-            <div className="rounded-lg border border-gray-200 bg-white/50 p-3 dark:border-gray-700 dark:bg-white/5">
-              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Recent activity windows</p>
-              <ApiResultSummary data={facts.windows ?? {}} embedded />
+            <div>
+              <p className="text-secondary text-uppercase small fw-semibold mb-2">Risk summary</p>
+              <DefinitionTable rows={objectToDefinitionRows(facts.risk_summary)} flush />
             </div>
-            <div className="rounded-lg border border-gray-200 bg-white/50 p-3 dark:border-gray-700 dark:bg-white/5">
-              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Risk summary</p>
-              <ApiResultSummary data={facts.risk_summary ?? {}} embedded />
-            </div>
+            {accountFactRows(facts as Record<string, unknown>).length > 0 ? (
+              <div>
+                <p className="text-secondary text-uppercase small fw-semibold mb-2">Account</p>
+                <DefinitionTable rows={accountFactRows(facts as Record<string, unknown>)} flush />
+              </div>
+            ) : null}
           </div>
         ) : null}
-        <button
-          type="button"
-          className="mt-3 rounded-lg bg-brand-500 px-3 py-1.5 text-sm text-white hover:bg-brand-600"
-          onClick={() => void loadFacts()}
-        >
+        <button type="button" className="btn btn-outline-primary btn-sm mt-3" onClick={() => void loadFacts()}>
           Refresh facts
         </button>
       </ComponentCard>
@@ -458,19 +587,7 @@ export default function PlayerDetailPage() {
               </div>
             </div>
 
-            {/* Details table */}
-            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {Object.entries(data).map(([key, val]) => (
-                    <tr key={key}>
-                      <td className="whitespace-nowrap px-4 py-2.5 font-medium text-gray-500 dark:text-gray-400">{key}</td>
-                      <td className="break-all px-4 py-2.5 font-mono text-xs text-gray-900 dark:text-gray-100">{val == null ? '—' : String(val)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DefinitionTable rows={profileRows} />
           </div>
         ) : !err ? (
           <p className="text-sm text-gray-500">Loading…</p>
@@ -765,6 +882,7 @@ export default function PlayerDetailPage() {
               </p>
               <input
                 type="datetime-local"
+                lang="en-GB"
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
                 value={rgSelfExInput}
                 disabled={!isSuper || rgBusy}
@@ -801,6 +919,7 @@ export default function PlayerDetailPage() {
               </p>
               <input
                 type="datetime-local"
+                lang="en-GB"
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
                 value={rgClosedInput}
                 disabled={!isSuper || rgBusy}
@@ -841,6 +960,23 @@ export default function PlayerDetailPage() {
           </label>
         </div>
       </ComponentCard>
+
+      {isSuper ? (
+        <ComponentCard
+          className="mt-6"
+          title="Data erasure (GDPR-style)"
+          desc="Queues a worker job to anonymize this player: scrambled email, cleared username/avatar/preferences, invalid password hash, all sessions removed."
+        >
+          <button
+            type="button"
+            disabled={erasureBusy}
+            className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            onClick={() => void queuePlayerErasure()}
+          >
+            {erasureBusy ? 'Queueing…' : 'Queue player erasure job'}
+          </button>
+        </ComponentCard>
+      ) : null}
 
       <ComponentCard
         className="mt-6"

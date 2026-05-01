@@ -9,7 +9,7 @@ Practical checklist beyond the main technical plan: product, engineering, securi
 
 ## Engineering
 
-- **OpenAPI-first for `/v1`:** Start small; keep a single spec and typed or generated clients for `frontend/admin-console` and `frontend/player-ui` so frontends and backend stay aligned.
+- **OpenAPI-first for `/v1`:** Start small; keep a single spec and typed or generated clients for `frontend/admin-console` and `frontend/player-ui` so frontends and backend stay aligned. For new third-party backends, follow **`docs/CONTRIBUTING-INTEGRATIONS.md`**.
 - **Single ledger apply path:** The same module/function applies game and payment events for both synchronous API code and async workers—avoid two implementations.
 - **Staging ≈ prod:** Same URL patterns for webhooks, TLS, and secrets handling as production.
 
@@ -23,6 +23,7 @@ Practical checklist beyond the main technical plan: product, engineering, securi
 
 ## Operations
 
+- **`docs/container-runtime.md`:** API Docker image, migration-on-start, and health probe paths.
 - **Structured logs + request IDs** on API and workers from the start.
 - **Metrics:** Queue depth, webhook failure rate, latency—enough to see regressions early.
 - **Backups:** Encrypted backups + at least one **restore drill** before calling Phase 1 complete.

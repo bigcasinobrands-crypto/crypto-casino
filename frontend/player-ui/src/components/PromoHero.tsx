@@ -28,7 +28,7 @@ const FALLBACK_SLIDES: HeroSlide[] = [
     tag: '1d 9h 35m',
     title: '$25K Raffle',
     cta_label: 'Learn more',
-    cta_link: '/casino/games',
+    cta_link: '/casino/games#raffle',
     image_url: RAFFLE_IMG,
     interactive: 'raffle_tickets',
   },

@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
 
-const cardCls =
-  'rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]'
-
+/**
+ * Collapsible section using Bootstrap / AdminLTE card styling (matches ComponentCard).
+ */
 export function AdminSection({
   title,
   desc,
@@ -16,30 +16,22 @@ export function AdminSection({
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className={cardCls}>
-      <button
-        type="button"
-        className="flex w-full items-center justify-between px-6 py-5 text-left"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <div>
-          <h3 className="text-base font-medium text-gray-800 dark:text-white/90">{title}</h3>
-          {desc ? <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">{desc}</p> : null}
+    <div className="card shadow-sm mb-4">
+      <div className="card-header d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div className="min-w-0">
+          <h3 className="card-title mb-0 fs-6">{title}</h3>
+          {desc ? <p className="text-secondary small mb-0 mt-1">{desc}</p> : null}
         </div>
-        <svg
-          className={`h-5 w-5 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-          aria-hidden
+        <button
+          type="button"
+          className="btn btn-sm btn-outline-secondary shrink-0"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open ? (
-        <div className="border-t border-gray-100 px-6 py-5 dark:border-gray-800 space-y-5">{children}</div>
-      ) : null}
+          {open ? 'Collapse' : 'Expand'}
+        </button>
+      </div>
+      {open ? <div className="card-body">{children}</div> : null}
     </div>
   )
 }

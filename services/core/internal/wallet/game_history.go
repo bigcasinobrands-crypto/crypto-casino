@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/crypto-casino/core/internal/games"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -29,7 +30,7 @@ func GameHistoryHandler(pool *pgxpool.Pool) http.HandlerFunc {
 				gl.game_id,
 				g.title,
 				COALESCE(g.category, ''),
-				COALESCE(g.thumbnail_url, ''),
+				`+games.EffectiveThumbnailAliased("g")+`,
 				COALESCE(g.provider, ''),
 				COUNT(*)::int             AS sessions,
 				MIN(gl.created_at)        AS first_played,
@@ -37,7 +38,7 @@ func GameHistoryHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			FROM game_launches gl
 			JOIN games g ON g.id = gl.game_id
 			WHERE gl.user_id = $1::uuid
-			GROUP BY gl.game_id, g.title, g.category, g.thumbnail_url, g.provider
+			GROUP BY gl.game_id, g.title, g.category, g.thumbnail_url, g.thumbnail_url_override, g.provider
 			ORDER BY COUNT(*) DESC, MAX(gl.created_at) DESC
 		`, uid)
 		if err != nil {

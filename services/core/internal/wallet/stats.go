@@ -24,12 +24,13 @@ func QueryPlayerBettingTotals(ctx context.Context, pool *pgxpool.Pool, uid strin
 				SELECT entry_type, amount_minor, metadata
 				FROM ledger_entries
 				WHERE user_id = $1::uuid
-				  AND entry_type IN ('game.debit', 'game.credit', 'game.bet', 'game.win')
+				  AND entry_type IN ('game.debit', 'game.credit', 'game.bet', 'game.win', 'game.rollback')
 			)
 			SELECT
-				COALESCE(SUM(CASE
+				GREATEST(COALESCE(SUM(CASE
 					WHEN entry_type IN ('game.debit', 'game.bet') THEN ABS(amount_minor)
-					ELSE 0 END), 0)::bigint,
+					WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor)
+					ELSE 0 END), 0), 0)::bigint,
 				COALESCE((
 					SELECT COUNT(*)::int FROM (
 						SELECT 1

@@ -9,6 +9,7 @@ import {
   IconMaximize2,
   IconMinimize2,
 } from '../components/icons'
+import { GAME_IFRAME_ALLOW } from '../lib/gameIframe'
 import { pushRecent } from '../lib/gameStorage'
 import { playerFetch } from '../lib/playerFetch'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
@@ -38,6 +39,15 @@ function launchErrorMessage(code: string | undefined, fallback: string) {
     case 'bog_unconfigured':
       return 'Sportsbook is not available (provider not configured).'
     case 'bog_error':
+      if (/invalid\s+user\s+details/i.test(fallback)) {
+        return fallback
+      }
+      if (
+        /demo\s+game\s+not\s+available|not\s+available\s+at\s+this\s+moment/i.test(fallback) ||
+        (/demo/i.test(fallback) && /not\s+available/i.test(fallback))
+      ) {
+        return 'The provider refused free play for this product right now. Try real play if funded, or retry later.'
+      }
       return fallback
     case 'demo_unavailable':
       return 'Demo play is not available for this product.'
@@ -63,7 +73,7 @@ const CONTEXT_PATH = '/v1/sportsbook/context'
  */
 export default function SportsPage() {
   const navigate = useNavigate()
-  const { accessToken, apiFetch } = usePlayerAuth()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
   const { openAuth } = useAuthModal()
 
   const [catalogErr, setCatalogErr] = useState<string | null>(null)
@@ -90,11 +100,11 @@ export default function SportsPage() {
   const realAllowed = true
 
   useEffect(() => {
-    if (accessToken || catalogErr || !shell) return
+    if (isAuthenticated || catalogErr || !shell) return
     if (authPromptedRef.current) return
     authPromptedRef.current = true
     openAuth('login', { navigateTo: postAuthTarget })
-  }, [accessToken, catalogErr, shell, openAuth])
+  }, [isAuthenticated, catalogErr, shell, openAuth])
 
   useEffect(() => {
     authPromptedRef.current = false
@@ -174,7 +184,7 @@ export default function SportsPage() {
   }, [])
 
   useEffect(() => {
-    if (!accessToken || !shell || !launchModeChoice) return
+    if (!isAuthenticated || !shell || !launchModeChoice) return
     let cancelled = false
     void (async () => {
       if (!cancelled) {
@@ -192,8 +202,13 @@ export default function SportsPage() {
         if (!res.ok) {
           const apiErr = await readApiError(res)
           const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          toastPlayerApiError(apiErr, res.status, 'POST /v1/sportsbook/launch', rid)
           const msg = launchErrorMessage(apiErr?.code, formatApiError(apiErr, 'Launch failed'))
+          toastPlayerApiError(
+            apiErr ? { ...apiErr, message: msg } : null,
+            res.status,
+            'POST /v1/sportsbook/launch',
+            rid,
+          )
           if (!cancelled) setLaunchErr(msg)
           return
         }
@@ -213,14 +228,14 @@ export default function SportsPage() {
     return () => {
       cancelled = true
     }
-  }, [accessToken, apiFetch, shell, launchModeChoice, launchRetryNonce, recentKey])
+  }, [isAuthenticated, apiFetch, shell, launchModeChoice, launchRetryNonce, recentKey])
 
   const showLaunchModeModal = Boolean(
-    accessToken && shell && !catalogErr && launchModeChoice === null && !iframeUrl && !launchErr,
+    isAuthenticated && shell && !catalogErr && launchModeChoice === null && !iframeUrl && !launchErr,
   )
 
   useEffect(() => {
-    if (!accessToken || !shell || catalogErr || iframeUrl || launchErr || launchModeChoice !== null) return
+    if (!isAuthenticated || !shell || catalogErr || iframeUrl || launchErr || launchModeChoice !== null) return
     if (demoAllowed && !realAllowed) {
       setLaunchModeChoice('demo')
       return
@@ -228,7 +243,7 @@ export default function SportsPage() {
     if (!demoAllowed && realAllowed) {
       setLaunchModeChoice('real')
     }
-  }, [accessToken, shell, catalogErr, iframeUrl, launchErr, launchModeChoice, demoAllowed, realAllowed])
+  }, [isAuthenticated, shell, catalogErr, iframeUrl, launchErr, launchModeChoice, demoAllowed, realAllowed])
 
   useEffect(() => {
     if (!showLaunchModeModal) return
@@ -247,7 +262,7 @@ export default function SportsPage() {
   const title = shell?.title?.trim() || 'Sportsbook'
   const providerLabel = 'Blue Ocean'
   const launchPending = Boolean(
-    accessToken && launchModeChoice !== null && !catalogErr && !iframeUrl && !launchErr,
+    isAuthenticated && launchModeChoice !== null && !catalogErr && !iframeUrl && !launchErr,
   )
   const metaLoading = !catalogErr && !shell
 
@@ -272,7 +287,7 @@ export default function SportsPage() {
         <div className="mx-auto w-full max-w-4xl shrink-0 px-3 pt-3 sm:px-4 sm:pt-4 lg:max-w-5xl">
           <div
             ref={stageRef}
-            className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-[#07060a] shadow-[0_8px_28px_rgba(0,0,0,0.28)]"
+            className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
           >
             <div className="flex items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3">
               <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -327,19 +342,19 @@ export default function SportsPage() {
                   src={shell.thumbnail_url}
                   alt=""
                   className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-                    accessToken && iframeUrl && !gamePoppedOut ? 'opacity-0' : 'opacity-40'
+                    isAuthenticated && iframeUrl && !gamePoppedOut ? 'opacity-0' : 'opacity-40'
                   }`}
                   aria-hidden
                 />
               ) : null}
               <div
                 className={`absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30 ${
-                  accessToken && iframeUrl && !gamePoppedOut ? 'pointer-events-none opacity-0' : ''
+                  isAuthenticated && iframeUrl && !gamePoppedOut ? 'pointer-events-none opacity-0' : ''
                 }`}
                 aria-hidden
               />
 
-              {accessToken && iframeUrl && gamePoppedOut ? (
+              {isAuthenticated && iframeUrl && gamePoppedOut ? (
                 <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 p-4 text-center">
                   <p className="text-sm font-semibold text-white/95 sm:text-base">Playing in mini player</p>
                   <button
@@ -352,17 +367,17 @@ export default function SportsPage() {
                 </div>
               ) : null}
 
-              {accessToken && iframeUrl && !gamePoppedOut ? (
+              {isAuthenticated && iframeUrl && !gamePoppedOut ? (
                 <iframe
                   title={title}
                   src={iframeUrl}
                   className="absolute inset-0 z-10 h-full w-full border-0 bg-black"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; fullscreen; gamepad; gyroscope; payment; picture-in-picture; web-share"
+                  allow={GAME_IFRAME_ALLOW}
                   allowFullScreen
                 />
               ) : null}
 
-              {!accessToken ? (
+              {!isAuthenticated ? (
                 <div className="absolute inset-0 z-[8] flex flex-col items-center justify-center gap-3 p-4 text-center sm:p-5">
                   <div className="max-w-sm rounded-casino-md border border-white/15 bg-black/75 px-4 py-4 shadow-xl backdrop-blur-md sm:px-5 sm:py-4">
                     <p className="text-sm font-semibold text-white sm:text-base">Sportsbook</p>
@@ -448,7 +463,7 @@ export default function SportsPage() {
                 </div>
               ) : null}
 
-              {accessToken && !iframeUrl && (launchPending || launchErr) ? (
+              {isAuthenticated && !iframeUrl && (launchPending || launchErr) ? (
                 <div className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 p-3 text-center sm:gap-3 sm:p-5">
                   {launchPending ? (
                     <>
@@ -511,7 +526,7 @@ export default function SportsPage() {
           </div>
         </div>
 
-        {accessToken && iframeUrl ? (
+        {isAuthenticated && iframeUrl ? (
           <div className="mx-auto w-full max-w-4xl px-3 sm:px-4 lg:max-w-5xl">
             <p className="py-2 text-center text-[11px] text-casino-muted sm:text-xs">
               Having trouble?{' '}

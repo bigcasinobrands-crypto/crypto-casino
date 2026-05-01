@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { playerApiUrl } from './playerApiUrl'
+import { pigmoFuturesIconUrl } from './pigmoIconAssets'
 
 /** Symbols we request for deposit + rail UI (Logo.dev /crypto/{symbol}). */
 export const CRYPTO_LOGO_SYMBOLS = 'usdt,usdc,bnb,eth,trx,btc' as const
@@ -8,7 +9,7 @@ export const CRYPTO_LOGO_SYMBOLS = 'usdt,usdc,bnb,eth,trx,btc' as const
  * Built-in logos from public CDNs so icons render even without Logo.dev configured.
  * Keyed by lowercase symbol matching CRYPTO_LOGO_SYMBOLS.
  */
-const BUILTIN_LOGOS: Record<string, string> = {
+const COINGECKO_LOGOS: Record<string, string> = {
   usdt: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
   usdc: 'https://assets.coingecko.com/coins/images/6319/small/usdc.png',
   eth: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
@@ -16,6 +17,22 @@ const BUILTIN_LOGOS: Record<string, string> = {
   trx: 'https://assets.coingecko.com/coins/images/1094/small/tron-logo.png',
   btc: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
 }
+
+/** Pigmo futures strip SVGs (`futures-icons/*`) — opt-in via `VITE_PIGMO_FUTURES_CRYPTO_ICONS`. */
+function resolvedBuiltinLogos(): Record<string, string> {
+  const v = import.meta.env.VITE_PIGMO_FUTURES_CRYPTO_ICONS
+  if (v !== 'true' && v !== '1') return { ...COINGECKO_LOGOS }
+  const px = 64
+  return {
+    ...COINGECKO_LOGOS,
+    btc: pigmoFuturesIconUrl('btc', px),
+    eth: pigmoFuturesIconUrl('eth', px),
+    sol: pigmoFuturesIconUrl('sol', px),
+    doge: pigmoFuturesIconUrl('doge', px),
+  }
+}
+
+const BUILTIN_LOGOS: Record<string, string> = resolvedBuiltinLogos()
 
 type LogoUrlsResponse = {
   urls?: Record<string, string>

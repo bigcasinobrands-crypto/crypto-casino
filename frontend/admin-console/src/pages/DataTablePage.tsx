@@ -13,37 +13,85 @@ function FystackStatCards({ path }: { path: string }) {
   const { data: kpis } = useDashboardKPIs()
   if (!kpis) return null
 
-  const isWithdrawal = path.includes('fystack-wd')
+  const isWithdrawal = path.includes('withdrawals') && path.includes('fystack')
 
   if (isWithdrawal) {
     return (
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Withdrawal Volume (24h)" value={formatCurrency(kpis.withdrawals_24h)} />
-        <StatCard label="Withdrawals (24h)" value={formatCompact(kpis.withdrawals_count_24h)} />
-        <StatCard label="Pending Value" value={formatCurrency(kpis.pending_withdrawals_value)} />
+      <div className="row mb-3">
+        <div className="col-md-4 mb-3 mb-md-0">
+          <StatCard
+            label="Withdrawal volume (24h)"
+            value={formatCurrency(kpis.withdrawals_24h)}
+            iconClass="bi bi-arrow-up-circle"
+            variant="danger"
+          />
+        </div>
+        <div className="col-md-4 mb-3 mb-md-0">
+          <StatCard
+            label="Withdrawal count (24h)"
+            value={formatCompact(kpis.withdrawals_count_24h)}
+            iconClass="bi bi-list-ol"
+            variant="secondary"
+          />
+        </div>
+        <div className="col-md-4">
+          <StatCard
+            label="Pending withdrawal value"
+            value={formatCurrency(kpis.pending_withdrawals_value)}
+            iconClass="bi bi-hourglass-split"
+            variant="warning"
+          />
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="mb-6 grid gap-4 sm:grid-cols-3">
-      <StatCard label="Deposit Volume (24h)" value={formatCurrency(kpis.deposits_24h)} />
-      <StatCard label="Deposits (24h)" value={formatCompact(kpis.deposits_count_24h)} />
-      <StatCard label="Avg Deposit Size" value={formatCurrency(kpis.avg_deposit_size_30d)} />
+    <div className="row mb-3">
+      <div className="col-md-4 mb-3 mb-md-0">
+        <StatCard
+          label="Deposit volume (24h)"
+          value={formatCurrency(kpis.deposits_24h)}
+          iconClass="bi bi-arrow-down-circle"
+          variant="success"
+        />
+      </div>
+      <div className="col-md-4 mb-3 mb-md-0">
+        <StatCard
+          label="Deposit count (24h)"
+          value={formatCompact(kpis.deposits_count_24h)}
+          iconClass="bi bi-list-ol"
+          variant="secondary"
+        />
+      </div>
+      <div className="col-md-4">
+        <StatCard
+          label="Avg deposit size (30d)"
+          value={formatCurrency(kpis.avg_deposit_size_30d)}
+          iconClass="bi bi-bank"
+          variant="info"
+        />
+      </div>
     </div>
   )
 }
 
 export default function DataTablePage({ title, path, refreshIntervalMs }: Props) {
   const { apiFetch } = useAdminAuth()
-  const showStats = path.includes('fystack')
+  const showStats = path.includes('fystack') || path.includes('integrations/fystack')
+  const subtitle =
+    path.includes('game-launches') || path.includes('game-disputes')
+      ? 'Live rows from the admin API — search, sort, and export from the toolbar.'
+      : path.includes('fystack') || path.includes('ledger')
+        ? 'Live payment and ledger rows — refreshes on an interval when configured.'
+        : undefined
 
   return (
     <>
       <PageMeta title={`${title} · Admin`} description={`Admin data: ${title}`} />
-      <PageBreadcrumb pageTitle={title} />
+      <PageBreadcrumb pageTitle={title} subtitle={subtitle} />
       {showStats && <FystackStatCards path={path} />}
-      <ComponentCard title={title} desc={`GET ${path}`}>
+      <ComponentCard title={title} desc="Live data from the admin API. Search, sort, and export from the toolbar.">
         <AdminDataTable apiPath={path} apiFetch={apiFetch} refreshIntervalMs={refreshIntervalMs} />
       </ComponentCard>
     </>

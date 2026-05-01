@@ -20,11 +20,7 @@ function sanitizeReturnPath(pathname: string, search: string, hash: string): str
   return pathname + (search ?? '') + (hash ?? '')
 }
 
-/**
- * Call immediately before opening a game lobby from a catalog/list page.
- * Skips when already on a game lobby (e.g. switching games) so the original list context is kept.
- */
-export function saveCatalogReturnBeforeGameOpen(): void {
+function writeCurrentCatalogReturnToSession(): void {
   if (typeof window === 'undefined') return
   const { pathname, search, hash } = window.location
   if (isGameLobbyPathname(pathname)) return
@@ -38,11 +34,40 @@ export function saveCatalogReturnBeforeGameOpen(): void {
   }
 }
 
+/**
+ * Call immediately before opening a game lobby from a catalog/list page.
+ * Skips when already on a game lobby (e.g. switching games) so the original list context is kept.
+ */
+export function saveCatalogReturnBeforeGameOpen(): void {
+  writeCurrentCatalogReturnToSession()
+}
+
+/**
+ * Updates stored path + scroll while the player browses the catalog (sections, filters, scrolling).
+ * Keeps “Back to games” aligned with the **latest** lobby view, not only the first game opened this session.
+ */
+export function persistCatalogReturnSnapshot(): void {
+  writeCurrentCatalogReturnToSession()
+}
+
 export function clearCatalogReturn(): void {
   try {
     sessionStorage.removeItem(STORAGE_KEY)
   } catch {
     /* ignore */
+  }
+}
+
+/** Split `pathname + search + hash` for React Router object navigation (reliable vs a single string). */
+export function splitCatalogReturnPath(fullPath: string): { pathname: string; search: string; hash: string } {
+  if (typeof window === 'undefined') {
+    return { pathname: '/casino/games', search: '', hash: '' }
+  }
+  try {
+    const u = new URL(fullPath.trim() || '/casino/games', window.location.origin)
+    return { pathname: u.pathname || '/casino/games', search: u.search, hash: u.hash }
+  } catch {
+    return { pathname: '/casino/games', search: '', hash: '' }
   }
 }
 

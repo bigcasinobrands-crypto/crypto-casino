@@ -3,6 +3,7 @@ package blueocean
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -101,7 +102,12 @@ func gameTitleFromMap(m map[string]any) string {
 }
 
 func gameTypeFromMap(m map[string]any) string {
-	for _, key := range []string{"type", "game_type", "gameType", "gametype", "category"} {
+	for _, key := range []string{
+		"type", "game_type", "gameType", "gametype",
+		"vertical", "game_vertical", "gameVertical",
+		"game_category", "gameCategory",
+		"category",
+	} {
 		if s := strings.TrimSpace(strVal(m[key])); s != "" {
 			return s
 		}
@@ -111,11 +117,16 @@ func gameTypeFromMap(m map[string]any) string {
 
 func providerSystemFromMap(m map[string]any) string {
 	for _, key := range []string{"system", "provider_system", "brand", "software", "vendor", "provider"} {
-		if s := strings.TrimSpace(strVal(m[key])); s != "" {
+		if s := strings.TrimSpace(strVal(m[key])); s != "" && !isBlueOceanAggregatorSlug(s) {
 			return s
 		}
 	}
 	return ""
+}
+
+// isBlueOceanAggregatorSlug is true when the catalog uses the integration id where we expect a studio name.
+func isBlueOceanAggregatorSlug(s string) bool {
+	return strings.EqualFold(strings.TrimSpace(s), "blueocean")
 }
 
 func idHashFromMap(m map[string]any) string {
@@ -128,8 +139,59 @@ func idHashFromMap(m map[string]any) string {
 }
 
 func subcategoryFromMap(m map[string]any) string {
-	for _, key := range []string{"subcategory", "sub_category", "subCategory"} {
+	for _, key := range []string{"subcategory", "sub_category", "subCategory", "game_subcategory", "gameSubcategory"} {
 		if s := strings.TrimSpace(strVal(m[key])); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// extractThumbnailFromNestedMap resolves URLs inside thumbnail/image/gfx objects (common in aggregator payloads).
+func extractThumbnailFromNestedMap(m map[string]any) string {
+	ordered := []string{
+		"url", "src", "path", "href", "default", "large", "medium", "small",
+		"square", "portrait", "landscape", "thumbnail", "image", "webp", "jpg", "png",
+	}
+	for _, k := range ordered {
+		if s := strings.TrimSpace(strVal(m[k])); s != "" {
+			return s
+		}
+	}
+	for _, vv := range m {
+		s := strings.TrimSpace(strVal(vv))
+		if s == "" {
+			continue
+		}
+		low := strings.ToLower(s)
+		if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") || strings.HasPrefix(s, "//") ||
+			strings.HasPrefix(s, "/") {
+			return s
+		}
+	}
+	return ""
+}
+
+// thumbnailFromMapFlat scans flat string fields only (BOG getGameList + legacy aliases).
+// Doc order: https://blueoceangaming.atlassian.net/wiki/spaces/iGPPD/pages/1209172171/1.1+getGameList
+func thumbnailFromMapFlat(m map[string]any) string {
+	docKeys := []string{
+		"image", "image_preview", "image_square", "image_portrait", "image_background", "image_bw",
+	}
+	for _, k := range docKeys {
+		if s := strings.TrimSpace(strVal(m[k])); s != "" {
+			return s
+		}
+	}
+	legacyKeys := []string{
+		"thumbnail", "thumbnail_url", "thumb", "thumb_url",
+		"icon", "icon_url", "cover", "banner", "logo", "game_image", "image_url",
+		"picture", "img", "square_image", "portrait_image", "landscape_image",
+		"game_thumbnail", "background_image", "preview", "preview_image",
+		"tile_image", "lobby_image", "poster", "featured_image",
+	}
+	for _, k := range legacyKeys {
+		if s := strings.TrimSpace(strVal(m[k])); s != "" {
 			return s
 		}
 	}
@@ -138,17 +200,41 @@ func subcategoryFromMap(m map[string]any) string {
 
 // thumbnailFromMap collects image URLs from common BOG / aggregator payload shapes.
 func thumbnailFromMap(m map[string]any) string {
-	flatKeys := []string{
-		"image_square", "image", "thumbnail", "thumbnail_url", "thumb", "thumb_url",
-		"icon", "icon_url", "cover", "banner", "logo", "game_image", "image_url",
-		"picture", "img", "square_image", "portrait_image", "landscape_image",
-		"game_thumbnail", "background_image", "preview", "preview_image",
+	if s := thumbnailFromMapFlat(m); s != "" {
+		return s
 	}
-	for _, k := range flatKeys {
-		if s := strings.TrimSpace(strVal(m[k])); s != "" {
-			return s
+	// show_additional=true may nest extra fields here.
+	for _, nk := range []string{"additional", "Additional"} {
+		if sub, ok := m[nk].(map[string]any); ok {
+			if s := thumbnailFromMapFlat(sub); s != "" {
+				return s
+			}
 		}
 	}
+
+	for _, nk := range []string{"thumbnail", "image", "icons", "gfx", "visuals", "media", "artwork"} {
+		raw, ok := m[nk]
+		if !ok {
+			continue
+		}
+		switch t := raw.(type) {
+		case map[string]any:
+			if s := extractThumbnailFromNestedMap(t); s != "" {
+				return s
+			}
+		case []any:
+			for _, it := range t {
+				mm, ok := it.(map[string]any)
+				if !ok {
+					continue
+				}
+				if s := extractThumbnailFromNestedMap(mm); s != "" {
+					return s
+				}
+			}
+		}
+	}
+
 	raw, ok := m["images"]
 	if !ok {
 		return ""
@@ -198,12 +284,172 @@ func NormalizeCatalogImageURL(s, base string) string {
 	return base + "/" + strings.TrimPrefix(s, "/")
 }
 
+func parseJSONFlexible(s string) (any, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || (len(s) > 0 && s[0] != '[' && s[0] != '{') {
+		return nil, false
+	}
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return nil, false
+	}
+	return v, true
+}
+
+// looksLikeGameSlice returns true when arr appears to be a list of game objects (BOG catalog).
+func looksLikeGameSlice(arr []any) bool {
+	if len(arr) == 0 {
+		return false
+	}
+	first, ok := arr[0].(map[string]any)
+	if !ok {
+		return false
+	}
+	if bogIDFromMap(first) != 0 {
+		return true
+	}
+	return gameTitleFromMap(first) != "" && len(first) >= 2
+}
+
+// catalogProviderError returns a human message when the upstream payload is an error/not-success envelope.
+func catalogProviderError(m map[string]any) string {
+	for _, key := range []string{"success", "status", "ok"} {
+		if val, exists := m[key]; exists {
+			switch t := val.(type) {
+			case bool:
+				if key == "success" || key == "ok" {
+					if !t {
+						return pickProviderMessage(m)
+					}
+				}
+			case string:
+				low := strings.ToLower(strings.TrimSpace(t))
+				if low == "fail" || low == "failed" || low == "error" {
+					return pickProviderMessage(m)
+				}
+			}
+		}
+	}
+	if code, ok := numToInt64(m["error"]); ok && code != 0 {
+		msg := pickProviderMessage(m)
+		if msg == "" {
+			return fmt.Sprintf("upstream error code %d", code)
+		}
+		return msg
+	}
+	if msg := strings.TrimSpace(strVal(m["error"])); msg != "" &&
+		msg != "0" && !strings.EqualFold(msg, "false") && strings.ToLower(msg) != "null" {
+		if len(msg) < 280 {
+			return msg
+		}
+	}
+	return ""
+}
+
+func pickProviderMessage(m map[string]any) string {
+	for _, key := range []string{
+		"message", "Message", "msg", "description", "Description",
+		"error_description", "error_message", "reason", "text",
+	} {
+		if s := strings.TrimSpace(strVal(m[key])); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func summarizeCatalogRoot(root any, maxKeys int) string {
+	m, ok := root.(map[string]any)
+	if !ok || maxKeys <= 0 {
+		return fmt.Sprintf("%T", root)
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > maxKeys {
+		keys = keys[:maxKeys]
+		return strings.Join(keys, ", ") + ", …"
+	}
+	return strings.Join(keys, ", ")
+}
+
+func coerceGamesArray(raw any, depth int) []any {
+	if depth <= 0 || raw == nil {
+		return nil
+	}
+	switch t := raw.(type) {
+	case []any:
+		if looksLikeGameSlice(t) {
+			return t
+		}
+		return nil
+	case map[string]any:
+		preferredKeys := []string{
+			"games", "Games", "response", "Response", "data", "Data", "result", "Result",
+			"list", "items", "gameList", "GameList", "game_list",
+			"catalog", "Catalog", "catalogue", "content", "payload", "body",
+			"records", "entities", "rows", "values", "games_list",
+		}
+		for _, k := range preferredKeys {
+			if inner, ok := t[k]; ok {
+				if a := coerceGamesArray(inner, depth-1); len(a) > 0 {
+					return a
+				}
+				if s, ok := inner.(string); ok {
+					if nested, ok := parseJSONFlexible(s); ok {
+						if a := coerceGamesArray(nested, depth-1); len(a) > 0 {
+							return a
+						}
+					}
+				}
+			}
+		}
+		lkSeen := map[string]struct{}{
+			"games": {}, "gamelist": {}, "gamelisting": {}, "catalog": {},
+		}
+		for k, inner := range t {
+			compact := strings.ToLower(strings.ReplaceAll(k, "_", ""))
+			if _, known := lkSeen[compact]; known {
+				if a := coerceGamesArray(inner, depth-1); len(a) > 0 {
+					return a
+				}
+				if s, ok := inner.(string); ok {
+					if nested, ok := parseJSONFlexible(s); ok {
+						if a := coerceGamesArray(nested, depth-1); len(a) > 0 {
+							return a
+						}
+					}
+				}
+			}
+		}
+		for _, inner := range t {
+			if a := coerceGamesArray(inner, depth-1); len(a) > 0 {
+				return a
+			}
+			if s, ok := inner.(string); ok {
+				if nested, ok := parseJSONFlexible(s); ok {
+					if a := coerceGamesArray(nested, depth-1); len(a) > 0 {
+						return a
+					}
+				}
+			}
+		}
+	case string:
+		if nested, ok := parseJSONFlexible(t); ok {
+			return coerceGamesArray(nested, depth-1)
+		}
+	}
+	return nil
+}
+
 // ParseCatalogGames extracts game objects from various BOG response shapes.
 // imageBase is optional (BLUEOCEAN_IMAGE_BASE_URL) for relative thumbnail paths.
 func ParseCatalogGames(response json.RawMessage, imageBase string) ([]CatalogGame, error) {
 	var root any
 	if err := json.Unmarshal(response, &root); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("blueocean: invalid JSON from provider: %w", err)
 	}
 	var arr []any
 	switch v := root.(type) {
@@ -224,6 +470,16 @@ func ParseCatalogGames(response json.RawMessage, imageBase string) ([]CatalogGam
 						}
 					}
 				}
+				if key == "response" {
+					if s, ok := inner.(string); ok {
+						if nested, ok := parseJSONFlexible(s); ok {
+							if a := coerceGamesArray(nested, 6); len(a) > 0 {
+								arr = a
+								break
+							}
+						}
+					}
+				}
 			}
 			if len(arr) > 0 {
 				break
@@ -239,11 +495,20 @@ func ParseCatalogGames(response json.RawMessage, imageBase string) ([]CatalogGam
 				}
 			}
 		}
+		if len(arr) == 0 {
+			arr = coerceGamesArray(root, 7)
+		}
 	default:
-		return nil, fmt.Errorf("blueocean: unexpected response root type")
+		return nil, fmt.Errorf("blueocean: unexpected response root type %T", root)
 	}
 	if len(arr) == 0 {
-		return nil, fmt.Errorf("blueocean: no games array in response")
+		if m, ok := root.(map[string]any); ok {
+			if msg := catalogProviderError(m); msg != "" {
+				return nil, fmt.Errorf("blueocean: provider returned error: %s", msg)
+			}
+		}
+		sum := summarizeCatalogRoot(root, 18)
+		return nil, fmt.Errorf("blueocean: no games array in response (parsed keys/types: %s) — verify getGameList credentials/currency/paging vs provider docs", sum)
 	}
 	var out []CatalogGame
 	for _, item := range arr {

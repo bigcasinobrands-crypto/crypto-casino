@@ -1,8 +1,15 @@
 ﻿openapi: 3.0.3
 info:
   title: Crypto Casino API
-  version: 0.4.0
-  description: Phase 1 baseline — player auth baseline (verify email, reset password, stricter /auth rate limits).
+  version: 0.4.1
+  description: |
+    Phase 1 baseline — player auth baseline (verify email, reset password, stricter /auth rate limits).
+
+    **Player httpOnly cookies:** When the API enables `PLAYER_COOKIE_AUTH`, browsers receive `Set-Cookie` for access/refresh
+    (and a readable CSRF cookie). Mutating `/v1` requests may require `X-CSRF-Token` (double-submit). With `PLAYER_COOKIE_OMIT_JSON_TOKENS`,
+    login/register/refresh responses omit `access_token` and `refresh_token` from JSON; use credentialed clients only.
+
+    Secured player routes list **`playerBearer`** OR **`playerCookieAccess`** (either satisfies the requirement).
 paths:
   /health:
     get:
@@ -18,6 +25,45 @@ paths:
           description: OK
         "503":
           description: Dependency down
+  /health/operational:
+    get:
+      summary: Player-facing operational snapshot (maintenance flags, lobby/catalog hints)
+      responses:
+        "200":
+          description: JSON object with fields such as maintenance_mode, lobby visibility, integration sync hints
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /.well-known/jwks.json:
+    get:
+      summary: JWKS document for JWT verification (RS256 when `JWT_RSA_PRIVATE_KEY_FILE` is configured)
+      responses:
+        "200":
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "500":
+          description: Key material misconfiguration
+  /api/blueocean/callback:
+    get:
+      summary: BlueOcean seamless wallet HTTP callback (balance, debit, credit, rollback)
+      description: |
+        Provider-facing GET with query parameters per BlueOcean XAPI docs. Optional `key` when `BLUEOCEAN_WALLET_SALT` is set.
+        Response format is provider-specific (not the standard player JSON error envelope).
+      responses:
+        "200":
+          description: Wallet operation result (provider format)
+        "400":
+          description: Bad request / unknown user
+        "403":
+          description: Launch/geo blocked
+        "401":
+          description: Invalid `key` when salt is configured
   /v1/webhooks/blueocean:
     post:
       summary: BlueOcean webhook (HMAC optional)
@@ -27,6 +73,12 @@ paths:
   /v1/webhooks/fystack:
     post:
       summary: Fystack webhook (HMAC optional)
+      responses:
+        "202":
+          description: Accepted
+  /v1/webhooks/fystack/workspace:
+    post:
+      summary: Fystack workspace webhook (same handler and verification as `/v1/webhooks/fystack`)
       responses:
         "202":
           description: Accepted
@@ -70,21 +122,72 @@ paths:
   /v1/auth/register:
     post:
       summary: Player register (accept_terms, accept_privacy, optional captcha_token; password 12+ chars)
+      responses:
+        "200":
+          description: Tokens in JSON and/or httpOnly cookies per server configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAuthTokenResponse"
+        "400":
+          description: |
+            Validation or policy failure. `error.code` may include `weak_password`, `password_breached` (when `HIBP_CHECK_PASSWORDS`),
+            `terms_required`, `invalid_username`, `captcha_failed`, `invalid_json`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAPIError"
   /v1/auth/login:
     post:
       summary: Player login (optional captcha_token when TURNSTILE_SECRET set)
+      responses:
+        "200":
+          description: Tokens in JSON and/or httpOnly cookies per server configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAuthTokenResponse"
   /v1/auth/refresh:
     post:
-      summary: Rotate player access token
+      summary: Rotate player access token (refresh token in JSON body and/or httpOnly cookie)
+      responses:
+        "200":
+          description: New session; tokens in JSON and/or cookies per server configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAuthTokenResponse"
   /v1/auth/logout:
     post:
       summary: Revoke player refresh session
+      description: |
+        `refresh_token` may be omitted when `PLAYER_COOKIE_AUTH` sends it as an httpOnly cookie.
+        With cookie sessions, send `X-CSRF-Token` (double-submit with `cc_player_csrf`) on this POST.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+                  description: Plain refresh JWT; optional if supplied via cookie.
+      responses:
+        "200":
+          description: Session revoked (`{"ok":true}`)
+        "400":
+          description: Invalid JSON body
+        "401":
+          description: Invalid or unknown refresh token
   /v1/auth/verify-email:
     post:
       summary: Confirm email with token from mail link
   /v1/auth/verify-email/resend:
     post:
-      security: [{ playerBearer: [] }]
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
       summary: Resend verification email
   /v1/auth/forgot-password:
     post:
@@ -92,27 +195,895 @@ paths:
   /v1/auth/reset-password:
     post:
       summary: Set new password with reset token
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: |
+            Invalid token, weak password, or `password_breached` when `HIBP_CHECK_PASSWORDS` is enabled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAPIError"
   /v1/auth/me:
     get:
-      security: [{ playerBearer: [] }]
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
       summary: Player profile (id, email, created_at, email_verified, email_verified_at)
+  /v1/auth/profile:
+    patch:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Update profile (e.g. username)
+      description: Cookie sessions require `X-CSRF-Token` on this PATCH.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+      responses:
+        "200":
+          description: OK (`{"ok":true}`)
+        "400":
+          description: Invalid JSON
+        "401":
+          description: Not authenticated
+        "409":
+          description: Username taken
+  /v1/auth/profile/avatar:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Upload avatar image (multipart; max 2 MB)
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Avatar URL or status JSON (server-defined)
+        "400":
+          description: Missing file or too large
+        "401":
+          description: Not authenticated
+  /v1/auth/profile/change-password:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Change password (requires current password)
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Weak or breached new password, or missing fields (`error.code` may be `weak_password`, `password_breached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlayerAPIError"
+        "401":
+          description: Wrong current password or not authenticated
+  /v1/auth/profile/preferences:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Load player preferences JSON
+      responses:
+        "200":
+          description: Preferences object
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          description: Not authenticated
+    patch:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Patch player preferences (partial JSON)
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Invalid JSON
+        "401":
+          description: Not authenticated
+  /v1/auth/profile/redeem-promo:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Redeem promo code from profile
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Invalid code
+        "401":
+          description: Not authenticated
+        "409":
+          description: Already used
   /v1/games:
     get:
-      summary: List games (catalog)
+      summary: List games (public lobby catalog)
+      parameters:
+        - name: category
+          in: query
+          description: Filter — `new`, `bonus-buys`, or a catalog category value
+          schema:
+            type: string
+        - name: integration
+          in: query
+          description: e.g. `blueocean` — limit to that integration’s provider rows
+          schema:
+            type: string
+        - name: provider
+          in: query
+          description: Case-insensitive substring match on studio/sub-provider (`provider_system`), e.g. `pragmatic` matches Pragmatic Play
+          schema:
+            type: string
+        - name: ids
+          in: query
+          description: Comma-separated internal `id` or `id_hash` values
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Case-insensitive search on title, integration provider, studio (`provider_system`), `game_type`, and `category`
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, new, provider]
+            default: name
+        - name: pill
+          in: query
+          description: Filter where lobby tag array contains this pill id
+          schema:
+            type: string
+        - name: featured
+          in: query
+          description: `"1"` / `true` — featured (Hot) row using `BLUEOCEAN_FEATURED_ID_HASHES` when set
+          schema:
+            type: string
+        - name: bonus_refs
+          in: query
+          description: With `ids`, uses disclosure-friendly ordering (caps limit)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: `{ "games": [ ... ] }` — tiles for lobby / search
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [games]
+                properties:
+                  games:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+        "500":
+          description: Database error
+  /v1/sportsbook/context:
+    get:
+      summary: Sportsbook launcher context (public)
+      responses:
+        "200":
+          description: JSON context for iframe/sports UI
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/market/crypto-tickers:
+    get:
+      summary: Cached crypto ticker quotes (public)
+      responses:
+        "200":
+          description: Ticker payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/market/crypto-logo-urls:
+    get:
+      summary: Logo.dev CDN URLs for symbols (public; empty if not configured)
+      parameters:
+        - name: symbols
+          in: query
+          required: false
+          description: Comma-separated symbols (e.g. `usdt,usdc,eth`); omit returns empty URLs
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Map of symbol to image URL
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/content/bundle:
+    get:
+      summary: Public site content bundle (CMS keys for player UI)
+      responses:
+        "200":
+          description: Nested map of content; shape is deployment-specific
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/settings/public:
+    get:
+      summary: Public site settings (feature flags, display toggles)
+      responses:
+        "200":
+          description: JSON settings object
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /v1/content/{key}:
+    get:
+      summary: Single CMS document by key (public player API)
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Content payload + metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: Unknown key
+  /v1/uploads/{assetPath}:
+    get:
+      summary: Static files from server uploads directory (CMS assets, etc.)
+      description: |
+        Served from `DATA_DIR/uploads`. Some deployments use nested paths; this template uses one path segment as a minimal example (`{assetPath}`).
+      parameters:
+        - name: assetPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File bytes (type varies)
+        "404":
+          description: Not found
+  /v1/avatars/by-participant/{avatarFile}:
+    get:
+      summary: Player avatar image (canonical path)
+      parameters:
+        - name: avatarFile
+          in: path
+          required: true
+          description: One segment — `{public_participant_uuid}.{ext}` (jpg, png, webp, gif)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Image body
+        "404":
+          description: Unknown participant or file missing
+  /v1/avatars/{legacyAvatar}:
+    get:
+      summary: Legacy avatar URL by user id (permanent redirect)
+      description: |
+        One segment `{user_uuid}.{ext}`. Responds **301** to `/v1/avatars/by-participant/{participant_uuid}{ext}` when known.
+        Does not match `by-participant/...` — use the dedicated path for canonical fetches.
+      parameters:
+        - name: legacyAvatar
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "301":
+          description: Redirect to canonical avatar path
+        "404":
+          description: Unknown user or invalid path
+  /v1/analytics/session:
+    post:
+      summary: Ingest browser traffic session (attribution / analytics)
+      description: |
+        May be called anonymously. **`Authorization` Bearer** or **`cc_player_access`** links hits to `user_id` when logged in.
+        With session cookies, send **`X-CSRF-Token`** on this POST.
+      security:
+        - {}
+        - playerBearer: []
+        - playerCookieAccess: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_key, path]
+              properties:
+                session_key:
+                  type: string
+                  description: Stable browser tab / session id (max 80 chars)
+                path:
+                  type: string
+                referrer:
+                  type: string
+                device_type:
+                  type: string
+                utm_source:
+                  type: string
+                utm_medium:
+                  type: string
+                utm_campaign:
+                  type: string
+                utm_content:
+                  type: string
+                utm_term:
+                  type: string
+      responses:
+        "200":
+          description: Recorded
+        "400":
+          description: Invalid body or missing session_key
+        "503":
+          description: Database unavailable
+  /v1/chat/history:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Recent public chat messages
+      parameters:
+        - name: limit
+          in: query
+          description: Max messages (default 50, max 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: before
+          in: query
+          description: Only messages with id less than this (pagination)
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Array of message objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        "500":
+          description: Query failed
+  /v1/chat/ws-ticket:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: One-time WebSocket ticket (requires server Redis)
+      description: |
+        Redeem in **`GET /v1/chat/ws?ticket=...`**. If Redis is down, clients may connect with `token` query carrying the access JWT instead.
+        With `PLAYER_COOKIE_AUTH`, send **`X-CSRF-Token`** on this POST when session cookies are present.
+      responses:
+        "200":
+          description: Short-lived ticket
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticket, expires_in]
+                properties:
+                  ticket:
+                    type: string
+                  expires_in:
+                    type: integer
+                    description: Seconds until expiry (server-defined TTL)
+        "401":
+          description: Not authenticated
+        "503":
+          description: Redis unavailable — ticket endpoint disabled
+  /v1/chat/ws:
+    get:
+      summary: Chat WebSocket (upgrade)
+      description: |
+        **WebSocket** endpoint (not JSON-over-HTTP). Query **`ticket`** (from `POST /v1/chat/ws-ticket`) preferred, or **`token`** (URL-encoded access JWT).
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "401":
+          description: Missing, invalid, or expired ticket/token
+        "403":
+          description: User banned from chat
   /v1/games/launch:
     post:
-      security: [{ playerBearer: [] }]
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
       summary: Launch URL for iframe
+      description: Cookie sessions require `X-CSRF-Token` on this POST.
+  /v1/sportsbook/launch:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Launch URL for sportsbook iframe/product
+      description: Cookie sessions require `X-CSRF-Token` on this POST.
+      responses:
+        "200":
+          description: Launch payload (server-defined)
+        "401":
+          description: Not authenticated
+  /v1/games/{gameID}/blueocean-info:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: BlueOcean helper metadata for a lobby game id
+      parameters:
+        - name: gameID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Game/provider metadata JSON
+        "401":
+          description: Not authenticated
+  /v1/challenges/me/list:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Authenticated — list current user's challenge participation
+  /v1/challenges/by-slug/{slug}:
+    get:
+      security:
+        - {}
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Challenge detail by URL slug (auth optional for personalization)
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/challenges/{challengeId}/leaderboard:
+    get:
+      security:
+        - {}
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Leaderboard for a challenge
+      parameters:
+        - name: challengeId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/challenges/{challengeId}/entry:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Current user's entry for this challenge
+      parameters:
+        - name: challengeId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/challenges/{challengeId}/enter:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Enter/join a challenge
+      description: Cookie sessions require `X-CSRF-Token`.
+      parameters:
+        - name: challengeId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/challenges/{challengeId}/claim:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Claim challenge reward
+      description: Cookie sessions require `X-CSRF-Token`.
+      parameters:
+        - name: challengeId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/challenges/{challengeId}:
+    get:
+      security:
+        - {}
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Challenge detail by id
+      parameters:
+        - name: challengeId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/challenges:
+    get:
+      security:
+        - {}
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: List challenges (public catalog; auth optional)
   /v1/wallet/balance:
     get:
-      security: [{ playerBearer: [] }]
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+  /v1/wallet/balance/stream:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: SSE stream of wallet balance (polls server every ~2s; emits on change)
+      description: |
+        `Content-Type: text/event-stream`. Each event is a JSON object with `balance_minor`, `cash_minor`, and `bonus_locked_minor` prefixed by `data: ` and followed by two newlines.
+        Browsers should use `EventSource` only if the deployment supports cookies via same-origin or configure a polyfill with credentials;
+        otherwise use fetch streaming with `Authorization` Bearer.
+      responses:
+        "200":
+          description: Open-ended SSE response
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: 'data: {"balance_minor":1000,"cash_minor":900,"bonus_locked_minor":100}'
+        "401":
+          description: Missing or invalid session
+        "500":
+          description: Streaming not supported
+  /v1/wallet/wagering/stream:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: SSE stream of bonus wagering progress (polls ~2s; emits on change)
+      description: |
+        `Content-Type: text/event-stream`. Each event JSON includes `wagering_remaining_minor` and `active_wr_instances`.
+      responses:
+        "200":
+          description: Open-ended SSE response
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: 'data: {"wagering_remaining_minor":5000,"active_wr_instances":2}'
+        "401":
+          description: Missing or invalid session
+        "500":
+          description: Streaming not supported
   /v1/wallet/deposit-session:
     post:
-      security: [{ playerBearer: [] }]
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Create hosted checkout / deposit session (Fystack)
+      description: Cookie sessions require `X-CSRF-Token`.
   /v1/wallet/withdraw:
     post:
-      security: [{ playerBearer: [] }]
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      description: Cookie sessions require `X-CSRF-Token`.
+  /v1/wallet/balances:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Extended balance breakdown (e.g. per-asset)
+  /v1/wallet/bonuses:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Active bonus instances for the player
+  /v1/wallet/bonuses/{bonusID}/forfeit:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Forfeit an active bonus instance
+      description: Cookie sessions require `X-CSRF-Token`.
+      parameters:
+        - name: bonusID
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/wallet/deposit-address:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: On-chain deposit address (query params server-defined)
+  /v1/wallet/transactions:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Paginated ledger / transactions
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+  /v1/wallet/game-history:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Recent game rounds history
+  /v1/wallet/stats:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Player wagering / stats aggregates
+  /v1/wallet/withdrawals/{id}:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Single withdrawal request status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/bonuses/available:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Bonus offers available to claim
+  /v1/bonuses/deposit-intent:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Record deposit-related bonus intent
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /v1/bonuses/cancel-deposit-intent:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Cancel pending deposit bonus intent
+      description: Cookie sessions require `X-CSRF-Token`.
+  /v1/bonuses/claim-offer:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Claim a targeted bonus offer
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /v1/bonuses/redeem:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Redeem promo code (wallet path; same behavior as profile redeem)
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+  /v1/vip/program:
+    get:
+      summary: Public VIP program configuration / tiers
+  /v1/vip/status:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Current player's VIP tier and progress
+  /v1/vip/rakeback-boost/claim:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Claim rakeback boost (if eligible)
+      description: Cookie sessions require `X-CSRF-Token`.
+  /v1/rewards/hub:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Rewards hub payload (calendar + promos)
+      parameters:
+        - name: calendar_days
+          in: query
+          schema:
+            type: integer
+  /v1/rewards/calendar:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Rewards calendar entries
+  /v1/rewards/daily/claim:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Claim daily reward
+      description: Cookie sessions require `X-CSRF-Token`.
+  /v1/rewards/rakeback/claim:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Claim rakeback bucket
+      description: Cookie sessions require `X-CSRF-Token`.
+  /v1/notifications:
+    get:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: In-app notifications list
+  /v1/notifications/read:
+    post:
+      security:
+        - playerBearer: []
+        - playerCookieAccess: []
+      summary: Mark notification(s) read
+      description: Cookie sessions require `X-CSRF-Token`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
 components:
+  schemas:
+    PlayerAPIError:
+      type: object
+      description: Standard player JSON error envelope from `playerapi.WriteError`.
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Machine-readable code (e.g. weak_password, password_breached).
+            message:
+              type: string
+    PlayerAuthTokenResponse:
+      type: object
+      required:
+        - expires_at
+        - expires_in
+        - token_type
+      properties:
+        access_token:
+          type: string
+          description: Absent when `PLAYER_COOKIE_AUTH` and `PLAYER_COOKIE_OMIT_JSON_TOKENS` are set (access JWT is httpOnly cookie only).
+        refresh_token:
+          type: string
+          description: Absent under the same conditions as access_token (refresh JWT is httpOnly cookie only).
+        expires_at:
+          type: integer
+          format: int64
+          description: Unix seconds when access JWT expires.
+        expires_in:
+          type: integer
+          format: int64
+          description: Access TTL in seconds (e.g. 900).
+        token_type:
+          type: string
+          example: Bearer
   securitySchemes:
     staffBearer:
       type: http
@@ -120,3 +1091,17 @@ components:
     playerBearer:
       type: http
       scheme: bearer
+      description: |
+        Bearer access JWT in the `Authorization` header (mobile / non-browser API clients).
+
+        For browser SPAs with `PLAYER_COOKIE_AUTH`, you may use **`playerCookieAccess`** instead (httpOnly cookie; send requests with credentials).
+        CSRF double-submit (`cc_player_csrf` cookie + `X-CSRF-Token` header) applies to mutating `/v1` requests when session cookies are present.
+    playerCookieAccess:
+      type: apiKey
+      in: cookie
+      name: cc_player_access
+      description: |
+        httpOnly access JWT cookie when `PLAYER_COOKIE_AUTH` is enabled — same claims as a Bearer access token.
+
+        Send requests with credentials (e.g. `credentials: 'include'`). On PATCH/PUT/POST/DELETE to `/v1` (except documented auth/webhook exemptions),
+        also send header `X-CSRF-Token` matching the readable `cc_player_csrf` cookie.

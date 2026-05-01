@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAdminAuth } from '../authContext'
 import {
   StatCard,
   ChartCard,
@@ -8,7 +9,9 @@ import {
   DonutChart,
   StatusBadge,
   MetricRow,
+  ChartEmpty,
 } from '../components/dashboard'
+import { CHART_COLORS } from '../components/dashboard'
 import {
   useDashboardKPIs,
   useDashboardCharts,
@@ -23,99 +26,132 @@ import {
   formatCompact,
   formatPct,
 } from '../lib/format'
+import { alignDailyCounts, alignTwoDailyTotals } from '../lib/dashboardSeries'
+import { isDashboardDummyMode } from '../lib/dashboardDummy'
+import WorldSessionsMap from '../components/analytics/WorldSessionsMap'
+import { useBootstrapTooltip } from '../hooks/useBootstrapTooltip'
+import { useTrafficAnalytics, type TrafficPeriod } from '../hooks/useTrafficAnalytics'
+import { useCasinoAnalytics } from '../hooks/useCasinoAnalytics'
+import DataTimeframeBar from '../components/dashboard/DataTimeframeBar'
 
-/* ------------------------------------------------------------------ */
-/*  Inline SVG icons                                                   */
-/* ------------------------------------------------------------------ */
+const VISITOR_GEOGRAPHY_TOOLTIP =
+  'Sessions by country for the period shown under the title. Figures come from player lobby traffic (one browser session per row in the database). Open Demographics for the full map, top countries table, device mix, and 7 / 30 / 90-day ranges.'
 
-const IconGGR = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
-    <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
+const CHART_PERIODS = ['30d', '7d', '90d']
+const DASHBOARD_PERIOD_OPTIONS = [
+  { value: '7d', label: '7D' },
+  { value: '30d', label: '30D' },
+  { value: '90d', label: '90D' },
+  { value: '6m', label: '6M' },
+  { value: 'ytd', label: 'YTD' },
+  { value: 'all', label: 'All time' },
+  { value: 'custom', label: 'Custom range' },
+]
 
-const IconDeposit = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
-    <path d="M12 19V5m0 0-5 5m5-5 5 5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-const IconWithdraw = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
-    <path d="M12 5v14m0 0 5-5m-5 5-5-5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-const IconUsers = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
-    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" strokeLinecap="round" strokeLinejoin="round" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-const IconUserPlus = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
-    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" strokeLinecap="round" strokeLinejoin="round" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M20 8v6m3-3h-6" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-/* ------------------------------------------------------------------ */
-/*  Skeleton placeholder                                               */
-/* ------------------------------------------------------------------ */
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700/60 ${className}`} />
+type ChallengesSummaryJSON = {
+  active_challenges: number
+  draft_challenges: number
+  entries_last_30d: number
+  challenge_wagered_minor: number
+  prizes_paid_minor_30d: number
+  flagged_pending: number
 }
-
-function StatSkeleton() {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <Skeleton className="mb-2 h-3 w-20" />
-      <Skeleton className="h-7 w-28" />
-    </div>
-  )
-}
-
-function ChartSkeleton({ height = 'h-72' }: { height?: string }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03]">
-      <Skeleton className="mb-4 h-5 w-36" />
-      <Skeleton className={`w-full ${height}`} />
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
-
-const CHART_PERIODS = ['7d', '30d', '90d']
 
 function yMoney(val: number) {
   return formatMinorToMajor(val)
 }
 
-/* ------------------------------------------------------------------ */
-/*  DashboardPage                                                      */
-/* ------------------------------------------------------------------ */
+function selectedPeriodLabel(period: string) {
+  if (period === '7d') return '7d'
+  if (period === '90d') return '90d'
+  if (period === '6m') return '6m'
+  if (period === 'ytd') return 'ytd'
+  if (period === 'all') return 'all'
+  if (period === 'custom') return 'custom'
+  return '30d'
+}
+
+function StatSkeleton() {
+  return (
+    <div className="small-box text-bg-secondary placeholder-glow">
+      <div className="inner">
+        <h3>
+          <span className="placeholder col-7 d-block" />
+        </h3>
+        <p>
+          <span className="placeholder col-9 d-block" />
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ChartSkeleton({ h = 280 }: { h?: number }) {
+  return (
+    <div className="card shadow-sm mb-4">
+      <div className="card-header placeholder-glow">
+        <span className="placeholder col-4" />
+      </div>
+      <div className="card-body placeholder-glow">
+        <div className="placeholder w-100" style={{ height: h }} />
+      </div>
+    </div>
+  )
+}
+
+type AttentionRow = {
+  key: string
+  title: string
+  detail: string
+  href: string
+}
 
 export default function DashboardPage() {
+  const { role, apiFetch } = useAdminAuth()
   const [chartPeriod, setChartPeriod] = useState('30d')
-  const { data: kpis, loading: kpisLoading } = useDashboardKPIs()
-  const { data: charts, loading: chartsLoading } = useDashboardCharts(chartPeriod)
-  const { data: topGames } = useTopGames(chartPeriod)
-  const { data: playerStats } = usePlayerStats()
-  const { data: bonusStats } = useBonusStats()
-  const { data: systemHealth } = useDashboardSystem()
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
+  const periodLabel = selectedPeriodLabel(chartPeriod)
+  const { data: casinoAnalytics, loading: casinoAnalyticsLoading } = useCasinoAnalytics(
+    chartPeriod,
+    customStart,
+    customEnd,
+  )
+  const { data: kpis, loading: kpisLoading, error: kpisError, refetch: refetchKpis } = useDashboardKPIs()
+  const { data: charts, loading: chartsLoading, error: chartsError, refetch: refetchCharts } =
+    useDashboardCharts(chartPeriod, customStart, customEnd)
+  const { data: topGames, loading: topGamesLoading, error: topGamesError, refetch: refetchTopGames } =
+    useTopGames(chartPeriod, 10, customStart, customEnd)
+  const { data: playerStats, loading: playerStatsLoading, error: playerStatsError, refetch: refetchPlayerStats } =
+    usePlayerStats()
+  const { data: bonusStats, error: bonusStatsError, refetch: refetchBonusStats } = useBonusStats()
+  const { data: systemHealth, error: systemError, refetch: refetchSystem } = useDashboardSystem()
+  const {
+    data: traffic,
+    loading: trafficLoading,
+    error: trafficError,
+    refetch: refetchTraffic,
+  } = useTrafficAnalytics(chartPeriod as TrafficPeriod, customStart, customEnd)
+
+  const visitorGeographyTitleRef = useBootstrapTooltip<HTMLHeadingElement>(VISITOR_GEOGRAPHY_TOOLTIP)
 
   const ggrDates = charts?.ggr_by_day.map((d) => d.date) ?? []
   const ggrValues = charts?.ggr_by_day.map((d) => d.ggr_minor) ?? []
-  const depositDates = charts?.deposits_by_day.map((d) => d.date) ?? []
-  const depositValues = charts?.deposits_by_day.map((d) => d.total_minor) ?? []
-  const withdrawValues = charts?.withdrawals_by_day.map((d) => d.total_minor) ?? []
+
+  const depWd =
+    charts != null
+      ? alignTwoDailyTotals(
+          charts.deposits_by_day.map((d) => ({ date: d.date, total_minor: d.total_minor })),
+          charts.withdrawals_by_day.map((d) => ({ date: d.date, total_minor: d.total_minor })),
+        )
+      : null
+
+  const regSeries =
+    charts != null
+      ? alignDailyCounts(
+          charts.registrations_by_day.map((d) => ({ date: d.date, count: d.count ?? 0 })),
+        )
+      : null
 
   const topGameLabels = topGames?.top_by_launches.map((g) => g.title) ?? []
   const topGameCounts = topGames?.top_by_launches.map((g) => g.launch_count ?? 0) ?? []
@@ -125,136 +161,612 @@ export default function DashboardPage() {
     ? [playerStats.total_registered, playerStats.total_with_deposit, playerStats.total_active_7d]
     : []
 
+  const loadErrors = [
+    kpisError && `KPIs: ${kpisError}`,
+    chartsError && `Charts: ${chartsError}`,
+    topGamesError && `Top games: ${topGamesError}`,
+    playerStatsError && `Player stats: ${playerStatsError}`,
+    bonusStatsError && `Bonus summary: ${bonusStatsError}`,
+    systemError && `System health: ${systemError}`,
+    trafficError && `Traffic / geo: ${trafficError}`,
+  ].filter(Boolean) as string[]
+
+  const dummyDashboard = isDashboardDummyMode()
+  const selectedGGR = ggrValues.reduce((sum, value) => sum + value, 0)
+  const selectedDeposits = charts?.deposits_by_day.reduce((sum, row) => sum + (row.total_minor ?? 0), 0) ?? 0
+  const selectedDepositCount = charts?.deposits_by_day.reduce((sum, row) => sum + (row.count ?? 0), 0) ?? 0
+  const selectedWithdrawals = charts?.withdrawals_by_day.reduce((sum, row) => sum + (row.total_minor ?? 0), 0) ?? 0
+  const selectedRegistrations = regSeries?.values.reduce((sum, value) => sum + value, 0) ?? 0
+  const selectedActivePlayers =
+    chartPeriod === '7d' ? (kpis?.active_players_7d ?? 0) : (kpis?.active_players_30d ?? 0)
+  const selectedArpu = selectedActivePlayers > 0 ? selectedGGR / selectedActivePlayers : 0
+  const selectedAvgDeposit = selectedDepositCount > 0 ? selectedDeposits / selectedDepositCount : 0
+
+  const [challengesSummary, setChallengesSummary] = useState<ChallengesSummaryJSON | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch('/v1/admin/challenges/summary')
+        const j = (await res.json()) as ChallengesSummaryJSON
+        if (!cancelled && res.ok && j && typeof j === 'object') setChallengesSummary(j)
+      } catch {
+        /* optional widget */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
+
+  const needsAttention = useMemo((): AttentionRow[] => {
+    if (dummyDashboard) return []
+    const rows: AttentionRow[] = []
+    const wHook = systemHealth?.webhook_deliveries_pending ?? 0
+    if (wHook > 0) {
+      rows.push({
+        key: 'fystack-webhook',
+        title: 'Fystack webhook backlog',
+        detail: `${wHook} delivery row(s) not processed yet.`,
+        href: '/finance/fystack-webhooks',
+      })
+    }
+    const failedJobs = systemHealth?.worker_failed_jobs_unresolved ?? 0
+    if (failedJobs > 0) {
+      rows.push({
+        key: 'failed-jobs',
+        title: 'Bonus worker failed jobs',
+        detail: `${failedJobs} unresolved job(s) need retry or investigation.`,
+        href: '/bonushub/operations?tab=failed_jobs',
+      })
+    }
+    const dlq = systemHealth?.bonus_outbox_dead_letter ?? 0
+    if (dlq > 0) {
+      rows.push({
+        key: 'outbox-dlq',
+        title: 'Bonus outbox DLQ',
+        detail: `${dlq} dead-letter row(s) in the compliance outbox.`,
+        href: '/bonushub/bonus-audit?tab=outbox&outbox=dlq',
+      })
+    }
+    const riskQ = bonusStats?.risk_queue_pending ?? 0
+    if (riskQ > 0) {
+      rows.push({
+        key: 'risk-q',
+        title: 'Bonus risk queue',
+        detail: `${riskQ} decision(s) awaiting staff review.`,
+        href: '/bonushub/risk',
+      })
+    }
+    const missingWallet = systemHealth?.users_missing_fystack_wallet ?? 0
+    if (missingWallet > 0 && role === 'superadmin') {
+      rows.push({
+        key: 'missing-wallet',
+        title: 'Players missing Fystack wallet',
+        detail: `${missingWallet} account(s) may block deposits — check payment ops.`,
+        href: '/finance',
+      })
+    }
+    const chFlag = challengesSummary?.flagged_pending ?? 0
+    if (chFlag > 0) {
+      rows.push({
+        key: 'challenges-flagged',
+        title: 'Challenge entries flagged',
+        detail: `${chFlag} active player / players in challenge review queue (risk, max bet, etc.).`,
+        href: '/engagement/challenges/flagged',
+      })
+    }
+    const pendWd = kpis?.pending_withdrawals_count ?? 0
+    if (pendWd > 0) {
+      rows.push({
+        key: 'pend-wd',
+        title: 'Withdrawals in approval queue',
+        detail: `${pendWd} request(s) — ${formatCurrency(kpis?.pending_withdrawals_value ?? 0)} total value.`,
+        href: '/withdrawal-approvals',
+      })
+    }
+    return rows
+  }, [bonusStats, challengesSummary, dummyDashboard, kpis, role, systemHealth])
+
   return (
-    <div className="space-y-6">
-      {/* Page heading */}
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+    <div className="dashboard-adminlte">
+      <div className="row g-3 mb-3 dashboard-kpi-grid">
+        <div className="col-sm-6">
+          <h1 className="m-0 fs-2">Dashboard</h1>
+          <p className="text-secondary small mb-0 mt-1">Revenue, liquidity, players, and pipeline health</p>
+        </div>
+        <div className="col-sm-6">
+          <ol className="breadcrumb float-sm-end mt-2 mb-0">
+            <li className="breadcrumb-item">
+              <Link to="/">Home</Link>
+            </li>
+            <li className="breadcrumb-item active" aria-current="page">
+              Dashboard
+            </li>
+          </ol>
+        </div>
+      </div>
 
-      {/* ── Row 1: Primary KPIs ────────────────────────────────── */}
-      {kpisLoading ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, i) => <StatSkeleton key={i} />)}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
-          <StatCard
-            label="GGR (30d)"
-            value={formatCurrency(kpis?.ggr_30d ?? 0)}
-            icon={IconGGR}
-          />
-          <StatCard
-            label="Total Deposits (30d)"
-            value={formatCurrency(kpis?.deposits_30d ?? 0)}
-            icon={IconDeposit}
-          />
-          <StatCard
-            label="Total Withdrawals (30d)"
-            value={formatCurrency(kpis?.withdrawals_30d ?? 0)}
-            icon={IconWithdraw}
-          />
-          <StatCard
-            label="Active Players (7d)"
-            value={formatCompact(kpis?.active_players_7d ?? 0)}
-            icon={IconUsers}
-          />
-          <StatCard
-            label="New Registrations (30d)"
-            value={formatCompact(kpis?.new_registrations_30d ?? 0)}
-            icon={IconUserPlus}
-          />
-        </div>
-      )}
+      <DataTimeframeBar
+        value={chartPeriod}
+        onChange={setChartPeriod}
+        options={DASHBOARD_PERIOD_OPTIONS}
+        startDate={customStart}
+        endDate={customEnd}
+        onStartDateChange={setCustomStart}
+        onEndDateChange={setCustomEnd}
+      />
 
-      {/* ── Row 2: Primary charts ──────────────────────────────── */}
-      {chartsLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ChartSkeleton />
-          <ChartSkeleton />
+      {role !== 'superadmin' ? (
+        <div className="alert alert-light border small py-2 mb-3 mb-sm-3">
+          Signed in as <strong>{role}</strong>. Payment flags, staff tools, and some queues may require{' '}
+          <strong>superadmin</strong>; widgets below still show read-only health signals where available.
         </div>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ChartCard
-            title="GGR Trend"
-            periods={CHART_PERIODS}
-            onPeriodChange={setChartPeriod}
+      ) : null}
+
+      {loadErrors.length > 0 ? (
+        <div className="alert alert-warning" role="alert">
+          <strong>Some widgets failed to load</strong>
+          <ul className="mb-2 mt-2 small">
+            {loadErrors.map((e) => (
+              <li key={e}>{e}</li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="btn btn-sm btn-warning"
+            onClick={() => {
+              void refetchKpis()
+              void refetchCharts()
+              void refetchTopGames()
+              void refetchPlayerStats()
+              void refetchSystem()
+              void refetchBonusStats()
+              void refetchTraffic()
+            }}
           >
-            <AreaChart
-              series={[{ name: 'GGR', data: ggrValues, color: '#7C3AED' }]}
-              categories={ggrDates}
-              yFormatter={yMoney}
-            />
-          </ChartCard>
-
-          <ChartCard
-            title="Deposits vs Withdrawals"
-            periods={CHART_PERIODS}
-            onPeriodChange={setChartPeriod}
-          >
-            <AreaChart
-              series={[
-                { name: 'Deposits', data: depositValues, color: '#22C55E' },
-                { name: 'Withdrawals', data: withdrawValues, color: '#EF4444' },
-              ]}
-              categories={depositDates}
-              yFormatter={yMoney}
-            />
-          </ChartCard>
+            Retry
+          </button>
         </div>
-      )}
+      ) : null}
 
-      {/* ── Row 3: Intelligence ────────────────────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {topGames ? (
-          <ChartCard title="Top 10 Games by Launches">
-            <BarChart
-              labels={topGameLabels}
-              data={topGameCounts}
-              color="#6366F1"
-              horizontal
-              height={340}
-            />
-          </ChartCard>
-        ) : (
-          <ChartSkeleton height="h-80" />
-        )}
+      {needsAttention.length > 0 ? (
+        <div className="card border-warning shadow-sm mb-3">
+          <div className="card-header bg-warning-subtle py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+              <strong>Needs attention</strong>
+              <span className="text-secondary small ms-2">From live system + bonus summaries</span>
+            </div>
+            <span className="badge text-bg-warning">{needsAttention.length}</span>
+          </div>
+          <ul className="list-group list-group-flush">
+            {needsAttention.map((r) => (
+              <li
+                key={r.key}
+                className="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2"
+              >
+                <div className="min-w-0">
+                  <div className="fw-semibold">{r.title}</div>
+                  <div className="small text-secondary mb-0">{r.detail}</div>
+                </div>
+                <Link to={r.href} className="btn btn-sm btn-outline-primary shrink-0">
+                  Open
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
-        {playerStats ? (
-          <ChartCard title="Player Funnel">
-            <DonutChart
-              labels={funnelLabels}
-              series={funnelSeries}
-              colors={['#6366F1', '#22C55E', '#F59E0B']}
-              centerLabel="Players"
-            />
-          </ChartCard>
+      {/* Secondary KPI strip — revenue quality & pipeline (top of dashboard) */}
+      <div className="row g-3 mb-3 dashboard-kpi-grid">
+        {kpisLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="col-lg-3 col-md-6 col-12">
+              <StatSkeleton />
+            </div>
+          ))
         ) : (
-          <ChartSkeleton height="h-72" />
+          <>
+            <div className="col-lg-3 col-md-6 col-12">
+              <StatCard
+                label={`ARPU (${periodLabel === '7d' ? '7d' : '30d'})`}
+                value={formatCurrency(selectedArpu)}
+                iconClass="bi-currency-dollar"
+                variant="secondary"
+              />
+            </div>
+            <div className="col-lg-3 col-md-6 col-12">
+              <StatCard
+                label={`Avg deposit (${periodLabel})`}
+                value={formatCurrency(selectedAvgDeposit)}
+                iconClass="bi-bank"
+                variant="info"
+              />
+            </div>
+            <div className="col-lg-3 col-md-6 col-12">
+              <StatCard
+                label={`Deposit conversion (${periodLabel})`}
+                value={formatPct(casinoAnalytics?.kpis?.reg_to_ftd_conversion_rate ?? 0)}
+                iconClass="bi-percent"
+                variant="primary"
+              />
+            </div>
+            <div className="col-lg-3 col-md-6 col-12">
+              <StatCard
+                label="Pending withdrawals (value)"
+                value={formatCurrency(kpis?.pending_withdrawals_value ?? 0)}
+                iconClass="bi-hourglass-split"
+                variant="warning"
+              />
+            </div>
+          </>
         )}
       </div>
 
-      {/* ── Row 4: Secondary KPIs ──────────────────────────────── */}
-      {kpisLoading ? (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <StatCard label="ARPU (7d)" value={formatCurrency(kpis?.arpu_7d ?? 0)} />
-          <StatCard label="Avg Deposit Size" value={formatCurrency(kpis?.avg_deposit_size_30d ?? 0)} />
-          <StatCard label="Deposit Conversion" value={formatPct(kpis?.deposit_conversion_rate ?? 0)} />
-          <StatCard label="Pending Withdrawals" value={formatCurrency(kpis?.pending_withdrawals_value ?? 0)} />
-        </div>
-      )}
+      {/* Primary KPIs — AdminLTE small boxes */}
+      <div className="row mb-3">
+        {kpisLoading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatSkeleton />
+            </div>
+          ))
+        ) : (
+          <>
+            <div className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatCard
+                label={`GGR (${periodLabel})`}
+                value={formatCurrency(selectedGGR)}
+                iconClass="bi-graph-up-arrow"
+                variant="primary"
+              />
+            </div>
+            <div className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatCard
+                label={`Deposits (${periodLabel})`}
+                value={formatCurrency(selectedDeposits)}
+                iconClass="bi-arrow-down-circle"
+                variant="success"
+              />
+            </div>
+            <div className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatCard
+                label={`Withdrawals (${periodLabel})`}
+                value={formatCurrency(selectedWithdrawals)}
+                iconClass="bi-arrow-up-circle"
+                variant="danger"
+              />
+            </div>
+            <div className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatCard
+                label={`Active players (${periodLabel === '7d' ? '7d' : '30d'})`}
+                value={formatCompact(selectedActivePlayers)}
+                iconClass="bi-people"
+                variant="warning"
+              />
+            </div>
+            <div className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatCard
+                label={`New registrations (${periodLabel})`}
+                value={formatCompact(selectedRegistrations)}
+                iconClass="bi-person-plus"
+                variant="info"
+              />
+            </div>
+            <div className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatCard
+                label={`FTD (${periodLabel})`}
+                value={
+                  casinoAnalyticsLoading
+                    ? '...'
+                    : formatCompact(casinoAnalytics?.kpis?.ftd_count ?? 0)
+                }
+                iconClass="bi-cash-coin"
+                variant="secondary"
+              />
+            </div>
+          </>
+        )}
+      </div>
 
-      {/* ── Row 5: Pipeline & worker health ─────────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Pipeline & workers">
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+      {/* Challenge program — wager attribution is a slice of settled stakes also present on the main ledger */}
+      <div className="row g-3 mb-3">
+        <div className="col-12 d-flex flex-wrap align-items-center justify-content-between gap-2">
+          <h3 className="h6 text-secondary mb-0">Casino challenges</h3>
+          <Link to="/engagement/challenges" className="btn btn-sm btn-outline-primary">
+            Open challenges hub
+          </Link>
+        </div>
+        <div className="col-xl-4 col-md-6 col-12">
+          <StatCard
+            label="Active + drafts"
+            value={
+              challengesSummary
+                ? `${formatCompact(challengesSummary.active_challenges)} / ${formatCompact(challengesSummary.draft_challenges)}`
+                : '…'
+            }
+            iconClass="bi-trophy"
+            variant="primary"
+          />
+        </div>
+        <div className="col-xl-4 col-md-6 col-12">
+          <StatCard
+            label="Challenge-attributed wager (30d)"
+            value={
+              challengesSummary ? formatCurrency(challengesSummary.challenge_wagered_minor) : '…'
+            }
+            iconClass="bi-dice-5"
+            variant="info"
+          />
+        </div>
+        <div className="col-xl-4 col-md-6 col-12">
+          <StatCard
+            label="Challenge prizes paid (30d)"
+            value={challengesSummary ? formatCurrency(challengesSummary.prizes_paid_minor_30d) : '…'}
+            iconClass="bi-gift"
+            variant="success"
+          />
+        </div>
+      </div>
+
+      {/* Visitor geography — world map + top countries */}
+      <div className="row mb-4">
+        <div className="col-12 col-xl-8 mb-3 mb-xl-0">
+          <div className="card shadow-sm h-100">
+            <div className="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+              <div className="min-w-0">
+                <h3
+                  ref={visitorGeographyTitleRef}
+                  className="card-title mb-0 fs-6 d-block cursor-help"
+                  tabIndex={0}
+                >
+                  Visitor geography
+                </h3>
+                <p className="text-secondary small mb-0 mt-1 d-block">
+                  Sessions by country (last {traffic?.period ?? periodLabel})
+                </p>
+              </div>
+              <Link to="/analytics/demographics" className="btn btn-sm btn-outline-primary">
+                Open demographics hub
+              </Link>
+            </div>
+            <div className="card-body pt-3">
+              {trafficLoading ? (
+                <div className="placeholder-glow rounded bg-body-secondary" style={{ minHeight: 280 }} />
+              ) : trafficError && !traffic ? (
+                <p className="text-secondary small mb-0">
+                  Map unavailable ({trafficError}). Open{' '}
+                  <Link to="/analytics/demographics">Demographics</Link> to retry.
+                </p>
+              ) : traffic ? (
+                <WorldSessionsMap countries={traffic.countries} height={280} />
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="col-12 col-xl-4">
+          <div className="card shadow-sm h-100">
+            <div className="card-header">
+              <h3 className="card-title mb-0 fs-6">Top countries</h3>
+            </div>
+            <div className="card-body p-0">
+              <div className="table-responsive" style={{ maxHeight: 300 }}>
+                <table className="table table-sm table-hover align-middle mb-0">
+                  <thead className="table-light sticky-top">
+                    <tr>
+                      <th>Country</th>
+                      <th className="text-end">Sessions</th>
+                      <th className="text-end">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(traffic?.countries ?? []).slice(0, 8).map((c) => (
+                      <tr key={c.iso2}>
+                        <td className="small">
+                          <span className="fw-medium">{c.iso2}</span>{' '}
+                          <span className="text-secondary">{c.name}</span>
+                        </td>
+                        <td className="text-end font-monospace small">{formatCompact(c.sessions)}</td>
+                        <td className="text-end small">{c.pct_of_total.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-2 border-top bg-body-secondary">
+                <Link to="/analytics/traffic-sources" className="small link-primary">
+                  Traffic sources &amp; attribution →
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="row">
+        <div className="col-lg-6">
+          {chartsLoading ? (
+            <ChartSkeleton />
+          ) : (
+            <ChartCard
+              title="Gross gaming revenue (daily)"
+              periods={CHART_PERIODS}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <AreaChart
+                series={[{ name: 'GGR', data: ggrValues, color: CHART_COLORS.primary }]}
+                categories={ggrDates}
+                yFormatter={yMoney}
+              />
+            </ChartCard>
+          )}
+        </div>
+        <div className="col-lg-6">
+          {chartsLoading ? (
+            <ChartSkeleton />
+          ) : (
+            <ChartCard
+              title="Cash in vs cash out"
+              periods={CHART_PERIODS}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <AreaChart
+                series={[
+                  { name: 'Deposits', data: depWd?.valuesA ?? [], color: CHART_COLORS.success },
+                  { name: 'Withdrawals', data: depWd?.valuesB ?? [], color: CHART_COLORS.danger },
+                ]}
+                categories={depWd?.categories ?? []}
+                yFormatter={yMoney}
+              />
+            </ChartCard>
+          )}
+        </div>
+      </div>
+
+      <div className="row">
+        <div className="col-12">
+          {chartsLoading ? (
+            <ChartSkeleton h={260} />
+          ) : charts ? (
+            <ChartCard
+              title="Bonus grants (daily volume)"
+              periods={CHART_PERIODS}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <AreaChart
+                series={[
+                  {
+                    name: 'Granted (minor units)',
+                    data: charts.bonus_grants_by_day.map((d) => d.total_minor),
+                    color: CHART_COLORS.purple,
+                  },
+                ]}
+                categories={charts.bonus_grants_by_day.map((d) => d.date)}
+                height={280}
+                yFormatter={yMoney}
+              />
+            </ChartCard>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="row">
+        <div className="col-lg-6">
+          {topGamesLoading ? (
+            <ChartSkeleton h={320} />
+          ) : topGamesError && !topGames ? (
+            <ChartCard title="Top games by launches">
+              <ChartEmpty message={`Could not load top games: ${topGamesError}`} height={320} />
+            </ChartCard>
+          ) : (
+            <ChartCard title="Top games by launches (period)">
+              <BarChart
+                labels={topGameLabels}
+                data={topGameCounts}
+                color={CHART_COLORS.primary}
+                horizontal
+                height={340}
+                yFormatter={(v) => formatCompact(v)}
+              />
+            </ChartCard>
+          )}
+        </div>
+        <div className="col-lg-6">
+          {chartsLoading ? (
+            <ChartSkeleton h={320} />
+          ) : chartsError && !charts ? (
+            <ChartCard title="Daily registrations">
+              <ChartEmpty message={`Could not load charts: ${chartsError}`} height={320} />
+            </ChartCard>
+          ) : (
+            <ChartCard
+              title="New registrations (daily)"
+              periods={CHART_PERIODS}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <AreaChart
+                series={[
+                  { name: 'Signups', data: regSeries?.values ?? [], color: CHART_COLORS.teal },
+                ]}
+                categories={regSeries?.categories ?? []}
+                height={320}
+                yFormatter={(v) => formatCompact(v)}
+              />
+            </ChartCard>
+          )}
+        </div>
+      </div>
+
+      <div className="row">
+        <div className="col-lg-6">
+          {playerStatsLoading ? (
+            <ChartSkeleton h={300} />
+          ) : playerStatsError && !playerStats ? (
+            <ChartCard title="Player funnel">
+              <ChartEmpty message={`Could not load player stats: ${playerStatsError}`} height={280} />
+            </ChartCard>
+          ) : playerStats ? (
+            <ChartCard title="Registration → deposit → activity">
+              <DonutChart
+                labels={funnelLabels}
+                series={funnelSeries}
+                colors={[CHART_COLORS.primary, CHART_COLORS.success, CHART_COLORS.warning]}
+                centerLabel="Players"
+              />
+            </ChartCard>
+          ) : (
+            <ChartCard title="Player funnel">
+              <ChartEmpty message="Player snapshot unavailable." height={280} />
+            </ChartCard>
+          )}
+        </div>
+        <div className="col-lg-6">
+          {playerStatsLoading ? (
+            <ChartSkeleton h={300} />
+          ) : playerStatsError && !playerStats ? (
+            <ChartCard title="Top depositors">
+              <ChartEmpty message={`Could not load player stats: ${playerStatsError}`} height={280} />
+            </ChartCard>
+          ) : playerStats ? (
+            <ChartCard title="Top depositors (lifetime value)">
+              <BarChart
+                labels={(playerStats.top_depositors ?? []).slice(0, 10).map((d) => {
+                  const em = d.email?.trim()
+                  if (em && em.includes('@')) return em.split('@')[0] ?? em
+                  return d.id.slice(0, 8)
+                })}
+                data={(playerStats.top_depositors ?? []).slice(0, 10).map((d) => d.total_minor)}
+                color={CHART_COLORS.success}
+                horizontal
+                height={320}
+                yFormatter={yMoney}
+              />
+            </ChartCard>
+          ) : (
+            <ChartCard title="Top depositors">
+              <ChartEmpty message="Player snapshot unavailable." height={280} />
+            </ChartCard>
+          )}
+        </div>
+      </div>
+
+      <div className="row">
+        <div className="col-lg-6">
+          <ChartCard title="Integrations & workers">
+            <div className="small text-secondary mb-2">
+              Queue depths and job health. Follow links to clear backlogs.
+            </div>
             <MetricRow
               label="Fystack webhooks pending"
               value={String(systemHealth?.webhook_deliveries_pending ?? '—')}
               subValue={
-                <Link to="/finance/fystack-webhooks" className="text-brand-600 hover:underline dark:text-brand-400">
+                <Link to="/finance/fystack-webhooks" className="link-primary">
                   Open inbox
                 </Link>
               }
@@ -267,10 +779,10 @@ export default function DashboardPage() {
               }
             />
             <MetricRow
-              label="Worker jobs unresolved"
+              label="Worker failures (unresolved)"
               value={String(systemHealth?.worker_failed_jobs_unresolved ?? '—')}
               subValue={
-                <Link to="/bonushub/operations?tab=failed_jobs" className="text-brand-600 hover:underline dark:text-brand-400">
+                <Link to="/bonushub/operations?tab=failed_jobs" className="link-primary">
                   Failed jobs
                 </Link>
               }
@@ -289,41 +801,70 @@ export default function DashboardPage() {
             />
             <MetricRow
               label="Redis job queue depth"
-              value={
-                systemHealth?.redis_queue_depth != null ? String(systemHealth.redis_queue_depth) : '—'
-              }
+              value={systemHealth?.redis_queue_depth != null ? String(systemHealth.redis_queue_depth) : '—'}
               subValue="casino:jobs"
             />
-          </div>
-        </ChartCard>
-
-        <ChartCard title="Finance & bonus queue">
-          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            <MetricRow
+              label="Bonus outbox pending"
+              value={String(systemHealth?.bonus_outbox_pending_delivery ?? '—')}
+              subValue={
+                <Link to="/bonushub/bonus-audit?tab=outbox" className="link-primary">
+                  Compliance → Outbox
+                </Link>
+              }
+              trailing={
+                <StatusBadge
+                  label={(systemHealth?.bonus_outbox_pending_delivery ?? 0) > 0 ? 'Backlog' : 'Clear'}
+                  variant={(systemHealth?.bonus_outbox_pending_delivery ?? 0) > 0 ? 'warning' : 'success'}
+                  dot
+                />
+              }
+            />
+            <MetricRow
+              label="Bonus outbox DLQ"
+              value={String(systemHealth?.bonus_outbox_dead_letter ?? '—')}
+              subValue={
+                <Link to="/bonushub/bonus-audit?tab=outbox&outbox=dlq" className="link-primary">
+                  DLQ filter
+                </Link>
+              }
+              trailing={
+                <StatusBadge
+                  label={(systemHealth?.bonus_outbox_dead_letter ?? 0) > 0 ? 'Review' : 'Clear'}
+                  variant={(systemHealth?.bonus_outbox_dead_letter ?? 0) > 0 ? 'error' : 'success'}
+                  dot
+                />
+              }
+            />
+          </ChartCard>
+        </div>
+        <div className="col-lg-6">
+          <ChartCard title="Finance & bonus risk">
             <MetricRow
               label="Withdrawals in flight"
               value={String(systemHealth?.withdrawals_in_flight ?? '—')}
               subValue={
-                <Link to="/withdrawals" className="text-brand-600 hover:underline dark:text-brand-400">
+                <Link to="/withdrawals" className="link-primary">
                   Withdrawals table
                 </Link>
               }
             />
             <MetricRow
-              label="Pending Withdrawals"
+              label="Pending withdrawal count"
               value={String(kpis?.pending_withdrawals_count ?? 0)}
               subValue={kpis ? formatCurrency(kpis.pending_withdrawals_value) : '—'}
               trailing={
                 <StatusBadge
-                  label={(kpis?.pending_withdrawals_count ?? 0) > 0 ? 'Needs review' : 'Clear'}
+                  label={(kpis?.pending_withdrawals_count ?? 0) > 0 ? 'Review' : 'Clear'}
                   variant={(kpis?.pending_withdrawals_count ?? 0) > 0 ? 'warning' : 'success'}
                   dot
                 />
               }
             />
             <MetricRow
-              label="Risk Queue"
+              label="Bonus risk queue"
               value={String(bonusStats?.risk_queue_pending ?? 0)}
-              subValue="Flagged bonus instances"
+              subValue="Flagged instances"
               trailing={
                 <StatusBadge
                   label={(bonusStats?.risk_queue_pending ?? 0) > 0 ? 'Pending' : 'Clear'}
@@ -333,20 +874,55 @@ export default function DashboardPage() {
               }
             />
             <MetricRow
-              label="Bonus Cost / GGR"
+              label="Bonus cost / GGR (30d)"
               value={bonusStats ? formatPct(bonusStats.bonus_pct_of_ggr) : '—'}
-              subValue="30-day ratio"
+              subValue="Cost efficiency"
               trailing={
                 <StatusBadge
-                  label={(bonusStats?.bonus_pct_of_ggr ?? 0) > 15 ? 'High' : 'Normal'}
+                  label={(bonusStats?.bonus_pct_of_ggr ?? 0) > 15 ? 'High' : 'OK'}
                   variant={(bonusStats?.bonus_pct_of_ggr ?? 0) > 15 ? 'error' : 'info'}
                   dot
                 />
               }
             />
-          </div>
-        </ChartCard>
+          </ChartCard>
+        </div>
       </div>
+
+      <ChartCard title="Process counters (this API process)">
+        <p className="small text-secondary">
+          In-memory totals since this API instance started. Worker-only metrics accrue on{' '}
+          <code>cmd/worker</code> unless API and worker share a process.
+        </p>
+        {systemHealth?.process_metrics && Object.keys(systemHealth.process_metrics).length > 0 ? (
+          <div className="table-responsive" style={{ maxHeight: 260 }}>
+            <table className="table table-sm table-striped table-bordered align-middle mb-0">
+              <thead className="table-light">
+                <tr>
+                  <th scope="col">Metric</th>
+                  <th scope="col" className="text-end">
+                    Value
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(systemHealth.process_metrics)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([k, v]) => (
+                    <tr key={k}>
+                      <td>
+                        <code className="small">{k}</code>
+                      </td>
+                      <td className="text-end font-monospace">{String(v)}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-secondary small mb-0">No metrics loaded.</p>
+        )}
+      </ChartCard>
     </div>
   )
 }

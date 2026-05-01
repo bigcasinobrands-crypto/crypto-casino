@@ -9,9 +9,11 @@ import (
 
 // PaymentMatchPreview describes a promotion that would match a deposit event (no grant performed).
 type PaymentMatchPreview struct {
-	PromotionID        int64 `json:"promotion_id"`
-	PromotionVersionID int64 `json:"promotion_version_id"`
-	WouldGrantMinor    int64 `json:"would_grant_minor"`
+	PromotionID        int64  `json:"promotion_id"`
+	PromotionVersionID int64  `json:"promotion_version_id"`
+	WouldGrantMinor    int64  `json:"would_grant_minor"`
+	FreeSpinRounds     int    `json:"free_spin_rounds,omitempty"`
+	FreeSpinGameID     string `json:"free_spin_game_id,omitempty"`
 }
 
 // PreviewPaymentMatches lists published promotions that match the payment rules (ignores active-WR / idempotency).
@@ -46,13 +48,16 @@ func PreviewPaymentMatches(ctx context.Context, pool *pgxpool.Pool, ev PaymentSe
 			continue
 		}
 		g := rules.computeGrantAmount(ev.AmountMinor)
-		if g <= 0 {
+		fsR, _, fsG, fsOK := rules.freeSpinFromRules()
+		if g <= 0 && !fsOK {
 			continue
 		}
 		out = append(out, PaymentMatchPreview{
 			PromotionID:        pid,
 			PromotionVersionID: vid,
 			WouldGrantMinor:    g,
+			FreeSpinRounds:     fsR,
+			FreeSpinGameID:     fsG,
 		})
 	}
 	return out, nil

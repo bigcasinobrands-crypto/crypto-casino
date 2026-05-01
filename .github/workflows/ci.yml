@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -21,7 +21,6 @@ jobs:
       - run: npm run lint -w @repo/admin-console
       - run: npm run lint -w @repo/player-ui
       - run: npm audit --audit-level=critical
-        continue-on-error: true
 
   go:
     runs-on: ubuntu-latest
@@ -35,8 +34,85 @@ jobs:
           go-version: "1.22"
       - run: go mod download
       - run: go vet ./...
+      - run: go test ./... -count=1 -short
       - run: go build -o /dev/null ./cmd/api
       - run: go build -o /dev/null ./cmd/bootstrap
       - run: go build -o /dev/null ./cmd/worker
       - run: go build -o /dev/null ./cmd/playerbootstrap
       - run: go build -o /dev/null ./cmd/resetstaffpw
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  go-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: casino
+          POSTGRES_PASSWORD: casino
+          POSTGRES_DB: casino
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U casino -d casino"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - "6379:6379"
+    env:
+      DATABASE_URL: postgres://casino:casino@localhost:5432/casino
+    defaults:
+      run:
+        working-directory: services/core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go mod download
+      - run: go test -tags=integration -count=1 ./internal/db/...
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+          terraform_wrapper: false
+      - name: Install tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.51.2
+      - name: AWS vault-kms (fmt, validate, tflint)
+        working-directory: security/terraform/aws/vault-kms
+        run: |
+          terraform fmt -check
+          terraform init -backend=false
+          terraform validate
+          tflint --init && tflint
+      - name: AWS apigw-waf (fmt, validate, tflint)
+        working-directory: security/terraform/aws/apigw-waf
+        run: |
+          terraform fmt -check
+          terraform init -backend=false
+          terraform validate
+          tflint --init && tflint
+      - name: GCP vault-kms stub (fmt, validate, tflint)
+        working-directory: security/terraform/gcp
+        run: |
+          terraform fmt -check
+          terraform init -backend=false
+          terraform validate
+          tflint --init && tflint

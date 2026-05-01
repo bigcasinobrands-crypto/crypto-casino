@@ -1,36 +1,60 @@
-import type { FC, ReactNode } from 'react'
+import { type FC, type ReactElement, type ReactNode, cloneElement, isValidElement } from 'react'
+
+export type StatCardVariant = 'primary' | 'success' | 'warning' | 'danger' | 'info' | 'secondary'
 
 interface StatCardProps {
   label: string
   value: string
+  /** Bootstrap Icon class, e.g. `bi-graph-up-arrow` (preferred for AdminLTE). */
+  iconClass?: string
   icon?: ReactNode
+  variant?: StatCardVariant
   delta?: number
   deltaLabel?: string
   className?: string
 }
 
-const StatCard: FC<StatCardProps> = ({ label, value, icon, delta, deltaLabel, className = '' }) => {
-  const deltaColor = delta && delta > 0 ? 'text-green-500' : delta && delta < 0 ? 'text-red-500' : 'text-gray-400'
-  const deltaArrow = delta && delta > 0 ? '↑' : delta && delta < 0 ? '↓' : ''
+const StatCard: FC<StatCardProps> = ({
+  label,
+  value,
+  iconClass,
+  icon,
+  variant = 'primary',
+  delta,
+  deltaLabel,
+  className = '',
+}) => {
+  const bg = `text-bg-${variant}`
+  const deltaText =
+    delta !== undefined ? (
+      <small className="d-block mt-1 opacity-75">
+        {delta > 0 ? '↑' : delta < 0 ? '↓' : ''} {Math.abs(delta).toFixed(1)}% {deltaLabel ?? ''}
+      </small>
+    ) : null
+
+  let iconEl: ReactNode = null
+  if (iconClass) {
+    iconEl = <i className={`small-box-icon bi ${iconClass}`} aria-hidden />
+  } else if (icon && isValidElement(icon)) {
+    iconEl = cloneElement(icon as ReactElement<{ className?: string }>, {
+      className: 'small-box-icon',
+    })
+  } else if (icon) {
+    iconEl = <span className="small-box-icon d-inline-flex opacity-25">{icon}</span>
+  }
 
   return (
-    <div className={`rounded-2xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] ${className}`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          {delta !== undefined && (
-            <p className={`mt-1 text-sm font-medium ${deltaColor}`}>
-              {deltaArrow} {Math.abs(delta).toFixed(1)}% {deltaLabel || ''}
-            </p>
-          )}
-        </div>
-        {icon && (
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-            {icon}
-          </div>
-        )}
+    <div className={`small-box stat-card ${bg} ${className}`.trim()}>
+      <div className="inner">
+        <h3 className="mb-0 text-break lh-sm" style={{ fontSize: 'clamp(1rem, 2.4vw, 1.4rem)' }}>
+          {value}
+        </h3>
+        <p>
+          {label}
+          {deltaText}
+        </p>
       </div>
+      {iconEl}
     </div>
   )
 }

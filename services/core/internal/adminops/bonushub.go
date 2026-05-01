@@ -1,6 +1,7 @@
 package adminops
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,7 +29,8 @@ func (h *Handler) mountBonusHub(r chi.Router) {
 		b.Get("/promotions", h.bonusHubListPromotions)
 		b.Post("/promotions", h.bonusHubCreatePromotion)
 		b.Get("/promotions/{id}", h.bonusHubGetPromotion)
-		b.With(adminapi.RequireAnyRole("superadmin")).Patch("/promotions/{id}", h.bonusHubPatchPromotion)
+		// grants_paused: admin/support/superadmin; status (archive): superadmin only (enforced in handler).
+		b.Patch("/promotions/{id}", h.bonusHubPatchPromotion)
 		b.Post("/promotions/{id}/versions", h.bonusHubAddVersion)
 		b.Post("/promotion-versions/{vid}/publish", h.bonusHubPublishVersion)
 		b.Get("/reward-programs", h.bonusHubListRewardPrograms)
@@ -37,6 +39,10 @@ func (h *Handler) mountBonusHub(r chi.Router) {
 		b.With(adminapi.RequireAnyRole("superadmin")).Post("/automation-rules", h.bonusHubCreateAutomationRule)
 		b.With(adminapi.RequireAnyRole("superadmin")).Patch("/automation-rules/{id}", h.bonusHubPatchAutomationRule)
 		b.Get("/worker-failed-jobs", h.bonusHubListWorkerFailedJobs)
+		b.Get("/bonus-audit-log", h.bonusHubBonusAuditLog)
+		b.Get("/bonus-outbox", h.bonusHubBonusOutbox)
+		b.With(adminapi.RequireAnyRole("superadmin")).Post("/bonus-outbox/{id}/redrive", h.bonusHubRedriveBonusOutbox)
+		b.Get("/wager-violations", h.bonusHubWagerViolations)
 		b.With(adminapi.RequireAnyRole("superadmin")).Post("/simulate-payment-settled", h.bonusHubSimulatePaymentSettled)
 		b.With(adminapi.RequireAnyRole("superadmin")).Post("/worker-failed-jobs/{id}/retry", h.bonusHubRetryWorkerFailedJob)
 		b.Get("/risk-queue", h.bonusHubRiskQueue)
@@ -52,6 +58,8 @@ func (h *Handler) mountBonusHub(r chi.Router) {
 		b.Get("/instances", h.bonusHubListInstances)
 		b.Post("/instances/{id}/forfeit", h.bonusHubForfeitInstance)
 		b.With(adminapi.RequireAnyRole("superadmin")).Post("/instances/grant", h.bonusHubManualGrant)
+		b.Get("/free-spin-grants", h.bonusHubListFreeSpinGrants)
+		b.With(adminapi.RequireAnyRole("superadmin")).Post("/free-spin-grants", h.bonusHubCreateFreeSpinGrant)
 	})
 	r.Get("/users/{id}/economic-timeline", h.userEconomicTimeline)
 }
@@ -89,10 +97,10 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 	var ggr30d int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
-			SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END) -
-			SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END), 0
+			SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END) -
+			SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0
 		)::bigint FROM ledger_entries
-		WHERE entry_type IN ('game.bet','game.win') AND created_at > now() - interval '30 days'
+		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND created_at > now() - interval '30 days'
 	`).Scan(&ggr30d)
 
 	var bonusPctOfGGR float64
@@ -124,9 +132,14 @@ func (h *Handler) bonusHubListBonusTypes(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) bonusHubListPromotions(w http.ResponseWriter, r *http.Request) {
+	forVIPScheduling := strings.TrimSpace(r.URL.Query().Get("for_vip_scheduling")) == "1"
+	maxLimit := 200
+	if forVIPScheduling {
+		maxLimit = 500
+	}
 	limit := 100
 	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= maxLimit {
 			limit = n
 		}
 	}
@@ -146,8 +159,19 @@ func (h *Handler) bonusHubListPromotions(w http.ResponseWriter, r *http.Request)
 	var sb strings.Builder
 	sb.WriteString(`
 		SELECT p.id, p.name, p.slug, p.status, p.created_at, COALESCE(p.grants_paused, false),
+			COALESCE(p.player_hub_force_visible, false),
+			COALESCE(p.vip_only, false),
+			p.admin_color,
 			(SELECT MAX(version) FROM promotion_versions pv WHERE pv.promotion_id = p.id) AS max_ver,
-			(SELECT pv2.bonus_type FROM promotion_versions pv2 WHERE pv2.promotion_id = p.id ORDER BY pv2.version DESC LIMIT 1) AS bonus_type
+			(SELECT pv2.bonus_type FROM promotion_versions pv2 WHERE pv2.promotion_id = p.id ORDER BY pv2.version DESC LIMIT 1) AS bonus_type,
+			(SELECT pv3.id FROM promotion_versions pv3 WHERE pv3.promotion_id = p.id ORDER BY pv3.version DESC LIMIT 1) AS latest_version_id,
+			(SELECT (pv4.published_at IS NOT NULL) FROM promotion_versions pv4 WHERE pv4.promotion_id = p.id ORDER BY pv4.version DESC LIMIT 1) AS latest_version_published,
+			(SELECT pv6.valid_from FROM promotion_versions pv6 WHERE pv6.promotion_id = p.id AND pv6.published_at IS NOT NULL ORDER BY pv6.version DESC LIMIT 1) AS latest_published_valid_from,
+			(SELECT pv6.valid_to FROM promotion_versions pv6 WHERE pv6.promotion_id = p.id AND pv6.published_at IS NOT NULL ORDER BY pv6.version DESC LIMIT 1) AS latest_published_valid_to,
+			EXISTS (
+				SELECT 1 FROM promotion_versions pv5
+				WHERE pv5.promotion_id = p.id AND pv5.published_at IS NOT NULL
+			) AS has_published_version
 		FROM promotions p WHERE 1=1`)
 	args := []interface{}{}
 	n := 1
@@ -161,6 +185,19 @@ func (h *Handler) bonusHubListPromotions(w http.ResponseWriter, r *http.Request)
 		like := "%" + qStr + "%"
 		args = append(args, like, like)
 		n += 2
+	}
+	if forVIPScheduling {
+		// Promotions operators use for tier VIP delivery: explicit flag, VIP-ish bonus type, or name/slug cue.
+		sb.WriteString(`
+			AND (
+				COALESCE(p.vip_only, false) = true
+				OR LOWER(TRIM(COALESCE((
+					SELECT pv_vip.bonus_type FROM promotion_versions pv_vip
+					WHERE pv_vip.promotion_id = p.id ORDER BY pv_vip.version DESC LIMIT 1
+				), ''))) LIKE 'vip%'
+				OR p.name ILIKE '%vip%'
+				OR p.slug ILIKE '%vip%'
+			)`)
 	}
 	if afterID != nil {
 		sb.WriteString(fmt.Sprintf(" AND p.id < $%d", n))
@@ -183,17 +220,40 @@ func (h *Handler) bonusHubListPromotions(w http.ResponseWriter, r *http.Request)
 		var name, slug, status string
 		var ct time.Time
 		var grantsPaused bool
-		var bonusType *string
-		if err := rows.Scan(&id, &name, &slug, &status, &ct, &grantsPaused, &maxVer, &bonusType); err != nil {
+		var hubForce bool
+		var bonusType, adminColor *string
+		var vipOnly bool
+		var latestVID sql.NullInt64
+		var latestPub sql.NullBool
+		var latestPublishedValidFrom sql.NullTime
+		var latestPublishedValidTo sql.NullTime
+		var hasPub sql.NullBool
+		if err := rows.Scan(&id, &name, &slug, &status, &ct, &grantsPaused, &hubForce, &vipOnly, &adminColor, &maxVer, &bonusType,
+			&latestVID, &latestPub, &latestPublishedValidFrom, &latestPublishedValidTo, &hasPub); err != nil {
 			continue
 		}
 		entry := map[string]any{
 			"id": id, "name": name, "slug": slug, "status": status,
 			"created_at": ct.UTC().Format(time.RFC3339), "latest_version": maxVer,
-			"grants_paused": grantsPaused,
+			"grants_paused": grantsPaused, "player_hub_force_visible": hubForce,
+			"vip_only": vipOnly,
 		}
 		if bonusType != nil && *bonusType != "" {
 			entry["bonus_type"] = *bonusType
+		}
+		if adminColor != nil && *adminColor != "" {
+			entry["admin_color"] = strings.ToUpper(*adminColor)
+		}
+		if latestVID.Valid {
+			entry["latest_version_id"] = latestVID.Int64
+		}
+		entry["latest_version_published"] = latestPub.Valid && latestPub.Bool
+		entry["has_published_version"] = hasPub.Valid && hasPub.Bool
+		if latestPublishedValidFrom.Valid {
+			entry["latest_published_valid_from"] = latestPublishedValidFrom.Time.UTC().Format(time.RFC3339)
+		}
+		if latestPublishedValidTo.Valid {
+			entry["latest_published_valid_to"] = latestPublishedValidTo.Time.UTC().Format(time.RFC3339)
 		}
 		list = append(list, entry)
 	}
@@ -207,8 +267,10 @@ func (h *Handler) bonusHubListPromotions(w http.ResponseWriter, r *http.Request)
 }
 
 type createPromoReq struct {
-	Name string `json:"name"`
-	Slug string `json:"slug"`
+	Name       string  `json:"name"`
+	Slug       string  `json:"slug"`
+	AdminColor *string `json:"admin_color"`
+	VIPOnly    bool    `json:"vip_only"`
 }
 
 func (h *Handler) bonusHubCreatePromotion(w http.ResponseWriter, r *http.Request) {
@@ -217,10 +279,15 @@ func (h *Handler) bonusHubCreatePromotion(w http.ResponseWriter, r *http.Request
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "name and slug required")
 		return
 	}
+	adminColor, colorErr := normalizeAdminColor(body.AdminColor)
+	if colorErr != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", colorErr.Error())
+		return
+	}
 	var id int64
 	err := h.Pool.QueryRow(r.Context(), `
-		INSERT INTO promotions (name, slug) VALUES ($1, $2) RETURNING id
-	`, strings.TrimSpace(body.Name), strings.TrimSpace(body.Slug)).Scan(&id)
+		INSERT INTO promotions (name, slug, admin_color, vip_only) VALUES ($1, $2, $3, $4) RETURNING id
+	`, strings.TrimSpace(body.Name), strings.TrimSpace(body.Slug), adminColor, body.VIPOnly).Scan(&id)
 	if err != nil {
 		if isPGUniqueViolation(err) {
 			adminapi.WriteError(w, http.StatusConflict, "slug_taken",
@@ -240,9 +307,15 @@ func (h *Handler) bonusHubGetPromotion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var name, slug, status string
+	var adminColor *string
 	var ct time.Time
 	var grantsPaused bool
-	err = h.Pool.QueryRow(r.Context(), `SELECT name, slug, status, created_at, COALESCE(grants_paused, false) FROM promotions WHERE id = $1`, id).Scan(&name, &slug, &status, &ct, &grantsPaused)
+	var hubForce bool
+	var vipOnly bool
+	err = h.Pool.QueryRow(r.Context(), `
+		SELECT name, slug, status, created_at, COALESCE(grants_paused, false), COALESCE(player_hub_force_visible, false), COALESCE(vip_only, false), admin_color
+		FROM promotions WHERE id = $1
+	`, id).Scan(&name, &slug, &status, &ct, &grantsPaused, &hubForce, &vipOnly, &adminColor)
 	if err == pgx.ErrNoRows {
 		adminapi.WriteError(w, http.StatusNotFound, "not_found", "promotion not found")
 		return
@@ -253,7 +326,12 @@ func (h *Handler) bonusHubGetPromotion(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.Pool.Query(r.Context(), `
 		SELECT id, version, published_at IS NOT NULL, created_at, valid_from, valid_to,
-			rules, COALESCE(terms_text,''), bonus_type
+			rules, COALESCE(terms_text,''), bonus_type,
+			NULLIF(TRIM(COALESCE(player_title,'')), ''),
+			NULLIF(TRIM(COALESCE(player_description,'')), ''),
+			NULLIF(TRIM(COALESCE(promo_code,'')), ''),
+			priority,
+			NULLIF(TRIM(COALESCE(player_hero_image_url,'')), '')
 		FROM promotion_versions WHERE promotion_id = $1 ORDER BY version DESC
 	`, id)
 	if err != nil {
@@ -270,11 +348,15 @@ func (h *Handler) bonusHubGetPromotion(w http.ResponseWriter, r *http.Request) {
 		var rulesJSON []byte
 		var terms string
 		var bonusType *string
-		if err := rows.Scan(&vid, &ver, &pub, &vct, &vf, &vt, &rulesJSON, &terms, &bonusType); err != nil {
+		var pTitle, pDesc, pCode, pHero *string
+		var pri int
+		if err := rows.Scan(&vid, &ver, &pub, &vct, &vf, &vt, &rulesJSON, &terms, &bonusType,
+			&pTitle, &pDesc, &pCode, &pri, &pHero); err != nil {
 			continue
 		}
 		entry := map[string]any{
 			"id": vid, "version": ver, "published": pub, "created_at": vct.UTC().Format(time.RFC3339),
+			"priority": pri,
 		}
 		if vf != nil {
 			entry["valid_from"] = vf.UTC().Format(time.RFC3339)
@@ -292,18 +374,40 @@ func (h *Handler) bonusHubGetPromotion(w http.ResponseWriter, r *http.Request) {
 		if bonusType != nil && *bonusType != "" {
 			entry["bonus_type"] = *bonusType
 		}
+		if pTitle != nil {
+			entry["player_title"] = *pTitle
+		}
+		if pDesc != nil {
+			entry["player_description"] = *pDesc
+		}
+		if pCode != nil {
+			entry["promo_code"] = *pCode
+		}
+		if pHero != nil {
+			entry["player_hero_image_url"] = *pHero
+		}
 		vers = append(vers, entry)
 	}
 	writeJSON(w, map[string]any{
 		"id": id, "name": name, "slug": slug, "status": status,
 		"created_at": ct.UTC().Format(time.RFC3339), "versions": vers,
-		"grants_paused": grantsPaused,
+		"grants_paused": grantsPaused, "player_hub_force_visible": hubForce,
+		"vip_only": vipOnly,
+		"admin_color": func() any {
+			if adminColor == nil || *adminColor == "" {
+				return nil
+			}
+			return strings.ToUpper(*adminColor)
+		}(),
 	})
 }
 
 type patchPromoReq struct {
-	GrantsPaused *bool   `json:"grants_paused"`
-	Status       *string `json:"status"`
+	GrantsPaused          *bool   `json:"grants_paused"`
+	Status                *string `json:"status"`
+	PlayerHubForceVisible *bool   `json:"player_hub_force_visible"`
+	AdminColor            *string `json:"admin_color"`
+	VIPOnly               *bool   `json:"vip_only"`
 }
 
 func (h *Handler) bonusHubPatchPromotion(w http.ResponseWriter, r *http.Request) {
@@ -312,6 +416,9 @@ func (h *Handler) bonusHubPatchPromotion(w http.ResponseWriter, r *http.Request)
 		adminapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing staff")
 		return
 	}
+	role, _ := adminapi.StaffRoleFromContext(r.Context())
+	isSuper := role == "superadmin"
+	canPauseGrants := role == "superadmin" || role == "admin" || role == "support"
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_id", "bad id")
@@ -322,8 +429,33 @@ func (h *Handler) bonusHubPatchPromotion(w http.ResponseWriter, r *http.Request)
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid body")
 		return
 	}
-	if body.GrantsPaused == nil && body.Status == nil {
-		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "at least one of grants_paused, status required")
+	if body.GrantsPaused == nil && body.Status == nil && body.PlayerHubForceVisible == nil && body.AdminColor == nil && body.VIPOnly == nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "at least one of grants_paused, status, player_hub_force_visible, admin_color, vip_only required")
+		return
+	}
+	if body.Status != nil && !isSuper {
+		adminapi.WriteError(w, http.StatusForbidden, "forbidden", "only superadmin can archive or restore promotions")
+		return
+	}
+	if body.GrantsPaused != nil && !canPauseGrants {
+		adminapi.WriteError(w, http.StatusForbidden, "forbidden", "not allowed to change grants_paused")
+		return
+	}
+	if body.PlayerHubForceVisible != nil && !canPauseGrants {
+		adminapi.WriteError(w, http.StatusForbidden, "forbidden", "not allowed to change player_hub_force_visible")
+		return
+	}
+	if body.AdminColor != nil && !canPauseGrants {
+		adminapi.WriteError(w, http.StatusForbidden, "forbidden", "not allowed to change admin_color")
+		return
+	}
+	if body.VIPOnly != nil && !canPauseGrants {
+		adminapi.WriteError(w, http.StatusForbidden, "forbidden", "not allowed to change vip_only")
+		return
+	}
+	adminColor, colorErr := normalizeAdminColor(body.AdminColor)
+	if colorErr != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", colorErr.Error())
 		return
 	}
 	var newStatus string
@@ -335,15 +467,50 @@ func (h *Handler) bonusHubPatchPromotion(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	ctx := r.Context()
-	var res pgconn.CommandTag
-	var execErr error
-	if body.GrantsPaused != nil && body.Status != nil {
-		res, execErr = h.Pool.Exec(ctx, `UPDATE promotions SET grants_paused = $2, status = $3, updated_at = now() WHERE id = $1`, id, *body.GrantsPaused, newStatus)
-	} else if body.Status != nil {
-		res, execErr = h.Pool.Exec(ctx, `UPDATE promotions SET status = $2, updated_at = now() WHERE id = $1`, id, newStatus)
-	} else {
-		res, execErr = h.Pool.Exec(ctx, `UPDATE promotions SET grants_paused = $2, updated_at = now() WHERE id = $1`, id, *body.GrantsPaused)
+
+	var setParts []string
+	var args []interface{}
+	argPos := 1
+	if body.Status != nil {
+		setParts = append(setParts, fmt.Sprintf("status = $%d", argPos))
+		args = append(args, newStatus)
+		argPos++
+		if newStatus == "archived" {
+			setParts = append(setParts, "player_hub_force_visible = false")
+		}
 	}
+	if body.GrantsPaused != nil {
+		setParts = append(setParts, fmt.Sprintf("grants_paused = $%d", argPos))
+		args = append(args, *body.GrantsPaused)
+		argPos++
+		if *body.GrantsPaused {
+			setParts = append(setParts, "player_hub_force_visible = false")
+		}
+	}
+	skipForceArg := (body.Status != nil && newStatus == "archived") || (body.GrantsPaused != nil && *body.GrantsPaused)
+	if body.PlayerHubForceVisible != nil && !skipForceArg {
+		setParts = append(setParts, fmt.Sprintf("player_hub_force_visible = $%d", argPos))
+		args = append(args, *body.PlayerHubForceVisible)
+		argPos++
+	}
+	if body.AdminColor != nil {
+		setParts = append(setParts, fmt.Sprintf("admin_color = $%d", argPos))
+		args = append(args, adminColor)
+		argPos++
+	}
+	if body.VIPOnly != nil {
+		setParts = append(setParts, fmt.Sprintf("vip_only = $%d", argPos))
+		args = append(args, *body.VIPOnly)
+		argPos++
+	}
+	if len(setParts) == 0 {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "no fields to update")
+		return
+	}
+	setParts = append(setParts, "updated_at = now()")
+	args = append(args, id)
+	q := fmt.Sprintf("UPDATE promotions SET %s WHERE id = $%d", strings.Join(setParts, ", "), argPos)
+	res, execErr := h.Pool.Exec(ctx, q, args...)
 	if execErr != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "update failed")
 		return
@@ -358,6 +525,15 @@ func (h *Handler) bonusHubPatchPromotion(w http.ResponseWriter, r *http.Request)
 	}
 	if body.Status != nil {
 		meta["status"] = newStatus
+	}
+	if body.PlayerHubForceVisible != nil {
+		meta["player_hub_force_visible"] = *body.PlayerHubForceVisible
+	}
+	if body.AdminColor != nil {
+		meta["admin_color"] = adminColor
+	}
+	if body.VIPOnly != nil {
+		meta["vip_only"] = *body.VIPOnly
 	}
 	metaB, _ := json.Marshal(meta)
 	_, _ = h.Pool.Exec(r.Context(), `
@@ -572,9 +748,10 @@ func (h *Handler) bonusHubListWorkerFailedJobs(w http.ResponseWriter, r *http.Re
 }
 
 type addVersionReq struct {
-	Rules     json.RawMessage `json:"rules"`
-	TermsText string          `json:"terms_text"`
-	BonusType *string         `json:"bonus_type"`
+	Rules              json.RawMessage `json:"rules"`
+	TermsText          string          `json:"terms_text"`
+	BonusType          *string         `json:"bonus_type"`
+	PlayerHeroImageURL *string         `json:"player_hero_image_url"`
 }
 
 func (h *Handler) bonusHubAddVersion(w http.ResponseWriter, r *http.Request) {
@@ -602,11 +779,18 @@ func (h *Handler) bonusHubAddVersion(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var next int
 	_ = h.Pool.QueryRow(ctx, `SELECT COALESCE(MAX(version),0)+1 FROM promotion_versions WHERE promotion_id = $1`, pid).Scan(&next)
+	var hero any
+	if body.PlayerHeroImageURL != nil {
+		s := strings.TrimSpace(*body.PlayerHeroImageURL)
+		if s != "" {
+			hero = s
+		}
+	}
 	var vid int64
 	err = h.Pool.QueryRow(ctx, `
-		INSERT INTO promotion_versions (promotion_id, version, rules, terms_text, bonus_type)
-		VALUES ($1, $2, $3::jsonb, NULLIF($4,''), $5) RETURNING id
-	`, pid, next, body.Rules, strings.TrimSpace(body.TermsText), bt).Scan(&vid)
+		INSERT INTO promotion_versions (promotion_id, version, rules, terms_text, bonus_type, player_hero_image_url)
+		VALUES ($1, $2, $3::jsonb, NULLIF($4,''), $5, $6) RETURNING id
+	`, pid, next, body.Rules, strings.TrimSpace(body.TermsText), bt, hero).Scan(&vid)
 	if err != nil {
 		if isPGUniqueViolation(err) {
 			adminapi.WriteError(w, http.StatusConflict, "version_exists",
@@ -633,11 +817,22 @@ func (h *Handler) bonusHubPublishVersion(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 	var rulesJSON []byte
 	var offerFam, dedupe *string
+	var publishedAt *time.Time
 	err = h.Pool.QueryRow(ctx, `
-		SELECT rules, offer_family, dedupe_group_key FROM promotion_versions WHERE id = $1 AND published_at IS NULL
-	`, vid).Scan(&rulesJSON, &offerFam, &dedupe)
+		SELECT rules, offer_family, dedupe_group_key, published_at
+		FROM promotion_versions WHERE id = $1
+	`, vid).Scan(&rulesJSON, &offerFam, &dedupe, &publishedAt)
 	if err != nil {
-		adminapi.WriteError(w, http.StatusBadRequest, "not_publishable", "version missing or already published")
+		if errors.Is(err, pgx.ErrNoRows) {
+			adminapi.WriteError(w, http.StatusBadRequest, "version_not_found", "promotion version not found (check catalog refresh)")
+			return
+		}
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
+		return
+	}
+	// Idempotent: UI may think the version is still a draft (stale list, or grants paused vs publish confusion).
+	if publishedAt != nil {
+		writeJSON(w, map[string]any{"ok": true, "already_published": true})
 		return
 	}
 	var fam string
@@ -664,10 +859,10 @@ func (h *Handler) bonusHubPublishVersion(w http.ResponseWriter, r *http.Request)
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"error": map[string]any{
-					"code":                  "dedupe_conflict",
-					"message":               err.Error(),
-					"conflict_version_id":   c.ConflictVersionID,
-					"promotion_name":        c.PromotionName,
+					"code":                "dedupe_conflict",
+					"message":             err.Error(),
+					"conflict_version_id": c.ConflictVersionID,
+					"promotion_name":      c.PromotionName,
 				},
 			})
 			return
@@ -685,7 +880,13 @@ func (h *Handler) bonusHubPublishVersion(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		adminapi.WriteError(w, http.StatusBadRequest, "not_publishable", "version missing or already published")
+		var nowPub *time.Time
+		_ = h.Pool.QueryRow(ctx, `SELECT published_at FROM promotion_versions WHERE id = $1`, vid).Scan(&nowPub)
+		if nowPub != nil {
+			writeJSON(w, map[string]any{"ok": true, "already_published": true})
+			return
+		}
+		adminapi.WriteError(w, http.StatusBadRequest, "not_publishable", "could not publish version (refresh and try again)")
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"promotion_version_id": vid, "offer_family": fam, "eligibility_fingerprint": fp})
@@ -709,15 +910,19 @@ func (h *Handler) bonusHubListInstances(w http.ResponseWriter, r *http.Request) 
 	var err error
 	if uid != "" {
 		rows, err = h.Pool.Query(r.Context(), `
-			SELECT bi.id::text, bi.user_id::text, bi.promotion_version_id, bi.status, bi.granted_amount_minor, bi.currency,
-				bi.wr_required_minor, bi.wr_contributed_minor, bi.idempotency_key, bi.created_at
-			FROM user_bonus_instances bi WHERE bi.user_id = $1::uuid ORDER BY bi.created_at DESC LIMIT $2
+			SELECT bi.id::text, bi.user_id::text, COALESCE(u.email, ''), COALESCE(u.username, ''), bi.promotion_version_id, bi.status, bi.granted_amount_minor, bi.currency,
+				bi.wr_required_minor, bi.wr_contributed_minor, bi.max_bet_violations_count, bi.idempotency_key, bi.created_at
+			FROM user_bonus_instances bi
+			LEFT JOIN users u ON u.id = bi.user_id
+			WHERE bi.user_id = $1::uuid ORDER BY bi.created_at DESC LIMIT $2
 		`, uid, limit)
 	} else {
 		rows, err = h.Pool.Query(r.Context(), `
-			SELECT bi.id::text, bi.user_id::text, bi.promotion_version_id, bi.status, bi.granted_amount_minor, bi.currency,
-				bi.wr_required_minor, bi.wr_contributed_minor, bi.idempotency_key, bi.created_at
-			FROM user_bonus_instances bi ORDER BY bi.created_at DESC LIMIT $1
+			SELECT bi.id::text, bi.user_id::text, COALESCE(u.email, ''), COALESCE(u.username, ''), bi.promotion_version_id, bi.status, bi.granted_amount_minor, bi.currency,
+				bi.wr_required_minor, bi.wr_contributed_minor, bi.max_bet_violations_count, bi.idempotency_key, bi.created_at
+			FROM user_bonus_instances bi
+			LEFT JOIN users u ON u.id = bi.user_id
+			ORDER BY bi.created_at DESC LIMIT $1
 		`, limit)
 	}
 	if err != nil {
@@ -727,18 +932,21 @@ func (h *Handler) bonusHubListInstances(w http.ResponseWriter, r *http.Request) 
 	defer rows.Close()
 	var list []map[string]any
 	for rows.Next() {
-		var id, userID string
+		var id, userID, userEmail, userName string
 		var pvid int64
 		var status, ccy, idem string
 		var granted, wrReq, wrDone int64
+		var maxBetViol int32
 		var ct time.Time
-		if err := rows.Scan(&id, &userID, &pvid, &status, &granted, &ccy, &wrReq, &wrDone, &idem, &ct); err != nil {
+		if err := rows.Scan(&id, &userID, &userEmail, &userName, &pvid, &status, &granted, &ccy, &wrReq, &wrDone, &maxBetViol, &idem, &ct); err != nil {
 			continue
 		}
 		list = append(list, map[string]any{
 			"id": id, "user_id": userID, "promotion_version_id": pvid, "status": status,
 			"granted_amount_minor": granted, "currency": ccy, "wr_required_minor": wrReq, "wr_contributed_minor": wrDone,
-			"idempotency_key": idem, "created_at": ct.UTC().Format(time.RFC3339),
+			"max_bet_violations_count": maxBetViol,
+			"idempotency_key":          idem, "created_at": ct.UTC().Format(time.RFC3339),
+			"user_email": userEmail, "user_username": userName,
 		})
 	}
 	writeJSON(w, map[string]any{"instances": list})
@@ -759,7 +967,7 @@ func (h *Handler) bonusHubForfeitInstance(w http.ResponseWriter, r *http.Request
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "reason required")
 		return
 	}
-	if err := bonus.ForfeitInstance(r.Context(), h.Pool, id, staffID, body.Reason); err != nil {
+	if err := bonus.ForfeitInstance(r.Context(), h.Pool, id, staffID, body.Reason, false); err != nil {
 		adminapi.WriteError(w, http.StatusBadRequest, "forfeit_failed", err.Error())
 		return
 	}
@@ -771,6 +979,7 @@ type manualGrantReq struct {
 	PromotionVersionID int64  `json:"promotion_version_id"`
 	GrantAmountMinor   int64  `json:"grant_amount_minor"`
 	Currency           string `json:"currency"`
+	AllowWithdrawable  bool   `json:"allow_withdrawable"`
 }
 
 func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
@@ -780,34 +989,126 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body manualGrantReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.UserID) == "" || body.PromotionVersionID <= 0 || body.GrantAmountMinor <= 0 {
-		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "user_id, promotion_version_id, grant_amount_minor required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.UserID) == "" || body.PromotionVersionID <= 0 {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "user_id, promotion_version_id required")
 		return
 	}
 	ccy := strings.TrimSpace(body.Currency)
 	if ccy == "" {
 		ccy = "USDT"
 	}
-	idem := "bonus:grant:admin:" + staffID + ":" + uuid.New().String()
-	inserted, err := bonus.GrantFromPromotionVersion(r.Context(), h.Pool, bonus.GrantArgs{
-		UserID:               strings.TrimSpace(body.UserID),
+	ctx := r.Context()
+	uid := strings.TrimSpace(body.UserID)
+	withdrawOverride := "block_withdraw"
+	if body.AllowWithdrawable {
+		withdrawOverride = ""
+	}
+	// Cash grant path
+	if body.GrantAmountMinor > 0 {
+		idem := "bonus:grant:admin:" + staffID + ":" + uuid.New().String()
+		inserted, err := bonus.GrantFromPromotionVersion(ctx, h.Pool, bonus.GrantArgs{
+			UserID:                 uid,
+			PromotionVersionID:     body.PromotionVersionID,
+			IdempotencyKey:         idem,
+			GrantAmountMinor:       body.GrantAmountMinor,
+			Currency:               ccy,
+			DepositAmountMinor:     0,
+			AllowPausedPromotion:   true,
+			ActorStaffID:           staffID,
+			WithdrawPolicyOverride: withdrawOverride,
+		})
+		if err != nil {
+			adminapi.WriteError(w, http.StatusBadRequest, "grant_failed", err.Error())
+			return
+		}
+		auditMeta := map[string]any{
+			"user_id":                body.UserID,
+			"promotion_version_id":   body.PromotionVersionID,
+			"grant_amount_minor":     body.GrantAmountMinor,
+			"currency":               body.Currency,
+			"funding_source":         "brand_bonus_wallet",
+			"credit_pocket":          "bonus_locked",
+			"withdrawable":           body.AllowWithdrawable,
+			"allow_withdrawable":     body.AllowWithdrawable,
+			"wagering_terms_applied": true,
+		}
+		meta, _ := json.Marshal(auditMeta)
+		_, _ = h.Pool.Exec(ctx, `
+			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
+			VALUES ($1::uuid, 'bonushub.manual_grant', 'user_bonus_instances', $2::jsonb)
+		`, staffID, meta)
+		writeJSON(w, map[string]any{
+			"inserted":       inserted,
+			"mode":           "play_only_bonus_locked",
+			"withdrawable":   body.AllowWithdrawable,
+			"pocket":         "bonus_locked",
+			"funding_source": "brand_bonus_wallet",
+			"terms_note":     "release/withdraw eligibility follows promotion wagering and terms",
+			"withdraw_policy_applied": map[string]any{
+				"default_non_withdrawable": !body.AllowWithdrawable,
+				"allow_withdrawable":       body.AllowWithdrawable,
+			},
+		})
+		return
+	}
+	// free spins only: grant_amount_minor=0, rules must define free_spin package
+	var rulesJSON []byte
+	if err := h.Pool.QueryRow(ctx, `SELECT rules FROM promotion_versions WHERE id = $1`, body.PromotionVersionID).Scan(&rulesJSON); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_id", "promotion version not found")
+		return
+	}
+	fsR, fsBet, fsGid, fok, err2 := bonus.FreeSpinSpecFromRulesJSON(rulesJSON)
+	if err2 != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_rules", err2.Error())
+		return
+	}
+	if !fok {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "grant_amount_minor must be > 0, or rules must include free rounds + game_id")
+		return
+	}
+	idem := "bonus:fs:admin:" + staffID + ":" + uuid.New().String()
+	ins, err := bonus.EnqueueFreeSpinFromPromotionVersion(ctx, h.Pool, bonus.FreeSpinEnqueueArgs{
+		UserID:               uid,
 		PromotionVersionID:   body.PromotionVersionID,
 		IdempotencyKey:       idem,
-		GrantAmountMinor:     body.GrantAmountMinor,
-		Currency:             ccy,
-		DepositAmountMinor:   0,
+		Rounds:               fsR,
+		GameID:               fsGid,
+		BetPerRoundMinor:     fsBet,
+		Source:               "admin_manual",
 		AllowPausedPromotion: true,
+		ActorStaffID:         staffID,
 	})
 	if err != nil {
 		adminapi.WriteError(w, http.StatusBadRequest, "grant_failed", err.Error())
 		return
 	}
-	meta, _ := json.Marshal(body)
-	_, _ = h.Pool.Exec(r.Context(), `
+	auditMeta := map[string]any{
+		"user_id":                body.UserID,
+		"promotion_version_id":   body.PromotionVersionID,
+		"grant_amount_minor":     body.GrantAmountMinor,
+		"currency":               body.Currency,
+		"funding_source":         "brand_bonus_wallet",
+		"credit_pocket":          "bonus_locked",
+		"withdrawable":           body.AllowWithdrawable,
+		"allow_withdrawable":     body.AllowWithdrawable,
+		"wagering_terms_applied": true,
+	}
+	meta, _ := json.Marshal(auditMeta)
+	_, _ = h.Pool.Exec(ctx, `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'bonushub.manual_grant', 'user_bonus_instances', $2::jsonb)
 	`, staffID, meta)
-	writeJSON(w, map[string]any{"inserted": inserted})
+	writeJSON(w, map[string]any{
+		"inserted":       ins,
+		"mode":           "free_spins_play_only",
+		"withdrawable":   body.AllowWithdrawable,
+		"funding_source": "brand_bonus_wallet",
+		"terms_note":     "release/withdraw eligibility follows promotion wagering and terms",
+		"withdraw_policy_applied": map[string]any{
+			"default_non_withdrawable": !body.AllowWithdrawable,
+			"allow_withdrawable":       body.AllowWithdrawable,
+		},
+	})
 }
 
 func (h *Handler) userEconomicTimeline(w http.ResponseWriter, r *http.Request) {
@@ -953,4 +1254,26 @@ func (h *Handler) bonusHubResolveRiskReview(w http.ResponseWriter, r *http.Reque
 func isPGUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505"
+}
+
+func normalizeAdminColor(raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	s := strings.TrimSpace(*raw)
+	if s == "" {
+		return nil, nil
+	}
+	if len(s) != 7 || s[0] != '#' {
+		return nil, errors.New("admin_color must be a hex color like #3B82F6")
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !isHex {
+			return nil, errors.New("admin_color must be a hex color like #3B82F6")
+		}
+	}
+	normalized := strings.ToUpper(s)
+	return &normalized, nil
 }

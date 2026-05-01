@@ -3,6 +3,9 @@ export type VipBenefit = {
   description: string
   icon?: string
   icon_color?: string
+  /** When merged from `tier_benefits`, stable id for matching `tier_perks` on VIP status. */
+  benefit_id?: number
+  benefit_type?: string
 }
 
 export type VipDisplay = {
@@ -15,6 +18,10 @@ export type VipTierPerks = {
   hide_from_public_page?: boolean
   display?: VipDisplay
   benefits?: VipBenefit[]
+  /** Admin: show weekly VIP bonus promo card + eligibility for weekly delivery pipeline */
+  weekly_bonus_enabled?: boolean
+  /** Admin: show monthly VIP bonus promo card + eligibility for monthly delivery pipeline */
+  monthly_bonus_enabled?: boolean
 }
 
 /** Structured benefits from GET /v1/vip/program (vip_tier_benefits). */
@@ -25,6 +32,9 @@ export type VipTierBenefitStructured = {
   promotion_version_id?: number
   player_title?: string
   player_description?: string
+  /** From server join on promotion_versions / promotions (public programme). */
+  promotion_display_title?: string
+  promotion_display_description?: string
   config?: Record<string, unknown>
 }
 
@@ -50,41 +60,6 @@ export const VIP_HERO_TILES: { title: string; image: string }[] = [
   { title: 'Special Offers', image: CHEST_B },
 ]
 
-const BENEFITS_FISH: VipBenefit[] = [
-  { title: 'Level Up Rewards', description: 'Straight Cash every level', icon: 'arrow-up-circle', icon_color: '#eab308' },
-  { title: 'Daily Dollar Hunts', description: 'Earn XP & get cash rewards', icon: 'zap', icon_color: '#f97316' },
-  { title: 'Upgraded Rakeback', description: '3 boosts per day', icon: 'circle-dollar-sign', icon_color: '#22c55e' },
-  { title: 'Small Fry', description: 'Keep on swimming', icon: 'sparkles', icon_color: '#60a5fa' },
-]
-
-const BENEFITS_SEAL: VipBenefit[] = [
-  { title: 'Level Up Rewards', description: 'Straight Cash every level', icon: 'arrow-up-circle', icon_color: '#eab308' },
-  { title: 'Daily Dollar Hunts', description: 'Earn XP & get cash rewards', icon: 'zap', icon_color: '#f97316' },
-  { title: 'Upgraded Rakeback', description: '3 boosts per day', icon: 'circle-dollar-sign', icon_color: '#22c55e' },
-  { title: 'Rain unlocked', description: 'Claim rains for free', icon: 'cloud-rain', icon_color: '#a8a29e' },
-]
-
-const BENEFITS_PIRANHA: VipBenefit[] = [
-  { title: 'Level Up Rewards', description: 'Straight Cash every level', icon: 'arrow-up-circle', icon_color: '#eab308' },
-  { title: 'Daily Dollar Hunts', description: 'Earn XP & get cash rewards', icon: 'zap', icon_color: '#f97316' },
-  { title: 'Upgraded Rakeback', description: '3 boosts per day', icon: 'circle-dollar-sign', icon_color: '#22c55e' },
-  { title: 'Exclusive Promos', description: 'Look out for messages', icon: 'mail', icon_color: '#ef4444' },
-]
-
-const BENEFITS_SHARK: VipBenefit[] = [
-  { title: 'Level Up Rewards', description: 'Straight Cash every level', icon: 'arrow-up-circle', icon_color: '#eab308' },
-  { title: 'Daily Dollar Hunts', description: 'Earn XP & get cash rewards', icon: 'zap', icon_color: '#f97316' },
-  { title: 'Upgraded Rakeback', description: '3 boosts per day', icon: 'circle-dollar-sign', icon_color: '#22c55e' },
-  { title: 'Upgraded Weekly', description: 'Empower your bonus', icon: 'trending-up', icon_color: '#14f195' },
-]
-
-const FALLBACK_BENEFITS_BY_NAME: Record<string, VipBenefit[]> = {
-  FISH: BENEFITS_FISH,
-  SEAL: BENEFITS_SEAL,
-  PIRANHA: BENEFITS_PIRANHA,
-  SHARK: BENEFITS_SHARK,
-}
-
 export function formatVipWagerThreshold(minor: number): string {
   const usd = minor / 100
   if (usd >= 1_000_000) {
@@ -98,18 +73,107 @@ export function formatVipWagerThreshold(minor: number): string {
   return `$${usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 }
 
+export function humanizeRebateKey(key: string): string {
+  const k = key.trim()
+  if (!k) return 'rebate programme'
+  if (k.toLowerCase() === 'weekly_cashback') return 'Rakeback'
+  return k
+    .split('_')
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function normalizeRakebackCopy(s: string): string {
+  return s.replace(/weekly\s+cashback/gi, 'rakeback').replace(/cashback/gi, 'rakeback')
+}
+
+function hasPercentCopy(s: string): boolean {
+  return /\d+(\.\d+)?\s*%/.test(s)
+}
+
+function formatPercent(value: unknown, maxFractionDigits = 2): string {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isFinite(n)) return '0'
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxFractionDigits,
+  }).format(n)
+}
+
 function structuredTierBenefitToCard(b: VipTierBenefitStructured): VipBenefit {
-  const title =
-    (typeof b.player_title === 'string' && b.player_title.trim()) ||
-    (b.benefit_type === 'grant_promotion' ? 'Tier unlock reward' : 'Rebate boost')
-  const description =
-    (typeof b.player_description === 'string' && b.player_description.trim()) ||
-    (b.benefit_type === 'grant_promotion'
-      ? 'Bonus when you reach this tier (subject to offer rules and checks).'
-      : 'Extra rebate percentage on the matching rewards programme.')
-  const icon =
-    b.benefit_type === 'grant_promotion' ? 'sparkles' : b.benefit_type === 'rebate_percent_add' ? 'circle-dollar-sign' : 'arrow-up-circle'
-  return { title, description, icon, icon_color: '#c084fc' }
+  const base: VipBenefit = { title: '', description: '', icon: 'sparkles', icon_color: '#c084fc', benefit_id: b.id, benefit_type: b.benefit_type }
+  if (b.benefit_type === 'vip_card_feature') {
+    const cfg = b.config ?? {}
+    const cfgTitle = typeof cfg.title === 'string' ? cfg.title.trim() : ''
+    const cfgSubtitle = typeof cfg.subtitle === 'string' ? cfg.subtitle.trim() : ''
+    const cfgIcon = typeof cfg.icon_key === 'string' ? cfg.icon_key.trim() : ''
+    return {
+      ...base,
+      title: cfgTitle || (typeof b.player_title === 'string' ? b.player_title.trim() : '') || 'VIP benefit',
+      description: cfgSubtitle || (typeof b.player_description === 'string' ? b.player_description.trim() : '') || '',
+      icon: cfgIcon || 'sparkles',
+    }
+  }
+  if (b.benefit_type === 'rebate_percent_add') {
+    const cfg = b.config ?? {}
+    const key = typeof cfg.rebate_program_key === 'string' ? cfg.rebate_program_key.trim() : ''
+    const ptRaw = typeof b.player_title === 'string' ? normalizeRakebackCopy(b.player_title.trim()) : ''
+    const pt = ptRaw.toLowerCase() === 'vip rakeback boost' ? '' : ptRaw
+    const pd = typeof b.player_description === 'string' ? normalizeRakebackCopy(b.player_description.trim()) : ''
+    const title = pt && !hasPercentCopy(pt) ? pt : 'Upgraded Rakeback'
+    let description = pd
+    if (!description || hasPercentCopy(description)) {
+      description = key
+        ? `Enhanced ${humanizeRebateKey(key).toLowerCase()} so you keep more value from eligible play.`
+        : 'Enhanced rakeback so you keep more value from eligible play.'
+    }
+    return { ...base, title, description, icon: 'circle-dollar-sign' }
+  }
+  if (b.benefit_type === 'grant_promotion') {
+    const pt = typeof b.player_title === 'string' ? b.player_title.trim() : ''
+    const pdt = typeof b.promotion_display_title === 'string' ? b.promotion_display_title.trim() : ''
+    const title = pt || pdt || 'VIP bonus'
+    const pd = typeof b.player_description === 'string' ? b.player_description.trim() : ''
+    const pdd = typeof b.promotion_display_description === 'string' ? b.promotion_display_description.trim() : ''
+    const description = pd || pdd || 'Promotion attached to this tier.'
+    return { ...base, title, description, icon: 'sparkles' }
+  }
+  if (b.benefit_type === 'level_up_cash_percent') {
+    const cfg = b.config ?? {}
+    let pct = 0
+    const raw = cfg.percent_of_previous_level_wager
+    if (typeof raw === 'number' && Number.isFinite(raw)) pct = raw
+    else if (typeof raw === 'string' && raw.trim()) pct = Number(raw) || 0
+    const title =
+      (typeof b.player_title === 'string' && b.player_title.trim()) || 'Level Up Rewards'
+    const description =
+      (typeof b.player_description === 'string' && b.player_description.trim()) ||
+      (pct > 0
+        ? `Straight cash reward at ${formatPercent(pct)}% of your previous-level wager.`
+        : 'Straight cash reward on level up.')
+    return { ...base, title, description, icon: 'arrow-up-circle', icon_color: '#eab308' }
+  }
+  if (b.benefit_type === 'rakeback_boost_schedule') {
+    const cfg = b.config ?? {}
+    const windows = Array.isArray(cfg.windows) ? cfg.windows.length : 0
+    const rawTitle = typeof b.player_title === 'string' ? normalizeRakebackCopy(b.player_title.trim()) : ''
+    const rawDescription = typeof b.player_description === 'string' ? normalizeRakebackCopy(b.player_description.trim()) : ''
+    const title = rawTitle && !hasPercentCopy(rawTitle) ? rawTitle : 'Rakeback Boost'
+    const description =
+      rawDescription && !hasPercentCopy(rawDescription)
+        ? rawDescription
+        : windows > 0
+          ? `Unlock timed boosts up to ${windows} times per day.`
+          : 'Unlock timed boosts throughout the day.'
+    return { ...base, title, description, icon: 'timer', icon_color: '#22d3ee' }
+  }
+  return {
+    ...base,
+    title: typeof b.player_title === 'string' && b.player_title.trim() ? b.player_title.trim() : 'VIP benefit',
+    description: typeof b.player_description === 'string' && b.player_description.trim() ? b.player_description.trim() : '',
+    icon: 'arrow-up-circle',
+  }
 }
 
 export function mergeTierPresentation(tier: VipProgramTier): {
@@ -117,13 +181,38 @@ export function mergeTierPresentation(tier: VipProgramTier): {
   benefits: VipBenefit[]
 } {
   const key = tier.name.trim().toUpperCase()
-  const fallbackBenefits = FALLBACK_BENEFITS_BY_NAME[key] ?? []
   const perks = tier.perks ?? {}
   const apiBenefits = Array.isArray(perks.benefits) ? perks.benefits : []
-  const structured = Array.isArray(tier.tier_benefits) ? tier.tier_benefits : []
-  const fromStructured = structured.length > 0 ? structured.map(structuredTierBenefitToCard) : []
-  const benefits =
-    fromStructured.length > 0 ? fromStructured : apiBenefits.length > 0 ? apiBenefits : fallbackBenefits
+  const structuredRaw = Array.isArray(tier.tier_benefits) ? [...tier.tier_benefits] : []
+  const structured = structuredRaw.filter((b) => {
+    if (b.benefit_type !== 'rakeback_boost_schedule') return true
+    const cfg = b.config ?? {}
+    return cfg.display_to_customer !== false
+  })
+  structured.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id)
+  const fromStructured = structured.map(structuredTierBenefitToCard)
+  const baseBenefits = fromStructured.length > 0 ? fromStructured : apiBenefits.length > 0 ? apiBenefits : []
+  /** Shown when admin enables scheduled VIP delivery for this tier (`VipProgramPage`). */
+  const scheduledBonusCards: VipBenefit[] = []
+  if (perks.weekly_bonus_enabled === true) {
+    scheduledBonusCards.push({
+      title: 'Weekly bonuses',
+      description: 'Scheduled VIP-only offers on the weekly cadence.',
+      icon: 'gift',
+      icon_color: '#c084fc',
+      benefit_type: 'vip_scheduled_bonus_weekly',
+    })
+  }
+  if (perks.monthly_bonus_enabled === true) {
+    scheduledBonusCards.push({
+      title: 'Monthly bonuses',
+      description: 'Scheduled VIP-only offers on the monthly cadence.',
+      icon: 'gift',
+      icon_color: '#22d3ee',
+      benefit_type: 'vip_scheduled_bonus_monthly',
+    })
+  }
+  const benefits = [...baseBenefits, ...scheduledBonusCards]
   const display: VipDisplay = {
     ...(FALLBACK_DISPLAY_BY_NAME[key] ?? {}),
     ...perks.display,
@@ -132,6 +221,18 @@ export function mergeTierPresentation(tier: VipProgramTier): {
 }
 
 const FALLBACK_DISPLAY_BY_NAME: Record<string, VipDisplay> = {
+  TADPOLE: {
+    header_color: '#898b8a',
+    character_image_url:
+      'https://storage.googleapis.com/banani-generated-images/generated-images/ef83d3d0-a445-4d27-8cd3-33ddbd1e7ab4.jpg',
+    rank_label: 'Rank 1',
+  },
+  STANDARD: {
+    header_color: '#898b8a',
+    character_image_url:
+      'https://storage.googleapis.com/banani-generated-images/generated-images/ef83d3d0-a445-4d27-8cd3-33ddbd1e7ab4.jpg',
+    rank_label: 'Rank 1',
+  },
   FISH: {
     header_color: '#898b8a',
     character_image_url:

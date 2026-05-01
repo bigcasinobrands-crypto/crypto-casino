@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/crypto-casino/core/internal/ledger"
@@ -13,9 +14,60 @@ import (
 )
 
 var (
-	ErrExcludedGame    = errors.New("bonus: game excluded by active promotion")
-	ErrMaxBetExceeded  = errors.New("bonus: stake exceeds max bet for active bonus")
+	ErrExcludedGame   = errors.New("bonus: game excluded by active promotion")
+	ErrMaxBetExceeded = errors.New("bonus: stake exceeds max bet for active bonus")
 )
+
+func snapPositiveInt64FromMap(obj map[string]any, key string) int64 {
+	if obj == nil {
+		return 0
+	}
+	v, ok := obj[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch x := v.(type) {
+	case float64:
+		if x > 0 && x < 1e18 {
+			return int64(x)
+		}
+	case int64:
+		if x > 0 {
+			return x
+		}
+	case int:
+		if x > 0 {
+			return int64(x)
+		}
+	case int32:
+		if x > 0 {
+			return int64(x)
+		}
+	case json.Number:
+		i, err := x.Int64()
+		if err == nil && i > 0 {
+			return i
+		}
+	case string:
+		i, err := strconv.ParseInt(strings.TrimSpace(x), 10, 64)
+		if err == nil && i > 0 {
+			return i
+		}
+	}
+	return 0
+}
+
+// snapPositiveWeightPct reads snapshot game_weight_pct (1–1000); 0 if unset/invalid.
+func snapPositiveWeightPct(obj map[string]any, key string) int {
+	n := int(snapPositiveInt64FromMap(obj, key))
+	if n <= 0 {
+		return 0
+	}
+	if n > 1000 {
+		return 1000
+	}
+	return n
+}
 
 // ActiveWageringInstance returns the active bonus instance row for wagering enforcement.
 func ActiveWageringInstance(ctx context.Context, tx pgx.Tx, userID string) (instanceID string, maxBet int64, excluded map[string]bool, weightPct int, withdrawPolicy string, err error) {
@@ -44,10 +96,7 @@ func ActiveWageringInstance(ctx context.Context, tx pgx.Tx, userID string) (inst
 		}
 	}
 	weightPct = 100
-	if w, ok := obj["game_weight_pct"].(float64); ok && w > 0 {
-		weightPct = int(w)
-	}
-	if w, ok := obj["game_weight_pct"].(int); ok && w > 0 {
+	if w := snapPositiveWeightPct(obj, "game_weight_pct"); w > 0 {
 		weightPct = w
 	}
 	if pol, ok := obj["withdraw_policy"].(string); ok {
@@ -58,15 +107,16 @@ func ActiveWageringInstance(ctx context.Context, tx pgx.Tx, userID string) (inst
 		maxBet = *mb
 	}
 	if maxBet == 0 {
-		if x, ok := obj["max_bet_minor"].(float64); ok && x > 0 {
-			maxBet = int64(x)
+		if x := snapPositiveInt64FromMap(obj, "max_bet_minor"); x > 0 {
+			maxBet = x
 		}
 	}
 	return instanceID, maxBet, excluded, weightPct, withdrawPolicy, nil
 }
 
 // CheckBetAllowedTx enforces max bet and game exclusions using the open user transaction.
-func CheckBetAllowedTx(ctx context.Context, tx pgx.Tx, userID, gameID string, stakeMinor int64) error {
+// sourceRef is optional (e.g. BlueOcean remote:txn) for correlating duplicate provider retries in bonus_wager_violations.
+func CheckBetAllowedTx(ctx context.Context, tx pgx.Tx, userID, gameID string, stakeMinor int64, sourceRef string) error {
 	instID, maxBet, excluded, _, _, err := ActiveWageringInstance(ctx, tx, userID)
 	if err != nil {
 		return err
@@ -77,13 +127,45 @@ func CheckBetAllowedTx(ctx context.Context, tx pgx.Tx, userID, gameID string, st
 	g := strings.ToLower(strings.TrimSpace(gameID))
 	if excluded[g] {
 		obs.IncBonusBetReject()
+		_ = recordWagerViolationTx(ctx, tx, userID, instID, gameID, stakeMinor, 0, "excluded_game", sourceRef)
 		return ErrExcludedGame
 	}
 	if maxBet > 0 && stakeMinor > maxBet {
 		obs.IncBonusBetReject()
+		_ = recordWagerViolationTx(ctx, tx, userID, instID, gameID, stakeMinor, maxBet, "max_bet", sourceRef)
 		return ErrMaxBetExceeded
 	}
 	return nil
+}
+
+func recordWagerViolationTx(ctx context.Context, tx pgx.Tx, userID, instanceID, gameID string, stakeMinor, maxBetMinor int64, violationType, sourceRef string) error {
+	gid := strings.TrimSpace(gameID)
+	if len(gid) > 512 {
+		gid = gid[:512]
+	}
+	var ref any
+	sr := strings.TrimSpace(sourceRef)
+	if sr != "" {
+		if len(sr) > 500 {
+			sr = sr[:500]
+		}
+		ref = sr
+	} else {
+		ref = nil
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO bonus_wager_violations (user_id, bonus_instance_id, game_id, stake_minor, max_bet_minor, violation_type, source_ref)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)
+	`, userID, instanceID, gid, stakeMinor, maxBetMinor, violationType, ref)
+	if err != nil {
+		return err
+	}
+	if violationType == "max_bet" {
+		_, err = tx.Exec(ctx, `
+			UPDATE user_bonus_instances SET max_bet_violations_count = max_bet_violations_count + 1, updated_at = now() WHERE id = $1::uuid
+		`, instanceID)
+	}
+	return err
 }
 
 // ApplyPostBetWagering updates WR progress from stake taken from bonus_locked and may complete the bonus.
@@ -109,8 +191,8 @@ func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string,
 	var obj map[string]any
 	_ = json.Unmarshal(snap, &obj)
 	weightPct := 100
-	if w, ok := obj["game_weight_pct"].(float64); ok && w > 0 {
-		weightPct = int(w)
+	if w := snapPositiveWeightPct(obj, "game_weight_pct"); w > 0 {
+		weightPct = w
 	}
 	g := strings.ToLower(strings.TrimSpace(gameID))
 	if arr, ok := obj["excluded_game_ids"].([]any); ok {
@@ -118,6 +200,18 @@ func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string,
 			if s, ok := v.(string); ok && strings.ToLower(strings.TrimSpace(s)) == g {
 				return nil
 			}
+		}
+	}
+	if arr, ok := obj["allowed_game_ids"].([]any); ok && len(arr) > 0 {
+		allowed := false
+		for _, v := range arr {
+			if s, ok := v.(string); ok && strings.ToLower(strings.TrimSpace(s)) == g {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil
 		}
 	}
 	catW, err := contributionCategoryWeightPct(ctx, tx, gameID)
@@ -137,6 +231,76 @@ func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string,
 		return err
 	}
 	return maybeCompleteBonus(ctx, tx, userID, instID)
+}
+
+// ApplyPostBetRollbackWagering reduces WR contribution when bonus stake is rolled back.
+// Call only when the corresponding game.rollback ledger line was newly inserted (idempotent via ledger ON CONFLICT).
+func ApplyPostBetRollbackWagering(ctx context.Context, tx pgx.Tx, userID, gameID string, fromBonusRollback int64) error {
+	if fromBonusRollback <= 0 {
+		return nil
+	}
+	var instID string
+	var snap []byte
+	var wrReq, wrDone int64
+	var status string
+	err := tx.QueryRow(ctx, `
+		SELECT id::text, snapshot, wr_required_minor, wr_contributed_minor, status
+		FROM user_bonus_instances
+		WHERE user_id = $1::uuid AND wr_required_minor > 0
+		ORDER BY created_at ASC LIMIT 1 FOR UPDATE
+	`, userID).Scan(&instID, &snap, &wrReq, &wrDone, &status)
+	if err == pgx.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(strings.TrimSpace(status), "active") {
+		return nil
+	}
+	if wrDone <= 0 {
+		return nil
+	}
+	var obj map[string]any
+	_ = json.Unmarshal(snap, &obj)
+	weightPct := 100
+	if w := snapPositiveWeightPct(obj, "game_weight_pct"); w > 0 {
+		weightPct = w
+	}
+	g := strings.ToLower(strings.TrimSpace(gameID))
+	if arr, ok := obj["excluded_game_ids"].([]any); ok {
+		for _, v := range arr {
+			if s, ok := v.(string); ok && strings.ToLower(strings.TrimSpace(s)) == g {
+				return nil
+			}
+		}
+	}
+	if arr, ok := obj["allowed_game_ids"].([]any); ok && len(arr) > 0 {
+		allowed := false
+		for _, v := range arr {
+			if s, ok := v.(string); ok && strings.ToLower(strings.TrimSpace(s)) == g {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil
+		}
+	}
+	catW, err := contributionCategoryWeightPct(ctx, tx, gameID)
+	if err != nil {
+		return err
+	}
+	delta := (fromBonusRollback * int64(weightPct) * int64(catW)) / 10000
+	if delta <= 0 {
+		return nil
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE user_bonus_instances
+		SET wr_contributed_minor = GREATEST(0, wr_contributed_minor - $2), updated_at = now()
+		WHERE id = $1::uuid
+	`, instID, delta)
+	return err
 }
 
 func maybeCompleteBonus(ctx context.Context, tx pgx.Tx, userID, instID string) error {

@@ -1,7 +1,7 @@
 import { useEffect, type FC } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAdminAuth } from '../authContext'
-import AppLayout from '../layout/AppLayout'
+import AdminLTELayout from '../layout/AdminLTELayout'
 
 const AdminLayout: FC = () => {
   const { accessToken, refreshMe } = useAdminAuth()
@@ -12,7 +12,7 @@ const AdminLayout: FC = () => {
 
   if (!accessToken) return <Navigate to="/login" replace />
 
-  return <AppLayout />
+  return <AdminLTELayout />
 }
 
 export default AdminLayout

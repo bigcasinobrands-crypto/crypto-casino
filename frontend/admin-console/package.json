@@ -5,19 +5,28 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:fresh": "vite --force",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "check": "npm run lint && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@popperjs/core": "^2.11.8",
     "@repo/cross-app": "*",
     "@repo/design-tokens": "*",
+    "@simplewebauthn/browser": "^13.3.0",
+    "admin-lte": "^4.0.0-rc7",
     "apexcharts": "^5.10.5",
+    "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.13.1",
     "clsx": "^2.1.1",
+    "overlayscrollbars": "^2.15.1",
     "react": "^19.2.4",
     "react-apexcharts": "^2.1.0",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.14.0",
+    "react-simple-maps": "^3.0.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.0.1"
   },
@@ -35,7 +44,7 @@
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
-    "vite": "^8.0.1",
+    "vite": "^8.0.5",
     "vite-plugin-svgr": "^4.3.0"
   }
 }

@@ -11,7 +11,7 @@ type Props = LinkProps
  * If signed in, behaves like a normal {@link Link}.
  */
 export function RequireAuthLink({ to, onClick, ...rest }: Props) {
-  const { accessToken } = usePlayerAuth()
+  const { isAuthenticated } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const target = authNavigateTarget(to)
 
@@ -23,7 +23,7 @@ export function RequireAuthLink({ to, onClick, ...rest }: Props) {
         if (isGameLobbyNavTarget(to)) {
           saveCatalogReturnBeforeGameOpen()
         }
-        if (!accessToken) {
+        if (!isAuthenticated) {
           e.preventDefault()
           openAuth('login', { navigateTo: target })
         }

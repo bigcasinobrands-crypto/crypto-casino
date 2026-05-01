@@ -1,8 +1,10 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { useAdminAuth } from '../authContext'
+import { ApiResultSummary } from '../components/admin/ApiResultSummary'
+import PageBreadcrumb from '../components/common/PageBreadCrumb'
+import PageMeta from '../components/common/PageMeta'
 import { StatusBadge } from '../components/dashboard'
 import { formatRelativeTime, downloadCSV } from '../lib/format'
-import { ApiResultSummary } from '../components/admin/ApiResultSummary'
 
 interface AuditEntry {
   id: number
@@ -49,10 +51,10 @@ function actionVariant(action: string): 'success' | 'error' | 'warning' | 'info'
 
 function SkeletonRow() {
   return (
-    <tr className="animate-pulse">
+    <tr className="placeholder-glow">
       {Array.from({ length: 5 }).map((_, i) => (
-        <td key={i} className="px-4 py-3">
-          <div className="h-4 rounded bg-gray-200 dark:bg-gray-700" />
+        <td key={i} className="py-3">
+          <span className="placeholder col-10 d-block" />
         </td>
       ))}
     </tr>
@@ -126,141 +128,143 @@ export default function AuditLogPage() {
   const rangeStart = totalCount === 0 ? 0 : offset + 1
   const rangeEnd = Math.min(offset + PAGE_SIZE, totalCount)
 
-  const inputCls =
-    'rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:ring-1 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500'
-  const selectCls = `${inputCls} appearance-none pr-8`
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Audit Log</h1>
+    <>
+      <PageMeta
+        title="Audit log · Admin"
+        description="Immutable staff action history with filters and CSV export."
+      />
+      <PageBreadcrumb
+        pageTitle="Audit log"
+        subtitle="Staff actions across Bonus Hub, payments, chat, and system changes."
+      />
+
+      <div className="d-flex justify-content-end mb-3">
         <button
           type="button"
           disabled={csvBusy}
           onClick={() => void handleCSV()}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-600 disabled:opacity-50"
+          className="btn btn-primary btn-sm d-inline-flex align-items-center gap-2"
         >
           {csvBusy ? (
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <span className="spinner-border spinner-border-sm" role="status" aria-hidden />
           ) : (
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
-            </svg>
+            <i className="bi bi-download" aria-hidden />
           )}
           Export CSV
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-          Staff email
-          <input
-            type="text"
-            placeholder="Filter by email…"
-            value={staffEmail}
-            onChange={(e) => setStaffEmail(e.target.value)}
-            className={`${inputCls} w-52`}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-          Action type
-          <select value={actionGroup} onChange={(e) => setActionGroup(e.target.value)} className={selectCls}>
-            {ACTION_GROUPS.map((g) => (
-              <option key={g.value} value={g.value}>{g.label}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-          Target type
-          <select value={targetType} onChange={(e) => setTargetType(e.target.value)} className={selectCls}>
-            {TARGET_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-          After
-          <input type="date" value={after} onChange={(e) => setAfter(e.target.value)} className={inputCls} />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-          Before
-          <input type="date" value={before} onChange={(e) => setBefore(e.target.value)} className={inputCls} />
-        </label>
+      <div className="card mb-3">
+        <div className="card-body py-3">
+          <div className="row g-2 align-items-end">
+            <div className="col-6 col-md-4 col-lg">
+              <label className="form-label small mb-0">Staff email</label>
+              <input
+                type="text"
+                className="form-control form-control-sm"
+                placeholder="Filter by email…"
+                value={staffEmail}
+                onChange={(e) => setStaffEmail(e.target.value)}
+              />
+            </div>
+            <div className="col-6 col-md-4 col-lg">
+              <label className="form-label small mb-0">Action type</label>
+              <select
+                value={actionGroup}
+                onChange={(e) => setActionGroup(e.target.value)}
+                className="form-select form-select-sm"
+              >
+                {ACTION_GROUPS.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="col-6 col-md-4 col-lg">
+              <label className="form-label small mb-0">Target type</label>
+              <select
+                value={targetType}
+                onChange={(e) => setTargetType(e.target.value)}
+                className="form-select form-select-sm"
+              >
+                {TARGET_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="col-6 col-md-4 col-lg">
+              <label className="form-label small mb-0">After</label>
+              <input type="date" value={after} onChange={(e) => setAfter(e.target.value)} className="form-control form-control-sm" />
+            </div>
+            <div className="col-6 col-md-4 col-lg">
+              <label className="form-label small mb-0">Before</label>
+              <input type="date" value={before} onChange={(e) => setBefore(e.target.value)} className="form-control form-control-sm" />
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </div>
-      )}
+      {error ? <div className="alert alert-danger small py-2">{error}</div> : null}
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:bg-white/[0.02] dark:text-gray-400">
+      <div className="card">
+        <div className="table-responsive">
+          <table className="table table-sm table-striped table-hover align-middle mb-0">
+            <thead className="table-light">
               <tr>
-                <th className="px-4 py-3">Time</th>
-                <th className="px-4 py-3">Staff</th>
-                <th className="px-4 py-3">Action</th>
-                <th className="px-4 py-3">Target</th>
-                <th className="px-4 py-3">Details</th>
+                <th className="small">Time</th>
+                <th className="small">Staff</th>
+                <th className="small">Action</th>
+                <th className="small">Target</th>
+                <th className="small">Details</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            <tbody>
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => <SkeletonRow key={i} />)
               ) : entries.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
+                  <td colSpan={5} className="text-center text-secondary py-5 small">
                     No entries found.
                   </td>
                 </tr>
               ) : (
-                entries.map((entry, idx) => (
+                entries.map((entry) => (
                   <Fragment key={entry.id}>
                     <tr
-                      className={`cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-white/[0.03] ${idx % 2 === 1 ? 'bg-gray-50/50 dark:bg-white/[0.01]' : ''}`}
+                      className="cursor-pointer"
                       onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
                     >
-                      <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-300" title={entry.created_at}>
+                      <td className="text-nowrap small" title={entry.created_at}>
                         {formatRelativeTime(entry.created_at)}
                       </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                        <span className="font-mono text-xs">{entry.staff_email}</span>
+                      <td className="small">
+                        <span className="font-monospace">{entry.staff_email}</span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td>
                         <StatusBadge label={entry.action} variant={actionVariant(entry.action)} dot />
                       </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                        {entry.target_type && (
-                          <span className="mr-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-                            {entry.target_type}
-                          </span>
-                        )}
-                        <span className="font-mono text-xs text-gray-500">{entry.target_id ?? '—'}</span>
+                      <td className="small">
+                        {entry.target_type ? (
+                          <span className="badge text-bg-secondary me-1">{entry.target_type}</span>
+                        ) : null}
+                        <span className="font-monospace text-secondary">{entry.target_id ?? '—'}</span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-400">
-                        {expandedId === entry.id ? '▾ collapse' : '▸ expand'}
-                      </td>
+                      <td className="text-secondary small">{expandedId === entry.id ? '▾ collapse' : '▸ expand'}</td>
                     </tr>
                     {expandedId === entry.id && (
-                      <tr className="bg-gray-50 dark:bg-white/[0.02]">
-                        <td colSpan={5} className="px-4 py-3">
+                      <tr className="table-light">
+                        <td colSpan={5} className="small">
                           <ApiResultSummary data={entry.meta} embedded />
                           {showRawMeta ? (
                             <details className="mt-3">
-                              <summary className="cursor-pointer text-xs font-medium text-brand-600 dark:text-brand-400">
+                              <summary className="text-primary" role="button">
                                 Developer: raw JSON (set localStorage admin_debug_raw=1)
                               </summary>
-                              <pre className="mt-2 max-h-48 overflow-auto rounded-lg bg-gray-900 p-3 text-xs text-green-400 dark:bg-black">
+                              <pre className="mt-2 mb-0 max-h-48 overflow-auto p-3 rounded bg-dark text-success small font-monospace">
                                 {JSON.stringify(entry.meta, null, 2)}
                               </pre>
                             </details>
@@ -276,18 +280,17 @@ export default function AuditLogPage() {
         </div>
       </div>
 
-      {/* Pagination */}
-      {totalCount > 0 && (
-        <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
+      {totalCount > 0 ? (
+        <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 small text-secondary">
           <span>
             Showing {rangeStart}–{rangeEnd} of {totalCount}
           </span>
-          <div className="flex gap-2">
+          <div className="d-flex gap-2">
             <button
               type="button"
               disabled={offset === 0}
               onClick={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:hover:bg-white/[0.04]"
+              className="btn btn-outline-secondary btn-sm"
             >
               ← Prev
             </button>
@@ -295,13 +298,13 @@ export default function AuditLogPage() {
               type="button"
               disabled={offset + PAGE_SIZE >= totalCount}
               onClick={() => setOffset((o) => o + PAGE_SIZE)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:hover:bg-white/[0.04]"
+              className="btn btn-outline-secondary btn-sm"
             >
               Next →
             </button>
           </div>
         </div>
-      )}
-    </div>
+      ) : null}
+    </>
   )
 }

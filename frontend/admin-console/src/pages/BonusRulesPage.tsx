@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { readApiError, formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
 import ComponentCard from '../components/common/ComponentCard'
@@ -14,12 +15,13 @@ type VersionRow = {
   rules?: unknown
   terms_text?: string
   bonus_type?: string
+  player_hero_image_url?: string
 }
 
 const btnPrimary =
   'rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50'
 const btnSecondary =
-  'rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-white/10'
+  'rounded-lg border border-gray-300 !bg-white px-3 py-2 text-sm font-medium !text-gray-900 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:!bg-gray-900 dark:!text-gray-100 dark:hover:bg-white/10'
 
 export default function BonusRulesPage() {
   const { id: idParam } = useParams()
@@ -37,6 +39,7 @@ export default function BonusRulesPage() {
   const [bonusTypeId, setBonusTypeId] = useState('deposit_match')
   const [rules, setRules] = useState<unknown>({})
   const [termsText, setTermsText] = useState('')
+  const [playerHeroImageUrl, setPlayerHeroImageUrl] = useState('')
   const [draftVid, setDraftVid] = useState<number | null>(null)
 
   const load = useCallback(async () => {
@@ -74,6 +77,7 @@ export default function BonusRulesPage() {
           setRules(defaultRulesForType(bt))
         }
         setTermsText(draft.terms_text ?? '')
+        setPlayerHeroImageUrl(draft.player_hero_image_url ?? '')
       } else {
         setDraftVid(null)
         const latest = vers[0]
@@ -81,6 +85,7 @@ export default function BonusRulesPage() {
         setBonusTypeId(bt)
         setRules(latest?.rules && typeof latest.rules === 'object' ? latest.rules : defaultRulesForType(bt))
         setTermsText(latest?.terms_text ?? '')
+        setPlayerHeroImageUrl(latest?.player_hero_image_url ?? '')
       }
     } catch {
       setErr('Network error')
@@ -92,6 +97,27 @@ export default function BonusRulesPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const uploadFile = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await apiFetch('/v1/admin/content/upload', { method: 'POST', body: fd })
+        if (!res.ok) {
+          toast.error('Upload failed')
+          return null
+        }
+        const j = (await res.json()) as { url: string }
+        toast.success('Image uploaded')
+        return j.url
+      } catch {
+        toast.error('Upload error')
+        return null
+      }
+    },
+    [apiFetch],
+  )
 
   const save = async () => {
     if (draftVid == null) {
@@ -112,7 +138,11 @@ export default function BonusRulesPage() {
       const res = await apiFetch(`/v1/admin/bonushub/promotion-versions/${draftVid}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules, terms_text: termsText }),
+        body: JSON.stringify({
+          rules,
+          terms_text: termsText,
+          player_hero_image_url: playerHeroImageUrl.trim(),
+        }),
       })
       if (!res.ok) {
         const e = await readApiError(res)
@@ -164,14 +194,11 @@ export default function BonusRulesPage() {
       ) : draftVid == null ? (
         <ComponentCard
           title="No draft version"
-          desc="Rules can only be changed on an unpublished version. Add a new version or clone the latest in Operations."
+          desc="Rules can only be changed on an unpublished version. Add a new version from the wizard or this promotion’s hub."
         >
           <div className="flex flex-wrap gap-2">
-            <Link
-              to={`/bonushub/operations?tab=promotions&promo=${promoId}`}
-              className={btnPrimary}
-            >
-              Open Operations
+            <Link to={`/bonushub/promotions/${promoId}`} className={btnPrimary}>
+              Open promotion hub
             </Link>
             <Link to={`/bonushub/promotions/${promoId}/delivery`} className={btnSecondary}>
               Schedule &amp; deliver
@@ -199,6 +226,9 @@ export default function BonusRulesPage() {
             onRulesChange={setRules}
             termsText={termsText}
             onTermsTextChange={setTermsText}
+            playerHeroImageUrl={playerHeroImageUrl}
+            onPlayerHeroImageUrlChange={setPlayerHeroImageUrl}
+            uploadFile={uploadFile}
           />
           <div className="mt-6 flex flex-wrap gap-2">
             <button type="button" className={btnPrimary} disabled={!isSuper || busy} onClick={() => void save()}>

@@ -8,6 +8,8 @@ interface ImportMetaEnv {
   readonly VITE_RG_URL?: string
   /** Base URL of the admin console SPA (for cross-app links from the player UI). */
   readonly VITE_ADMIN_APP_ORIGIN?: string
+  /** Set to 1/true when core has PLAYER_COOKIE_AUTH — sends credentialed fetches (httpOnly cookies). */
+  readonly VITE_PLAYER_CREDENTIALS?: string
 }
 
 interface ImportMeta {

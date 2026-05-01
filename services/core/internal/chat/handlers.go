@@ -6,11 +6,15 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/crypto-casino/core/internal/jwtplayer"
+	"github.com/crypto-casino/core/internal/jtiredis"
+	"github.com/crypto-casino/core/internal/jwtissuer"
 	"github.com/crypto-casino/core/internal/playerapi"
+	"github.com/crypto-casino/core/internal/privacy"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"nhooyr.io/websocket"
 )
 
@@ -25,19 +29,45 @@ func init() {
 }
 
 // HandleWebSocket upgrades to a WebSocket connection.
-// Auth token is passed via ?token=<jwt> since browsers cannot set headers on WS.
-func HandleWebSocket(hub *Hub, pool *pgxpool.Pool, jwtSecret []byte) http.HandlerFunc {
+// Prefer ?ticket= from POST /v1/chat/ws-ticket when Redis is available; otherwise ?token=<jwt>.
+func HandleWebSocket(hub *Hub, pool *pgxpool.Pool, iss *jwtissuer.Issuer, rev *jtiredis.Revoker, rdb *redis.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
-		if token == "" {
-			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing token")
+		if iss == nil {
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "jwt not configured")
 			return
 		}
-
-		userID, err := jwtplayer.ParseAccess(jwtSecret, token)
-		if err != nil {
-			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
-			return
+		var userID string
+		if ticket := strings.TrimSpace(r.URL.Query().Get("ticket")); ticket != "" && rdb != nil {
+			uid, ok := redeemWSTicket(r.Context(), rdb, ticket)
+			if !ok || uid == "" {
+				playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired ticket")
+				return
+			}
+			userID = uid
+		} else {
+			token := r.URL.Query().Get("token")
+			if token == "" {
+				playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing token")
+				return
+			}
+			var jti string
+			var err error
+			userID, jti, err = iss.ParsePlayer(token)
+			if err != nil {
+				playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
+				return
+			}
+			if rev != nil && jti != "" {
+				revoked, rerr := rev.IsRevoked(r.Context(), jti)
+				if rerr != nil {
+					playerapi.WriteError(w, http.StatusServiceUnavailable, "unavailable", "session check failed")
+					return
+				}
+				if revoked {
+					playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "token revoked")
+					return
+				}
+			}
 		}
 
 		if banned, _ := isUserBanned(r.Context(), pool, userID); banned {
@@ -45,7 +75,7 @@ func HandleWebSocket(hub *Hub, pool *pgxpool.Pool, jwtSecret []byte) http.Handle
 			return
 		}
 
-		username, vipRank, avatarURL, createdAt := lookupUser(r.Context(), pool, userID)
+		username, vipRank, avatarURL, participantID, createdAt := lookupUser(r.Context(), pool, userID)
 		if username == "" {
 			username = "anon"
 		}
@@ -59,17 +89,18 @@ func HandleWebSocket(hub *Hub, pool *pgxpool.Pool, jwtSecret []byte) http.Handle
 		}
 
 		client := &Client{
-			hub:       hub,
-			conn:      conn,
-			userID:    userID,
-			username:  username,
-			vipRank:   vipRank,
-			avatarURL: avatarURL,
-			createdAt: createdAt,
-			send:      make(chan []byte, sendChanSize),
-			pool:      pool,
-			flood:     sharedFlood,
-			dupes:     sharedDupes,
+			hub:           hub,
+			conn:          conn,
+			userID:        userID,
+			participantID: participantID,
+			username:      username,
+			vipRank:       vipRank,
+			avatarURL:     avatarURL,
+			createdAt:     createdAt,
+			send:          make(chan []byte, sendChanSize),
+			pool:          pool,
+			flood:         sharedFlood,
+			dupes:         sharedDupes,
 		}
 
 		hub.register <- client
@@ -95,7 +126,8 @@ func HandleHistory(pool *pgxpool.Pool) http.HandlerFunc {
 			beforeID = b
 		}
 
-		rows, err := queryHistory(r.Context(), pool, limit, beforeID)
+		viewerID, _ := playerapi.UserIDFromContext(r.Context())
+		rows, err := queryHistory(r.Context(), pool, limit, beforeID, strings.TrimSpace(viewerID))
 		if err != nil {
 			log.Printf("chat: history query: %v", err)
 			playerapi.WriteError(w, http.StatusInternalServerError, "internal", "failed to load history")
@@ -212,11 +244,13 @@ func HandleBanUser(hub *Hub, pool *pgxpool.Pool) http.HandlerFunc {
 
 // --- Database helpers ---
 
-func lookupUser(ctx context.Context, pool *pgxpool.Pool, userID string) (username, vipRank, avatarURL string, createdAt time.Time) {
+func lookupUser(ctx context.Context, pool *pgxpool.Pool, userID string) (username, vipRank, avatarURL, participantID string, createdAt time.Time) {
 	row := pool.QueryRow(ctx,
-		`SELECT COALESCE(username, ''), COALESCE(avatar_url, ''), created_at FROM users WHERE id = $1`, userID)
-	_ = row.Scan(&username, &avatarURL, &createdAt)
-	return username, "", avatarURL, createdAt
+		`SELECT COALESCE(username, ''), COALESCE(avatar_url, ''), created_at, public_participant_id::text FROM users WHERE id = $1`, userID)
+	var rawAvatar string
+	_ = row.Scan(&username, &rawAvatar, &createdAt, &participantID)
+	avatarURL = privacy.PlayerVisibleAvatarURL(rawAvatar, participantID)
+	return username, "", avatarURL, participantID, createdAt
 }
 
 func insertMessage(ctx context.Context, pool *pgxpool.Pool, userID, username, body, msgType, vipRank string) (int64, error) {
@@ -229,19 +263,19 @@ func insertMessage(ctx context.Context, pool *pgxpool.Pool, userID, username, bo
 	return id, err
 }
 
-func queryHistory(ctx context.Context, pool *pgxpool.Pool, limit int, beforeID int64) ([]OutboundMessage, error) {
+func queryHistory(ctx context.Context, pool *pgxpool.Pool, limit int, beforeID int64, viewerID string) ([]OutboundMessage, error) {
 	var query string
 	var args []any
 
 	if beforeID > 0 {
-		query = `SELECT m.id, m.user_id, m.username, m.body, m.msg_type,
+		query = `SELECT m.id, m.user_id, COALESCE(u.public_participant_id::text, ''), m.username, m.body, m.msg_type,
 		                COALESCE(m.vip_rank,''), COALESCE(u.avatar_url,''), m.created_at
 		         FROM chat_messages m LEFT JOIN users u ON u.id = m.user_id
 		         WHERE m.deleted = false AND m.id < $1
 		         ORDER BY m.created_at DESC LIMIT $2`
 		args = []any{beforeID, limit}
 	} else {
-		query = `SELECT m.id, m.user_id, m.username, m.body, m.msg_type,
+		query = `SELECT m.id, m.user_id, COALESCE(u.public_participant_id::text, ''), m.username, m.body, m.msg_type,
 		                COALESCE(m.vip_rank,''), COALESCE(u.avatar_url,''), m.created_at
 		         FROM chat_messages m LEFT JOIN users u ON u.id = m.user_id
 		         WHERE m.deleted = false
@@ -256,19 +290,44 @@ func queryHistory(ctx context.Context, pool *pgxpool.Pool, limit int, beforeID i
 	defer rows.Close()
 
 	var msgs []OutboundMessage
+	var historyInternalUIDs []string
 	for rows.Next() {
 		var m OutboundMessage
 		var createdAt time.Time
-		if err := rows.Scan(&m.ID, &m.UserID, &m.Username, &m.Body, &m.MsgType, &m.VipRank, &m.AvatarURL, &createdAt); err != nil {
+		var internalUID, rawAvatar string
+		if err := rows.Scan(&m.ID, &internalUID, &m.ParticipantID, &m.Username, &m.Body, &m.MsgType, &m.VipRank, &rawAvatar, &createdAt); err != nil {
 			return nil, err
 		}
+		m.AvatarURL = privacy.PlayerVisibleAvatarURL(rawAvatar, m.ParticipantID)
 		m.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 		msgs = append(msgs, m)
+		historyInternalUIDs = append(historyInternalUIDs, internalUID)
 	}
 
 	// Reverse so oldest first
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
+		historyInternalUIDs[i], historyInternalUIDs[j] = historyInternalUIDs[j], historyInternalUIDs[i]
+	}
+
+	anonSeen := map[string]bool{}
+	for i := range msgs {
+		m := &msgs[i]
+		internalUID := historyInternalUIDs[i]
+		if m.MsgType != "user" || internalUID == "" {
+			continue
+		}
+		anon, ok := anonSeen[internalUID]
+		if !ok {
+			anon = privacy.UserWantsPublicAnonymity(ctx, pool, internalUID)
+			anonSeen[internalUID] = anon
+		}
+		if anon {
+			m.Username = privacy.MaskMiddlePublicHandle(strings.TrimSpace(m.Username))
+			if m.Username == "" {
+				m.Username = "****"
+			}
+		}
 	}
 	return msgs, nil
 }

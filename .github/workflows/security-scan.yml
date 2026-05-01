@@ -1,0 +1,44 @@
+name: Security scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/core/go.mod
+          cache-dependency-path: services/core/go.sum
+      # Local parity: scripts/gitleaks-ci.*, gosec-ci.*, semgrep-ci.*
+      - name: Gosec (Go SAST)
+        working-directory: services/core
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -severity=high -confidence=high -exclude-dir=internal/e2e -exclude-dir=internal/bonuse2e -fmt=text ./cmd/... ./internal/...
+      - name: Semgrep (Go)
+        run: |
+          python3 -m pip install --user --upgrade semgrep
+          export PATH="$HOME/.local/bin:$PATH"
+          semgrep scan --config p/golang --error services/core

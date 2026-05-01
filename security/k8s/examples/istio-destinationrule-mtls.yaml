@@ -1,0 +1,14 @@
+# Example: DestinationRule with ISTIO_MUTUAL (client-side TLS to mesh destinations)
+# Replace namespace and host with your Kubernetes Service DNS name (short or FQDN).
+# Usually unnecessary when both sides are in mesh with STRICT PeerAuthentication —.mesh handles mTLS automatically.
+# Use when you need explicit TLS settings or subsetting.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: core-api-mtls
+  namespace: casino-prod
+spec:
+  host: core-api.casino-prod.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

@@ -16,16 +16,17 @@ type automationAction struct {
 
 // EvaluateAutomationForPayment runs after no promotion auto-grant matched this payment.
 // Rules are ordered by priority DESC; the first rule that yields a grant wins.
-func EvaluateAutomationForPayment(ctx context.Context, pool *pgxpool.Pool, ev PaymentSettled) error {
+// The bool is true if a new bonus instance was inserted for this payment.
+func EvaluateAutomationForPayment(ctx context.Context, pool *pgxpool.Pool, ev PaymentSettled) (bool, error) {
 	if ev.UserID == "" || ev.ProviderResourceID == "" || ev.AmountMinor <= 0 {
-		return nil
+		return false, nil
 	}
 	bf, err := LoadFlags(ctx, pool)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !bf.BonusesEnabled || !bf.AutomatedGrantsEnabled {
-		return nil
+		return false, nil
 	}
 
 	rows, err := pool.Query(ctx, `
@@ -35,7 +36,7 @@ func EvaluateAutomationForPayment(ctx context.Context, pool *pgxpool.Pool, ev Pa
 		ORDER BY priority DESC, id ASC
 	`)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer rows.Close()
 
@@ -68,31 +69,57 @@ func EvaluateAutomationForPayment(ctx context.Context, pool *pgxpool.Pool, ev Pa
 			continue
 		}
 		grant := rules.computeGrantAmount(ev.AmountMinor)
-		if grant <= 0 {
+		fsR, fsBet, fsG, fsOK := rules.freeSpinFromRules()
+		if grant <= 0 && !fsOK {
 			continue
 		}
-		idemKey := fmt.Sprintf("bonus:auto:%d:%s:%s", ruleID, ev.UserID, ev.ProviderResourceID)
-		inserted, err := GrantFromPromotionVersion(ctx, pool, GrantArgs{
-			UserID:             ev.UserID,
-			PromotionVersionID: act.PromotionVersionID,
-			IdempotencyKey:     idemKey,
-			GrantAmountMinor:   grant,
-			Currency:           ev.Currency,
-			DepositAmountMinor: ev.AmountMinor,
-		})
-		if err != nil {
-			if errors.Is(err, ErrBonusesDisabled) {
-				return nil
+		prefix := fmt.Sprintf("bonus:auto:%d:%s:%s", ruleID, ev.UserID, ev.ProviderResourceID)
+		cashIn := false
+		if grant > 0 {
+			inserted, err2 := GrantFromPromotionVersion(ctx, pool, GrantArgs{
+				UserID:             ev.UserID,
+				PromotionVersionID: act.PromotionVersionID,
+				IdempotencyKey:     prefix + ":cash",
+				GrantAmountMinor:   grant,
+				Currency:           ev.Currency,
+				DepositAmountMinor: ev.AmountMinor,
+			})
+			if err2 != nil {
+				if errors.Is(err2, ErrBonusesDisabled) {
+					return false, nil
+				}
+				return false, err2
 			}
-			return err
+			cashIn = inserted
+			if !cashIn {
+				break
+			}
 		}
-		if inserted {
-			return nil
+		fsIn := false
+		if fsOK {
+			var ptitle string
+			_ = pool.QueryRow(ctx, `SELECT COALESCE(NULLIF(TRIM(player_title), ''), '') FROM promotion_versions WHERE id = $1`, act.PromotionVersionID).Scan(&ptitle)
+			fsIn, err = EnqueueFreeSpinFromPromotionVersion(ctx, pool, FreeSpinEnqueueArgs{
+				UserID:             ev.UserID,
+				PromotionVersionID: act.PromotionVersionID,
+				IdempotencyKey:     prefix + ":fs",
+				Rounds:             fsR,
+				GameID:             fsG,
+				BetPerRoundMinor:   fsBet,
+				Title:              ptitle,
+				Source:             "automation",
+			})
+			if err != nil {
+				return false, err
+			}
 		}
-		// Matched this rule but duplicate idem or active WR — do not try another automation on same payment.
+		if (grant > 0 && cashIn) || (fsOK && fsIn) {
+			return true, nil
+		}
+		// Matched this rule but duplicate / blocked — do not try another automation on same payment.
 		break
 	}
-	return nil
+	return false, nil
 }
 
 func automationSegmentMatches(segJSON []byte, ev PaymentSettled) bool {

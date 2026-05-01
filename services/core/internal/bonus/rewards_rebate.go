@@ -3,8 +3,10 @@ package bonus
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
+	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,13 +25,13 @@ func sumCashGameNetForWindow(ctx context.Context, pool *pgxpool.Pool, userID str
 	err := pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
 		WHERE user_id = $1::uuid AND pocket = 'cash'
-		  AND entry_type IN ('game.debit', 'game.credit')
+		  AND entry_type IN ('game.debit', 'game.credit', 'game.rollback')
 		  AND created_at >= $2 AND created_at < $3
 	`, userID, start, end).Scan(&net)
 	return net, err
 }
 
-func effectiveRebatePercent(basePct, vipAdd int) int {
+func effectiveRebatePercent(basePct float64, vipAdd float64) float64 {
 	p := basePct + vipAdd
 	if p > 100 {
 		return 100
@@ -41,13 +43,35 @@ func effectiveRebatePercent(basePct, vipAdd int) int {
 }
 
 func sumCashWagerForWindow(ctx context.Context, pool *pgxpool.Pool, userID string, start, end time.Time) (int64, error) {
-	var sum int64
-	err := pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(ABS(amount_minor)), 0)::bigint FROM ledger_entries
-		WHERE user_id = $1::uuid AND pocket = 'cash' AND entry_type = 'game.debit'
-		  AND created_at >= $2 AND created_at < $3
-	`, userID, start, end).Scan(&sum)
-	return sum, err
+	if pool == nil {
+		return 0, nil
+	}
+	return ledger.SumSuccessfulCashStakeForWindow(ctx, pool, userID, start, end)
+}
+
+func userRebateBlocked(ctx context.Context, pool *pgxpool.Pool, userID string) bool {
+	var blocked bool
+	_ = pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM users
+			WHERE id = $1::uuid
+			  AND (
+				account_closed_at IS NOT NULL OR
+				(self_excluded_until IS NOT NULL AND self_excluded_until > now())
+			  )
+		)
+	`, userID).Scan(&blocked)
+	if blocked {
+		return true
+	}
+	var risk string
+	_ = pool.QueryRow(ctx, `
+		SELECT decision FROM bonus_risk_decisions
+		WHERE user_id = $1::uuid
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`, userID).Scan(&risk)
+	return risk == "manual_review" || risk == "denied"
 }
 
 // ProcessRebateGrants runs completed periods (daily = yesterday UTC, weekly = last ISO week containing yesterday).
@@ -90,7 +114,7 @@ func ProcessRebateGrants(ctx context.Context, pool *pgxpool.Pool, now time.Time,
 
 		rows, err := pool.Query(ctx, `
 			SELECT DISTINCT user_id::text FROM ledger_entries
-			WHERE pocket = 'cash' AND entry_type = 'game.debit'
+			WHERE pocket = 'cash' AND entry_type IN ('game.debit', 'game.rollback')
 			  AND created_at >= $1 AND created_at < $2
 			LIMIT $3
 		`, start, end, userLimit)
@@ -119,46 +143,65 @@ func ProcessRebateGrants(ctx context.Context, pool *pgxpool.Pool, now time.Time,
 				}
 				base = w
 			}
-			vipAdd, _ := VipRebatePercentAdd(ctx, pool, uid, p.ProgramKey)
-			effectivePct := effectiveRebatePercent(cfg.Percent, vipAdd)
+			tierID, _, hasTier := VIPTierSnapshotAt(ctx, pool, uid, start)
+			vipAdd := 0.0
+			if hasTier && tierID != nil {
+				vipAdd, _ = vipRebatePercentAddForTier(ctx, pool, *tierID, p.ProgramKey)
+			}
+			effectivePct := effectiveRebatePercent(float64(cfg.Percent), vipAdd)
 			if effectivePct <= 0 {
 				continue
 			}
-			grant := (base * int64(effectivePct)) / 100
+			if cfg.MinQualifyingWagerMinor > 0 {
+				w, err := sumCashWagerForWindow(ctx, pool, uid, start, end)
+				if err != nil || w < cfg.MinQualifyingWagerMinor {
+					continue
+				}
+			}
+			if userRebateBlocked(ctx, pool, uid) {
+				continue
+			}
+			grant := int64(math.Round((float64(base) * effectivePct) / 100.0))
 			if cfg.CapMinor > 0 && grant > cfg.CapMinor {
 				grant = cfg.CapMinor
+			}
+			if cfg.BurstMultiplier > 1 {
+				burstDelta := int64(float64(grant)*(cfg.BurstMultiplier-1.0) + 0.5)
+				if cfg.BurstCapMinor > 0 && burstDelta > cfg.BurstCapMinor {
+					burstDelta = cfg.BurstCapMinor
+				}
+				if burstDelta > 0 {
+					grant += burstDelta
+					tid := tierID
+					_ = RecordRakebackBurstConsumption(
+						ctx,
+						pool,
+						uid,
+						periodKey,
+						fmt.Sprintf("bonus:rebate:burst:%d:%s:%s", p.ID, uid, periodKey),
+						tid,
+						burstDelta,
+					)
+				}
+			}
+			if cfg.MaxPayoutMinor > 0 && grant > cfg.MaxPayoutMinor {
+				grant = cfg.MaxPayoutMinor
 			}
 			if grant <= 0 {
 				continue
 			}
-			var exists bool
-			_ = pool.QueryRow(ctx, `
-				SELECT EXISTS(
-					SELECT 1 FROM reward_rebate_grants
-					WHERE user_id = $1::uuid AND reward_program_id = $2 AND period_key = $3
-				)
-			`, uid, p.ID, periodKey).Scan(&exists)
-			if exists {
-				continue
-			}
 			idem := fmt.Sprintf("bonus:rebate:%d:%s:%s", p.ID, uid, periodKey)
-			inserted, err := GrantFromPromotionVersion(ctx, pool, GrantArgs{
-				UserID:             uid,
-				PromotionVersionID: p.PromotionVersionID,
-				IdempotencyKey:     idem,
-				GrantAmountMinor:   grant,
-				Currency:           "USDT",
-				DepositAmountMinor: 0,
-			})
-			if err != nil || !inserted {
-				continue
-			}
-			_, _ = pool.Exec(ctx, `
-				INSERT INTO reward_rebate_grants (user_id, reward_program_id, period_key, base_minor, grant_amount_minor, idempotency_key)
-				VALUES ($1::uuid, $2, $3, $4, $5, $6)
+			tag, err := pool.Exec(ctx, `
+				INSERT INTO reward_rebate_grants (user_id, reward_program_id, period_key, base_minor, grant_amount_minor, idempotency_key, payout_status)
+				VALUES ($1::uuid, $2, $3, $4, $5, $6, 'pending_wallet')
 				ON CONFLICT (user_id, reward_program_id, period_key) DO NOTHING
 			`, uid, p.ID, periodKey, base, grant, idem)
-			n++
+			if err != nil {
+				continue
+			}
+			if tag.RowsAffected() > 0 {
+				n++
+			}
 		}
 		rows.Close()
 	}

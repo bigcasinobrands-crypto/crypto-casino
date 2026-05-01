@@ -10,15 +10,32 @@ import {
 } from 'react'
 
 import { readApiError, type ApiErr } from './api/errors'
-import { playerFetch } from './lib/playerFetch'
+import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './lib/playerFetch'
 import { playerApiUrl } from './lib/playerApiUrl'
 
 const ACCESS = 'player_access_token'
 const REFRESH = 'player_refresh_token'
 const EXPIRES = 'player_access_expires_at'
 
+/** Cookie-auth builds: drop any leftover JWTs from localStorage so the session is httpOnly-only. */
+function readInitialAccessToken(): string | null {
+  if (typeof localStorage === 'undefined') return null
+  if (!playerCredentialsMode) {
+    return localStorage.getItem(ACCESS)
+  }
+  try {
+    localStorage.removeItem(ACCESS)
+    localStorage.removeItem(REFRESH)
+    localStorage.removeItem(EXPIRES)
+  } catch {
+    /* private mode / quota */
+  }
+  return null
+}
+
 export type MeResponse = {
   id: string
+  participant_id: string
   email: string
   created_at: string
   email_verified: boolean
@@ -37,6 +54,8 @@ export type BalanceBreakdown = {
 
 type P = {
   accessToken: string | null
+  /** True when JWT is in memory/localStorage or cookie session is established (`me` loaded under credentialed API). */
+  isAuthenticated: boolean
   me: MeResponse | null
   balanceMinor: number | null
   balanceBreakdown: BalanceBreakdown | null
@@ -62,7 +81,7 @@ type P = {
 const Ctx = createContext<P | null>(null)
 
 export function PlayerAuthProvider({ children }: { children: ReactNode }) {
-  const [accessToken, setAccess] = useState<string | null>(() => localStorage.getItem(ACCESS))
+  const [accessToken, setAccess] = useState<string | null>(() => readInitialAccessToken())
   const [me, setMe] = useState<MeResponse | null>(null)
   const [balanceMinor, setBal] = useState<number | null>(null)
   const [balanceBreakdown, setBalanceBreakdown] = useState<BalanceBreakdown | null>(null)
@@ -87,13 +106,21 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     setBalanceBreakdown(null)
   }, [clearRefreshTimer])
 
-  const persistTokens = useCallback(
+  /** After login / register / refresh: store JWTs locally (default) or rely on httpOnly cookies only (credentials mode). */
+  const applySessionTokens = useCallback(
     (access: string, refresh: string, expiresAtUnix: number) => {
-      localStorage.setItem(ACCESS, access)
-      localStorage.setItem(REFRESH, refresh)
-      localStorage.setItem(EXPIRES, String(expiresAtUnix))
-      setAccess(access)
       clearRefreshTimer()
+      if (playerCredentialsMode) {
+        localStorage.removeItem(ACCESS)
+        localStorage.removeItem(REFRESH)
+        localStorage.removeItem(EXPIRES)
+        setAccess(null)
+      } else {
+        localStorage.setItem(ACCESS, access)
+        localStorage.setItem(REFRESH, refresh)
+        localStorage.setItem(EXPIRES, String(expiresAtUnix))
+        setAccess(access)
+      }
       const ms = expiresAtUnix * 1000 - Date.now() - 60_000
       if (ms > 5_000) {
         refreshTimer.current = setTimeout(() => {
@@ -106,27 +133,35 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
 
   const refreshAccessInner = useCallback(async (): Promise<boolean> => {
     const rt = localStorage.getItem(REFRESH)
-    if (!rt) {
+    if (!rt && !playerCredentialsMode) {
       clearSession()
       return false
     }
     const res = await playerFetch('/v1/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: rt }),
+      body: JSON.stringify(rt ? { refresh_token: rt } : {}),
     })
     if (!res.ok) {
       clearSession()
       return false
     }
     const j = (await res.json()) as {
-      access_token: string
-      refresh_token: string
+      access_token?: string
+      refresh_token?: string
       expires_at: number
     }
-    persistTokens(j.access_token, j.refresh_token, j.expires_at)
+    if (!Number.isFinite(j.expires_at)) {
+      clearSession()
+      return false
+    }
+    if (!playerCredentialsMode && (!j.access_token?.trim() || !j.refresh_token?.trim())) {
+      clearSession()
+      return false
+    }
+    applySessionTokens(j.access_token ?? '', j.refresh_token ?? '', j.expires_at)
     return true
-  }, [clearSession, persistTokens])
+  }, [applySessionTokens, clearSession])
 
   useEffect(() => {
     refreshInnerRef.current = refreshAccessInner
@@ -137,12 +172,14 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
   const apiFetch = useCallback(
     async (path: string, init: RequestInit = {}): Promise<Response> => {
       const headers = new Headers(init.headers)
+      applyPlayerMutatingCSRF(headers, init.method)
       const t = localStorage.getItem(ACCESS)
       if (t) headers.set('Authorization', `Bearer ${t}`)
       if (!headers.has('X-Request-Id')) {
         headers.set('X-Request-Id', crypto.randomUUID())
       }
-      let res = await fetch(playerApiUrl(path), { ...init, headers })
+      const cred: RequestCredentials = playerCredentialsMode ? 'include' : 'omit'
+      let res = await fetch(playerApiUrl(path), { ...init, headers, credentials: cred })
       if (
         res.status === 401 &&
         !path.includes('/v1/auth/refresh') &&
@@ -153,7 +190,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         if (ok) {
           const t2 = localStorage.getItem(ACCESS)
           if (t2) headers.set('Authorization', `Bearer ${t2}`)
-          res = await fetch(playerApiUrl(path), { ...init, headers })
+          res = await fetch(playerApiUrl(path), { ...init, headers, credentials: cred })
         }
       }
       return res
@@ -163,7 +200,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     const t = localStorage.getItem(ACCESS)
-    if (!t) return
+    if (!t && !playerCredentialsMode) return
     const m = await apiFetch('/v1/auth/me')
     if (m.ok) {
       setMe((await m.json()) as MeResponse)
@@ -184,6 +221,18 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     }
   }, [apiFetch])
 
+  /** Cookie-auth sessions: hydrate `me` when access JWT is only in httpOnly cookies. */
+  useEffect(() => {
+    if (!playerCredentialsMode) return
+    if (localStorage.getItem(ACCESS)) return
+    void refreshProfile()
+  }, [refreshProfile])
+
+  const isAuthenticated = useMemo(
+    () => Boolean(accessToken) || (playerCredentialsMode && me !== null),
+    [accessToken, me],
+  )
+
   const login = useCallback(
     async (
       email: string,
@@ -203,15 +252,35 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: await readApiError(res) }
       }
       const j = (await res.json()) as {
-        access_token: string
-        refresh_token: string
+        access_token?: string
+        refresh_token?: string
         expires_at: number
       }
-      persistTokens(j.access_token, j.refresh_token, j.expires_at)
+      if (!Number.isFinite(j.expires_at)) {
+        return {
+          ok: false,
+          error: {
+            code: 'invalid_session',
+            message: 'Incomplete token response',
+            status: 0,
+          } as ApiErr,
+        }
+      }
+      if (!playerCredentialsMode && (!j.access_token?.trim() || !j.refresh_token?.trim())) {
+        return {
+          ok: false,
+          error: {
+            code: 'invalid_session',
+            message: 'Incomplete token response',
+            status: 0,
+          } as ApiErr,
+        }
+      }
+      applySessionTokens(j.access_token ?? '', j.refresh_token ?? '', j.expires_at)
       await refreshProfile()
       return { ok: true }
     },
-    [persistTokens, refreshProfile],
+    [applySessionTokens, refreshProfile],
   )
 
   const register = useCallback(
@@ -239,28 +308,54 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         return { ok: false, error: await readApiError(res) }
       }
       const j = (await res.json()) as {
-        access_token: string
-        refresh_token: string
+        access_token?: string
+        refresh_token?: string
         expires_at: number
       }
-      persistTokens(j.access_token, j.refresh_token, j.expires_at)
+      if (!Number.isFinite(j.expires_at)) {
+        return {
+          ok: false,
+          error: {
+            code: 'invalid_session',
+            message: 'Incomplete token response',
+            status: 0,
+          } as ApiErr,
+        }
+      }
+      if (!playerCredentialsMode && (!j.access_token?.trim() || !j.refresh_token?.trim())) {
+        return {
+          ok: false,
+          error: {
+            code: 'invalid_session',
+            message: 'Incomplete token response',
+            status: 0,
+          } as ApiErr,
+        }
+      }
+      applySessionTokens(j.access_token ?? '', j.refresh_token ?? '', j.expires_at)
       await refreshProfile()
       return { ok: true }
     },
-    [persistTokens, refreshProfile],
+    [applySessionTokens, refreshProfile],
   )
 
   const logout = useCallback(async () => {
     const rt = localStorage.getItem(REFRESH)
     const t = localStorage.getItem(ACCESS)
-    if (rt) {
+    const cred: RequestCredentials = playerCredentialsMode ? 'include' : 'omit'
+    if (rt || playerCredentialsMode) {
       await fetch(playerApiUrl('/v1/auth/logout'), {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(t ? { Authorization: `Bearer ${t}` } : {}),
-        },
-        body: JSON.stringify({ refresh_token: rt }),
+        credentials: cred,
+        headers: (() => {
+          const h = new Headers({
+            'Content-Type': 'application/json',
+            ...(t ? { Authorization: `Bearer ${t}` } : {}),
+          })
+          applyPlayerMutatingCSRF(h, 'POST')
+          return h
+        })(),
+        body: JSON.stringify({ refresh_token: rt ?? '' }),
       })
     }
     clearSession()
@@ -268,23 +363,26 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
 
   // Live balance: SSE stream for instant updates + 30s poll fallback
   useEffect(() => {
-    if (!accessToken) return
+    if (!isAuthenticated) return
     void refreshProfile()
     const t = window.setInterval(() => void refreshProfile(), 30_000)
     return () => window.clearInterval(t)
-  }, [accessToken, refreshProfile])
+  }, [isAuthenticated, refreshProfile])
 
   // SSE balance stream — pushes every balance change within ~2s
   useEffect(() => {
-    if (!accessToken) return
+    if (!isAuthenticated) return
     let cancelled = false
     const controller = new AbortController()
 
     async function connectStream() {
       while (!cancelled) {
         try {
+          const h = new Headers()
+          if (accessToken) h.set('Authorization', `Bearer ${accessToken}`)
           const res = await fetch(playerApiUrl('/v1/wallet/balance/stream'), {
-            headers: { Authorization: `Bearer ${accessToken}` },
+            headers: h,
+            credentials: playerCredentialsMode ? 'include' : 'omit',
             signal: controller.signal,
           })
           if (!res.ok || !res.body) return
@@ -334,13 +432,14 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       cancelled = true
       controller.abort()
     }
-  }, [accessToken])
+  }, [isAuthenticated, accessToken])
 
   const refreshAccess = useCallback(async () => refreshAccessInner(), [refreshAccessInner])
 
   const v = useMemo(
     () => ({
       accessToken,
+      isAuthenticated,
       me,
       balanceMinor,
       balanceBreakdown,
@@ -353,6 +452,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     }),
     [
       accessToken,
+      isAuthenticated,
       me,
       balanceMinor,
       balanceBreakdown,

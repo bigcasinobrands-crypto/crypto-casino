@@ -1,15 +1,13 @@
 import { Toaster } from 'sonner'
-import { useTheme } from '../context/ThemeContext'
 
-/** Sonner toaster aligned with admin light/dark theme. */
+/** Sonner toaster — admin console is dark-only. */
 export function AppToaster() {
-  const { theme } = useTheme()
   return (
     <Toaster
       position="bottom-right"
       richColors
       closeButton
-      theme={theme === 'dark' ? 'dark' : 'light'}
+      theme="dark"
       toastOptions={{
         classNames: {
           toast:

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { readApiError, formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
 import ComponentCard from '../components/common/ComponentCard'
@@ -12,6 +13,11 @@ type VersionRow = {
   created_at: string
   valid_from?: string
   valid_to?: string
+  player_title?: string
+  player_description?: string
+  player_hero_image_url?: string
+  promo_code?: string
+  priority?: number
 }
 
 type PaymentFlags = {
@@ -64,7 +70,36 @@ export default function BonusDeliveryPage() {
 
   const [busy, setBusy] = useState<string | null>(null)
 
+  const [playerTitle, setPlayerTitle] = useState('')
+  const [playerDescription, setPlayerDescription] = useState('')
+  const [playerHeroUrl, setPlayerHeroUrl] = useState('')
+
+  /** Highest version row (often a draft sitting above an older published version). */
   const latest = versions[0] ?? null
+  /** Row that is actually listed on the player hub (published); else the top row when nothing is live yet. */
+  const publishedVersion = useMemo(() => versions.find((v) => v.published) ?? null, [versions])
+  const playerHubVersion = useMemo(() => publishedVersion ?? latest, [publishedVersion, latest])
+
+  const uploadPromoImage = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        const res = await apiFetch('/v1/admin/content/upload', { method: 'POST', body: fd })
+        if (!res.ok) {
+          toast.error('Image upload failed')
+          return null
+        }
+        const j = (await res.json()) as { url: string }
+        toast.success('Image uploaded')
+        return j.url
+      } catch {
+        toast.error('Upload error')
+        return null
+      }
+    },
+    [apiFetch],
+  )
 
   const load = useCallback(async () => {
     if (!Number.isFinite(promoId) || promoId <= 0) {
@@ -98,12 +133,16 @@ export default function BonusDeliveryPage() {
       setGrantsPaused(!!j.grants_paused)
       const vers = Array.isArray(j.versions) ? j.versions : []
       setVersions(vers)
-      const lv = vers[0]
-      if (lv) {
-        setStartLocal(isoToLocalDatetimeValue(lv.valid_from))
-        if (lv.valid_to) {
+      const pub = vers.find((v) => v.published)
+      const hub = pub ?? vers[0]
+      if (hub) {
+        setPlayerTitle(hub.player_title ?? '')
+        setPlayerDescription(hub.player_description ?? '')
+        setPlayerHeroUrl(hub.player_hero_image_url ?? '')
+        setStartLocal(isoToLocalDatetimeValue(hub.valid_from))
+        if (hub.valid_to) {
           setNoEnd(false)
-          setEndLocal(isoToLocalDatetimeValue(lv.valid_to))
+          setEndLocal(isoToLocalDatetimeValue(hub.valid_to))
         } else {
           setNoEnd(true)
           setEndLocal('')
@@ -129,16 +168,45 @@ export default function BonusDeliveryPage() {
 
   const derivedStatus = useMemo(() => {
     if (status === 'archived') return 'archived' as const
-    if (!latest?.published) return 'draft' as const
+    const hasPublished = versions.some((v) => v.published)
+    if (!hasPublished) return 'draft' as const
     if (grantsPaused) return 'paused' as const
     const globalsOk =
       (flags?.bonuses_enabled !== false && flags?.automated_grants_enabled !== false) || flags == null
     if (!globalsOk) return 'blocked' as const
     return 'active' as const
-  }, [status, latest, grantsPaused, flags])
+  }, [status, versions, grantsPaused, flags])
+
+  const savePlayerCard = async () => {
+    if (!playerHubVersion || !isSuper) return
+    setBusy('playerCard')
+    setErr(null)
+    try {
+      const res = await apiFetch(`/v1/admin/bonushub/promotion-versions/${playerHubVersion.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          player_title: playerTitle,
+          player_description: playerDescription,
+          player_hero_image_url: playerHeroUrl.trim(),
+        }),
+      })
+      if (!res.ok) {
+        const e = await readApiError(res)
+        setErr(formatApiError(e, `Save player card failed (${res.status})`))
+        return
+      }
+      toast.success('Player bonus card saved')
+      await load()
+    } catch {
+      setErr('Network error')
+    } finally {
+      setBusy(null)
+    }
+  }
 
   const saveSchedule = async () => {
-    if (!latest || !isSuper) return
+    if (!playerHubVersion || !isSuper) return
     const vf = localDatetimeValueToIso(startLocal)
     const vt = noEnd ? '' : localDatetimeValueToIso(endLocal)
     if (startLocal.trim() && !vf) {
@@ -152,7 +220,7 @@ export default function BonusDeliveryPage() {
     setBusy('schedule')
     setErr(null)
     try {
-      const res = await apiFetch(`/v1/admin/bonushub/promotion-versions/${latest.id}`, {
+      const res = await apiFetch(`/v1/admin/bonushub/promotion-versions/${playerHubVersion.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -311,7 +379,7 @@ export default function BonusDeliveryPage() {
                     {busy === 'publish' ? 'Publishing…' : `Publish version ${latest.version}`}
                   </button>
                 ) : null}
-                {latest && status !== 'archived' && latest.published && grantsPaused ? (
+                {latest && status !== 'archived' && publishedVersion && grantsPaused ? (
                   <button
                     type="button"
                     className={btnPrimary}
@@ -338,7 +406,7 @@ export default function BonusDeliveryPage() {
                 ) : null}
 
                 <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-2 dark:border-gray-700 sm:border-0 sm:pt-0">
-                  {latest && status !== 'archived' && latest.published && !grantsPaused ? (
+                  {latest && status !== 'archived' && publishedVersion && !grantsPaused ? (
                     <button
                       type="button"
                       className={btnSecondary}
@@ -361,10 +429,10 @@ export default function BonusDeliveryPage() {
                   <Link to={`/bonushub/promotions/${promoId}/rules`} className={btnSecondary}>
                     Edit rules
                   </Link>
-                  <Link to={`/bonushub/operations?tab=promotions&promo=${promoId}`} className={btnSecondary}>
+                  <Link to="/bonushub/operations" className={btnSecondary}>
                     Operations
                   </Link>
-                  <Link to="/bonushub/calendar" className={btnSecondary}>
+                  <Link to={`/bonushub/calendar?promo=${promoId}`} className={btnSecondary}>
                     Calendar
                   </Link>
                   <Link to="/bonushub" className={btnSecondary}>
@@ -407,7 +475,8 @@ export default function BonusDeliveryPage() {
             </ul>
           </details>
 
-          {latest ? (
+          {playerHubVersion ? (
+            <>
             <ComponentCard
               title="Schedule"
               desc="Grant window (local time). Deposits match only while inside this window and rules allow."
@@ -419,6 +488,7 @@ export default function BonusDeliveryPage() {
                   </label>
                   <input
                     type="datetime-local"
+                    lang="en-GB"
                     className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                     value={startLocal}
                     onChange={(e) => setStartLocal(e.target.value)}
@@ -445,6 +515,7 @@ export default function BonusDeliveryPage() {
                       </span>
                       <input
                         type="datetime-local"
+                        lang="en-GB"
                         className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                         value={endLocal}
                         onChange={(e) => setEndLocal(e.target.value)}
@@ -462,12 +533,113 @@ export default function BonusDeliveryPage() {
               >
                 {busy === 'schedule' ? 'Saving…' : 'Save schedule'}
               </button>
-              {latest.published ? (
+              {publishedVersion ? (
                 <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">
-                  Version {latest.version} is published.
+                  Version {publishedVersion.version} is published — this schedule is what the live player hub uses.
+                  {latest && !latest.published && latest.id !== publishedVersion.id ? (
+                    <span className="mt-1 block text-amber-800 dark:text-amber-200">
+                      Draft v{latest.version} exists above it; hero and dates here still edit the{' '}
+                      <strong>published</strong> row until you publish the draft.
+                    </span>
+                  ) : null}
                 </p>
-              ) : null}
+              ) : (
+                <p className="mt-3 text-sm text-sky-800 dark:text-sky-200">
+                  No published version yet — this schedule applies to draft v{playerHubVersion.version} until you publish.
+                </p>
+              )}
             </ComponentCard>
+
+            <ComponentCard
+              title="Player app — bonus card"
+              desc="What eligible players see on My Bonuses (title, description, hero image). When a version is already published, edits here apply to that live row (not a newer unpublished draft). Targeting still comes from rules."
+            >
+              <div className="grid max-w-3xl gap-4">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Card title
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                    value={playerTitle}
+                    onChange={(e) => setPlayerTitle(e.target.value)}
+                    placeholder="e.g. Welcome bonus 100% match"
+                    disabled={!isSuper || busy !== null}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Short description (More info)
+                  </label>
+                  <textarea
+                    className="min-h-[88px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                    value={playerDescription}
+                    onChange={(e) => setPlayerDescription(e.target.value)}
+                    placeholder="Shown in the expandable details on the player card."
+                    disabled={!isSuper || busy !== null}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Hero image
+                  </label>
+                  <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+                    Upload (stored under <span className="font-mono">/v1/uploads/</span>) or paste a full HTTPS URL.
+                    Leave empty for the default gift artwork on the player site.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+                      className="max-w-full text-sm text-gray-600 file:mr-2 file:rounded-lg file:border-0 file:bg-brand-500 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-brand-600 dark:text-gray-300"
+                      disabled={!isSuper || busy !== null}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        e.target.value = ''
+                        if (!f) return
+                        void (async () => {
+                          const url = await uploadPromoImage(f)
+                          if (url) setPlayerHeroUrl(url)
+                        })()
+                      }}
+                    />
+                    {playerHeroUrl ? (
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        disabled={!isSuper || busy !== null}
+                        onClick={() => setPlayerHeroUrl('')}
+                      >
+                        Remove image
+                      </button>
+                    ) : null}
+                  </div>
+                  <input
+                    type="text"
+                    className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                    value={playerHeroUrl}
+                    onChange={(e) => setPlayerHeroUrl(e.target.value)}
+                    placeholder="/v1/uploads/… or https://…"
+                    disabled={!isSuper || busy !== null}
+                  />
+                  {playerHeroUrl ? (
+                    <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-gray-600 dark:bg-gray-800">
+                      <img src={playerHeroUrl} alt="Hero preview" className="h-32 w-full object-cover" />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`mt-4 ${btnPrimary}`}
+                disabled={!isSuper || busy !== null}
+                onClick={() => void savePlayerCard()}
+              >
+                {busy === 'playerCard' ? 'Saving…' : 'Save player card'}
+              </button>
+            </ComponentCard>
+            </>
           ) : (
             <p className="text-sm text-gray-500">No versions found for this promotion.</p>
           )}

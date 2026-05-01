@@ -19,6 +19,11 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      'react-hooks/set-state-in-effect': 'off',
+      // Many modules export helpers alongside components (deposit flows, rewards, etc.).
+      'react-refresh/only-export-components': 'off',
+    },
   },
   {
     files: ['src/playerAuth.tsx', 'src/authModalContext.tsx'],

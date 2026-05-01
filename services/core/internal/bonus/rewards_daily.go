@@ -17,6 +17,8 @@ type CalendarDay struct {
 	UnlockAt    *string `json:"unlock_at,omitempty"` // RFC3339 UTC, start of that calendar day
 	// BlockReason is set when State is "blocked" (e.g. active_wagering).
 	BlockReason string `json:"block_reason,omitempty"`
+	// PayoutKind describes what the player receives when claiming; daily_fixed credits a promo (bonus), not cash wallet.
+	PayoutKind string `json:"payout_kind,omitempty"` // bonus
 }
 
 var (
@@ -26,6 +28,8 @@ var (
 	ErrDailyBlockedByWagering = errors.New("rewards: blocked by active bonus wagering")
 	// ErrDailyNoProgram when no daily_fixed program is configured.
 	ErrDailyNoProgram = errors.New("rewards: no daily program")
+	// ErrDailyMinWagerNotMet when min_qualifying_wager_minor is not satisfied for that UTC day.
+	ErrDailyMinWagerNotMet = errors.New("rewards: qualifying wager not met for daily claim")
 )
 
 func calendarDateRange(days int, now time.Time) (from, to time.Time) {
@@ -86,21 +90,22 @@ func BuildRewardsCalendar(ctx context.Context, pool *pgxpool.Pool, userID string
 	}
 
 	var out []CalendarDay
+	const payoutBonus = "bonus"
 	for d := from; !d.After(to); d = d.AddDate(0, 0, 1) {
 		ds := d.Format("2006-01-02")
 		unlock := d.UTC().Format(time.RFC3339)
 		if claimed[ds] {
-			out = append(out, CalendarDay{Date: ds, State: "claimed", AmountMinor: amt, UnlockAt: &unlock})
+			out = append(out, CalendarDay{Date: ds, State: "claimed", AmountMinor: amt, UnlockAt: &unlock, PayoutKind: payoutBonus})
 			continue
 		}
 		if d.After(today) {
-			out = append(out, CalendarDay{Date: ds, State: "locked", AmountMinor: amt, UnlockAt: &unlock})
+			out = append(out, CalendarDay{Date: ds, State: "locked", AmountMinor: amt, UnlockAt: &unlock, PayoutKind: payoutBonus})
 			continue
 		}
 		// today or past: claimable if past window allowed (last 7 days including today)
 		minDate := today.AddDate(0, 0, -6)
 		if d.Before(minDate) {
-			out = append(out, CalendarDay{Date: ds, State: "locked", AmountMinor: amt, UnlockAt: &unlock})
+			out = append(out, CalendarDay{Date: ds, State: "locked", AmountMinor: amt, UnlockAt: &unlock, PayoutKind: payoutBonus})
 			continue
 		}
 		if activeWR > 0 {
@@ -110,10 +115,28 @@ func BuildRewardsCalendar(ctx context.Context, pool *pgxpool.Pool, userID string
 				AmountMinor: amt,
 				UnlockAt:    &unlock,
 				BlockReason: "active_wagering",
+				PayoutKind:  payoutBonus,
 			})
 			continue
 		}
-		out = append(out, CalendarDay{Date: ds, State: "claimable", AmountMinor: amt, UnlockAt: &unlock})
+		if cfg.MinQualifyingWagerMinor > 0 {
+			wagerDay, err := SumCashGameDebitForDay(ctx, pool, userID, d)
+			if err != nil {
+				return nil, err
+			}
+			if wagerDay < cfg.MinQualifyingWagerMinor {
+				out = append(out, CalendarDay{
+					Date:        ds,
+					State:       "blocked",
+					AmountMinor: amt,
+					UnlockAt:    &unlock,
+					BlockReason: "min_daily_wager",
+					PayoutKind:  payoutBonus,
+				})
+				continue
+			}
+		}
+		out = append(out, CalendarDay{Date: ds, State: "claimable", AmountMinor: amt, UnlockAt: &unlock, PayoutKind: payoutBonus})
 	}
 	return out, nil
 }
@@ -158,6 +181,16 @@ func ClaimDailyReward(ctx context.Context, pool *pgxpool.Pool, userID, claimDate
 	}
 	if nWR > 0 {
 		return ErrDailyBlockedByWagering
+	}
+
+	if cfg.MinQualifyingWagerMinor > 0 {
+		wagerDay, err := SumCashGameDebitForDay(ctx, pool, userID, day)
+		if err != nil {
+			return err
+		}
+		if wagerDay < cfg.MinQualifyingWagerMinor {
+			return ErrDailyMinWagerNotMet
+		}
 	}
 
 	var claimed bool

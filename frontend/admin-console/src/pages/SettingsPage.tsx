@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAdminAuth } from '../authContext'
+import { useOperationalFlags } from '../hooks/useOperationalFlags'
 import { StatusBadge } from '../components/dashboard'
 import { formatRelativeTime } from '../lib/format'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
@@ -14,32 +16,17 @@ import { COUNTRY_OPTIONS, flagEmoji } from '../lib/countryIsoList'
 // Shared styles
 // ---------------------------------------------------------------------------
 
-const tabBtn = (active: boolean) =>
-  [
-    'rounded-lg px-4 py-2 text-sm font-medium transition-colors',
-    active
-      ? 'bg-brand-500 text-white shadow-sm'
-      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-200 dark:hover:bg-white/15',
-  ].join(' ')
+const primaryBtn = 'btn btn-primary btn-sm'
 
-const primaryBtn =
-  'rounded-lg bg-brand-500 px-3 py-1.5 text-sm text-white hover:bg-brand-600 disabled:opacity-50 transition-colors'
+const dangerBtn = 'btn btn-danger btn-sm'
 
-const dangerBtn =
-  'rounded-lg bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-50 transition-colors'
+const inputCls = 'form-control form-control-sm'
 
-const inputCls =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100'
+const textareaCls = 'form-control form-control-sm'
 
-const textareaCls = `${inputCls} min-h-[100px] resize-y`
+const labelCls = 'form-label small mb-1'
 
-const labelCls = 'mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400'
-
-const cardCls =
-  'rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]'
-
-const skeletonLine =
-  'h-4 animate-pulse rounded bg-gray-200 dark:bg-gray-700'
+const skeletonLine = 'placeholder col-12'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,39 +104,33 @@ function Section({
   desc,
   defaultOpen = false,
   children,
+  id,
 }: {
   title: string
   desc?: string
   defaultOpen?: boolean
   children: React.ReactNode
+  /** For in-page outline / deep links. */
+  id?: string
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className={cardCls}>
-      <button
-        type="button"
-        className="flex w-full items-center justify-between px-6 py-5 text-left"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <div>
-          <h3 className="text-base font-medium text-gray-800 dark:text-white/90">{title}</h3>
-          {desc && <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">{desc}</p>}
-        </div>
-        <svg
-          className={`h-5 w-5 shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
+    <div className="card mb-3 shadow-sm" id={id} style={{ scrollMarginTop: '80px' }}>
+      <div className="card-header p-0">
+        <button
+          type="button"
+          className="btn btn-link text-decoration-none text-body w-100 py-3 px-3 d-flex align-items-start justify-content-between gap-2 text-start"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="border-t border-gray-100 px-6 py-5 dark:border-gray-800 space-y-5">
-          {children}
-        </div>
-      )}
+          <div className="min-w-0">
+            <h3 className="h6 mb-0">{title}</h3>
+            {desc ? <p className="text-secondary small mb-0 mt-1">{desc}</p> : null}
+          </div>
+          <i className={`bi bi-chevron-${open ? 'up' : 'down'} text-secondary shrink-0 mt-1`} aria-hidden />
+        </button>
+      </div>
+      {open ? <div className="card-body border-top">{children}</div> : null}
     </div>
   )
 }
@@ -160,10 +141,12 @@ function Section({
 
 function SkeletonCard() {
   return (
-    <div className={`${cardCls} p-6 space-y-3`}>
-      <div className={`${skeletonLine} w-1/3`} />
-      <div className={`${skeletonLine} w-full`} />
-      <div className={`${skeletonLine} w-2/3`} />
+    <div className="card mb-3 placeholder-glow">
+      <div className="card-body">
+        <span className={`${skeletonLine} col-4`} />
+        <span className={`${skeletonLine} col-12`} />
+        <span className={`${skeletonLine} col-8`} />
+      </div>
     </div>
   )
 }
@@ -182,11 +165,80 @@ function LoadingSkeleton() {
 // Main Component
 // ---------------------------------------------------------------------------
 
+function SettingsAttentionStrip({ settings }: { settings: SettingsMap }) {
+  const maintenance = !!getSettingVal(settings, 'system', 'maintenance_mode', false)
+  const deposits = !!getSettingVal(settings, 'payments', 'deposits_enabled', true)
+  const withdrawals = !!getSettingVal(settings, 'payments', 'withdrawals_enabled', true)
+  const realPlay = !!getSettingVal(settings, 'games', 'real_play_enabled', true)
+  const risky = maintenance || !deposits || !withdrawals || !realPlay
+  if (!risky) return null
+  return (
+    <div className="alert alert-warning small py-2 mb-3 d-flex flex-wrap align-items-center gap-2">
+      <strong>Platform flags:</strong>
+      {maintenance ? <span className="badge text-bg-danger">Maintenance on</span> : null}
+      {!deposits ? <span className="badge text-bg-warning">Deposits off</span> : null}
+      {!withdrawals ? <span className="badge text-bg-warning">Withdrawals off</span> : null}
+      {!realPlay ? <span className="badge text-bg-warning">Real play off</span> : null}
+    </div>
+  )
+}
+
+function SettingsSystemOutline() {
+  const links = [
+    { href: '#settings-kill-switches', label: 'Kill switches' },
+    { href: '#settings-security', label: 'Security & access' },
+    { href: '#settings-withdrawals', label: 'Withdrawal limits' },
+    { href: '#settings-bonus-worker', label: 'Bonus worker' },
+    { href: '#settings-integrations', label: 'Integration status' },
+    { href: '#settings-payments', label: 'Payment flags' },
+  ]
+  return (
+    <nav aria-label="System settings sections" className="mb-3">
+      <div className="list-group small shadow-sm sticky-top" style={{ top: '72px' }}>
+        {links.map((l) => (
+          <a key={l.href} href={l.href} className="list-group-item list-group-item-action py-2">
+            {l.label}
+          </a>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
+function SettingsContentOutline() {
+  const links = [
+    { href: '#settings-content-branding', label: 'Branding' },
+    { href: '#settings-content-social', label: 'Social links' },
+    { href: '#settings-content-hero', label: 'Hero promotions' },
+    { href: '#settings-content-footer', label: 'Footer' },
+    { href: '#settings-content-legal', label: 'Legal pages' },
+    { href: '#settings-content-nav', label: 'Navigation' },
+    { href: '#settings-content-messages', label: 'Operational messages' },
+  ]
+  return (
+    <nav aria-label="Content sections" className="mb-3">
+      <div className="list-group small shadow-sm sticky-top" style={{ top: '72px' }}>
+        {links.map((l) => (
+          <a key={l.href} href={l.href} className="list-group-item list-group-item-action py-2">
+            {l.label}
+          </a>
+        ))}
+      </div>
+    </nav>
+  )
+}
+
 export default function SettingsPage() {
   const { apiFetch, role } = useAdminAuth()
   const isSuper = role === 'superadmin'
 
-  const [tab, setTab] = useState<Tab>('system')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: Tab = searchParams.get('tab') === 'content' ? 'content' : 'system'
+
+  const setTab = (t: Tab) => {
+    if (t === 'system') setSearchParams({}, { replace: true })
+    else setSearchParams({ tab: 'content' }, { replace: true })
+  }
   const [settings, setSettings] = useState<SettingsMap>({})
   const [content, setContent] = useState<ContentMap>({})
   const [loading, setLoading] = useState(true)
@@ -306,14 +358,31 @@ export default function SettingsPage() {
   return (
     <>
       <PageMeta title="Settings · Admin" description="Operational settings and content management" />
-      <PageBreadcrumb pageTitle="Settings" />
+      <PageBreadcrumb
+        pageTitle="Settings"
+        subtitle="Operational switches, site content, and admin-only configuration."
+      />
 
-      {/* Tab bar */}
-      <div className="mb-6 flex items-center gap-2">
-        <button className={tabBtn(tab === 'system')} onClick={() => setTab('system')}>
+      {!isSuper ? (
+        <div className="alert alert-info small py-2 mb-3">
+          Signed in as <strong>{role}</strong>. Many toggles and payment flags require <strong>superadmin</strong>; you
+          can still review read-only sections.
+        </div>
+      ) : null}
+
+      <div className="btn-group mb-4" role="group" aria-label="Settings sections">
+        <button
+          type="button"
+          className={`btn btn-sm ${tab === 'system' ? 'btn-primary' : 'btn-outline-secondary'}`}
+          onClick={() => setTab('system')}
+        >
           System Controls
         </button>
-        <button className={tabBtn(tab === 'content')} onClick={() => setTab('content')}>
+        <button
+          type="button"
+          className={`btn btn-sm ${tab === 'content' ? 'btn-primary' : 'btn-outline-secondary'}`}
+          onClick={() => setTab('content')}
+        >
           Content Management
         </button>
       </div>
@@ -355,13 +424,66 @@ function SystemControlsTab({
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>
 }) {
   return (
-    <div className="space-y-5">
-      <KillSwitchesPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
-      <SecurityAccessPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
-      <WithdrawalLimitsPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
-      <IntegrationStatusPanel settings={settings} />
-      <PaymentFlagsPanel apiFetch={apiFetch} isSuper={isSuper} />
-    </div>
+    <>
+      <SettingsAttentionStrip settings={settings} />
+      <div className="row g-3">
+        <div className="col-lg-3 d-none d-lg-block">
+          <SettingsSystemOutline />
+        </div>
+        <div className="col-lg-9">
+          <KillSwitchesPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
+          <SecurityAccessPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
+          <WithdrawalLimitsPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
+          <BonusWorkerReadonlyPanel apiFetch={apiFetch} />
+          <IntegrationStatusPanel settings={settings} />
+          <PaymentFlagsPanel apiFetch={apiFetch} isSuper={isSuper} />
+        </div>
+      </div>
+    </>
+  )
+}
+
+function BonusWorkerReadonlyPanel({
+  apiFetch,
+}: {
+  apiFetch: (path: string, init?: RequestInit) => Promise<Response>
+}) {
+  const { flags, err } = useOperationalFlags(apiFetch)
+  const n = flags?.bonus_max_bet_violations_auto_forfeit ?? null
+
+  return (
+    <Section
+      id="settings-bonus-worker"
+      title="Bonus worker (read-only)"
+      desc="Values come from this API server’s environment, not from site_settings. Align the worker process in production."
+      defaultOpen={false}
+    >
+      {err ? (
+        <p className="text-sm text-red-600 dark:text-red-400">Could not load operational flags ({err}).</p>
+      ) : flags == null ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : (
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-white/[0.02]">
+            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">Max-bet violations → auto-forfeit</dt>
+            <dd className="mt-1 font-mono text-gray-900 dark:text-gray-100">
+              {n === null ? '—' : n <= 0 ? 'Off (0)' : `≥ ${n} on instance counter`}
+            </dd>
+            <dd className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Env: <code className="font-mono">BONUS_MAX_BET_VIOLATIONS_AUTO_FORFEIT</code>
+            </dd>
+          </div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-white/[0.02]">
+            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">Related UI</dt>
+            <dd className="mt-1 text-gray-700 dark:text-gray-300">
+              Bonus Hub → Compliance → <span className="font-medium">Wager violations</span> lists rejects; audit shows{' '}
+              <code className="font-mono text-[11px]">bonus_forfeited</code> with reason{' '}
+              <code className="font-mono text-[11px]">max_bet_violations</code> when the sweep runs.
+            </dd>
+          </div>
+        </dl>
+      )}
+    </Section>
   )
 }
 
@@ -398,7 +520,7 @@ function KillSwitchesPanel({
   }
 
   return (
-    <Section title="Kill Switches" desc="Master toggles for platform features" defaultOpen>
+    <Section id="settings-kill-switches" title="Kill Switches" desc="Master toggles for platform features" defaultOpen>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {KILL_SWITCHES.map((sw) => {
           const fullKey = `${sw.cat}.${sw.key}`
@@ -601,7 +723,11 @@ function SecurityAccessPanel({
   }
 
   return (
-    <Section title="Security & Access" desc="Geo-blocking by region/country (flags), IP allow/deny lists, and CORS">
+    <Section
+      id="settings-security"
+      title="Security & Access"
+      desc="Geo-blocking by region/country (flags), IP allow/deny lists, and CORS"
+    >
       <div className="space-y-6">
         <div>
           <label className={labelCls}>Blocked countries (launch + eligibility)</label>
@@ -737,7 +863,7 @@ function WithdrawalLimitsPanel({
   }
 
   return (
-    <Section title="Withdrawal Limits" desc="Max amounts and frequency caps">
+    <Section id="settings-withdrawals" title="Withdrawal Limits" desc="Max amounts and frequency caps">
       <div className="grid gap-4 sm:grid-cols-2">
         {WITHDRAWAL_FIELDS.map((f) => (
           <div key={f.key}>
@@ -803,7 +929,7 @@ function IntegrationStatusPanel({ settings }: { settings: SettingsMap }) {
   ]
 
   return (
-    <Section title="Integration Status" desc="External service connection state (read-only)">
+    <Section id="settings-integrations" title="Integration Status" desc="External service connection state (read-only)">
       <div className="grid gap-3 sm:grid-cols-2">
         {integrations.map((i) => (
           <div
@@ -883,7 +1009,7 @@ function PaymentFlagsPanel({
   if (Object.keys(flags).length === 0) return null
 
   return (
-    <Section title="Payment Flags" desc="Per-currency and provider-level payment toggles">
+    <Section id="settings-payments" title="Payment Flags" desc="Per-currency and provider-level payment toggles">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {Object.entries(flags).map(([key, val]) => (
           <div
@@ -924,14 +1050,21 @@ function ContentManagementTab({
   isSuper: boolean
 }) {
   return (
-    <div className="space-y-5">
-      <BrandingSection content={content} saveContent={saveContent} uploadFile={uploadFile} isSuper={isSuper} />
-      <SocialLinksSection content={content} saveContent={saveContent} isSuper={isSuper} />
-      <HeroPromotionsSection content={content} saveContent={saveContent} isSuper={isSuper} />
-      <FooterContentSection content={content} saveContent={saveContent} isSuper={isSuper} />
-      <LegalPagesSection content={content} saveContent={saveContent} isSuper={isSuper} />
-      <NavigationConfigSection content={content} saveContent={saveContent} isSuper={isSuper} />
-      <OperationalMessagesSection content={content} saveContent={saveContent} isSuper={isSuper} />
+    <div className="row g-3">
+      <div className="col-lg-3 d-none d-lg-block">
+        <SettingsContentOutline />
+      </div>
+      <div className="col-lg-9">
+        <div className="d-flex flex-column gap-0">
+          <BrandingSection content={content} saveContent={saveContent} uploadFile={uploadFile} isSuper={isSuper} />
+          <SocialLinksSection content={content} saveContent={saveContent} isSuper={isSuper} />
+          <HeroPromotionsSection content={content} saveContent={saveContent} isSuper={isSuper} />
+          <FooterContentSection content={content} saveContent={saveContent} isSuper={isSuper} />
+          <LegalPagesSection content={content} saveContent={saveContent} isSuper={isSuper} />
+          <NavigationConfigSection content={content} saveContent={saveContent} isSuper={isSuper} />
+          <OperationalMessagesSection content={content} saveContent={saveContent} isSuper={isSuper} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -991,7 +1124,7 @@ function BrandingSection({
   }
 
   return (
-    <Section title="Branding" desc="Site identity and visuals" defaultOpen>
+    <Section id="settings-content-branding" title="Branding" desc="Site identity and visuals" defaultOpen>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className={labelCls}>Site Name</label>
@@ -1076,7 +1209,7 @@ function SocialLinksSection({
   }
 
   return (
-    <Section title="Social Links" desc="Community and social media links">
+    <Section id="settings-content-social" title="Social Links" desc="Community and social media links">
       <div className="space-y-3">
         {SOCIAL_PLATFORMS.map((p) => (
           <div key={p} className="flex items-center gap-3">
@@ -1153,7 +1286,7 @@ function HeroPromotionsSection({
   }
 
   return (
-    <Section title="Hero Promotions" desc="Homepage hero carousel slides">
+    <Section id="settings-content-hero" title="Hero Promotions" desc="Homepage hero carousel slides">
       <div className="space-y-4">
         {slides.map((slide, idx) => (
           <div
@@ -1314,7 +1447,7 @@ function FooterContentSection({
   }
 
   return (
-    <Section title="Footer Content" desc="SEO, legal text, and trust badges">
+    <Section id="settings-content-footer" title="Footer Content" desc="SEO, legal text, and trust badges">
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -1329,7 +1462,14 @@ function FooterContentSection({
 
         <div>
           <label className={labelCls}>SEO Body</label>
-          <textarea className={textareaCls} rows={4} value={seoBody} onChange={(e) => setSeoBody(e.target.value)} disabled={!isSuper} />
+          <textarea
+            className={textareaCls}
+            style={{ minHeight: '8rem' }}
+            rows={4}
+            value={seoBody}
+            onChange={(e) => setSeoBody(e.target.value)}
+            disabled={!isSuper}
+          />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -1414,7 +1554,7 @@ function LegalPagesSection({
   }
 
   return (
-    <Section title="Legal Pages" desc="Editable legal content (supports markdown)">
+    <Section id="settings-content-legal" title="Legal Pages" desc="Editable legal content (supports markdown)">
       <div className="space-y-5">
         {LEGAL_PAGES.map((lp) => {
           const meta = getContentMeta(content, 'legal', lp.key)
@@ -1443,6 +1583,7 @@ function LegalPagesSection({
               </div>
               <textarea
                 className={textareaCls}
+                style={{ minHeight: '10rem' }}
                 rows={6}
                 value={pages[lp.key]?.body ?? ''}
                 onChange={(e) =>
@@ -1505,7 +1646,7 @@ function NavigationConfigSection({
   }
 
   return (
-    <Section title="Navigation Config" desc="Sidebar navigation items">
+    <Section id="settings-content-nav" title="Navigation Config" desc="Sidebar navigation items">
       <div className="space-y-3">
         {items.map((item, idx) => (
           <div
@@ -1610,12 +1751,13 @@ function OperationalMessagesSection({
   }
 
   return (
-    <Section title="Operational Messages" desc="Player-facing status and fallback messages">
+    <Section id="settings-content-messages" title="Operational Messages" desc="Player-facing status and fallback messages">
       <div className="space-y-4">
         <div>
           <label className={labelCls}>Maintenance Message</label>
           <textarea
             className={textareaCls}
+            style={{ minHeight: '6rem' }}
             rows={3}
             value={maintenanceMsg}
             onChange={(e) => setMaintenanceMsg(e.target.value)}
@@ -1627,6 +1769,7 @@ function OperationalMessagesSection({
           <label className={labelCls}>Game Disabled Message</label>
           <textarea
             className={textareaCls}
+            style={{ minHeight: '6rem' }}
             rows={3}
             value={gameDisabledMsg}
             onChange={(e) => setGameDisabledMsg(e.target.value)}
@@ -1638,6 +1781,7 @@ function OperationalMessagesSection({
           <label className={labelCls}>Empty Catalog Message</label>
           <textarea
             className={textareaCls}
+            style={{ minHeight: '6rem' }}
             rows={3}
             value={emptyCatalogMsg}
             onChange={(e) => setEmptyCatalogMsg(e.target.value)}

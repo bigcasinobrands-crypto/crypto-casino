@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
+import { BonusForfeitConfirmModal } from '../components/rewards/BonusForfeitConfirmModal'
+import { BonusInstanceDetailsPanel } from '../components/rewards/BonusInstanceDetailsPanel'
+import type { HubBonusDetails } from '../hooks/useRewardsHub'
+import { playerBonusDisplayTitle } from '../lib/playerBonusDisplayTitle'
 import { usePlayerAuth } from '../playerAuth'
 import {
   IconArrowDown,
@@ -16,6 +20,7 @@ import {
   IconCrown,
   IconDice5,
   IconEye,
+  IconEyeOff,
   IconGift,
   IconGlobe,
   IconLock,
@@ -31,6 +36,8 @@ import {
 } from '../components/icons'
 import { playerApiUrl } from '../lib/playerApiUrl'
 import { useVipStatus } from '../hooks/useVipStatus'
+import { useVipProgram } from '../hooks/useVipProgram'
+import { mergeTierPresentation } from '../lib/vipPresentation'
 
 const supportUrl = import.meta.env.VITE_SUPPORT_URL as string | undefined
 const rgUrl = import.meta.env.VITE_RG_URL as string | undefined
@@ -62,16 +69,38 @@ const TABS: { key: ProfileTab; label: string }[] = [
 /*  Transaction helpers                                               */
 /* ------------------------------------------------------------------ */
 
-type TxDisplayType = 'received' | 'sent' | 'withdrawal' | 'bonus' | 'refund'
+type TxDisplayType =
+  | 'received'
+  | 'sent'
+  | 'withdrawal'
+  | 'bonus'
+  | 'bonus_forfeit'
+  | 'bonus_activation'
+  | 'bonus_relinquish'
+  | 'bonus_release'
+  | 'refund'
+  /** Zero-amount ledger rows (joined a challenge). */
+  | 'challenge_activity'
 type TxStatus = 'completed' | 'processing' | 'failed'
 
 function classifyDisplayType(entryType: string, amountMinor: number): TxDisplayType {
+  if (entryType === 'challenge.join') return 'challenge_activity'
   if (entryType === 'deposit.credit' || entryType === 'deposit.checkout') return 'received'
   if (entryType === 'withdrawal.debit') return 'withdrawal'
   if (entryType === 'withdrawal.compensation') return 'refund'
   if (entryType === 'game.credit') return 'received'
   if (entryType === 'game.debit') return 'sent'
   if (entryType === 'game.rollback') return 'refund'
+  if (entryType === 'promo.activation') return 'bonus_activation'
+  if (entryType === 'promo.relinquish') return 'bonus_relinquish'
+  if (entryType === 'promo.forfeit') return 'bonus_forfeit'
+  if (entryType === 'promo.grant') return 'bonus'
+  if (entryType === 'promo.rakeback') return 'bonus'
+  if (entryType === 'promo.daily_hunt_cash') return 'bonus'
+  if (entryType === 'vip.level_up_cash') return 'bonus'
+  if (entryType === 'challenge.prize') return 'received'
+  if (entryType === 'promo.convert' && amountMinor > 0) return 'bonus_release'
+  if (entryType === 'promo.convert' && amountMinor < 0) return 'sent'
   if (entryType.startsWith('promo')) return 'bonus'
   if (entryType.startsWith('deposit')) return 'received'
   if (entryType.startsWith('withdrawal')) return 'withdrawal'
@@ -87,12 +116,55 @@ const DISPLAY_TYPE_LABELS: Record<TxDisplayType, string> = {
   received: 'Received',
   sent: 'Sent',
   withdrawal: 'Withdrawal',
-  bonus: 'Bonus Credited',
+  bonus: 'Bonus',
+  bonus_forfeit: 'Bonus',
+  bonus_activation: 'Bonus',
+  bonus_relinquish: 'Bonus',
+  bonus_release: 'Bonus',
   refund: 'Refund',
+  challenge_activity: 'Challenge',
 }
 
-function entryLabel(entryType: string, amountMinor: number): string {
-  return DISPLAY_TYPE_LABELS[classifyDisplayType(entryType, amountMinor)]
+function txChallengeTitle(tx: Transaction): string {
+  const m = tx.metadata
+  if (m && typeof m === 'object' && typeof (m as Record<string, unknown>).challenge_title === 'string') {
+    const t = String((m as Record<string, unknown>).challenge_title).trim()
+    if (t) return t
+  }
+  return 'Challenge'
+}
+
+function transactionTypeLabel(entryType: string, amountMinor: number, tx?: Transaction): string {
+  switch (entryType) {
+    case 'challenge.join':
+      return tx ? `Joined challenge — ${txChallengeTitle(tx)}` : 'Joined challenge'
+    case 'challenge.prize':
+      return tx ? `Challenge payout — ${txChallengeTitle(tx)}` : 'Challenge payout'
+    case 'promo.rakeback':
+      return 'Rakeback cash claimed'
+    case 'promo.daily_hunt_cash':
+      return 'Daily hunt cash claimed'
+    case 'vip.level_up_cash':
+      return 'VIP level-up cash reward'
+    case 'promo.grant':
+      return 'Bonus credited'
+    case 'promo.forfeit':
+      return 'Bonus forfeited'
+    case 'promo.activation':
+      return 'Bonus offer activated'
+    case 'promo.relinquish':
+      return 'Bonus offer cancelled'
+    case 'promo.convert':
+      return amountMinor >= 0 ? 'Bonus released to cash' : 'Bonus balance converted'
+    default:
+      return DISPLAY_TYPE_LABELS[classifyDisplayType(entryType, amountMinor)] ?? 'Transaction'
+  }
+}
+
+function isManualBonusGrant(tx: Transaction): boolean {
+  if (tx.entry_type !== 'promo.grant') return false
+  const idem = (tx.idempotency_key ?? '').toLowerCase()
+  return idem.startsWith('promo.grant:bonus:grant:admin:')
 }
 
 
@@ -126,7 +198,7 @@ const TX_POLL_MS = 8_000
 const PAGE_SIZE = 10
 
 function usePaginatedTransactions(perPage: number = PAGE_SIZE) {
-  const { apiFetch, accessToken } = usePlayerAuth()
+  const { apiFetch, isAuthenticated } = usePlayerAuth()
   const [txs, setTxs] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
@@ -151,7 +223,7 @@ function usePaginatedTransactions(perPage: number = PAGE_SIZE) {
 
   useEffect(() => {
     mountedRef.current = true
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setTxs([])
       setLoading(false)
       return
@@ -163,7 +235,7 @@ function usePaginatedTransactions(perPage: number = PAGE_SIZE) {
       mountedRef.current = false
       window.clearInterval(id)
     }
-  }, [accessToken, fetchPage, page])
+  }, [isAuthenticated, fetchPage, page])
 
   const goNext = useCallback(() => { if (hasMore) setPage((p) => p + 1) }, [hasMore])
   const goPrev = useCallback(() => setPage((p) => Math.max(0, p - 1)), [])
@@ -173,7 +245,7 @@ function usePaginatedTransactions(perPage: number = PAGE_SIZE) {
 }
 
 function useRecentTransactions(limit: number) {
-  const { apiFetch, accessToken } = usePlayerAuth()
+  const { apiFetch, isAuthenticated } = usePlayerAuth()
   const [txs, setTxs] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const mountedRef = useRef(true)
@@ -194,7 +266,7 @@ function useRecentTransactions(limit: number) {
 
   useEffect(() => {
     mountedRef.current = true
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setTxs([])
       setLoading(false)
       return
@@ -205,7 +277,7 @@ function useRecentTransactions(limit: number) {
       mountedRef.current = false
       window.clearInterval(id)
     }
-  }, [accessToken, fetchTxs])
+  }, [isAuthenticated, fetchTxs])
 
   return { txs, loading }
 }
@@ -224,12 +296,12 @@ interface PlayerStats {
 const EMPTY_STATS: PlayerStats = { totalWagered: 0, totalBets: 0, highestWin: 0, netProfit: 0 }
 
 function usePlayerStats(): { stats: PlayerStats; loading: boolean } {
-  const { apiFetch, accessToken } = usePlayerAuth()
+  const { apiFetch, isAuthenticated } = usePlayerAuth()
   const [stats, setStats] = useState<PlayerStats>(EMPTY_STATS)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setStats(EMPTY_STATS)
       setLoading(false)
       return
@@ -279,7 +351,7 @@ function usePlayerStats(): { stats: PlayerStats; loading: boolean } {
       window.clearInterval(poll)
       document.removeEventListener('visibilitychange', onVis)
     }
-  }, [apiFetch, accessToken])
+  }, [apiFetch, isAuthenticated])
 
   return { stats, loading }
 }
@@ -299,6 +371,7 @@ type PlayerBonusRow = {
   created_at: string
   title?: string
   bonus_type?: string
+  details?: HubBonusDetails
 }
 
 type OfferRow = {
@@ -308,6 +381,7 @@ type OfferRow = {
   kind: string
   schedule_summary?: string
   trigger_type?: string
+  bonus_type?: string
 }
 
 type BonusListFilter = 'active' | 'past' | 'all'
@@ -328,6 +402,8 @@ function PlayerBonusesPanel() {
   const [listFilter, setListFilter] = useState<BonusListFilter>('active')
   const [reloadTick, setReloadTick] = useState(0)
   const [forfeitBusyId, setForfeitBusyId] = useState<string | null>(null)
+  const [forfeitTarget, setForfeitTarget] = useState<PlayerBonusRow | null>(null)
+  const [detailsOpenId, setDetailsOpenId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -376,38 +452,31 @@ function PlayerBonusesPanel() {
     return bonuses.filter((b) => statusBucket(b.status) === listFilter)
   }, [bonuses, listFilter])
 
-  const forfeitBonus = useCallback(
-    async (id: string) => {
-      if (
-        !window.confirm(
-          'Forfeit this bonus? Remaining locked bonus funds from this offer will be removed and wagering progress will be lost.',
-        )
-      ) {
+  const executeForfeit = useCallback(async () => {
+    if (!forfeitTarget) return
+    const id = forfeitTarget.id
+    setForfeitBusyId(id)
+    try {
+      const res = await apiFetch(`/v1/wallet/bonuses/${encodeURIComponent(id)}/forfeit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (!res.ok) {
+        const apiErr = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(apiErr, res.status, 'POST /v1/wallet/bonuses/forfeit', rid)
         return
       }
-      setForfeitBusyId(id)
-      try {
-        const res = await apiFetch(`/v1/wallet/bonuses/${encodeURIComponent(id)}/forfeit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-        })
-        if (!res.ok) {
-          const apiErr = await readApiError(res)
-          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          toastPlayerApiError(apiErr, res.status, 'POST /v1/wallet/bonuses/forfeit', rid)
-          return
-        }
-        void refreshProfile()
-        setReloadTick((t) => t + 1)
-      } catch {
-        toastPlayerNetworkError('Network error.', 'POST /v1/wallet/bonuses/forfeit')
-      } finally {
-        setForfeitBusyId(null)
-      }
-    },
-    [apiFetch, refreshProfile],
-  )
+      setForfeitTarget(null)
+      void refreshProfile()
+      setReloadTick((t) => t + 1)
+    } catch {
+      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/bonuses/forfeit')
+    } finally {
+      setForfeitBusyId(null)
+    }
+  }, [apiFetch, forfeitTarget, refreshProfile])
 
   return (
     <div className="rounded-casino-lg border border-white/[0.06] bg-casino-card p-4 sm:p-5">
@@ -435,7 +504,17 @@ function PlayerBonusesPanel() {
                 key={o.promotion_version_id}
                 className="rounded-casino-md border border-white/[0.06] bg-casino-elevated/40 px-3 py-2 text-sm"
               >
-                <div className="font-semibold text-casino-foreground">{o.title || 'Offer'}</div>
+                <div className="font-semibold text-casino-foreground">
+                  {playerBonusDisplayTitle(
+                    {
+                      title: o.title,
+                      description: o.description,
+                      promotionVersionId: o.promotion_version_id,
+                      bonusType: o.bonus_type,
+                    },
+                    'Offer',
+                  )}
+                </div>
                 {o.description ? <p className="mt-1 text-xs text-casino-muted">{o.description}</p> : null}
                 <p className="mt-1 text-[11px] text-casino-muted">
                   {o.kind === 'redeem_code' ? 'Redeem with a code' : 'Auto on deposit'} ·{' '}
@@ -473,7 +552,8 @@ function PlayerBonusesPanel() {
             <ul className="space-y-2">
               {filteredBonuses.map((b) => {
                 const st = b.status.toLowerCase()
-                const canForfeit = st === 'active' || st === 'pending'
+                const canForfeit = st === 'active' || st === 'pending' || st === 'pending_review'
+                const detailsOpen = detailsOpenId === b.id
                 return (
                   <li
                     key={b.id}
@@ -481,7 +561,14 @@ function PlayerBonusesPanel() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="min-w-0 font-semibold text-casino-foreground">
-                        {b.title?.trim() || `Promotion #${b.promotion_version_id}`}
+                        {playerBonusDisplayTitle(
+                          {
+                            title: b.title,
+                            promotionVersionId: b.promotion_version_id,
+                            bonusType: b.bonus_type,
+                          },
+                          `Promotion #${b.promotion_version_id}`,
+                        )}
                         <span className="ml-2 text-xs font-normal capitalize text-casino-muted">({b.status})</span>
                       </span>
                       <span className="text-xs text-casino-muted">{b.currency}</span>
@@ -490,16 +577,33 @@ function PlayerBonusesPanel() {
                       Granted {formatMinorUsd(b.granted_amount_minor)} · WR {formatMinorUsd(b.wr_contributed_minor)} /{' '}
                       {formatMinorUsd(b.wr_required_minor)}
                     </p>
-                    {canForfeit ? (
-                      <div className="mt-2 flex justify-end">
+                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDetailsOpenId((x) => (x === b.id ? null : b.id))}
+                        className="rounded-casino-sm border border-white/[0.1] px-2 py-1 text-[11px] font-semibold text-casino-foreground hover:bg-white/[0.04]"
+                      >
+                        {detailsOpen ? 'Hide rules & games' : 'Rules & games'}
+                      </button>
+                      {canForfeit ? (
                         <button
                           type="button"
                           disabled={forfeitBusyId === b.id}
-                          onClick={() => void forfeitBonus(b.id)}
+                          onClick={() => setForfeitTarget(b)}
                           className="rounded-casino-sm border border-red-500/40 px-2 py-1 text-[11px] font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50"
                         >
-                          {forfeitBusyId === b.id ? 'Working…' : 'Forfeit'}
+                          Forfeit
                         </button>
+                      ) : null}
+                    </div>
+                    {detailsOpen ? (
+                      <div className="mt-3 rounded-casino-md border border-white/[0.06] bg-casino-card/50 px-2 py-2">
+                        <BonusInstanceDetailsPanel
+                          details={b.details}
+                          infoOpen={detailsOpen}
+                          apiFetch={apiFetch}
+                          embedded
+                        />
                       </div>
                     ) : null}
                   </li>
@@ -512,6 +616,25 @@ function PlayerBonusesPanel() {
       {!loading && !err && offers.length === 0 && bonuses.length === 0 ? (
         <p className="text-sm text-casino-muted">No active bonuses yet. Published deposit offers appear here when you qualify.</p>
       ) : null}
+
+      <BonusForfeitConfirmModal
+        open={forfeitTarget != null}
+        bonusTitle={
+          forfeitTarget
+            ? playerBonusDisplayTitle(
+                {
+                  title: forfeitTarget.title,
+                  promotionVersionId: forfeitTarget.promotion_version_id,
+                  bonusType: forfeitTarget.bonus_type,
+                },
+                `Bonus #${forfeitTarget.promotion_version_id}`,
+              )
+            : ''
+        }
+        onCancel={() => setForfeitTarget(null)}
+        onConfirm={() => void executeForfeit()}
+        busy={forfeitTarget != null && forfeitBusyId === forfeitTarget.id}
+      />
     </div>
   )
 }
@@ -521,9 +644,18 @@ function PlayerBonusesPanel() {
 /* ------------------------------------------------------------------ */
 
 export default function ProfilePage() {
-  const { accessToken, me, refreshProfile, logout, apiFetch } = usePlayerAuth()
-  const [activeTab, setActiveTab] = useState<ProfileTab>('overview')
+  const { isAuthenticated, me, refreshProfile, logout, apiFetch } = usePlayerAuth()
+  const { data: vipProgram } = useVipProgram()
+  const [searchParams] = useSearchParams()
+  const settingsPromo = searchParams.get('settings') === 'promo'
+  const promoPrefill = searchParams.get('prefill_code') ?? undefined
+
+  const [activeTab, setActiveTab] = useState<ProfileTab>(() => (settingsPromo ? 'settings' : 'overview'))
   const [resendMsg, setResendMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (settingsPromo) setActiveTab('settings')
+  }, [settingsPromo])
 
   const { txs: recentTxs, loading: txLoading } = useRecentTransactions(10)
   const allTxPaginated = usePaginatedTransactions(PAGE_SIZE)
@@ -552,13 +684,25 @@ export default function ProfilePage() {
     }
   }, [apiFetch, refreshProfile])
 
-  if (!accessToken) return <Navigate to="/?auth=login" replace />
+  if (!isAuthenticated) return <Navigate to="/?auth=login" replace />
 
   const joinDate = me?.created_at
     ? new Date(me.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
     : null
 
   const displayName = me?.username || me?.email?.split('@')[0] || 'Player'
+  const currentVipTierImage = useMemo(() => {
+    const tiers = vipProgram?.tiers ?? []
+    if (tiers.length === 0 || !me?.vip_tier) return null
+    const byID = typeof me.vip_tier_id === 'number' ? tiers.find((t) => t.id === me.vip_tier_id) : undefined
+    const byName = tiers.find((t) => t.name.trim().toLowerCase() === me.vip_tier?.trim().toLowerCase())
+    const tier = byID ?? byName
+    if (!tier) return null
+    const { display } = mergeTierPresentation(tier)
+    const raw = display.character_image_url
+    if (typeof raw !== 'string' || !raw.trim()) return null
+    return playerApiUrl(raw.trim())
+  }, [vipProgram?.tiers, me?.vip_tier, me?.vip_tier_id])
 
   const fmtUsd = (minor: number) =>
     `$${(minor / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -594,7 +738,11 @@ export default function ProfilePage() {
                   to="/vip"
                   className="inline-flex items-center gap-1 rounded-casino-sm bg-casino-primary/20 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-primary ring-1 ring-casino-primary/35 transition hover:bg-casino-primary/30"
                 >
-                  <IconCrown size={12} aria-hidden />
+                  {currentVipTierImage ? (
+                    <img src={currentVipTierImage} alt={me.vip_tier} className="h-4 w-4 rounded-full object-cover" />
+                  ) : (
+                    <IconCrown size={12} aria-hidden />
+                  )}
                   VIP · {me.vip_tier}
                 </Link>
               ) : null}
@@ -700,6 +848,8 @@ export default function ProfilePage() {
           emailVerified={me?.email_verified}
           onResendVerification={() => void resend()}
           resendMsg={resendMsg}
+          initialSettingsSection={settingsPromo ? 'promo' : undefined}
+          promoPrefill={promoPrefill}
         />
       )}
 
@@ -970,14 +1120,17 @@ function TransactionsPanel({
               {txs.map((tx) => {
                 const displayType = classifyDisplayType(tx.entry_type, tx.amount_minor)
                 const status = classifyStatus(tx.entry_type)
-                const isPositive = tx.amount_minor >= 0
+                const isZero = tx.amount_minor === 0
+                const isPositive = tx.amount_minor > 0
                 return (
                   <tr key={tx.id} className="border-b border-white/[0.04] last:border-b-0">
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
                         <TxTypeIcon displayType={displayType} isPositive={isPositive} />
                         <span className="text-sm font-semibold text-[#e2dff0]">
-                          {entryLabel(tx.entry_type, tx.amount_minor)}
+                          {isManualBonusGrant(tx)
+                            ? 'Manual bonus credit'
+                            : transactionTypeLabel(tx.entry_type, tx.amount_minor, tx)}
                           {tx.currency !== 'USDT' ? ` (${tx.currency})` : ''}
                         </span>
                       </div>
@@ -985,10 +1138,14 @@ function TransactionsPanel({
                     <td className="px-4 py-3.5">
                       <span
                         className={`font-mono text-[15px] font-bold ${
-                          isPositive ? 'text-casino-success' : 'text-casino-foreground'
+                          isZero
+                            ? 'text-casino-muted'
+                            : isPositive
+                              ? 'text-casino-success'
+                              : 'text-casino-foreground'
                         }`}
                       >
-                        {formatMinorAmount(tx.amount_minor, tx.currency)}
+                        {isZero ? '—' : formatMinorAmount(tx.amount_minor, tx.currency)}
                       </span>
                     </td>
                     <td className="px-4 py-3.5 text-sm font-semibold text-[#e2dff0]">
@@ -1027,15 +1184,35 @@ function TxTypeIcon({ displayType, isPositive }: { displayType: TxDisplayType; i
       icon: <IconArrowUp size={14} />,
     },
     bonus: {
-      bg: 'bg-casino-warning/10 text-casino-warning',
+      bg: 'bg-casino-primary/15 text-casino-primary',
       icon: <IconGift size={14} />,
+    },
+    bonus_forfeit: {
+      bg: 'bg-casino-destructive/10 text-casino-destructive',
+      icon: <IconLock size={14} />,
+    },
+    bonus_activation: {
+      bg: 'bg-casino-primary/15 text-casino-primary',
+      icon: <IconBadgeCheck size={14} />,
+    },
+    bonus_relinquish: {
+      bg: 'bg-amber-500/15 text-amber-200/90',
+      icon: <IconArrowRightLeft size={14} />,
+    },
+    bonus_release: {
+      bg: 'bg-casino-success/10 text-casino-success',
+      icon: <IconTrendingUp size={14} />,
     },
     refund: {
       bg: isPositive ? 'bg-casino-success/10 text-casino-success' : 'bg-casino-destructive/10 text-casino-destructive',
       icon: <IconArrowRightLeft size={14} />,
     },
+    challenge_activity: {
+      bg: 'bg-violet-500/15 text-violet-200/90',
+      icon: <IconTrophy size={14} />,
+    },
   }
-  const { bg, icon } = iconMap[displayType]
+  const { bg, icon } = iconMap[displayType] ?? iconMap.bonus
   return (
     <div className={`flex size-7 items-center justify-center rounded-full ${bg}`}>
       {icon}
@@ -1095,7 +1272,7 @@ type GameHistoryData = {
 const GH_POLL_MS = 15_000
 
 function useGameHistory() {
-  const { apiFetch, accessToken } = usePlayerAuth()
+  const { apiFetch, isAuthenticated } = usePlayerAuth()
   const [data, setData] = useState<GameHistoryData | null>(null)
   const [loading, setLoading] = useState(true)
   const mountedRef = useRef(true)
@@ -1116,7 +1293,7 @@ function useGameHistory() {
 
   useEffect(() => {
     mountedRef.current = true
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setData(null)
       setLoading(false)
       return
@@ -1127,7 +1304,7 @@ function useGameHistory() {
       mountedRef.current = false
       window.clearInterval(id)
     }
-  }, [accessToken, fetch_])
+  }, [isAuthenticated, fetch_])
 
   return { data, loading }
 }
@@ -1314,7 +1491,12 @@ function GameHistoryPanel() {
 /*  Wallet Panel (real per-currency balances)                         */
 /* ------------------------------------------------------------------ */
 
-type WalletEntry = { currency: string; balance_minor: number }
+type WalletEntry = {
+  currency: string
+  balance_minor: number
+  cash_minor?: number
+  bonus_locked_minor?: number
+}
 
 const CURRENCY_META: Record<string, { name: string; color: string; symbol: string }> = {
   USDT: { name: 'Tether', color: '#26a17b', symbol: '$' },
@@ -1335,7 +1517,7 @@ function getCurrencyMeta(code: string) {
 const WALLET_POLL_MS = 15_000
 
 function useWallets() {
-  const { apiFetch, accessToken } = usePlayerAuth()
+  const { apiFetch, isAuthenticated } = usePlayerAuth()
   const [wallets, setWallets] = useState<WalletEntry[]>([])
   const [loading, setLoading] = useState(true)
   const mountedRef = useRef(true)
@@ -1360,7 +1542,7 @@ function useWallets() {
 
   useEffect(() => {
     mountedRef.current = true
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setWallets([])
       setLoading(false)
       return
@@ -1371,7 +1553,7 @@ function useWallets() {
       mountedRef.current = false
       window.clearInterval(id)
     }
-  }, [accessToken, fetchWallets])
+  }, [isAuthenticated, fetchWallets])
 
   return { wallets, loading }
 }
@@ -1426,6 +1608,15 @@ function WalletPanel() {
                   ) : (
                     <span className="text-xs font-semibold text-casino-muted">{w.currency}</span>
                   )}
+                  <span className="text-[11px] font-semibold text-casino-muted">
+                    Bonus remaining:{' '}
+                    <span className="text-casino-foreground">
+                      {((w.bonus_locked_minor ?? 0) / 100).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </span>
                 </div>
               </div>
             )
@@ -1587,11 +1778,12 @@ function AccountSettingsPanel({
 /*  Settings Panel (sidebar + content, like reference design)         */
 /* ------------------------------------------------------------------ */
 
-type SettingsSection = 'general' | 'security' | 'preference' | 'sessions' | 'verify' | 'promo' | 'responsible'
+type SettingsSection = 'general' | 'security' | 'privacy' | 'preference' | 'sessions' | 'verify' | 'promo' | 'responsible'
 
 const SETTINGS_MENU: { key: SettingsSection; label: string; icon: React.ReactNode }[] = [
   { key: 'general', label: 'General', icon: <IconUser size={18} /> },
   { key: 'security', label: 'Security', icon: <IconLock size={18} /> },
+  { key: 'privacy', label: 'Privacy', icon: <IconEyeOff size={18} /> },
   { key: 'preference', label: 'Preference', icon: <IconEye size={18} /> },
   { key: 'sessions', label: 'Sessions', icon: <IconUsers size={18} /> },
   { key: 'verify', label: 'Verify', icon: <IconBadgeCheck size={18} /> },
@@ -1606,6 +1798,8 @@ function SettingsPanel({
   emailVerified,
   onResendVerification,
   resendMsg,
+  initialSettingsSection,
+  promoPrefill,
 }: {
   email?: string
   displayName: string
@@ -1613,8 +1807,14 @@ function SettingsPanel({
   emailVerified?: boolean
   onResendVerification: () => void
   resendMsg: string | null
+  initialSettingsSection?: SettingsSection
+  promoPrefill?: string
 }) {
-  const [section, setSection] = useState<SettingsSection>('general')
+  const [section, setSection] = useState<SettingsSection>(initialSettingsSection ?? 'general')
+
+  useEffect(() => {
+    if (initialSettingsSection) setSection(initialSettingsSection)
+  }, [initialSettingsSection])
 
   return (
     <div className="flex flex-col gap-0 rounded-casino-lg bg-casino-card md:flex-row">
@@ -1650,6 +1850,7 @@ function SettingsPanel({
           />
         )}
         {section === 'security' && <SettingsSecurity />}
+        {section === 'privacy' && <SettingsPrivacy />}
         {section === 'preference' && <SettingsPreference />}
         {section === 'sessions' && <SettingsSessions />}
         {section === 'verify' && (
@@ -1659,7 +1860,7 @@ function SettingsPanel({
             resendMsg={resendMsg}
           />
         )}
-        {section === 'promo' && <SettingsPromo />}
+        {section === 'promo' && <SettingsPromo initialCode={promoPrefill} />}
         {section === 'responsible' && <SettingsResponsibleGambling />}
       </div>
     </div>
@@ -1902,6 +2103,90 @@ function SettingsSecurity() {
   )
 }
 
+/* ---- Privacy ---- */
+
+const PREF_ANONYMISE_PUBLIC_NAME = 'anonymise_public_name'
+
+function parsePrefBool(v: unknown): boolean {
+  if (v === true) return true
+  if (typeof v === 'string') {
+    const s = v.toLowerCase().trim()
+    return s === 'true' || s === '1' || s === 'yes'
+  }
+  return false
+}
+
+function SettingsPrivacy() {
+  const { apiFetch } = usePlayerAuth()
+  const [anon, setAnon] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [saved, setSaved] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch('/v1/auth/profile/preferences')
+        if (res.ok) {
+          const j = (await res.json()) as Record<string, unknown>
+          if (!cancelled) {
+            setAnon(parsePrefBool(j[PREF_ANONYMISE_PUBLIC_NAME]))
+            setLoaded(true)
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
+
+  const apply = useCallback(
+    async (value: boolean) => {
+      setAnon(value)
+      setSaved(null)
+      try {
+        const res = await apiFetch('/v1/auth/profile/preferences', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [PREF_ANONYMISE_PUBLIC_NAME]: value }),
+        })
+        setSaved(res.ok ? 'Saved' : 'Could not save')
+      } catch {
+        setSaved('Network error')
+      }
+      window.setTimeout(() => setSaved(null), 2400)
+    },
+    [apiFetch],
+  )
+
+  return (
+    <>
+      <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">Privacy</h3>
+      <div className="flex flex-col gap-5">
+        <div className="flex items-center justify-between rounded-casino-md border border-casino-border bg-white/[0.02] px-4 py-3.5">
+          <div className="flex min-w-0 flex-col gap-0.5 pr-3">
+            <span className="text-sm font-bold text-casino-foreground">Hide public name</span>
+            <span className="text-xs leading-relaxed text-casino-muted">
+              When on, your public name appears with the centre masked everywhere it is shown — including on your own leaderboard
+              row and chat messages (for example dr****ik). That matches what others see so you know you are anonymous. Your profile
+              picture stays visible. Deposit, profile, and support areas still use your real account details where required.
+            </span>
+          </div>
+          <ToggleSwitch on={anon} onToggle={(v) => void apply(v)} disabled={!loaded} />
+        </div>
+      </div>
+      {saved && (
+        <p className={`mt-3 text-xs font-semibold ${saved === 'Saved' ? 'text-casino-success' : 'text-casino-destructive'}`}>
+          {saved}
+        </p>
+      )}
+    </>
+  )
+}
+
 /* ---- Preference ---- */
 
 function SettingsPreference() {
@@ -1920,9 +2205,14 @@ function SettingsPreference() {
       try {
         const res = await apiFetch('/v1/auth/profile/preferences')
         if (res.ok) {
-          const j = (await res.json()) as Record<string, boolean>
+          const j = (await res.json()) as Record<string, unknown>
           if (!cancelled) {
-            setPrefs((prev) => ({ ...prev, ...j }))
+            setPrefs((prev) => ({
+              ...prev,
+              email_notifications: parsePrefBool(j.email_notifications ?? prev.email_notifications),
+              sound_effects: parsePrefBool(j.sound_effects ?? prev.sound_effects),
+              transaction_alerts: parsePrefBool(j.transaction_alerts ?? prev.transaction_alerts),
+            }))
             setLoaded(true)
           }
         }
@@ -2070,9 +2360,13 @@ function SettingsVerify({
 
 /* ---- Promo Code ---- */
 
-function SettingsPromo() {
+function SettingsPromo({ initialCode }: { initialCode?: string }) {
   const { apiFetch } = usePlayerAuth()
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(() => initialCode ?? '')
+
+  useEffect(() => {
+    if (initialCode) setCode(initialCode)
+  }, [initialCode])
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -2283,8 +2577,6 @@ function Pagination({
   onPrev: () => void
   onGoTo: (p: number) => void
 }) {
-  if (page === 0 && !hasMore) return null
-
   const nearbyPages = useMemo(() => {
     const pages: number[] = []
     const start = Math.max(0, page - 2)
@@ -2292,6 +2584,8 @@ function Pagination({
     for (let i = start; i <= end; i++) pages.push(i)
     return pages
   }, [page, hasMore])
+
+  if (page === 0 && !hasMore) return null
 
   return (
     <div className="flex items-center justify-between border-t border-white/[0.04] pt-4">

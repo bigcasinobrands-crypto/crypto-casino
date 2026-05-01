@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessage, UseChatReturn } from '../hooks/useChat'
 import { playerApiUrl } from '../lib/playerApiUrl'
+import { sanitizeChatRichLine } from '../lib/sanitizeHtml'
 import { usePlayerAuth } from '../playerAuth'
 import { useAuthModal } from '../authModalContext'
 import {
@@ -21,7 +22,7 @@ type ChatDrawerProps = {
 }
 
 const AVATAR_COLORS = [
-  '#7c4dff', '#e91e63', '#00bcd4', '#ff9800',
+  '#7b61ff', '#e91e63', '#00bcd4', '#ff9800',
   '#4caf50', '#9c27b0', '#f44336', '#2196f3',
 ]
 
@@ -71,7 +72,7 @@ const LS_SOUND_KEY = 'chat_sound_enabled'
 const LS_MUTED_USERS_KEY = 'chat_muted_users'
 
 export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
-  const { accessToken, me } = usePlayerAuth()
+  const { isAuthenticated, me } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const {
     messages,
@@ -140,11 +141,12 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
     })
   }, [])
 
-  const toggleMuteUser = useCallback((userId: string) => {
+  const toggleMuteUser = useCallback((participantId: string) => {
+    if (!participantId) return
     setMutedUsers(prev => {
       const next = new Set(prev)
-      if (next.has(userId)) next.delete(userId)
-      else next.add(userId)
+      if (next.has(participantId)) next.delete(participantId)
+      else next.add(participantId)
       localStorage.setItem(LS_MUTED_USERS_KEY, JSON.stringify([...next]))
       return next
     })
@@ -191,6 +193,15 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
     requestAnimationFrame(scrollToEnd)
   }, [inputVal, sendMessage, scrollToEnd])
 
+  const insertMention = useCallback((username: string) => {
+    const atIdx = inputVal.lastIndexOf('@')
+    if (atIdx === -1) return
+    const newVal = inputVal.slice(0, atIdx) + `@${username} `
+    setInputVal(newVal)
+    setMentionQuery(null)
+    inputRef.current?.focus()
+  }, [inputVal])
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (mentionQuery !== null && mentionResults.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -217,16 +228,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
       e.preventDefault()
       handleSend()
     }
-  }, [mentionQuery, mentionResults, mentionIdx, handleSend])
-
-  const insertMention = useCallback((username: string) => {
-    const atIdx = inputVal.lastIndexOf('@')
-    if (atIdx === -1) return
-    const newVal = inputVal.slice(0, atIdx) + `@${username} `
-    setInputVal(newVal)
-    setMentionQuery(null)
-    inputRef.current?.focus()
-  }, [inputVal])
+  }, [mentionQuery, mentionResults, mentionIdx, handleSend, insertMention])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
@@ -249,11 +251,14 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
   }, [])
 
   const filteredMessages = useMemo(
-    () => messages.filter(m => m.msg_type !== 'user' || !mutedUsers.has(m.user_id)),
+    () =>
+      messages.filter(
+        m => m.msg_type !== 'user' || !m.participant_id || !mutedUsers.has(m.participant_id),
+      ),
     [messages, mutedUsers],
   )
 
-  const myUserId = me?.id
+  const myParticipantId = me?.participant_id
 
   return (
     <>
@@ -335,9 +340,9 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
               <ChatMessageRow
                 key={msg.id || msg.created_at}
                 msg={msg}
-                isOwn={msg.user_id === myUserId}
+                isOwn={!!myParticipantId && msg.participant_id === myParticipantId}
                 currentUsername={me?.username}
-                isMuted={mutedUsers.has(msg.user_id)}
+                isMuted={!!msg.participant_id && mutedUsers.has(msg.participant_id)}
                 onMuteUser={toggleMuteUser}
               />
             ))}
@@ -397,7 +402,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
             )}
 
             <div className="flex items-center gap-2 rounded-casino-md bg-white/[0.06] py-1.5 pl-3.5 pr-1.5">
-              {!accessToken ? (
+              {!isAuthenticated ? (
                 <button
                   type="button"
                   className="flex-1 text-left text-[13px] font-medium text-white/30"
@@ -430,7 +435,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                   type="button"
                   className="inline-flex h-8 w-8 items-center justify-center rounded-casino-sm bg-casino-primary text-white transition hover:brightness-110 disabled:opacity-40"
                   onClick={handleSend}
-                  disabled={!accessToken || !inputVal.trim()}
+                  disabled={!isAuthenticated || !inputVal.trim()}
                   aria-label="Send message"
                 >
                   <IconSend size={15} />
@@ -451,7 +456,7 @@ type ChatMessageRowProps = {
   isOwn: boolean
   currentUsername?: string
   isMuted: boolean
-  onMuteUser: (userId: string) => void
+  onMuteUser: (participantId: string) => void
 }
 
 function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: ChatMessageRowProps) {
@@ -459,7 +464,7 @@ function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: Ch
     return (
       <div className="flex items-center gap-3 rounded-casino-md border-l-[3px] border-casino-primary bg-casino-primary/[0.08] p-3">
         <IconPartyPopper size={18} className="shrink-0 text-casino-primary" />
-        <p className="text-[12px] font-medium text-[#e5dfff]" dangerouslySetInnerHTML={{ __html: highlightBold(msg.body) }} />
+        <p className="text-[12px] font-medium text-[#e5dfff]" dangerouslySetInnerHTML={{ __html: sanitizeChatRichLine(highlightBold(msg.body)) }} />
       </div>
     )
   }
@@ -468,7 +473,7 @@ function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: Ch
     return (
       <div className="flex items-center gap-3 rounded-casino-md border-l-[3px] border-casino-success bg-casino-success/[0.08] p-3">
         <IconCloudRain size={18} className="shrink-0 text-casino-success" />
-        <p className="text-[12px] font-medium text-[#caffeb]" dangerouslySetInnerHTML={{ __html: highlightBold(msg.body) }} />
+        <p className="text-[12px] font-medium text-[#caffeb]" dangerouslySetInnerHTML={{ __html: sanitizeChatRichLine(highlightBold(msg.body)) }} />
       </div>
     )
   }
@@ -497,7 +502,7 @@ function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: Ch
           <span className={`text-[13px] font-extrabold ${vipClass || 'text-casino-foreground'} truncate`}>
             {msg.username}
           </span>
-          {!isOwn && (
+          {!isOwn && msg.participant_id && (
             <button
               type="button"
               className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition ${
@@ -505,7 +510,7 @@ function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: Ch
                   ? 'text-casino-destructive hover:text-casino-destructive/70'
                   : 'text-casino-muted/50 hover:text-casino-destructive'
               }`}
-              onClick={() => onMuteUser(msg.user_id)}
+              onClick={() => onMuteUser(msg.participant_id)}
               aria-label={isMuted ? 'Unmute user' : 'Mute user'}
               title={isMuted ? 'Unmute user' : 'Mute user'}
             >

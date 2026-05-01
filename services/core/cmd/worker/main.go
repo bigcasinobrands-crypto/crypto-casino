@@ -8,10 +8,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/bonus"
+	"github.com/crypto-casino/core/internal/challenges"
+	"github.com/crypto-casino/core/internal/compliance"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
+	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/jobs"
+	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/obs"
 	"github.com/crypto-casino/core/internal/redisx"
 	"github.com/crypto-casino/core/internal/webhooks"
@@ -22,6 +27,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	if err := cfg.ValidateProduction(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	obs.InitLogging(cfg.LogFormat)
 	if cfg.RedisURL == "" {
 		log.Fatal("REDIS_URL required for worker")
 	}
@@ -39,6 +48,52 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	bog := blueocean.NewClient(&cfg)
+	var fsClient *fystack.Client
+	if cfg.FystackConfigured() {
+		fsClient = fystack.NewClient(cfg.FystackBaseURL, cfg.FystackAPIKey, cfg.FystackAPISecret, cfg.FystackWorkspaceID)
+	}
+	cmcTickers := market.NewCryptoTickers(cfg.CoinMarketCapAPIKey)
+	bonus.ConfigureCashPayoutRuntime(&cfg, fsClient, cmcTickers)
+
+	go func() {
+		t := time.NewTicker(12 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				n, err := bonus.ProcessFreeSpinBogGrants(bg, pool, bog, &cfg, 25)
+				if err != nil {
+					log.Printf("free spin BO: %v", err)
+				} else if n > 0 {
+					log.Printf("free spin BO: granted %d", n)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				n, err := bonus.ProcessBonusOutbox(bg, pool, 80)
+				if err != nil {
+					log.Printf("bonus outbox: %v", err)
+				} else if n > 0 {
+					log.Printf("bonus outbox: delivered %d", n)
+				}
+			}
+		}
+	}()
 
 	go func() {
 		t := time.NewTicker(3 * time.Minute)
@@ -76,6 +131,61 @@ func main() {
 		}
 	}()
 
+	if cfg.BonusMaxBetViolationsAutoForfeit > 0 {
+		th := cfg.BonusMaxBetViolationsAutoForfeit
+		go func() {
+			t := time.NewTicker(12 * time.Minute)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					bg := context.Background()
+					n, err := bonus.SweepMaxBetViolationForfeits(bg, pool, th)
+					if err != nil {
+						log.Printf("bonus max-bet violation forfeit sweep: %v", err)
+					} else if n > 0 {
+						log.Printf("bonus max-bet violation forfeit sweep: forfeited %d instances", n)
+					}
+				}
+			}
+		}()
+	}
+
+	go func() {
+		t := time.NewTicker(1 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := bonus.ProcessVIPDeliveryTick(context.Background(), pool, time.Now().UTC()); err != nil {
+					log.Printf("vip delivery tick: %v", err)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		t := time.NewTicker(2 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				if n, err := bonus.ProcessRakebackBoostSettlements(bg, pool, time.Now().UTC(), 600); err != nil {
+					log.Printf("rakeback boost settle: %v", err)
+				} else if n > 0 {
+					log.Printf("rakeback boost settle: %d", n)
+				}
+			}
+		}
+	}()
+
 	go func() {
 		t := time.NewTicker(15 * time.Minute)
 		defer t.Stop()
@@ -103,6 +213,11 @@ func main() {
 					log.Printf("hunt milestones: %v", err)
 				} else if n > 0 {
 					log.Printf("hunt milestones: users processed %d", n)
+				}
+				if drift, err := bonus.RunVIPLedgerReconciliation(bg, pool); err != nil {
+					log.Printf("vip reconcile: %v", err)
+				} else if drift > 0 {
+					log.Printf("vip reconcile drift detected: %d", drift)
 				}
 			}
 		}
@@ -153,6 +268,24 @@ func main() {
 					}
 				}
 			}
+		case challenges.JobBODebit:
+			var p challenges.BODebitPayload
+			if err := json.Unmarshal(j.Data, &p); err != nil {
+				log.Printf("challenge_bo_debit: bad payload: %v", err)
+				continue
+			}
+			if err := challenges.ProcessDebit(ctx, pool, &cfg, p); err != nil {
+				log.Printf("challenge_bo_debit: %v", err)
+			}
+		case challenges.JobBOCredit:
+			var p challenges.BOCreditPayload
+			if err := json.Unmarshal(j.Data, &p); err != nil {
+				log.Printf("challenge_bo_credit: bad payload: %v", err)
+				continue
+			}
+			if err := challenges.ProcessCredit(ctx, pool, &cfg, p); err != nil {
+				log.Printf("challenge_bo_credit: %v", err)
+			}
 		case "bonus_payment_settled":
 			var ev bonus.PaymentSettled
 			if err := json.Unmarshal(j.Data, &ev); err != nil {
@@ -167,6 +300,18 @@ func main() {
 					INSERT INTO worker_failed_jobs (job_type, payload, error_text, attempts)
 					VALUES ($1, $2::jsonb, $3, 1)
 				`, "bonus_payment_settled", payload, err.Error())
+			}
+		case "compliance_erasure":
+			var wrap struct {
+				JobID int64 `json:"job_id"`
+			}
+			_ = json.Unmarshal(j.Data, &wrap)
+			if wrap.JobID == 0 {
+				log.Printf("compliance_erasure: missing job_id")
+				continue
+			}
+			if err := compliance.ProcessErasureJob(ctx, pool, wrap.JobID); err != nil {
+				log.Printf("compliance_erasure %d: %v", wrap.JobID, err)
 			}
 		default:
 			log.Printf("unknown job type %q", j.Type)

@@ -12,7 +12,9 @@ type GameRow = {
   id: string
   title: string
   provider: string
+  provider_system?: string
   thumbnail_url?: string
+  thumb_rev?: number
 }
 
 const FETCH_LIMIT = 48
@@ -35,7 +37,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
   const [err, setErr] = useState<string | null>(null)
   const [, bumpFav] = useState(0)
   const refreshFav = useCallback(() => bumpFav((n) => n + 1), [])
-  const { accessToken } = usePlayerAuth()
+  const { isAuthenticated } = usePlayerAuth()
   const { openAuth } = useAuthModal()
 
   useEffect(() => {
@@ -169,7 +171,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
           >
             <div className="relative w-full max-w-2xl" data-game-search-shield>
               <label id={titleId} className="sr-only">
-                Search games by title or provider
+                Search games by title, studio, or category
               </label>
               <IconSearch
                 className="pointer-events-none absolute left-4 top-1/2 z-10 size-[18px] -translate-y-1/2 text-white/50"
@@ -181,10 +183,10 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search games"
-                aria-label="Search games by title or provider"
+                placeholder="Search games or studios (e.g. Pragmatic)"
+                aria-label="Search games by title, studio, or category"
                 autoComplete="off"
-                className="min-w-0 w-full rounded-full border border-casino-primary/25 bg-[#1a1722]/75 py-2.5 pl-11 pr-11 text-[13px] text-white/90 shadow-[0_0_0_1px_rgba(124,77,255,0.08)] outline-none backdrop-blur-sm transition placeholder:text-white/45 focus:border-casino-primary/55 focus:shadow-[0_0_0_1px_rgba(124,77,255,0.25),0_0_16px_rgba(124,77,255,0.1)]"
+                className="min-w-0 w-full rounded-full border border-casino-primary/25 bg-casino-surface/90 py-2.5 pl-11 pr-11 text-[13px] text-white/90 shadow-[0_0_0_1px_rgba(123,97,255,0.12)] outline-none backdrop-blur-sm transition placeholder:text-casino-muted focus:border-casino-primary/50 focus:shadow-[0_0_0_1px_rgba(123,97,255,0.35),0_0_20px_rgba(123,97,255,0.12)]"
               />
               {query ? (
                 <button
@@ -222,14 +224,16 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
                   return (
                     <div key={g.id} className="group relative" data-game-search-shield>
                       <RequireAuthLink to={lobbyTo} className="group game-thumb-link block" onClick={() => onClose()}>
-                        <div className="aspect-[3/4] w-full overflow-hidden rounded-[4px] bg-casino-elevated">
-                          <PortraitGameThumb url={g.thumbnail_url} title={g.title} />
+                        <div className="aspect-[3/4] w-full overflow-hidden rounded-casino-md bg-casino-elevated">
+                          <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
                         </div>
                         <p className="mt-1 line-clamp-2 text-center text-[11px] font-medium leading-tight text-casino-muted transition group-hover:text-casino-foreground">
                           {g.title}
                         </p>
-                        {g.provider ? (
-                          <p className="line-clamp-1 text-center text-[10px] text-casino-muted/80">{g.provider}</p>
+                        {(g.provider_system?.trim() || g.provider?.trim()) ? (
+                          <p className="line-clamp-1 text-center text-[10px] text-casino-muted/80">
+                            {g.provider_system?.trim() || g.provider}
+                          </p>
                         ) : null}
                       </RequireAuthLink>
                       <button
@@ -239,7 +243,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
                         onClick={(e) => {
                           e.preventDefault()
                           e.stopPropagation()
-                          if (!accessToken) {
+                          if (!isAuthenticated) {
                             saveCatalogReturnBeforeGameOpen()
                             openAuth('login', { navigateTo: lobbyTo })
                             return

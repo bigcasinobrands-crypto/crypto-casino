@@ -1,37 +1,52 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminAuthProvider } from './authContext'
 import { AppToaster } from './components/AppToaster'
 import { ReportingErrorBoundary } from './components/ReportingErrorBoundary'
 import { AdminActivityLogProvider } from './notifications/AdminActivityLogContext'
 import AdminLayout from './pages/AdminLayout'
-import BlueOceanOpsPage from './pages/BlueOceanOpsPage'
-import DashboardPage from './pages/DashboardPage'
-import DataTablePage from './pages/DataTablePage'
-import GamesCatalogPage from './pages/GamesCatalogPage'
-import LoginPage from './pages/LoginPage'
-import LogsPage from './pages/LogsPage'
-import PlayerDetailPage from './pages/PlayerDetailPage'
-import PlayersPage from './pages/PlayersPage'
-import SettingsPage from './pages/SettingsPage'
-import SupportLookupPage from './pages/SupportLookupPage'
-import PaymentOpsPage from './pages/PaymentOpsPage'
-import BonusHubLayout from './pages/BonusHubLayout'
-import BonusesCatalogPage from './pages/BonusesCatalogPage'
-import BonusHubOperationsPage from './pages/BonusHubOperationsPage'
-import BonusWizardPage from './pages/BonusWizardPage'
-import BonusDeliveryPage from './pages/BonusDeliveryPage'
-import BonusRulesPage from './pages/BonusRulesPage'
-import BonusCalendarPage from './pages/BonusCalendarPage'
-import BonusRecommendationsPage from './pages/BonusRecommendationsPage'
-import PlayerRewardsLayoutPage from './pages/PlayerRewardsLayoutPage'
-import GlobalChatPage from './pages/GlobalChatPage'
-import AuditLogPage from './pages/AuditLogPage'
-import WithdrawalApprovalPage from './pages/WithdrawalApprovalPage'
-import VipProgramPage from './pages/VipProgramPage'
-import BlueOceanEventsPage from './pages/BlueOceanEventsPage'
-import FystackWebhookInboxPage from './pages/FystackWebhookInboxPage'
-import BonusCampaignStatsPage from './pages/BonusCampaignStatsPage'
-import StaffUsersPage from './pages/StaffUsersPage'
+
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const DemographicsOverviewPage = lazy(() => import('./pages/DemographicsOverviewPage'))
+const TrafficSourcesPage = lazy(() => import('./pages/TrafficSourcesPage'))
+const PaymentOpsPage = lazy(() => import('./pages/PaymentOpsPage'))
+const FinanceCryptoPerformancePage = lazy(() => import('./pages/FinanceCryptoPerformancePage'))
+const FystackWebhookInboxPage = lazy(() => import('./pages/FystackWebhookInboxPage'))
+const DataTablePage = lazy(() => import('./pages/DataTablePage'))
+const WithdrawalApprovalPage = lazy(() => import('./pages/WithdrawalApprovalPage'))
+const PlayersPage = lazy(() => import('./pages/PlayersPage'))
+const SupportLookupPage = lazy(() => import('./pages/SupportLookupPage'))
+const PlayerDetailPage = lazy(() => import('./pages/PlayerDetailPage'))
+const VipProgramPage = lazy(() => import('./pages/VipProgramPage'))
+const VipSectionLayout = lazy(() => import('./pages/VipSectionLayout'))
+const VipDeliveryRunsPage = lazy(() => import('./pages/VipDeliveryRunsPage'))
+const VipDeliverySchedulesPage = lazy(() => import('./pages/VipDeliverySchedulesPage'))
+const VipBroadcastPage = lazy(() => import('./pages/VipBroadcastPage'))
+const GamesCatalogPage = lazy(() => import('./pages/GamesCatalogPage'))
+const BlueOceanEventsPage = lazy(() => import('./pages/BlueOceanEventsPage'))
+const BlueOceanOpsPage = lazy(() => import('./pages/BlueOceanOpsPage'))
+const BonusHubLayout = lazy(() => import('./pages/BonusHubLayout'))
+const BonusesCatalogPage = lazy(() => import('./pages/BonusesCatalogPage'))
+const BonusDeliveryPage = lazy(() => import('./pages/BonusDeliveryPage'))
+const BonusRulesPage = lazy(() => import('./pages/BonusRulesPage'))
+const BonusPromotionDetailPage = lazy(() => import('./pages/BonusPromotionDetailPage'))
+const BonusRecommendationsPage = lazy(() => import('./pages/BonusRecommendationsPage'))
+const PlayerRewardsLayoutPage = lazy(() => import('./pages/PlayerRewardsLayoutPage'))
+const GlobalChatPage = lazy(() => import('./pages/GlobalChatPage'))
+const AuditLogPage = lazy(() => import('./pages/AuditLogPage'))
+const SecurityBreakGlassPage = lazy(() => import('./pages/SecurityBreakGlassPage'))
+const SecurityApprovalsPage = lazy(() => import('./pages/SecurityApprovalsPage'))
+const ChallengesAdminPage = lazy(() => import('./pages/ChallengesAdminPage'))
+const ChallengeAdminDetailPage = lazy(() => import('./pages/ChallengeAdminDetailPage'))
+const ChallengesFlaggedPage = lazy(() => import('./pages/ChallengesFlaggedPage'))
+const LogsPage = lazy(() => import('./pages/LogsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const StaffUsersPage = lazy(() => import('./pages/StaffUsersPage'))
+const WebAuthnSecurityPage = lazy(() => import('./pages/WebAuthnSecurityPage'))
+const BonusCampaignStatsPage = lazy(() => import('./pages/BonusCampaignStatsPage'))
+const BonusHubCompliancePage = lazy(() => import('./pages/BonusHubCompliancePage'))
+const BonusHubRiskPage = lazy(() => import('./pages/BonusHubRiskPage'))
 
 export default function App() {
   return (
@@ -40,12 +55,32 @@ export default function App() {
         <AppToaster />
         <ReportingErrorBoundary>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/login"
+              element={
+                <Suspense
+                  fallback={
+                    <div className="d-flex min-vh-100 align-items-center justify-content-center bg-body-secondary">
+                      <span className="text-secondary small">Loading…</span>
+                    </div>
+                  }
+                >
+                  <LoginPage />
+                </Suspense>
+              }
+            />
             <Route element={<AdminLayout />}>
               <Route path="/" element={<DashboardPage />} />
 
+              {/* Analytics */}
+              <Route path="/analytics" element={<Navigate to="/analytics/demographics" replace />} />
+              <Route path="/analytics/demographics" element={<DemographicsOverviewPage />} />
+              <Route path="/analytics/traffic-sources" element={<TrafficSourcesPage />} />
+
               {/* Finance */}
               <Route path="/finance" element={<PaymentOpsPage />} />
+              <Route path="/finance/casino-analytics" element={<Navigate to="/finance" replace />} />
+              <Route path="/finance/crypto-performance" element={<FinanceCryptoPerformancePage />} />
               <Route path="/finance/fystack-webhooks" element={<FystackWebhookInboxPage />} />
               <Route path="/payments-ops" element={<Navigate to="/finance" replace />} />
               <Route
@@ -80,7 +115,13 @@ export default function App() {
               <Route path="/users" element={<PlayersPage />} />
               <Route path="/support" element={<SupportLookupPage />} />
               <Route path="/support/player/:id" element={<PlayerDetailPage />} />
-              <Route path="/engagement/vip" element={<VipProgramPage />} />
+              <Route path="/engagement/vip" element={<VipSectionLayout />}>
+                <Route index element={<VipProgramPage />} />
+                <Route path="hunt" element={<Navigate to="/engagement/vip/schedules" replace />} />
+                <Route path="delivery" element={<VipDeliveryRunsPage />} />
+                <Route path="schedules" element={<VipDeliverySchedulesPage />} />
+                <Route path="broadcast" element={<VipBroadcastPage />} />
+              </Route>
               <Route path="/vip-program" element={<Navigate to="/engagement/vip" replace />} />
 
               {/* Games */}
@@ -97,32 +138,39 @@ export default function App() {
               />
               <Route path="/provider-ops" element={<BlueOceanOpsPage />} />
               <Route path="/bog" element={<Navigate to="/provider-ops" replace />} />
-              <Route
-                path="/blueocean"
-                element={<Navigate to="/provider-ops" replace />}
-              />
+              <Route path="/blueocean" element={<Navigate to="/provider-ops" replace />} />
 
-              {/* Engagement */}
+              {/* Engagement / Bonus Engine */}
               <Route path="/bonushub" element={<BonusHubLayout />}>
                 <Route index element={<BonusesCatalogPage />} />
                 <Route path="player-layout" element={<PlayerRewardsLayoutPage />} />
                 <Route path="recommendations" element={<BonusRecommendationsPage />} />
-                <Route path="calendar" element={<BonusCalendarPage />} />
+                <Route path="calendar" element={<Navigate to="/bonushub" replace />} />
                 <Route path="campaign-analytics" element={<BonusCampaignStatsPage />} />
-                <Route path="operations" element={<BonusHubOperationsPage />} />
-                <Route path="wizard/new" element={<BonusWizardPage />} />
+                <Route path="operations" element={<Navigate to="/bonushub" replace />} />
+                <Route path="risk" element={<BonusHubRiskPage />} />
+                <Route path="bonus-audit" element={<BonusHubCompliancePage />} />
+                <Route path="wizard/new" element={<Navigate to="/bonushub" replace />} />
                 <Route path="promotions/:id/delivery" element={<BonusDeliveryPage />} />
                 <Route path="promotions/:id/rules" element={<BonusRulesPage />} />
+                <Route path="promotions/:id" element={<BonusPromotionDetailPage />} />
               </Route>
               <Route path="/global-chat" element={<GlobalChatPage />} />
+              <Route path="/engagement/challenges/flagged" element={<ChallengesFlaggedPage />} />
+              <Route path="/engagement/challenges/new" element={<ChallengeAdminDetailPage />} />
+              <Route path="/engagement/challenges/:id" element={<ChallengeAdminDetailPage />} />
+              <Route path="/engagement/challenges" element={<ChallengesAdminPage />} />
 
               {/* Compliance & Risk */}
               <Route path="/audit-log" element={<AuditLogPage />} />
+              <Route path="/security/break-glass" element={<SecurityBreakGlassPage />} />
+              <Route path="/security/approvals" element={<SecurityApprovalsPage />} />
 
               {/* System */}
               <Route path="/diagnostics" element={<LogsPage />} />
               <Route path="/logs" element={<Navigate to="/diagnostics" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/system/security-keys" element={<WebAuthnSecurityPage />} />
               <Route path="/system/staff-users" element={<StaffUsersPage />} />
             </Route>
           </Routes>

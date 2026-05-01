@@ -1,25 +1,39 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
+	"time"
+
+	"github.com/crypto-casino/core/internal/privacy"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Hub struct {
 	clients    map[*Client]struct{}
 	register   chan *Client
 	unregister chan *Client
-	broadcast  chan []byte
+	broadcast  chan any
+	pool       *pgxpool.Pool
 	mu         sync.RWMutex
 }
 
-func NewHub() *Hub {
+// fanoutUserMessage triggers per-recipient masking for privacy-aware players.
+type fanoutUserMessage struct {
+	msg         OutboundMessage
+	internalUID string
+}
+
+func NewHub(pool *pgxpool.Pool) *Hub {
 	return &Hub{
 		clients:    make(map[*Client]struct{}),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		broadcast:  make(chan []byte, 256),
+		broadcast:  make(chan any, 256),
+		pool:       pool,
 	}
 }
 
@@ -43,16 +57,49 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 			h.broadcastOnlineCount(count)
 
-		case msg := <-h.broadcast:
-			h.mu.RLock()
-			for c := range h.clients {
-				select {
-				case c.send <- msg:
-				default:
-					go h.removeClient(c)
+		case item := <-h.broadcast:
+			switch v := item.(type) {
+			case []byte:
+				h.mu.RLock()
+				for c := range h.clients {
+					select {
+					case c.send <- v:
+					default:
+						go h.removeClient(c)
+					}
 				}
+				h.mu.RUnlock()
+			case fanoutUserMessage:
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				var anon bool
+				if h.pool != nil && v.msg.MsgType == "user" && v.internalUID != "" {
+					anon = privacy.UserWantsPublicAnonymity(ctx, h.pool, v.internalUID)
+				}
+				cancel()
+				h.mu.RLock()
+				for c := range h.clients {
+					out := v.msg
+					if v.msg.MsgType == "user" && anon {
+						out.Username = privacy.MaskMiddlePublicHandle(strings.TrimSpace(v.msg.Username))
+						if out.Username == "" {
+							out.Username = "****"
+						}
+					}
+					env := Envelope{Type: "message", Data: json.RawMessage(mustMarshal(out))}
+					data, err := json.Marshal(env)
+					if err != nil {
+						continue
+					}
+					select {
+					case c.send <- data:
+					default:
+						go h.removeClient(c)
+					}
+				}
+				h.mu.RUnlock()
+			default:
+				log.Printf("chat: unknown broadcast type %T", item)
 			}
-			h.mu.RUnlock()
 		}
 	}
 }
@@ -117,7 +164,7 @@ func (h *Hub) BroadcastSystem(msgType, body string) {
 		log.Printf("chat: marshal system: %v", err)
 		return
 	}
-	h.broadcast <- data
+	h.broadcast <- data // []byte uniform frame
 }
 
 func mustMarshal(v any) []byte {

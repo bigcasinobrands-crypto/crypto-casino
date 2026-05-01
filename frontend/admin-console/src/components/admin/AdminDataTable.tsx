@@ -81,53 +81,45 @@ const SKELETON_COLS = 5
 
 function SkeletonTable() {
   return (
-    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] overflow-hidden">
-      <table className="min-w-full text-left text-sm">
-        <thead className="bg-gray-50 dark:bg-gray-800/50">
-          <tr>
-            {Array.from({ length: SKELETON_COLS }, (_, i) => (
-              <th key={i} className="px-4 py-3">
-                <div className="h-3 w-20 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-          {Array.from({ length: SKELETON_ROWS }, (_, ri) => (
-            <tr key={ri} className={ri % 2 === 0 ? 'bg-gray-50/50 dark:bg-gray-900/30' : ''}>
-              {Array.from({ length: SKELETON_COLS }, (_, ci) => (
-                <td key={ci} className="px-4 py-3">
-                  <div
-                    className="h-3 animate-pulse rounded bg-gray-200 dark:bg-gray-700"
-                    style={{ width: `${50 + ((ri + ci) % 4) * 15}%` }}
-                  />
-                </td>
+    <div className="card shadow-sm">
+      <div className="card-body p-0">
+        <div className="table-responsive">
+          <table className="table table-sm mb-0">
+            <thead className="table-light">
+              <tr>
+                {Array.from({ length: SKELETON_COLS }, (_, i) => (
+                  <th key={i} className="py-3">
+                    <div className="placeholder placeholder-wave w-50" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: SKELETON_ROWS }, (_, ri) => (
+                <tr key={ri}>
+                  {Array.from({ length: SKELETON_COLS }, (_, ci) => (
+                    <td key={ci} className="py-3">
+                      <div
+                        className="placeholder placeholder-wave"
+                        style={{ width: `${50 + ((ri + ci) % 4) * 12}%` }}
+                      />
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
-      <svg
-        className="mb-3 size-10 opacity-50"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={1.5}
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
-        />
-      </svg>
-      <p className="text-sm font-medium">No data found</p>
+    <div className="text-center text-body-secondary py-5 px-3">
+      <i className="bi bi-inbox d-block mb-2 opacity-50 fs-2" aria-hidden />
+      <p className="small mb-0 fw-medium">No data found</p>
     </div>
   )
 }
@@ -293,13 +285,9 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch, refreshIntervalMs }) => 
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-        {error}
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="ml-3 font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-400"
-        >
+      <div className="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2 mb-0">
+        <span className="small mb-0">{error}</span>
+        <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void load()}>
           Retry
         </button>
       </div>
@@ -311,78 +299,65 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch, refreshIntervalMs }) => 
   }
 
   return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Showing{' '}
-            <span className="font-medium text-gray-800 dark:text-white/90">
-              {filteredRows.length}
-            </span>{' '}
-            row{filteredRows.length === 1 ? '' : 's'}
-            {search.trim() && filteredRows.length !== rows.length && (
-              <span className="text-gray-400 dark:text-gray-500">
+    <div className="d-flex flex-column gap-3">
+      <div className="d-flex flex-column flex-lg-row flex-wrap align-items-stretch align-items-lg-center justify-content-between gap-2 gap-lg-3">
+        <div className="d-flex flex-column flex-sm-row flex-wrap align-items-start align-items-sm-center gap-2 small text-body-secondary">
+          <p className="mb-0">
+            Showing <span className="fw-semibold text-body">{filteredRows.length}</span> row
+            {filteredRows.length === 1 ? '' : 's'}
+            {search.trim() && filteredRows.length !== rows.length ? (
+              <span>
                 {' '}
                 of {rows.length}
               </span>
-            )}
+            ) : null}
             {rows.length >= FETCH_LIMIT ? ` (capped at ${FETCH_LIMIT})` : ''}
           </p>
           <button
             type="button"
             onClick={() => void silentRefresh()}
-            className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+            className="btn btn-sm btn-outline-secondary"
             title="Refresh data"
           >
-            ↻ Refresh
+            <i className="bi bi-arrow-clockwise me-1" aria-hidden />
+            Refresh
           </button>
           {refreshIntervalMs ? (
-            <span className="text-[10px] text-gray-400 dark:text-gray-500">
-              Auto-refresh every {Math.round(refreshIntervalMs / 1000)}s
+            <span className="text-muted" style={{ fontSize: '0.7rem' }}>
+              Auto every {Math.round(refreshIntervalMs / 1000)}s
             </span>
           ) : null}
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Search */}
-          <div className="relative">
-            <svg
-              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
+        <div className="d-flex flex-column flex-sm-row flex-wrap align-items-stretch align-items-sm-center gap-2">
+          <div className="input-group input-group-sm" style={{ maxWidth: '16rem' }}>
+            <span className="input-group-text bg-body-secondary border-end-0">
+              <i className="bi bi-search" aria-hidden />
+            </span>
             <input
-              type="text"
+              type="search"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value)
                 setPage(1)
               }}
-              placeholder="Search…"
-              className="rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-800 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-gray-500 dark:focus:border-brand-400 dark:focus:ring-brand-400"
+              placeholder="Search rows…"
+              className="form-control"
+              aria-label="Filter rows"
             />
           </div>
 
-          {/* Export CSV */}
           <button
             type="button"
             onClick={() => exportRowsAsCSV(columns, sortedRows, csvFilename)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+            className="btn btn-sm btn-outline-secondary"
           >
-            <svg className="size-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
+            <i className="bi bi-download me-1" aria-hidden />
             Export CSV
           </button>
 
-          {/* Page size */}
-          <div className="flex items-center gap-2">
-            <label htmlFor="admin-page-size" className="text-sm text-gray-600 dark:text-gray-400">
+          <div className="d-flex align-items-center gap-1">
+            <label htmlFor="admin-page-size" className="small text-body-secondary mb-0 text-nowrap">
               Per page
             </label>
             <select
@@ -392,7 +367,8 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch, refreshIntervalMs }) => 
                 setPageSize(Number(e.target.value))
                 setPage(1)
               }}
-              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90"
+              className="form-select form-select-sm"
+              style={{ width: '4.5rem' }}
             >
               {PAGE_SIZES.map((n) => (
                 <option key={n} value={n}>
@@ -404,83 +380,72 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch, refreshIntervalMs }) => 
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-white/[0.03] overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-          <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800/50">
-            <tr>
-              {columns.map((col) => {
-                const active = sortKey === col
-                return (
-                  <th
-                    key={col}
-                    className="whitespace-nowrap px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onSort(col)}
-                      className="inline-flex items-center gap-1 rounded-md hover:text-brand-600 dark:hover:text-brand-400"
-                    >
-                      {col.replace(/_/g, ' ')}
-                      {active ? (
-                        sortDir === 'asc' ? (
-                          <AngleUpIcon className="size-3.5 shrink-0" />
-                        ) : (
-                          <AngleDownIcon className="size-3.5 shrink-0" />
-                        )
-                      ) : (
-                        <span className="inline-block size-3.5" />
-                      )}
-                    </button>
-                  </th>
-                )
-              })}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60">
-            {pageRows.length === 0 ? (
+      <div className="card shadow-sm">
+        <div className="table-responsive">
+          <table className="table table-hover table-striped table-sm align-middle mb-0 text-nowrap">
+            <thead className="table-light sticky-top">
               <tr>
-                <td colSpan={columns.length}>
-                  <EmptyState />
-                </td>
+                {columns.map((col) => {
+                  const active = sortKey === col
+                  return (
+                    <th key={col} scope="col" className="small text-uppercase text-body-secondary">
+                      <button
+                        type="button"
+                        onClick={() => onSort(col)}
+                        className="btn btn-link btn-sm text-decoration-none text-body p-0 text-start text-uppercase fw-semibold"
+                      >
+                        {col.replace(/_/g, ' ')}
+                        {active ? (
+                          sortDir === 'asc' ? (
+                            <AngleUpIcon className="ms-1 size-3.5 align-text-bottom" />
+                          ) : (
+                            <AngleDownIcon className="ms-1 size-3.5 align-text-bottom" />
+                          )
+                        ) : null}
+                      </button>
+                    </th>
+                  )
+                })}
               </tr>
-            ) : (
-              pageRows.map((row, i) => (
-                <tr
-                  key={i}
-                  className={`
-                    transition-colors
-                    hover:bg-gray-100 dark:hover:bg-gray-800
-                    ${i % 2 === 0 ? 'bg-gray-50/50 dark:bg-gray-900/30' : ''}
-                  `}
-                >
-                  {columns.map((col) => (
-                    <td
-                      key={col}
-                      className="max-w-[min(28rem,40vw)] truncate whitespace-nowrap px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300"
-                      title={formatAdminCell(row[col])}
-                    >
-                      <CellValue col={col} value={row[col]} />
-                    </td>
-                  ))}
+            </thead>
+            <tbody>
+              {pageRows.length === 0 ? (
+                <tr>
+                  <td colSpan={columns.length} className="p-0 border-0">
+                    <EmptyState />
+                  </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                pageRows.map((row, i) => (
+                  <tr key={i}>
+                    {columns.map((col) => (
+                      <td
+                        key={col}
+                        className="small text-body text-truncate"
+                        style={{ maxWidth: 'min(28rem, 50vw)' }}
+                        title={formatAdminCell(row[col])}
+                      >
+                        <CellValue col={col} value={row[col]} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Pagination */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+      <div className="d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <p className="small text-body-secondary mb-0">
           Page {safePage} of {totalPages}
         </p>
-        <div className="flex gap-2">
+        <div className="btn-group btn-group-sm">
           <button
             type="button"
             disabled={safePage <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            className="btn btn-outline-secondary"
           >
             Previous
           </button>
@@ -488,7 +453,7 @@ const AdminDataTable: FC<Props> = ({ apiPath, apiFetch, refreshIntervalMs }) => 
             type="button"
             disabled={safePage >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-40 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            className="btn btn-outline-secondary"
           >
             Next
           </button>

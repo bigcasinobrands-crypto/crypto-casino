@@ -125,7 +125,7 @@ function AssetLogo({
 type PanelTab = 'crypto' | 'fiat'
 
 const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
-  const { accessToken, balanceMinor, balanceBreakdown } = usePlayerAuth()
+  const { isAuthenticated, balanceMinor, balanceBreakdown } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const logoUrls = useCryptoLogoUrlMap()
   const [active, setActive] = useState<WalletOption>(loadSavedWallet)
@@ -177,7 +177,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
   }
 
   const onDeposit = () => {
-    if (!accessToken) {
+    if (!isAuthenticated) {
       openAuth('login', { walletTab: 'deposit' })
       return
     }
@@ -202,10 +202,10 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
     <>
       <div className="flex shrink-0 flex-col items-end pl-3">
         <span className="text-sm font-semibold tabular-nums text-white">
-          {formatBalance(accessToken ? balanceMinor : 0)}
+          {formatBalance(isAuthenticated ? balanceMinor : 0)}
         </span>
-        {accessToken && balanceBreakdown && balanceBreakdown.bonusLockedMinor > 0 ? (
-          <span className="text-[10px] tabular-nums text-casino-muted">
+        {isAuthenticated && balanceBreakdown && balanceBreakdown.bonusLockedMinor > 0 ? (
+          <span className="text-[10px] tabular-nums text-white/45">
             Bonus {formatBalance(balanceBreakdown.bonusLockedMinor)}
           </span>
         ) : null}
@@ -213,26 +213,26 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
       <div className="ml-1 shrink-0">
         <button
           type="button"
-          disabled={!accessToken}
+          disabled={!isAuthenticated}
           onClick={() => setOpen((p) => !p)}
-          className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-casino-muted transition hover:text-casino-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-white/80 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ChainLogo wallet={active} logoUrl={logoUrls[chainLogoSlug]} />
           <span className="hidden text-white sm:inline">{active.symbol}</span>
           <span className="hidden text-casino-muted sm:inline">·</span>
           <span className="hidden sm:inline">{active.network}</span>
           <IconChevronDown
-            className={`size-3.5 text-casino-muted transition ${open ? 'rotate-180' : ''}`}
+            className={`size-3.5 text-white/50 transition ${open ? 'rotate-180' : ''}`}
             size={14}
             aria-hidden
           />
         </button>
       </div>
-      <div className="mx-1 hidden h-6 w-px shrink-0 bg-casino-border sm:block" aria-hidden />
+      <div className="mx-1 hidden h-6 w-px shrink-0 bg-white/[0.10] sm:block" aria-hidden />
       <button
         type="button"
         onClick={onDeposit}
-        className="shrink-0 bg-gradient-to-b from-casino-primary to-casino-primary-dim px-4 py-2.5 text-sm font-bold text-white shadow-inner shadow-casino-primary/20 transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary"
+        className="shrink-0 rounded-[10px] bg-casino-primary px-4 py-2.5 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/70"
       >
         Deposit
       </button>
@@ -243,7 +243,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
     <div className="mx-auto flex w-full max-w-md min-w-0 items-center justify-center">
       <div
         ref={barRef}
-        className="flex min-w-0 max-w-full items-center gap-0 overflow-hidden rounded-lg border border-casino-border bg-casino-surface shadow-sm"
+        className="flex min-w-0 max-w-full items-center gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25"
       >
         {walletBarInner}
       </div>
@@ -261,7 +261,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
           {barRect && (
             <div
               style={{ position: 'fixed', top: barRect.top, left: barRect.left, width: barRect.width, height: barRect.height, zIndex: 200 }}
-              className="flex items-center gap-0 overflow-hidden rounded-lg border border-casino-border bg-casino-surface shadow-sm"
+              className="flex items-center gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ring-1 ring-black/25"
             >
               {walletBarInner}
             </div>

@@ -14,7 +14,7 @@ export function useVipProgram() {
     setLoading(true)
     setErr(null)
     try {
-      const res = await apiFetch('/v1/vip/program')
+      const res = await apiFetch(`/v1/vip/program?t=${Date.now()}`)
       if (!res.ok) {
         setErr('Could not load VIP programme')
         setData(null)

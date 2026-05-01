@@ -1,14 +1,10 @@
 import { useLayoutEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import {
-  clearCatalogReturn,
-  PLAYER_MAIN_SCROLL_ID,
-  RESTORE_MAIN_SCROLL_STATE_KEY,
-  type RestoreScrollLocationState,
-} from '../lib/catalogReturn'
+import { PLAYER_MAIN_SCROLL_ID, RESTORE_MAIN_SCROLL_STATE_KEY, type RestoreScrollLocationState } from '../lib/catalogReturn'
 
 /**
- * After `navigate(catalogPath, { state: { __restoreMainScroll } })`, restores `<main>` scroll and clears state.
+ * After `navigate(catalogPath, { state: { __restoreMainScroll } })`, restores `<main>` scroll and strips state from history.
+ * Session storage for catalog return is cleared by {@link LobbyPage} after scroll is applied (including Strict Mode remount).
  */
 export default function MainScrollRestoration() {
   const location = useLocation()
@@ -29,8 +25,6 @@ export default function MainScrollRestoration() {
     }
     apply()
     requestAnimationFrame(apply)
-
-    clearCatalogReturn()
 
     const path = `${location.pathname}${location.search}${location.hash}`
     navigate(path, { replace: true, state: {} })

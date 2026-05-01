@@ -9,39 +9,49 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
+	"github.com/crypto-casino/core/internal/passhash"
+	"github.com/crypto-casino/core/internal/privacy"
+	"github.com/crypto-casino/core/internal/safepath"
+	"github.com/google/uuid"
 )
 
 const verifyTokenTTL = 24 * time.Hour
 const resetTokenTTL = 1 * time.Hour
 
-
 // MeProfile is returned by GET /v1/auth/me.
 type MeProfile struct {
-	ID              string
-	Email           string
-	CreatedAt       time.Time
-	EmailVerifiedAt *time.Time
-	Username        *string
-	AvatarURL       *string
-	VIPTierID       *int
-	VIPTierName     *string
+	ID                  string
+	PublicParticipantID string
+	Email               string
+	CreatedAt           time.Time
+	EmailVerifiedAt     *time.Time
+	Username            *string
+	AvatarURL           *string
+	VIPTierID           *int
+	VIPTierName         *string
 }
 
 func (s *Service) MeProfile(ctx context.Context, userID string) (MeProfile, error) {
 	var p MeProfile
 	var ev *time.Time
+	var rawAvatar *string
 	err := s.Pool.QueryRow(ctx, `
-		SELECT u.id::text, u.email, u.created_at, u.email_verified_at, u.username, u.avatar_url,
+		SELECT u.id::text, u.public_participant_id::text, u.email, u.created_at, u.email_verified_at, u.username, u.avatar_url,
 			pvs.tier_id, vt.name
 		FROM users u
 		LEFT JOIN player_vip_state pvs ON pvs.user_id = u.id
 		LEFT JOIN vip_tiers vt ON vt.id = pvs.tier_id
 		WHERE u.id = $1::uuid
-	`, userID).Scan(&p.ID, &p.Email, &p.CreatedAt, &ev, &p.Username, &p.AvatarURL, &p.VIPTierID, &p.VIPTierName)
+	`, userID).Scan(&p.ID, &p.PublicParticipantID, &p.Email, &p.CreatedAt, &ev, &p.Username, &rawAvatar, &p.VIPTierID, &p.VIPTierName)
 	p.EmailVerifiedAt = ev
 	if err != nil {
 		return p, err
+	}
+	if rawAvatar != nil && *rawAvatar != "" {
+		visible := privacy.PlayerVisibleAvatarURL(*rawAvatar, p.PublicParticipantID)
+		if visible != "" {
+			p.AvatarURL = &visible
+		}
 	}
 	return p, nil
 }
@@ -81,6 +91,9 @@ func (s *Service) UpdateUsername(ctx context.Context, userID, username string) e
 }
 
 func (s *Service) SaveAvatar(ctx context.Context, userID string, file io.Reader, filename string) (string, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return "", fmt.Errorf("invalid user")
+	}
 	ext := ".png"
 	if idx := strings.LastIndex(filename, "."); idx >= 0 {
 		ext = strings.ToLower(filename[idx:])
@@ -94,7 +107,10 @@ func (s *Service) SaveAvatar(ctx context.Context, userID string, file io.Reader,
 		return "", err
 	}
 	dest := filepath.Join(dir, userID+ext)
-	f, err := os.Create(dest)
+	if !safepath.Within(dir, dest) {
+		return "", fmt.Errorf("invalid path")
+	}
+	f, err := os.Create(dest) // #nosec G703 -- dest under safepath.Within(dir,*); userID is validated UUID
 	if err != nil {
 		return "", err
 	}
@@ -102,7 +118,11 @@ func (s *Service) SaveAvatar(ctx context.Context, userID string, file io.Reader,
 	if _, err := io.Copy(f, file); err != nil {
 		return "", err
 	}
-	url := "/v1/avatars/" + userID + ext
+	var pid string
+	if err := s.Pool.QueryRow(ctx, `SELECT public_participant_id::text FROM users WHERE id = $1::uuid`, userID).Scan(&pid); err != nil {
+		return "", err
+	}
+	url := "/v1/avatars/by-participant/" + pid + ext
 	_, err = s.Pool.Exec(ctx, `UPDATE users SET avatar_url = $1 WHERE id = $2::uuid`, url, userID)
 	return url, err
 }
@@ -112,19 +132,23 @@ func (s *Service) ChangePassword(ctx context.Context, userID, currentPw, newPw s
 	if err := ValidatePassword(newPw); err != nil {
 		return err
 	}
+	if err := s.rejectIfPwnedPassword(ctx, newPw); err != nil {
+		return err
+	}
 	var phash string
 	err := s.Pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1::uuid`, userID).Scan(&phash)
 	if err != nil {
 		return ErrInvalidCredentials
 	}
-	if bcrypt.CompareHashAndPassword([]byte(phash), []byte(currentPw)) != nil {
+	ok, _, err := passhash.Verify(currentPw, phash)
+	if err != nil || !ok {
 		return ErrInvalidCredentials
 	}
-	newHash, err := bcrypt.GenerateFromPassword([]byte(newPw), bcrypt.DefaultCost)
+	newHash, err := passhash.Hash(newPw)
 	if err != nil {
 		return err
 	}
-	_, err = s.Pool.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2::uuid`, string(newHash), userID)
+	_, err = s.Pool.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2::uuid`, newHash, userID)
 	return err
 }
 
@@ -280,6 +304,9 @@ func (s *Service) ResetPassword(ctx context.Context, plainToken, newPassword str
 	if err := ValidatePassword(newPassword); err != nil {
 		return err
 	}
+	if err := s.rejectIfPwnedPassword(ctx, newPassword); err != nil {
+		return err
+	}
 	plainToken = strings.TrimSpace(plainToken)
 	if plainToken == "" {
 		return ErrInvalidCredentials
@@ -297,11 +324,10 @@ func (s *Service) ResetPassword(ctx context.Context, plainToken, newPassword str
 		_, _ = s.Pool.Exec(ctx, `DELETE FROM password_reset_tokens WHERE token_hash = $1`, h)
 		return ErrInvalidCredentials
 	}
-	hashBytes, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hash, err := passhash.Hash(newPassword)
 	if err != nil {
 		return err
 	}
-	hash := string(hashBytes)
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return err

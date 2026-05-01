@@ -51,119 +51,127 @@ export default function PlayersPage() {
   return (
     <>
       <PageMeta title="Players · Admin" description="All registered players" />
-      <PageBreadcrumb pageTitle="Players" />
+      <PageBreadcrumb
+        pageTitle="All players"
+        subtitle="Directory, funnel snapshot, and quick links to player records"
+      />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <StatCard
-          label="Total Registered"
-          value={playerStats ? formatCompact(playerStats.total_registered) : '—'}
-        />
-        <StatCard
-          label="Total Depositors"
-          value={playerStats ? formatCompact(playerStats.total_with_deposit) : '—'}
-        />
-        <StatCard
-          label="Active (7d)"
-          value={playerStats ? formatCompact(playerStats.total_active_7d) : '—'}
-        />
-        <StatCard
-          label="Avg LTV"
-          value={playerStats ? formatCurrency(playerStats.avg_ltv_minor) : '—'}
-        />
-        <StatCard
-          label="Deposit Conversion"
-          value={playerStats ? formatPct(playerStats.deposit_conversion_rate) : '—'}
-        />
+      <div className="row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3 mb-3">
+        <div className="col">
+          <StatCard
+            label="Total registered"
+            value={playerStats ? formatCompact(playerStats.total_registered) : '—'}
+            iconClass="bi bi-people"
+            variant="primary"
+          />
+        </div>
+        <div className="col">
+          <StatCard
+            label="With deposit"
+            value={playerStats ? formatCompact(playerStats.total_with_deposit) : '—'}
+            iconClass="bi bi-wallet2"
+            variant="success"
+          />
+        </div>
+        <div className="col">
+          <StatCard
+            label="Active (7d)"
+            value={playerStats ? formatCompact(playerStats.total_active_7d) : '—'}
+            iconClass="bi bi-activity"
+            variant="info"
+          />
+        </div>
+        <div className="col">
+          <StatCard
+            label="Avg LTV"
+            value={playerStats ? formatCurrency(playerStats.avg_ltv_minor) : '—'}
+            iconClass="bi bi-currency-dollar"
+            variant="secondary"
+          />
+        </div>
+        <div className="col">
+          <StatCard
+            label="Deposit conversion"
+            value={playerStats ? formatPct(playerStats.deposit_conversion_rate) : '—'}
+            iconClass="bi bi-percent"
+            variant="warning"
+          />
+        </div>
       </div>
 
-      {playerStats && playerStats.top_depositors.length > 0 && (
-        <ComponentCard title="Top Depositors" desc="Top 10 by total deposit volume">
-          <ol className="divide-y divide-gray-100 dark:divide-gray-800">
+      {playerStats && playerStats.top_depositors.length > 0 ? (
+        <ComponentCard title="Top depositors" desc="By lifetime deposit volume (top 10)">
+          <ul className="list-group list-group-flush">
             {playerStats.top_depositors.slice(0, 10).map((d, i) => (
-              <li key={d.id} className="flex items-center gap-3 py-2.5">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-bold text-brand-600 dark:bg-brand-900/30 dark:text-brand-400">
-                  {i + 1}
-                </span>
-                <Link
-                  to={`/support/player/${d.id}`}
-                  className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-400"
-                >
-                  {d.email}
-                </Link>
-                <span className="shrink-0 text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  {formatCurrency(d.total)}
-                </span>
+              <li
+                key={d.id}
+                className="list-group-item d-flex align-items-center justify-content-between gap-2 flex-wrap"
+              >
+                <div className="d-flex align-items-center gap-2 min-w-0">
+                  <span className="badge text-bg-primary rounded-pill">{i + 1}</span>
+                  <Link to={`/support/player/${d.id}`} className="fw-medium text-truncate link-primary">
+                    {d.email}
+                  </Link>
+                </div>
+                <span className="font-monospace small text-nowrap">{formatCurrency(d.total_minor)}</span>
               </li>
             ))}
-          </ol>
+          </ul>
         </ComponentCard>
-      )}
+      ) : null}
 
-      <ComponentCard title="Players" desc={`${players.length} registered`}>
+      <ComponentCard title="Player directory" desc={`${players.length} loaded (max 500)`}>
         {loading ? (
-          <p className="py-8 text-center text-sm text-gray-500">Loading…</p>
+          <div className="placeholder-glow py-5 text-center">
+            <span className="placeholder col-6" />
+          </div>
         ) : error ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-            {error}
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="ml-3 font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-400"
-            >
+          <div className="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2 mb-0">
+            <span>{error}</span>
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void load()}>
               Retry
             </button>
           </div>
         ) : players.length === 0 ? (
-          <p className="py-8 text-center text-sm text-gray-500">No players found.</p>
+          <p className="text-secondary small mb-0 py-4 text-center">No players found.</p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
-            <table className="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-              <thead className="bg-gray-50 dark:bg-gray-900/50">
+          <div className="table-responsive">
+            <table className="table table-sm table-striped table-hover align-middle mb-0">
+              <thead className="table-light">
                 <tr>
-                  <th className="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">Player</th>
-                  <th className="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">Email</th>
-                  <th className="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">ID</th>
-                  <th className="px-4 py-3 font-medium text-gray-700 dark:text-gray-300">Joined</th>
+                  <th scope="col">Player</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">ID</th>
+                  <th scope="col">Joined</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-800 dark:bg-white/[0.02]">
+              <tbody>
                 {players.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-white/[0.04]">
-                    <td className="whitespace-nowrap px-4 py-3">
+                  <tr key={p.id}>
+                    <td className="text-nowrap">
                       <Link
                         to={`/support/player/${p.id}`}
-                        className="flex items-center gap-3 hover:opacity-80"
+                        className="d-flex align-items-center gap-2 text-decoration-none"
                       >
-                        <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                        <span className="rounded-circle bg-body-secondary d-flex align-items-center justify-content-center overflow-hidden flex-shrink-0" style={{ width: 32, height: 32 }}>
                           {p.avatar_url ? (
-                            <img
-                              src={p.avatar_url}
-                              alt=""
-                              className="size-full object-cover"
-                            />
+                            <img src={p.avatar_url} alt="" className="w-100 h-100 object-fit-cover" />
                           ) : (
-                            <span className="text-xs font-bold text-gray-400 dark:text-gray-500">
+                            <span className="small text-secondary fw-bold">
                               {(p.username ?? p.email ?? '?')[0]?.toUpperCase()}
                             </span>
                           )}
-                        </div>
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {p.username ?? p.email.split('@')[0]}
                         </span>
+                        <span className="fw-medium text-body">{p.username ?? p.email.split('@')[0]}</span>
                       </Link>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-500 dark:text-gray-400">
-                      {p.email}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">
-                      <Link
-                        to={`/support/player/${p.id}`}
-                        className="text-brand-600 underline dark:text-brand-400"
-                      >
+                    <td className="small text-secondary text-nowrap">{p.email}</td>
+                    <td className="font-monospace small">
+                      <Link to={`/support/player/${p.id}`} className="link-primary">
                         {p.id.slice(0, 8)}…
                       </Link>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                    <td className="small text-secondary text-nowrap">
                       {new Date(p.created_at).toLocaleDateString(undefined, {
                         year: 'numeric',
                         month: 'short',

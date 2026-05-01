@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { readApiError, formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
 import ComponentCard from '../components/common/ComponentCard'
+import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
-import { ApiResultSummary } from '../components/admin/ApiResultSummary'
+import { DefinitionTable, OpsToolbar } from '../components/ops'
+import { humanFieldLabel } from '../lib/adminFormatting'
 
 type Rec = {
   id: string
@@ -15,8 +17,26 @@ type Rec = {
   suggested_copy?: string
 }
 
-const btnPrimary =
-  'inline-flex rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600'
+function formatSignalValue(v: unknown): ReactNode {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No'
+  if (typeof v === 'object') {
+    try {
+      return <code className="small text-break d-inline-block">{JSON.stringify(v)}</code>
+    } catch {
+      return '—'
+    }
+  }
+  return String(v)
+}
+
+function signalDefinitionRows(signals: Record<string, unknown>) {
+  return Object.entries(signals).map(([k, v]) => ({
+    field: humanFieldLabel(k),
+    value: formatSignalValue(v),
+    mono: typeof v === 'string' || typeof v === 'number',
+  }))
+}
 
 export default function BonusRecommendationsPage() {
   const { apiFetch } = useAdminAuth()
@@ -51,6 +71,8 @@ export default function BonusRecommendationsPage() {
     void load()
   }, [load])
 
+  const signalRows = useMemo(() => (signals ? signalDefinitionRows(signals) : []), [signals])
+
   const wizardHref = (r: Rec) => {
     const t = (r.bonus_type ?? 'deposit_match').trim() || 'deposit_match'
     const preset = (r.wizard_preset ?? '').trim()
@@ -66,64 +88,71 @@ export default function BonusRecommendationsPage() {
         title="Bonus Engine · Smart suggestions"
         description="Engagement-oriented promotion ideas from recent platform signals."
       />
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Smart suggestions</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Heuristic ideas from sign-ups and deposit volume. Deposit-match bonuses run on the Fystack deposit path (
-            <code className="rounded bg-gray-100 px-1 text-xs dark:bg-white/10">bonus_payment_settled</code> worker job),
-            not on Blue Ocean game wallet callbacks.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          {loading ? 'Refreshing…' : 'Refresh'}
-        </button>
+      <PageBreadcrumb
+        pageTitle="Smart suggestions"
+        subtitle="Heuristic promotion ideas from recent sign-ups and deposit volume."
+      />
+
+      <OpsToolbar
+        title="Recommendations"
+        subtitle="Deposit-match bonuses run on the Fystack deposit path (bonus_payment_settled worker), not on Blue Ocean game callbacks."
+        actions={
+          <button type="button" className="btn btn-sm btn-outline-primary" disabled={loading} onClick={() => void load()}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        }
+      />
+
+      <div className="d-flex flex-wrap gap-2 mb-3">
+        <Link to="/bonushub" className="btn btn-sm btn-outline-secondary">
+          Promotions
+        </Link>
+        <Link to="/bonushub/operations?tab=simulate" className="btn btn-sm btn-outline-secondary">
+          Simulate payment
+        </Link>
       </div>
 
-      {err ? <p className="mb-4 text-sm text-red-600 dark:text-red-400">{err}</p> : null}
+      {err ? (
+        <div className="alert alert-danger small d-flex flex-wrap align-items-center justify-content-between gap-2">
+          <span className="mb-0">{err}</span>
+          <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
+      ) : null}
 
-      {signals ? (
+      {signals && signalRows.length > 0 ? (
         <ComponentCard title="Signals (7d / snapshot)" desc="Lightweight counts for ops; extend with analytics later.">
-          <ApiResultSummary data={signals} embedded />
+          <DefinitionTable rows={signalRows} flush />
         </ComponentCard>
       ) : null}
 
       <ComponentCard title="Recommended promotions" desc="Each opens the create wizard with bonus type pre-selected.">
         {loading && recs.length === 0 ? (
-          <p className="text-sm text-gray-500">Loading…</p>
+          <div className="placeholder-glow">
+            <span className="placeholder col-12 mb-2" />
+            <span className="placeholder col-9" />
+          </div>
         ) : recs.length === 0 ? (
-          <p className="text-sm text-gray-500">No recommendations returned.</p>
+          <p className="text-secondary small mb-0">No recommendations returned.</p>
         ) : (
-          <ul className="space-y-4">
+          <div className="list-group list-group-flush border rounded overflow-hidden">
             {recs.map((r) => (
-              <li
-                key={r.id}
-                className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900/40"
-              >
-                <h3 className="font-semibold text-gray-900 dark:text-white">{r.title}</h3>
-                <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{r.reason}</p>
-                {r.suggested_copy ? (
-                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{r.suggested_copy}</p>
-                ) : null}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Link to={wizardHref(r)} className={btnPrimary}>
+              <div key={r.id} className="list-group-item">
+                <h3 className="h6 mb-1">{r.title}</h3>
+                <p className="small text-secondary mb-2">{r.reason}</p>
+                {r.suggested_copy ? <p className="small text-body-secondary mb-2">{r.suggested_copy}</p> : null}
+                <div className="d-flex flex-wrap gap-2">
+                  <Link to={wizardHref(r)} className="btn btn-primary btn-sm">
                     Create with wizard
                   </Link>
-                  <Link
-                    to="/bonushub/operations?tab=simulate"
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600"
-                  >
+                  <Link to="/bonushub/operations?tab=simulate" className="btn btn-outline-secondary btn-sm">
                     Test in Simulate
                   </Link>
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </ComponentCard>
     </>

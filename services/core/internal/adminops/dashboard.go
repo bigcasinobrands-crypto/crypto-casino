@@ -1,7 +1,6 @@
 package adminops
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -24,11 +23,11 @@ func parsePeriodDays(s string) int {
 func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var (
-		ggr24h, ggr7d, ggr30d, ggrAll int64
+		ggr24h, ggr7d, ggr30d, ggrAll  int64
 		dep24h, dep7d, dep30d          int64
 		depCnt24h, depCnt7d, depCnt30d int64
-		wd24h, wd7d, wd30d            int64
-		wdCnt24h, wdCnt7d, wdCnt30d   int64
+		wd24h, wd7d, wd30d             int64
+		wdCnt24h, wdCnt7d, wdCnt30d    int64
 		active24h, active7d, active30d int64
 		reg24h, reg7d, reg30d          int64
 		bonus24h, bonus7d, bonus30d    int64
@@ -38,21 +37,21 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	)
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
-			COALESCE((SELECT SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.bet','game.win')
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
 				AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.bet','game.win')
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
 				AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.bet','game.win')
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
 				AND created_at > now()-interval '30 days'), 0),
-			COALESCE((SELECT SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.bet','game.win')), 0),
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')), 0),
 
 			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_payments
 				WHERE status='settled' AND created_at > now()-interval '24 hours'), 0),
@@ -143,28 +142,32 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		"deposits_count_24h": depCnt24h, "deposits_count_7d": depCnt7d, "deposits_count_30d": depCnt30d,
 		"withdrawals_24h": wd24h, "withdrawals_7d": wd7d, "withdrawals_30d": wd30d,
 		"withdrawals_count_24h": wdCnt24h, "withdrawals_count_7d": wdCnt7d, "withdrawals_count_30d": wdCnt30d,
-		"net_cash_flow_30d":          dep30d - wd30d,
-		"active_players_24h":         active24h, "active_players_7d": active7d, "active_players_30d": active30d,
-		"new_registrations_24h":      reg24h, "new_registrations_7d": reg7d, "new_registrations_30d": reg30d,
-		"bonus_cost_24h":             bonus24h, "bonus_cost_7d": bonus7d, "bonus_cost_30d": bonus30d,
-		"ngr_30d":                    ggr30d - bonus30d,
-		"arpu_7d":                    arpu7d,
-		"avg_deposit_size_30d":       avgDepSize30d,
-		"deposit_conversion_rate":    depositConvRate,
-		"pending_withdrawals_value":  pendWdVal,
-		"pending_withdrawals_count":  pendWdCnt,
+		"net_cash_flow_30d":  dep30d - wd30d,
+		"active_players_24h": active24h, "active_players_7d": active7d, "active_players_30d": active30d,
+		"new_registrations_24h": reg24h, "new_registrations_7d": reg7d, "new_registrations_30d": reg30d,
+		"bonus_cost_24h": bonus24h, "bonus_cost_7d": bonus7d, "bonus_cost_30d": bonus30d,
+		"ngr_30d":                   ggr30d - bonus30d,
+		"arpu_7d":                   arpu7d,
+		"avg_deposit_size_30d":      avgDepSize30d,
+		"deposit_conversion_rate":   depositConvRate,
+		"pending_withdrawals_value": pendWdVal,
+		"pending_withdrawals_count": pendWdCnt,
 	})
 }
 
 func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	days := parsePeriodDays(r.URL.Query().Get("period"))
+	start, end, _, err := parseAnalyticsWindow(r)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "invalid timeframe")
+		return
+	}
 
 	depByDay := make([]map[string]any, 0)
-	depRows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	depRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(COALESCE(amount_minor,0)),0), COUNT(*)
-		FROM fystack_payments WHERE status='settled' AND created_at > now()-interval '%d days'
-		GROUP BY 1 ORDER BY 1`, days))
+		FROM fystack_payments WHERE status='settled' AND created_at >= $1 AND created_at <= $2
+		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
 		return
@@ -180,10 +183,10 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	depRows.Close()
 
 	wdByDay := make([]map[string]any, 0)
-	wdRows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	wdRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(COALESCE(amount_minor,0)),0), COUNT(*)
-		FROM fystack_withdrawals WHERE status='completed' AND created_at > now()-interval '%d days'
-		GROUP BY 1 ORDER BY 1`, days))
+		FROM fystack_withdrawals WHERE status='completed' AND created_at >= $1 AND created_at <= $2
+		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
 		return
@@ -199,13 +202,13 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	wdRows.Close()
 
 	ggrByDay := make([]map[string]any, 0)
-	ggrRows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	ggrRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date,
-			COALESCE(SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END), 0)
-		FROM ledger_entries WHERE entry_type IN ('game.bet','game.win')
-		AND created_at > now()-interval '%d days'
-		GROUP BY 1 ORDER BY 1`, days))
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0)
+		FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+		AND created_at >= $1 AND created_at <= $2
+		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
 		return
@@ -223,10 +226,10 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	ggrRows.Close()
 
 	regByDay := make([]map[string]any, 0)
-	regRows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	regRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COUNT(*)
-		FROM users WHERE created_at > now()-interval '%d days'
-		GROUP BY 1 ORDER BY 1`, days))
+		FROM users WHERE created_at >= $1 AND created_at <= $2
+		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
 		return
@@ -242,10 +245,10 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	regRows.Close()
 
 	launchByDay := make([]map[string]any, 0)
-	launchRows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	launchRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COUNT(*)
-		FROM game_launches WHERE created_at > now()-interval '%d days'
-		GROUP BY 1 ORDER BY 1`, days))
+		FROM game_launches WHERE created_at >= $1 AND created_at <= $2
+		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
 		return
@@ -261,10 +264,10 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	launchRows.Close()
 
 	bonusByDay := make([]map[string]any, 0)
-	bonusRows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	bonusRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(COALESCE(granted_amount_minor,0)),0), COUNT(*)
-		FROM user_bonus_instances WHERE created_at > now()-interval '%d days'
-		GROUP BY 1 ORDER BY 1`, days))
+		FROM user_bonus_instances WHERE created_at >= $1 AND created_at <= $2
+		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
 		return
@@ -295,15 +298,19 @@ func (h *Handler) DashboardTopGames(w http.ResponseWriter, r *http.Request) {
 	if limit > 50 {
 		limit = 50
 	}
-	days := parsePeriodDays(r.URL.Query().Get("period"))
+	start, end, _, err := parseAnalyticsWindow(r)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "invalid timeframe")
+		return
+	}
 
 	topByLaunches := make([]map[string]any, 0)
-	rows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	rows, err := h.Pool.Query(ctx, `
 		SELECT g.id, g.title, g.provider, COUNT(*) AS launch_count
 		FROM game_launches gl JOIN games g ON g.id = gl.game_id
-		WHERE gl.created_at > now()-interval '%d days'
+		WHERE gl.created_at >= $1 AND gl.created_at <= $2
 		GROUP BY g.id, g.title, g.provider
-		ORDER BY launch_count DESC LIMIT $1`, days), limit)
+		ORDER BY launch_count DESC LIMIT $3`, start, end, limit)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "top games query failed")
 		return
@@ -321,19 +328,19 @@ func (h *Handler) DashboardTopGames(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 
 	topByGGR := make([]map[string]any, 0)
-	ggrRows, err := h.Pool.Query(ctx, fmt.Sprintf(`
+	ggrRows, err := h.Pool.Query(ctx, `
 		SELECT g.id, g.title, g.provider,
-			COALESCE(SUM(CASE WHEN le.entry_type='game.bet' THEN ABS(le.amount_minor) ELSE 0 END), 0) AS total_bets,
-			COALESCE(SUM(CASE WHEN le.entry_type='game.win' THEN le.amount_minor ELSE 0 END), 0) AS total_wins
+			COALESCE(SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet') THEN ABS(le.amount_minor) WHEN le.entry_type = 'game.rollback' THEN -ABS(le.amount_minor) ELSE 0 END), 0) AS total_bets,
+			COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win') THEN le.amount_minor ELSE 0 END), 0) AS total_wins
 		FROM ledger_entries le
-		JOIN games g ON g.id = le.meta->>'game_id'
-		WHERE le.entry_type IN ('game.bet','game.win')
-			AND le.meta->>'game_id' IS NOT NULL
-			AND le.created_at > now()-interval '%d days'
+		JOIN games g ON g.id = le.metadata->>'game_id'
+		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+			AND le.metadata->>'game_id' IS NOT NULL
+			AND le.created_at >= $1 AND le.created_at <= $2
 		GROUP BY g.id, g.title, g.provider
-		ORDER BY (COALESCE(SUM(CASE WHEN le.entry_type='game.bet' THEN ABS(le.amount_minor) ELSE 0 END),0)
-			- COALESCE(SUM(CASE WHEN le.entry_type='game.win' THEN le.amount_minor ELSE 0 END),0)) DESC
-		LIMIT $1`, days), limit)
+		ORDER BY (COALESCE(SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet') THEN ABS(le.amount_minor) WHEN le.entry_type = 'game.rollback' THEN -ABS(le.amount_minor) ELSE 0 END),0)
+			- COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win') THEN le.amount_minor ELSE 0 END),0)) DESC
+		LIMIT $3`, start, end, limit)
 	if err == nil {
 		for ggrRows.Next() {
 			var id, title, provider string
@@ -433,14 +440,14 @@ func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 	trendRows.Close()
 
 	writeJSON(w, map[string]any{
-		"total_registered":       totalReg,
-		"total_with_deposit":     totalWithDep,
-		"total_active_7d":        active7d,
-		"total_active_30d":       active30d,
+		"total_registered":        totalReg,
+		"total_with_deposit":      totalWithDep,
+		"total_active_7d":         active7d,
+		"total_active_30d":        active30d,
 		"deposit_conversion_rate": depositConvRate,
-		"avg_ltv_minor":          avgLTV,
-		"top_depositors":         topDepositors,
-		"registrations_trend":    regTrend,
+		"avg_ltv_minor":           avgLTV,
+		"top_depositors":          topDepositors,
+		"registrations_trend":     regTrend,
 	})
 }
 
@@ -455,11 +462,11 @@ func (h *Handler) GameRTPStats(w http.ResponseWriter, r *http.Request) {
 	var totalBets, totalWins, uniquePlayers int64
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
-			COALESCE(SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0),
 			COUNT(DISTINCT user_id)
 		FROM ledger_entries
-		WHERE entry_type IN ('game.bet','game.win') AND meta->>'game_id' = $1
+		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND metadata->>'game_id' = $1
 	`, gameID).Scan(&totalBets, &totalWins, &uniquePlayers)
 	if err != nil {
 		writeJSON(w, map[string]any{
@@ -482,10 +489,10 @@ func (h *Handler) GameRTPStats(w http.ResponseWriter, r *http.Request) {
 	rtpByDay := make([]map[string]any, 0)
 	rows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date,
-			COALESCE(SUM(CASE WHEN entry_type='game.bet' THEN ABS(amount_minor) ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN entry_type='game.win' THEN amount_minor ELSE 0 END), 0)
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0)
 		FROM ledger_entries
-		WHERE entry_type IN ('game.bet','game.win') AND meta->>'game_id' = $1
+		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND metadata->>'game_id' = $1
 			AND created_at > now()-interval '30 days'
 		GROUP BY 1 ORDER BY 1`, gameID)
 	if err == nil {
@@ -521,20 +528,25 @@ func (h *Handler) GameRTPStats(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DashboardSystem(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var whPending, missingWallet, wdOpen, wfJobs int64
+	var bonusOutboxPending, bonusOutboxDLQ int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT
 			(SELECT COUNT(*)::bigint FROM fystack_webhook_deliveries WHERE processed = false),
 			(SELECT COUNT(*)::bigint FROM users u WHERE NOT EXISTS (SELECT 1 FROM fystack_wallets w WHERE w.user_id = u.id)),
 			(SELECT COUNT(*)::bigint FROM fystack_withdrawals WHERE status IN ('pending','submitted','pending_approval','executed')),
-			(SELECT COUNT(*)::bigint FROM worker_failed_jobs WHERE resolved_at IS NULL)
-	`).Scan(&whPending, &missingWallet, &wdOpen, &wfJobs)
+			(SELECT COUNT(*)::bigint FROM worker_failed_jobs WHERE resolved_at IS NULL),
+			(SELECT COUNT(*)::bigint FROM bonus_outbox WHERE processed_at IS NULL AND dlq_at IS NULL),
+			(SELECT COUNT(*)::bigint FROM bonus_outbox WHERE processed_at IS NULL AND dlq_at IS NOT NULL)
+	`).Scan(&whPending, &missingWallet, &wdOpen, &wfJobs, &bonusOutboxPending, &bonusOutboxDLQ)
 
 	out := map[string]any{
-		"webhook_deliveries_pending":     whPending,
-		"users_missing_fystack_wallet":   missingWallet,
-		"withdrawals_in_flight":            wdOpen,
+		"webhook_deliveries_pending":    whPending,
+		"users_missing_fystack_wallet":  missingWallet,
+		"withdrawals_in_flight":         wdOpen,
 		"worker_failed_jobs_unresolved": wfJobs,
-		"process_metrics":                obs.Snapshot(),
+		"bonus_outbox_pending_delivery": bonusOutboxPending,
+		"bonus_outbox_dead_letter":      bonusOutboxDLQ,
+		"process_metrics":               obs.Snapshot(),
 	}
 	if h.Redis != nil {
 		if n, err := h.Redis.LLen(ctx, "casino:jobs").Result(); err == nil {

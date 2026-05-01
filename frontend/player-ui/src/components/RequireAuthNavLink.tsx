@@ -10,7 +10,7 @@ type Props = NavLinkProps
  * Same as {@link RequireAuthLink} for active-state sidebar / tab links.
  */
 export function RequireAuthNavLink({ to, onClick, ...rest }: Props) {
-  const { accessToken } = usePlayerAuth()
+  const { isAuthenticated } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const target = authNavigateTarget(to)
 
@@ -22,7 +22,7 @@ export function RequireAuthNavLink({ to, onClick, ...rest }: Props) {
         if (isGameLobbyNavTarget(to)) {
           saveCatalogReturnBeforeGameOpen()
         }
-        if (!accessToken) {
+        if (!isAuthenticated) {
           e.preventDefault()
           openAuth('login', { navigateTo: target })
         }

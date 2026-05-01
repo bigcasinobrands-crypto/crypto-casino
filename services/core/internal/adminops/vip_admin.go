@@ -3,7 +3,10 @@ package adminops
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +18,53 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// maxVIPTierMinWagerMinor prevents pathological tier thresholds (still within BIGINT).
+const maxVIPTierMinWagerMinor int64 = 9_000_000_000_000_000
+
+func validateVIPPerksJSON(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if !json.Valid(raw) {
+		return fmt.Errorf("perks must be valid JSON")
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return fmt.Errorf("perks must be a JSON object")
+	}
+	return nil
+}
+
+// mergeCreateVIPTierDefaults ensures new tiers default to hide_from_public_page=true (off ladder)
+// unless the caller explicitly set hide_from_public_page in perks JSON.
+func mergeCreateVIPTierDefaults(perks json.RawMessage) (json.RawMessage, error) {
+	if len(perks) == 0 {
+		perks = json.RawMessage(`{}`)
+	}
+	if err := validateVIPPerksJSON(perks); err != nil {
+		return nil, err
+	}
+	var pm map[string]json.RawMessage
+	if err := json.Unmarshal(perks, &pm); err != nil {
+		return nil, err
+	}
+	if pm == nil {
+		pm = map[string]json.RawMessage{}
+	}
+	if _, ok := pm["hide_from_public_page"]; !ok {
+		pm["hide_from_public_page"] = json.RawMessage(`true`)
+	}
+	out, err := json.Marshal(pm)
+	if err != nil {
+		return nil, err
+	}
+	return out, validateVIPPerksJSON(out)
+}
+
 func (h *Handler) listVIPTiers(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.Pool.Query(r.Context(), `
 		SELECT id, sort_order, name, min_lifetime_wager_minor, perks, created_at
-		FROM vip_tiers ORDER BY sort_order ASC, id ASC
+		FROM vip_tiers ORDER BY min_lifetime_wager_minor ASC, id ASC
 	`)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
@@ -134,7 +180,7 @@ func (h *Handler) patchUserVIP(w http.ResponseWriter, r *http.Request) {
 	if body.Points != nil {
 		_, _ = h.Pool.Exec(ctx, `
 			INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
-			VALUES ($1::uuid, (SELECT id FROM vip_tiers ORDER BY sort_order ASC LIMIT 1), $2, 0, now())
+			VALUES ($1::uuid, NULL, $2, 0, now())
 			ON CONFLICT (user_id) DO UPDATE SET points_balance = $2, updated_at = now()
 		`, uid, *body.Points)
 	}
@@ -147,10 +193,9 @@ func (h *Handler) patchUserVIP(w http.ResponseWriter, r *http.Request) {
 }
 
 type patchVIPTierBody struct {
-	SortOrder               *int            `json:"sort_order"`
-	Name                    *string         `json:"name"`
-	MinLifetimeWagerMinor   *int64          `json:"min_lifetime_wager_minor"`
-	Perks                   json.RawMessage `json:"perks"`
+	Name                  *string         `json:"name"`
+	MinLifetimeWagerMinor *int64          `json:"min_lifetime_wager_minor"`
+	Perks                 json.RawMessage `json:"perks"`
 }
 
 func (h *Handler) patchVIPTier(w http.ResponseWriter, r *http.Request) {
@@ -171,13 +216,12 @@ func (h *Handler) patchVIPTier(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	var sort int
 	var name string
 	var minW int64
 	var perks []byte
 	err = h.Pool.QueryRow(ctx, `
-		SELECT sort_order, name, min_lifetime_wager_minor, perks FROM vip_tiers WHERE id = $1
-	`, id).Scan(&sort, &name, &minW, &perks)
+		SELECT name, min_lifetime_wager_minor, perks FROM vip_tiers WHERE id = $1
+	`, id).Scan(&name, &minW, &perks)
 	if err == pgx.ErrNoRows {
 		adminapi.WriteError(w, http.StatusNotFound, "not_found", "tier not found")
 		return
@@ -186,9 +230,6 @@ func (h *Handler) patchVIPTier(w http.ResponseWriter, r *http.Request) {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
 		return
 	}
-	if body.SortOrder != nil {
-		sort = *body.SortOrder
-	}
 	if body.Name != nil && strings.TrimSpace(*body.Name) != "" {
 		name = strings.TrimSpace(*body.Name)
 	}
@@ -196,17 +237,38 @@ func (h *Handler) patchVIPTier(w http.ResponseWriter, r *http.Request) {
 		minW = *body.MinLifetimeWagerMinor
 	}
 	if len(body.Perks) > 0 {
+		if err := validateVIPPerksJSON(body.Perks); err != nil {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 		perks = body.Perks
 	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "tier name is required")
+		return
+	}
+	if minW < 0 {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "min_lifetime_wager_minor must be >= 0")
+		return
+	}
+	if minW > maxVIPTierMinWagerMinor {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "min_lifetime_wager_minor exceeds maximum allowed")
+		return
+	}
 	_, err = h.Pool.Exec(ctx, `
-		UPDATE vip_tiers SET sort_order = $2, name = $3, min_lifetime_wager_minor = $4, perks = $5::jsonb
+		UPDATE vip_tiers SET name = $2, min_lifetime_wager_minor = $3, perks = $4::jsonb
 		WHERE id = $1
-	`, id, sort, name, minW, perks)
+	`, id, name, minW, perks)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "update failed")
 		return
 	}
-	meta, _ := json.Marshal(map[string]any{"tier_id": id, "sort_order": sort, "name": name})
+	recomputeVIPTierSortOrder(ctx, h.Pool)
+	if _, rerr := bonus.ResyncAllPlayerVIPTiers(ctx, h.Pool); rerr != nil {
+		log.Printf("vip ResyncAllPlayerVIPTiers after patch tier: %v", rerr)
+	}
+	meta, _ := json.Marshal(map[string]any{"tier_id": id, "name": name, "min_lifetime_wager_minor": minW})
 	_, _ = h.Pool.Exec(ctx, `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.patch_tier', 'vip_tiers', $2::jsonb)
@@ -215,29 +277,56 @@ func (h *Handler) patchVIPTier(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createVIPTier(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Name                 string          `json:"name"`
-		SortOrder            int             `json:"sort_order"`
-		MinLifetimeWager     int64           `json:"min_lifetime_wager_minor"`
-		Perks                json.RawMessage `json:"perks"`
+	staffID, ok := adminapi.StaffIDFromContext(r.Context())
+	if !ok {
+		adminapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing staff")
+		return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+	var body struct {
+		Name             string          `json:"name"`
+		MinLifetimeWager int64           `json:"min_lifetime_wager_minor"`
+		Perks            json.RawMessage `json:"perks"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "invalid body")
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "name required")
 		return
 	}
-	perks := body.Perks
-	if len(perks) == 0 {
-		perks = json.RawMessage(`{}`)
+	if body.MinLifetimeWager < 0 {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "min_lifetime_wager_minor must be >= 0")
+		return
+	}
+	if body.MinLifetimeWager > maxVIPTierMinWagerMinor {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "min_lifetime_wager_minor exceeds maximum allowed")
+		return
+	}
+	perksMerged, err := mergeCreateVIPTierDefaults(body.Perks)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
 	}
 	var id int
-	err := h.Pool.QueryRow(r.Context(), `
+	err = h.Pool.QueryRow(r.Context(), `
 		INSERT INTO vip_tiers (sort_order, name, min_lifetime_wager_minor, perks)
-		VALUES ($1, $2, $3, $4::jsonb) RETURNING id
-	`, body.SortOrder, body.Name, body.MinLifetimeWager, perks).Scan(&id)
+		VALUES (0, $1, $2, $3::jsonb) RETURNING id
+	`, name, body.MinLifetimeWager, perksMerged).Scan(&id)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "insert failed")
 		return
 	}
+	recomputeVIPTierSortOrder(r.Context(), h.Pool)
+	if _, rerr := bonus.ResyncAllPlayerVIPTiers(r.Context(), h.Pool); rerr != nil {
+		log.Printf("vip ResyncAllPlayerVIPTiers after create tier: %v", rerr)
+	}
+	meta, _ := json.Marshal(map[string]any{"tier_id": id, "name": name, "min_lifetime_wager_minor": body.MinLifetimeWager})
+	_, _ = h.Pool.Exec(r.Context(), `
+		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
+		VALUES ($1::uuid, 'vip.create_tier', 'vip_tiers', $2::jsonb)
+	`, staffID, meta)
 	writeJSON(w, map[string]any{"id": id})
 }
 
@@ -355,13 +444,49 @@ func (h *Handler) listVIPTierBenefits(w http.ResponseWriter, r *http.Request) {
 }
 
 type createVIPTierBenefitBody struct {
-	SortOrder            int             `json:"sort_order"`
-	Enabled              *bool           `json:"enabled"`
-	BenefitType          string          `json:"benefit_type"`
-	PromotionVersionID   *int64          `json:"promotion_version_id"`
-	Config               json.RawMessage `json:"config"`
-	PlayerTitle          *string         `json:"player_title"`
-	PlayerDescription    *string         `json:"player_description"`
+	SortOrder          int             `json:"sort_order"`
+	Enabled            *bool           `json:"enabled"`
+	BenefitType        string          `json:"benefit_type"`
+	PromotionVersionID *int64          `json:"promotion_version_id"`
+	Config             json.RawMessage `json:"config"`
+	PlayerTitle        *string         `json:"player_title"`
+	PlayerDescription  *string         `json:"player_description"`
+}
+
+var hhmmUTCRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)$`)
+
+func validateRakebackBoostScheduleConfig(cm map[string]any) string {
+	key, _ := cm["rebate_program_key"].(string)
+	if strings.TrimSpace(key) == "" {
+		return "rakeback_boost_schedule requires config.rebate_program_key"
+	}
+	boost, _ := cm["boost_percent_add"].(float64)
+	if boost <= 0 {
+		return "rakeback_boost_schedule requires config.boost_percent_add > 0"
+	}
+	windows, _ := cm["windows"].([]any)
+	if len(windows) == 0 {
+		return "rakeback_boost_schedule requires at least one window"
+	}
+	for _, raw := range windows {
+		wm, ok := raw.(map[string]any)
+		if !ok {
+			return "rakeback_boost_schedule windows must be objects"
+		}
+		start, _ := wm["start_utc"].(string)
+		if !hhmmUTCRe.MatchString(strings.TrimSpace(start)) {
+			return "rakeback_boost_schedule window start_utc must be HH:MM UTC"
+		}
+		claim, _ := wm["claim_window_minutes"].(float64)
+		if int(claim) <= 0 {
+			return "rakeback_boost_schedule requires claim_window_minutes > 0 for each window"
+		}
+		boostDuration, _ := wm["boost_duration_minutes"].(float64)
+		if int(boostDuration) <= 0 {
+			return "rakeback_boost_schedule requires boost_duration_minutes > 0 for each window"
+		}
+	}
+	return ""
 }
 
 func (h *Handler) createVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
@@ -381,8 +506,8 @@ func (h *Handler) createVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	btype := strings.TrimSpace(strings.ToLower(body.BenefitType))
-	if btype != "grant_promotion" && btype != "rebate_percent_add" {
-		adminapi.WriteError(w, http.StatusBadRequest, "invalid_type", "benefit_type must be grant_promotion or rebate_percent_add")
+	if btype != "grant_promotion" && btype != "rebate_percent_add" && btype != "vip_card_feature" && btype != "level_up_cash_percent" && btype != "rakeback_boost_schedule" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_type", "benefit_type must be grant_promotion, rebate_percent_add, vip_card_feature, level_up_cash_percent, or rakeback_boost_schedule")
 		return
 	}
 	cfg := body.Config
@@ -409,7 +534,7 @@ func (h *Handler) createVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pv = body.PromotionVersionID
-	} else {
+	} else if btype == "rebate_percent_add" {
 		var cm map[string]any
 		_ = json.Unmarshal(cfg, &cm)
 		key, _ := cm["rebate_program_key"].(string)
@@ -422,6 +547,34 @@ func (h *Handler) createVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", "config.percent_add must be > 0")
 			return
 		}
+	} else if btype == "vip_card_feature" {
+		// vip_card_feature: config-driven card row content for player VIP cards.
+		var cm map[string]any
+		_ = json.Unmarshal(cfg, &cm)
+		title, _ := cm["title"].(string)
+		subtitle, _ := cm["subtitle"].(string)
+		if strings.TrimSpace(title) == "" && strings.TrimSpace(subtitle) == "" {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", "vip_card_feature requires config.title and/or config.subtitle")
+			return
+		}
+		pv = nil
+	} else if btype == "level_up_cash_percent" {
+		var cm map[string]any
+		_ = json.Unmarshal(cfg, &cm)
+		pct, _ := cm["percent_of_previous_level_wager"].(float64)
+		if int(pct) <= 0 {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", "level_up_cash_percent requires config.percent_of_previous_level_wager > 0")
+			return
+		}
+		pv = nil
+	} else {
+		var cm map[string]any
+		_ = json.Unmarshal(cfg, &cm)
+		if msg := validateRakebackBoostScheduleConfig(cm); msg != "" {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", msg)
+			return
+		}
+		pv = nil
 	}
 	staffID, _ := adminapi.StaffIDFromContext(r.Context())
 	var id int64
@@ -443,13 +596,13 @@ func (h *Handler) createVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 }
 
 type patchVIPTierBenefitBody struct {
-	SortOrder            *int            `json:"sort_order"`
-	Enabled              *bool           `json:"enabled"`
-	BenefitType          *string         `json:"benefit_type"`
-	PromotionVersionID   *int64          `json:"promotion_version_id"`
-	Config               json.RawMessage `json:"config"`
-	PlayerTitle          *string         `json:"player_title"`
-	PlayerDescription    *string         `json:"player_description"`
+	SortOrder          *int            `json:"sort_order"`
+	Enabled            *bool           `json:"enabled"`
+	BenefitType        *string         `json:"benefit_type"`
+	PromotionVersionID *int64          `json:"promotion_version_id"`
+	Config             json.RawMessage `json:"config"`
+	PlayerTitle        *string         `json:"player_title"`
+	PlayerDescription  *string         `json:"player_description"`
 }
 
 func (h *Handler) patchVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
@@ -490,7 +643,7 @@ func (h *Handler) patchVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 	nextType := curType
 	if body.BenefitType != nil && strings.TrimSpace(*body.BenefitType) != "" {
 		nextType = strings.TrimSpace(strings.ToLower(*body.BenefitType))
-		if nextType != "grant_promotion" && nextType != "rebate_percent_add" {
+		if nextType != "grant_promotion" && nextType != "rebate_percent_add" && nextType != "vip_card_feature" && nextType != "level_up_cash_percent" && nextType != "rakeback_boost_schedule" {
 			adminapi.WriteError(w, http.StatusBadRequest, "invalid_type", "invalid benefit_type")
 			return
 		}
@@ -533,7 +686,7 @@ func (h *Handler) patchVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 			adminapi.WriteError(w, http.StatusBadRequest, "not_published", "promotion version must be published")
 			return
 		}
-	} else {
+	} else if nextType == "rebate_percent_add" {
 		var cm map[string]any
 		_ = json.Unmarshal(cfg, &cm)
 		key, _ := cm["rebate_program_key"].(string)
@@ -545,6 +698,33 @@ func (h *Handler) patchVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 		pa := int(paF)
 		if pa <= 0 {
 			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", "config.percent_add must be > 0")
+			return
+		}
+		nextPV = nil
+	} else if nextType == "vip_card_feature" {
+		var cm map[string]any
+		_ = json.Unmarshal(cfg, &cm)
+		title, _ := cm["title"].(string)
+		subtitle, _ := cm["subtitle"].(string)
+		if strings.TrimSpace(title) == "" && strings.TrimSpace(subtitle) == "" {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", "vip_card_feature requires config.title and/or config.subtitle")
+			return
+		}
+		nextPV = nil
+	} else if nextType == "level_up_cash_percent" {
+		var cm map[string]any
+		_ = json.Unmarshal(cfg, &cm)
+		paF, _ := cm["percent_of_previous_level_wager"].(float64)
+		if int(paF) <= 0 {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", "level_up_cash_percent requires config.percent_of_previous_level_wager > 0")
+			return
+		}
+		nextPV = nil
+	} else {
+		var cm map[string]any
+		_ = json.Unmarshal(cfg, &cm)
+		if msg := validateRakebackBoostScheduleConfig(cm); msg != "" {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_config", msg)
 			return
 		}
 		nextPV = nil
@@ -611,7 +791,7 @@ func (h *Handler) vipDeliverySummary(w http.ResponseWriter, r *http.Request) {
 		FROM vip_tiers vt
 		LEFT JOIN player_vip_state pvs ON pvs.tier_id = vt.id
 		GROUP BY vt.id, vt.name, vt.sort_order
-		ORDER BY vt.sort_order ASC, vt.id ASC
+		ORDER BY vt.min_lifetime_wager_minor ASC, vt.id ASC
 	`)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "population query failed")
@@ -693,11 +873,81 @@ func (h *Handler) vipDeliverySummary(w http.ResponseWriter, r *http.Request) {
 		recent = append(recent, m)
 	}
 
+	var delivered7d, grantedItems7d, failedItems7d int64
+	_ = h.Pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(CASE WHEN result = 'granted' THEN COALESCE(amount_minor, 0) ELSE 0 END), 0)::bigint,
+			COALESCE(SUM(CASE WHEN result = 'granted' THEN 1 ELSE 0 END), 0)::bigint,
+			COALESCE(SUM(CASE WHEN result = 'error' THEN 1 ELSE 0 END), 0)::bigint
+		FROM vip_delivery_run_items
+		WHERE created_at >= now() - interval '7 days'
+	`).Scan(&delivered7d, &grantedItems7d, &failedItems7d)
+
+	var runs7d, runsFailed7d int64
+	var avgRunMs *float64
+	_ = h.Pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*)::bigint,
+			COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0)::bigint,
+			AVG(EXTRACT(EPOCH FROM (COALESCE(finished_at, now()) - started_at)) * 1000.0)
+		FROM vip_delivery_runs
+		WHERE started_at >= now() - interval '7 days'
+	`).Scan(&runs7d, &runsFailed7d, &avgRunMs)
+
+	costByPipelineRows, err := h.Pool.Query(ctx, `
+		SELECT pipeline, COALESCE(SUM(CASE WHEN result = 'granted' THEN COALESCE(amount_minor, 0) ELSE 0 END), 0)::bigint
+		FROM vip_delivery_run_items
+		WHERE created_at >= now() - interval '7 days'
+		GROUP BY pipeline
+	`)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "pipeline cost stats failed")
+		return
+	}
+	defer costByPipelineRows.Close()
+	costByPipeline := map[string]int64{}
+	for costByPipelineRows.Next() {
+		var p string
+		var v int64
+		if err := costByPipelineRows.Scan(&p, &v); err != nil {
+			continue
+		}
+		costByPipeline[p] = v
+	}
+
+	var successRate float64
+	if grantedItems7d+failedItems7d > 0 {
+		successRate = float64(grantedItems7d) / float64(grantedItems7d+failedItems7d)
+	}
+
 	writeJSON(w, map[string]any{
-		"tier_population":       population,
-		"players_untiered":      untiered,
-		"tier_events_7d":        tierEvents7d,
+		"tier_population":        population,
+		"players_untiered":       untiered,
+		"tier_events_7d":         tierEvents7d,
 		"grant_log_7d_by_result": grantByResult,
-		"recent_tier_events":    recent,
+		"recent_tier_events":     recent,
+		"delivery_cost_7d_minor": delivered7d,
+		"delivery_items_granted_7d": grantedItems7d,
+		"delivery_items_failed_7d":  failedItems7d,
+		"delivery_success_rate_7d":  successRate,
+		"delivery_runs_7d":          runs7d,
+		"delivery_runs_failed_7d":   runsFailed7d,
+		"delivery_avg_run_ms_7d":    avgRunMs,
+		"delivery_cost_7d_by_pipeline_minor": costByPipeline,
 	})
+}
+
+// recomputeVIPTierSortOrder sets sort_order so tier rank follows minimum lifetime wager ascending (ties broken by id).
+// This keeps delivery / eligibility features that reference sort_order aligned with wagering progression.
+func recomputeVIPTierSortOrder(ctx context.Context, pool *pgxpool.Pool) {
+	_, _ = pool.Exec(ctx, `
+		WITH ranked AS (
+			SELECT id, ROW_NUMBER() OVER (ORDER BY min_lifetime_wager_minor ASC, id ASC)::int - 1 AS new_sort
+			FROM vip_tiers
+		)
+		UPDATE vip_tiers v
+		SET sort_order = r.new_sort
+		FROM ranked r
+		WHERE v.id = r.id AND v.sort_order IS DISTINCT FROM r.new_sort
+	`)
 }

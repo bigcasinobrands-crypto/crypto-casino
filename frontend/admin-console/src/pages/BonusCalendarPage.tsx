@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { readApiError, formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
 import ComponentCard from '../components/common/ComponentCard'
@@ -40,11 +40,48 @@ const monthNames = [
   'December',
 ]
 
-const btnSecondary =
-  'rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-white/10'
+const UTC_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+function buildUtcMonthGridCells(year: number, monthIndex0: number): ({ kind: 'pad' } | { kind: 'day'; day: number })[] {
+  const firstDow = new Date(Date.UTC(year, monthIndex0, 1)).getUTCDay()
+  const daysInMonth = new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate()
+  const cells: ({ kind: 'pad' } | { kind: 'day'; day: number })[] = []
+  for (let i = 0; i < firstDow; i++) cells.push({ kind: 'pad' })
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ kind: 'day', day: d })
+  while (cells.length % 7 !== 0) cells.push({ kind: 'pad' })
+  return cells
+}
+
+function chunk7<T>(items: T[]): T[][] {
+  const rows: T[][] = []
+  for (let i = 0; i < items.length; i += 7) rows.push(items.slice(i, i + 7))
+  return rows
+}
+
+/** Whether the promotion grant window overlaps this UTC calendar day. */
+function calendarEventsForUtcDay(events: CalEvent[], y: number, m: number, day: number): CalEvent[] {
+  const dayStart = Date.UTC(y, m, day)
+  const dayEnd = Date.UTC(y, m, day, 23, 59, 59, 999)
+  return events.filter((ev) => {
+    const ws =
+      ev.valid_from != null && String(ev.valid_from).trim() !== ''
+        ? new Date(ev.valid_from).getTime()
+        : Number.NEGATIVE_INFINITY
+    const we =
+      ev.valid_to != null && String(ev.valid_to).trim() !== ''
+        ? new Date(ev.valid_to).getTime()
+        : Number.POSITIVE_INFINITY
+    return ws <= dayEnd && we >= dayStart
+  })
+}
 
 export default function BonusCalendarPage() {
   const { apiFetch } = useAdminAuth()
+  const [searchParams] = useSearchParams()
+  const promoFilterRaw = searchParams.get('promo')
+  const promoFilter = promoFilterRaw ? parseInt(promoFilterRaw, 10) : NaN
+  const promoFilterId = Number.isFinite(promoFilter) && promoFilter > 0 ? promoFilter : null
+
   const now = new Date()
   const [cursor, setCursor] = useState(() =>
     utcMonthAnchor(now.getUTCFullYear(), now.getUTCMonth()),
@@ -79,6 +116,14 @@ export default function BonusCalendarPage() {
     }
   }, [apiFetch, from, to])
 
+  const visibleEvents = useMemo(() => {
+    if (promoFilterId == null) return events
+    return events.filter((ev) => ev.promotion_id === promoFilterId)
+  }, [events, promoFilterId])
+
+  const gridCells = useMemo(() => buildUtcMonthGridCells(y, m), [y, m])
+  const gridRows = useMemo(() => chunk7(gridCells), [gridCells])
+
   useEffect(() => {
     void load()
   }, [load])
@@ -91,6 +136,10 @@ export default function BonusCalendarPage() {
     const d = new Date(iso)
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
   }
+
+  const today = new Date()
+  const isUtcToday = (day: number) =>
+    y === today.getUTCFullYear() && m === today.getUTCMonth() && day === today.getUTCDate()
 
   return (
     <>
@@ -107,22 +156,43 @@ export default function BonusCalendarPage() {
             or create one first.
           </p>
         </div>
-        <Link to="/bonushub" className={btnSecondary}>
-          Promotions
-        </Link>
+        <div className="d-flex flex-wrap gap-2">
+          {promoFilterId != null ? (
+            <Link to={`/bonushub/promotions/${promoFilterId}`} className="btn btn-sm btn-outline-secondary">
+              Promotion hub
+            </Link>
+          ) : null}
+          <Link to="/bonushub" className="btn btn-sm btn-outline-primary">
+            Promotions
+          </Link>
+        </div>
       </div>
 
-      <div className="mb-4 flex items-center gap-3">
-        <button type="button" className={btnSecondary} onClick={prevMonth}>
+      {promoFilterId != null ? (
+        <div className="alert alert-secondary small py-2 mb-3" role="status">
+          Showing calendar rows for <strong>promotion #{promoFilterId}</strong> only.{' '}
+          <Link to="/bonushub/calendar" className="alert-link">
+            Clear filter
+          </Link>
+        </div>
+      ) : null}
+
+      <div className="mb-4 d-flex flex-wrap align-items-center gap-2">
+        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={prevMonth}>
           ← Prev
         </button>
-        <span className="text-base font-semibold text-gray-900 dark:text-white">
+        <span className="fw-semibold text-body px-1">
           {monthNames[m]} {y}
         </span>
-        <button type="button" className={btnSecondary} onClick={nextMonth}>
+        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={nextMonth}>
           Next →
         </button>
-        <button type="button" className={btnSecondary} onClick={() => void load()} disabled={loading}>
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          onClick={() => void load()}
+          disabled={loading}
+        >
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
@@ -130,14 +200,18 @@ export default function BonusCalendarPage() {
       {err ? <p className="mb-4 text-sm text-red-600 dark:text-red-400">{err}</p> : null}
 
       <ComponentCard
-        title="Offers this month"
-        desc="Only published versions with a schedule overlapping this UTC month appear here."
+        title="Month view (UTC)"
+        desc="Each cell is one UTC day. Chips are published offers whose grant window overlaps that day. Drafts never appear until you publish from Schedule & deliver."
       >
         {loading && events.length === 0 ? (
           <p className="text-sm text-gray-500">Loading…</p>
-        ) : events.length === 0 ? (
+        ) : visibleEvents.length === 0 ? (
           <div className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
-            <p>No published promotions overlap this month in UTC.</p>
+            <p>
+              {promoFilterId != null
+                ? `No published windows for promotion #${promoFilterId} overlap this UTC month (or the offer is still a draft).`
+                : 'No published promotions overlap this month in UTC.'}
+            </p>
             <p className="text-gray-500 dark:text-gray-400">
               Drafts never appear on the calendar until you publish a version from Schedule &amp; deliver.
             </p>
@@ -152,22 +226,88 @@ export default function BonusCalendarPage() {
             </div>
           </div>
         ) : (
-          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-            {events.map((ev) => (
-              <li key={`${ev.promotion_version_id}-${ev.promotion_id}`} className="py-3 first:pt-0">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-gray-100">{ev.name}</p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <div className="table-responsive rounded border">
+            <table className="table table-bordered table-sm mb-0">
+              <thead className="table-light">
+                <tr>
+                  {UTC_WEEKDAYS.map((w) => (
+                    <th key={w} scope="col" className="text-center small text-secondary py-2">
+                      {w}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {gridRows.map((row, ri) => (
+                  <tr key={ri}>
+                    {row.map((cell, ci) => {
+                      if (cell.kind === 'pad') {
+                        return (
+                          <td key={`pad-${ri}-${ci}`} className="bg-body-secondary p-0" style={{ height: '6.5rem' }} />
+                        )
+                      }
+                      const day = cell.day
+                      const dayEvents = calendarEventsForUtcDay(visibleEvents, y, m, day)
+                      const todayCell = isUtcToday(day)
+                      return (
+                        <td
+                          key={day}
+                          className={`align-top p-1 small ${todayCell ? 'bg-primary-subtle' : ''}`}
+                          style={{ height: '6.5rem', width: '14.28%', verticalAlign: 'top' }}
+                        >
+                          <div className="d-flex justify-content-between align-items-start mb-1">
+                            <span className={`fw-semibold ${todayCell ? 'text-primary' : 'text-body'}`}>{day}</span>
+                          </div>
+                          <div className="d-flex flex-column gap-1">
+                            {dayEvents.slice(0, 4).map((ev) => (
+                              <Link
+                                key={`${day}-${ev.promotion_version_id}`}
+                                to={`/bonushub/promotions/${ev.promotion_id}/delivery`}
+                                className="text-truncate d-block rounded px-1 py-0 text-decoration-none border border-secondary-subtle bg-body-secondary text-body"
+                                style={{ fontSize: '0.68rem', lineHeight: 1.25 }}
+                                title={`${ev.name} · v${ev.promotion_version_id} · ${fmt(ev.valid_from)} → ${fmt(ev.valid_to)}`}
+                              >
+                                {ev.name}
+                              </Link>
+                            ))}
+                            {dayEvents.length > 4 ? (
+                              <span className="text-muted" style={{ fontSize: '0.65rem' }}>
+                                +{dayEvents.length - 4} more
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ComponentCard>
+
+      {visibleEvents.length > 0 ? (
+        <ComponentCard title="All windows this month" desc="Same data as the grid: full valid_from / valid_to for each offer.">
+          <ul className="list-group list-group-flush">
+            {visibleEvents.map((ev) => (
+              <li
+                key={`${ev.promotion_version_id}-${ev.promotion_id}`}
+                className="list-group-item calendar-offer-row px-0 py-3 border-secondary"
+              >
+                <div className="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                  <div className="min-w-0">
+                    <p className="fw-medium text-body mb-1">{ev.name}</p>
+                    <p className="mb-1 small text-secondary">
                       Version #{ev.promotion_version_id} · Published {fmt(ev.published_at)}
                     </p>
-                    <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                    <p className="mb-0 small text-body-secondary">
                       Window: {fmt(ev.valid_from)} → {fmt(ev.valid_to)}
                     </p>
                   </div>
                   <Link
                     to={`/bonushub/promotions/${ev.promotion_id}/delivery`}
-                    className="shrink-0 text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
+                    className="btn btn-sm btn-link text-nowrap shrink-0"
                   >
                     Schedule & deliver
                   </Link>
@@ -175,8 +315,8 @@ export default function BonusCalendarPage() {
               </li>
             ))}
           </ul>
-        )}
-      </ComponentCard>
+        </ComponentCard>
+      ) : null}
     </>
   )
 }

@@ -2,7 +2,6 @@ package ledger
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -43,38 +42,12 @@ func BalanceBonusLockedTx(ctx context.Context, tx pgx.Tx, userID string) (int64,
 	return sum, err
 }
 
-// ApplyCreditTx inserts into the cash pocket (idempotent by idempotency_key).
-func ApplyCreditTx(ctx context.Context, tx pgx.Tx, userID, currency, entryType, idempotencyKey string, amountMinor int64, meta map[string]any) (inserted bool, err error) {
-	return ApplyCreditTxWithPocket(ctx, tx, userID, currency, entryType, idempotencyKey, amountMinor, PocketCash, meta)
-}
-
-// ApplyCreditTxWithPocket inserts a ledger line using tx (idempotent by idempotency_key).
-func ApplyCreditTxWithPocket(ctx context.Context, tx pgx.Tx, userID, currency, entryType, idempotencyKey string, amountMinor int64, pocket string, meta map[string]any) (inserted bool, err error) {
-	pocket = NormalizePocket(pocket)
-	var metaJSON []byte
-	if meta != nil {
-		metaJSON, err = json.Marshal(meta)
-		if err != nil {
-			return false, err
-		}
-	}
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO ledger_entries (user_id, amount_minor, currency, entry_type, idempotency_key, pocket, metadata)
-		VALUES ($1::uuid, $2, $3, $4, $5, $6, COALESCE($7::jsonb, '{}'::jsonb))
-		ON CONFLICT (idempotency_key) DO NOTHING
-	`, userID, amountMinor, currency, entryType, idempotencyKey, pocket, metaJSON)
-	if err != nil {
-		return false, fmt.Errorf("ledger insert: %w", err)
-	}
-	return tag.RowsAffected() > 0, nil
-}
-
 // ApplyDebitTx records a negative movement in the cash pocket (amountMinor positive in magnitude).
 func ApplyDebitTx(ctx context.Context, tx pgx.Tx, userID, currency, entryType, idempotencyKey string, amountMinor int64, meta map[string]any) (inserted bool, err error) {
 	if amountMinor <= 0 {
 		return false, fmt.Errorf("ledger debit: amount must be positive")
 	}
-	return ApplyCreditTxWithPocket(ctx, tx, userID, currency, entryType, idempotencyKey, -amountMinor, PocketCash, meta)
+	return ApplyCreditWithPocketTx(ctx, tx, userID, currency, entryType, idempotencyKey, -amountMinor, PocketCash, meta)
 }
 
 // ApplyDebitTxWithPocket records a negative movement in the given pocket.
@@ -82,5 +55,5 @@ func ApplyDebitTxWithPocket(ctx context.Context, tx pgx.Tx, userID, currency, en
 	if amountMinor <= 0 {
 		return false, fmt.Errorf("ledger debit: amount must be positive")
 	}
-	return ApplyCreditTxWithPocket(ctx, tx, userID, currency, entryType, idempotencyKey, -amountMinor, pocket, meta)
+	return ApplyCreditWithPocketTx(ctx, tx, userID, currency, entryType, idempotencyKey, -amountMinor, pocket, meta)
 }

@@ -22,18 +22,19 @@ const (
 )
 
 type Client struct {
-	hub       *Hub
-	conn      *websocket.Conn
-	userID    string
-	username  string
-	vipRank   string
-	avatarURL string
-	createdAt time.Time
-	send      chan []byte
-	lastMsg   time.Time
-	pool      *pgxpool.Pool
-	flood     *FloodTracker
-	dupes     *DuplicateTracker
+	hub           *Hub
+	conn          *websocket.Conn
+	userID        string
+	participantID string
+	username      string
+	vipRank       string
+	avatarURL     string
+	createdAt     time.Time
+	send          chan []byte
+	lastMsg       time.Time
+	pool          *pgxpool.Pool
+	flood         *FloodTracker
+	dupes         *DuplicateTracker
 }
 
 func (c *Client) ReadPump(ctx context.Context) {
@@ -111,14 +112,14 @@ func (c *Client) ReadPump(ctx context.Context) {
 
 		now := timeNowUTC()
 		msg := OutboundMessage{
-			UserID:    c.userID,
-			Username:  c.username,
-			Body:      body,
-			MsgType:   "user",
-			VipRank:   c.vipRank,
-			AvatarURL: c.avatarURL,
-			CreatedAt: now,
-			Mentions:  mentions,
+			ParticipantID: c.participantID,
+			Username:      c.username,
+			Body:          body,
+			MsgType:       "user",
+			VipRank:       c.vipRank,
+			AvatarURL:     c.avatarURL,
+			CreatedAt:     now,
+			Mentions:      mentions,
 		}
 
 		go func() {
@@ -127,9 +128,7 @@ func (c *Client) ReadPump(ctx context.Context) {
 				log.Printf("chat: insert message: %v", err)
 			}
 			msg.ID = id
-			env := Envelope{Type: "message", Data: json.RawMessage(mustMarshal(msg))}
-			data, _ := json.Marshal(env)
-			c.hub.broadcast <- data
+			c.hub.broadcast <- fanoutUserMessage{msg: msg, internalUID: c.userID}
 		}()
 	}
 }

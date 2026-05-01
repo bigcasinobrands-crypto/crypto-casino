@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import AcceptedCurrenciesStrip from './AcceptedCurrenciesStrip'
-import { adminAppHref } from '@repo/cross-app'
 import { useState, type FC } from 'react'
 import { useSiteContent } from '../hooks/useSiteContent'
 
@@ -10,6 +9,12 @@ const colTitle = 'mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text
 
 type FooterLink = { label: string; to?: string; href?: string; requireAuth?: boolean }
 type SocialLink = { label: string; url?: string }
+
+type SeoBlock = {
+  heading?: string | null
+  paragraphs: string[]
+  sub?: { heading: string; paragraphs: string[] }
+}
 
 const FALLBACK_SEO_TITLE = 'Play Online Casino Games for Real Money at vybebet'
 const FALLBACK_SEO_BLOCKS = [
@@ -28,7 +33,7 @@ const FALLBACK_SEO_BLOCKS = [
     sub: {
       heading: 'Saga Games',
       paragraphs: [
-        'vybebet features an exciting collection of games from top providers in the industry. These titles are designed to offer engaging mechanics and high-quality gameplay.',
+        'vybebet features an exciting collection of games from top studios in the industry. These titles are designed to offer engaging mechanics and high-quality gameplay.',
       ],
     },
   },
@@ -39,7 +44,7 @@ const FALLBACK_GAMES_LINKS: FooterLink[] = [
   { label: 'Bonus Buys', to: '/casino/bonus-buys', requireAuth: true },
   { label: 'Challenges', to: '/casino/challenges', requireAuth: true },
   { label: 'Favourites', to: '/casino/favourites', requireAuth: true },
-  { label: 'Providers', to: '/casino/games#providers', requireAuth: true },
+  { label: 'Studios', to: '/casino/games#studios', requireAuth: true },
   { label: 'Live Casino', to: '/casino/live', requireAuth: true },
 ]
 
@@ -54,7 +59,7 @@ const FALLBACK_ORIGINALS_LINKS: FooterLink[] = [
 const FALLBACK_ABOUT_LINKS: FooterLink[] = [
   { label: 'VIP Program', to: '/vip', requireAuth: false },
   { label: 'Affiliate' },
-  { label: 'Rewards', to: '/rewards', requireAuth: true },
+  { label: 'My Bonuses', to: '/bonuses', requireAuth: true },
   { label: 'Terms of Service', to: '/terms' },
   { label: 'Privacy Policy', to: '/privacy' },
   { label: 'Fairness', to: '/fairness' },
@@ -96,7 +101,6 @@ function renderLinkList(links: FooterLink[]) {
 }
 
 const SiteFooter: FC = () => {
-  const staff = adminAppHref(import.meta.env, '/login')
   const [seoOpen, setSeoOpen] = useState(false)
   const { getContent } = useSiteContent()
 
@@ -125,7 +129,7 @@ const SiteFooter: FC = () => {
         <div
           className={`grid gap-8 text-[11px] leading-relaxed text-casino-muted md:grid-cols-2 ${seoOpen ? '' : 'max-h-[220px] overflow-hidden'}`}
         >
-          {(seoBlocks as any[]).map((block: any, idx: number) => (
+          {(seoBlocks as SeoBlock[]).map((block, idx) => (
             <div key={idx}>
               {block.heading && (
                 <h3 className="mb-2.5 text-xs font-bold text-casino-foreground">{block.heading}</h3>
@@ -232,11 +236,6 @@ const SiteFooter: FC = () => {
 
         <div className="text-center text-[10px] leading-relaxed text-casino-muted">
           <p>{disclaimer}</p>
-          <p className="mt-3">
-            <a href={staff} target="_blank" rel="noreferrer" className="text-casino-primary underline">
-              Staff console
-            </a>
-          </p>
           <p className="mt-3">{copyright}</p>
         </div>
       </div>

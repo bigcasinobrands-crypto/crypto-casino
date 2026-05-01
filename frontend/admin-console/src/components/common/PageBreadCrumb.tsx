@@ -1,48 +1,41 @@
-import { Link } from "react-router-dom";
+import { Link } from 'react-router-dom'
+
+export type BreadcrumbTrailItem = { label: string; to?: string }
 
 interface BreadcrumbProps {
-  pageTitle: string;
+  pageTitle: string
+  /** Optional line under the H1 (AdminLTE-style content header). */
+  subtitle?: string
+  /** Crumbs between Home and the active page title. */
+  trail?: BreadcrumbTrailItem[]
 }
 
-const PageBreadcrumb: React.FC<BreadcrumbProps> = ({ pageTitle }) => {
+const PageBreadcrumb: React.FC<BreadcrumbProps> = ({ pageTitle, subtitle, trail }) => {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-      <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">
-        {pageTitle}
-      </h2>
-      <nav>
-        <ol className="flex items-center gap-1.5">
-          <li>
-            <Link
-              className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400"
-              to="/"
-            >
-              Home
-              <svg
-                className="stroke-current"
-                width="17"
-                height="16"
-                viewBox="0 0 17 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M6.0765 12.667L10.2432 8.50033L6.0765 4.33366"
-                  stroke=""
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </Link>
-          </li>
-          <li className="text-sm text-gray-800 dark:text-white/90">
-            {pageTitle}
-          </li>
-        </ol>
-      </nav>
+    <div className="row mb-3 align-items-start">
+      <div className="col-sm-6">
+        <h1 className="m-0 fs-2">{pageTitle}</h1>
+        {subtitle ? <p className="text-secondary small mb-0 mt-1">{subtitle}</p> : null}
+      </div>
+      <div className="col-sm-6 mt-2 mt-sm-0">
+        <nav aria-label="breadcrumb">
+          <ol className="breadcrumb float-sm-end mb-0">
+            <li className="breadcrumb-item">
+              <Link to="/">Home</Link>
+            </li>
+            {(trail ?? []).map((t) => (
+              <li key={t.label} className="breadcrumb-item">
+                {t.to ? <Link to={t.to}>{t.label}</Link> : t.label}
+              </li>
+            ))}
+            <li className="breadcrumb-item active" aria-current="page">
+              {pageTitle}
+            </li>
+          </ol>
+        </nav>
+      </div>
     </div>
-  );
-};
+  )
+}
 
-export default PageBreadcrumb;
+export default PageBreadcrumb

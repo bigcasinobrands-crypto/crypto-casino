@@ -165,7 +165,7 @@ func (h *Handler) SearchAdmin(w http.ResponseWriter, r *http.Request) {
 
 	players := make([]map[string]any, 0)
 	pRows, err := h.Pool.Query(ctx, `
-		SELECT u.id::text, COALESCE(u.email,''), COALESCE(u.username,''),
+		SELECT u.id::text, COALESCE(u.email,''), COALESCE(u.username,''), COALESCE(u.avatar_url, ''),
 			vt.name, pvs.tier_id
 		FROM users u
 		LEFT JOIN player_vip_state pvs ON pvs.user_id = u.id
@@ -181,13 +181,16 @@ func (h *Handler) SearchAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	defer pRows.Close()
 	for pRows.Next() {
-		var id, email, uname string
+		var id, email, uname, avatar string
 		var vipName *string
 		var vipTid *int
-		if err := pRows.Scan(&id, &email, &uname, &vipName, &vipTid); err != nil {
+		if err := pRows.Scan(&id, &email, &uname, &avatar, &vipName, &vipTid); err != nil {
 			continue
 		}
 		m := map[string]any{"id": id, "email": email, "username": uname}
+		if strings.TrimSpace(avatar) != "" {
+			m["avatar_url"] = avatar
+		}
 		if vipName != nil && *vipName != "" {
 			m["vip_tier"] = *vipName
 		}

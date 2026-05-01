@@ -3,6 +3,7 @@ package bonus
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -12,19 +13,23 @@ import (
 
 // PlayerOfferRow is a published version candidate for /bonuses/available.
 type PlayerOfferRow struct {
-	VersionID            int64
-	RulesJSON            []byte
-	Title                *string
-	Description          *string
-	PromoCode            *string
-	ValidFrom            *time.Time
-	ValidTo              *time.Time
-	Priority             int
-	PublishedAt          time.Time
-	DedupeGroupKey       *string
-	OfferFamily          *string
+	VersionID              int64
+	RulesJSON              []byte
+	Title                  *string
+	Description            *string
+	PromoCode              *string
+	ValidFrom              *time.Time
+	ValidTo                *time.Time
+	Priority               int
+	PublishedAt            time.Time
+	DedupeGroupKey         *string
+	OfferFamily            *string
 	EligibilityFingerprint *string
 	BonusType              *string
+	HeroImageURL           *string
+	// PlayerHubForceVisible skips schedule, segment, and trigger-type listing gates (admin "hub ON").
+	PlayerHubForceVisible bool
+	VIPOnly               bool
 }
 
 func versionUsesExplicitTargets(ctx context.Context, pool *pgxpool.Pool, versionID int64) (bool, error) {
@@ -88,19 +93,40 @@ func EligibleForOffer(ctx context.Context, pool *pgxpool.Pool, userID string, co
 
 // ListAvailableOffersForPlayer returns strict-eligible published offers (marketing fields only).
 func ListAvailableOffersForPlayer(ctx context.Context, pool *pgxpool.Pool, userID string, country string) ([]map[string]any, error) {
-	rows, err := pool.Query(ctx, `
+	var intentVersionID *int64
+	var intentVID int64
+	err := pool.QueryRow(ctx, `
+		SELECT promotion_version_id FROM player_bonus_deposit_intents WHERE user_id = $1::uuid
+	`, userID).Scan(&intentVID)
+	if err == nil {
+		intentVersionID = &intentVID
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	relin, errR := loadRelinquishedPromotionVersionIDs(ctx, pool, userID)
+	if errR != nil {
+		return nil, errR
+	}
+
+	rows, err2 := pool.Query(ctx, `
 		SELECT pv.id, pv.rules, pv.player_title, pv.player_description, pv.promo_code,
 			pv.valid_from, pv.valid_to, pv.priority, pv.published_at,
-			pv.dedupe_group_key, pv.offer_family, pv.eligibility_fingerprint, pv.bonus_type
+			pv.dedupe_group_key, pv.offer_family, pv.eligibility_fingerprint, pv.bonus_type,
+			NULLIF(TRIM(pv.player_hero_image_url), ''),
+			COALESCE(p.player_hub_force_visible, false),
+			COALESCE(p.vip_only, false),
+			p.name
 		FROM promotion_versions pv
 		JOIN promotions p ON p.id = pv.promotion_id
 		WHERE pv.published_at IS NOT NULL
 		  AND p.status != 'archived'
 		  AND COALESCE(p.grants_paused, false) = false
-		ORDER BY pv.priority DESC, pv.published_at DESC NULLS LAST, pv.id DESC
+		ORDER BY COALESCE(p.player_hub_force_visible, false) DESC,
+			pv.priority DESC, pv.published_at DESC NULLS LAST, pv.id DESC
 	`)
-	if err != nil {
-		return nil, err
+	if err2 != nil {
+		return nil, err2
 	}
 	defer rows.Close()
 
@@ -110,14 +136,36 @@ func ListAvailableOffersForPlayer(ctx context.Context, pool *pgxpool.Pool, userI
 		var vf, vt sql.NullTime
 		var title, desc, pcode *string
 		var bonusType *string
+		var hero sql.NullString
+		var promoName string
 		if err := rows.Scan(&row.VersionID, &row.RulesJSON, &title, &desc, &pcode, &vf, &vt, &row.Priority, &row.PublishedAt,
-			&row.DedupeGroupKey, &row.OfferFamily, &row.EligibilityFingerprint, &bonusType); err != nil {
+			&row.DedupeGroupKey, &row.OfferFamily, &row.EligibilityFingerprint, &bonusType, &hero, &row.PlayerHubForceVisible, &row.VIPOnly,
+			&promoName); err != nil {
 			continue
 		}
-		row.Title = title
+		var displayTitle *string
+		if title != nil {
+			ts := strings.TrimSpace(*title)
+			if ts != "" {
+				displayTitle = &ts
+			}
+		}
+		if displayTitle == nil {
+			pn := strings.TrimSpace(promoName)
+			if pn != "" {
+				displayTitle = &pn
+			}
+		}
+		row.Title = displayTitle
 		row.Description = desc
 		row.PromoCode = pcode
 		row.BonusType = bonusType
+		if hero.Valid {
+			hs := strings.TrimSpace(hero.String)
+			if hs != "" {
+				row.HeroImageURL = &hs
+			}
+		}
 		if vf.Valid {
 			t := vf.Time
 			row.ValidFrom = &t
@@ -132,7 +180,19 @@ func ListAvailableOffersForPlayer(ctx context.Context, pool *pgxpool.Pool, userI
 	seen := map[string]bool{}
 	var out []map[string]any
 	for _, c := range candidates {
-		if !EligibleForOffer(ctx, pool, userID, country, c) {
+		// User forfeited or cancelled this offer; do not show again as available.
+		if _, done := relin[c.VersionID]; done {
+			continue
+		}
+		// User already "activated" this promo (Get bonus) — it moves to Active until a deposit runs matching logic.
+		if intentVersionID != nil && c.VersionID == *intentVersionID {
+			continue
+		}
+		// VIP-only promotions are never listed in general player offer discovery.
+		if c.VIPOnly {
+			continue
+		}
+		if !c.PlayerHubForceVisible && !EligibleForOffer(ctx, pool, userID, country, c) {
 			continue
 		}
 		rules, _ := parseRules(c.RulesJSON)
@@ -162,23 +222,26 @@ func ListAvailableOffersForPlayer(ctx context.Context, pool *pgxpool.Pool, userI
 
 		title := ""
 		if c.Title != nil {
-			title = *c.Title
+			title = strings.TrimSpace(*c.Title)
 		}
 		desc := ""
 		if c.Description != nil {
 			desc = *c.Description
 		}
 		kind := "auto_on_deposit"
+		promoCodeOut := ""
 		if c.PromoCode != nil && strings.TrimSpace(*c.PromoCode) != "" {
 			kind = "redeem_code"
+			promoCodeOut = strings.TrimSpace(*c.PromoCode)
 		}
 		bonusTypeOut := ""
 		if c.BonusType != nil {
 			bonusTypeOut = strings.TrimSpace(*c.BonusType)
 		}
+		displayTitle := HumanizeOfferTitle(c.VersionID, title, desc, bonusTypeOut)
 		m := map[string]any{
 			"promotion_version_id": c.VersionID,
-			"title":                title,
+			"title":                displayTitle,
 			"description":          desc,
 			"kind":                 kind,
 			"schedule_summary":     scheduleSummary(c.ValidFrom, c.ValidTo),
@@ -190,6 +253,18 @@ func ListAvailableOffersForPlayer(ctx context.Context, pool *pgxpool.Pool, userI
 		}
 		if c.ValidTo != nil {
 			m["valid_to"] = c.ValidTo.UTC().Format(time.RFC3339)
+		}
+		if promoCodeOut != "" {
+			m["promo_code"] = promoCodeOut
+		}
+		if c.HeroImageURL != nil && strings.TrimSpace(*c.HeroImageURL) != "" {
+			m["hero_image_url"] = PublicizeStoredAssetURL(strings.TrimSpace(*c.HeroImageURL))
+		}
+		if c.PlayerHubForceVisible {
+			m["hub_boost"] = true
+		}
+		if od := HubOfferDetailsMap(ctx, pool, c.VersionID, c.RulesJSON); len(od) > 0 {
+			m["offer_details"] = od
 		}
 		out = append(out, m)
 	}

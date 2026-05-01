@@ -28,6 +28,7 @@ export function formatPct(value: number): string {
 export function formatRelativeTime(iso: string): string {
   const now = Date.now()
   const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return '—'
   const diffMs = now - then
   if (diffMs < 0) return 'just now'
   const seconds = Math.floor(diffMs / 1000)
@@ -43,7 +44,7 @@ export function formatRelativeTime(iso: string): string {
 }
 
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return new Date(iso).toLocaleDateString('en-GB', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

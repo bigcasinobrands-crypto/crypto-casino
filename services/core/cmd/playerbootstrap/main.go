@@ -10,9 +10,10 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
 	"github.com/crypto-casino/core/internal/fystack"
+	"github.com/crypto-casino/core/internal/passhash"
+	"github.com/crypto-casino/core/internal/pii"
 	"github.com/crypto-casino/core/internal/playerauth"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -47,21 +48,25 @@ func main() {
 		log.Printf("player already exists: %s", email)
 		return
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashStr, err := passhash.Hash(password)
 	if err != nil {
 		log.Fatal(err)
 	}
+	var emailHMAC interface{}
+	if b := pii.EmailLookupHMACBytes(cfg.PIIEmailLookupSecret, email); len(b) > 0 {
+		emailHMAC = b
+	}
 	var userID string
 	err = pool.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, terms_accepted_at, terms_version, privacy_version, email_verified_at)
-		VALUES ($1, $2, now(), '1', '1', now()) RETURNING id::text
-	`, email, string(hash)).Scan(&userID)
+		INSERT INTO users (email, password_hash, terms_accepted_at, terms_version, privacy_version, email_verified_at, email_hmac)
+		VALUES ($1, $2, now(), '1', '1', now(), $3) RETURNING id::text
+	`, email, hashStr, emailHMAC).Scan(&userID)
 	if err != nil {
 		log.Fatalf("insert: %v", err)
 	}
 	_, err = pool.Exec(ctx, `
 		INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
-		VALUES ($1::uuid, (SELECT id FROM vip_tiers ORDER BY sort_order ASC, id ASC LIMIT 1), 0, 0, now())
+		VALUES ($1::uuid, NULL, 0, 0, now())
 		ON CONFLICT (user_id) DO NOTHING
 	`, userID)
 	if err != nil {

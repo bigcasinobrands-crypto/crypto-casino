@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAdminAuth } from '../authContext'
 import { formatRelativeTime } from '../lib/format'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
+import { OpsToolbar } from '../components/ops'
 
 type DeliveryRow = {
   id: number
@@ -54,6 +56,9 @@ export default function FystackWebhookInboxPage() {
       toast.error('Superadmin required')
       return
     }
+    if (!window.confirm(`Reprocess webhook delivery #${id}? Only use when finance has cleared duplicate risk.`)) {
+      return
+    }
     setBusyId(id)
     try {
       const res = await apiFetch(`/v1/admin/ops/fystack-webhook-deliveries/${id}/reprocess`, { method: 'POST' })
@@ -70,69 +75,123 @@ export default function FystackWebhookInboxPage() {
     }
   }
 
+  const pendingCount = rows.filter((r) => !r.processed).length
+
   return (
     <>
       <PageMeta title="Fystack webhooks · Admin" description="Webhook delivery inbox" />
-      <PageBreadcrumb pageTitle="Fystack webhooks" />
+      <PageBreadcrumb
+        pageTitle="Fystack webhooks"
+        subtitle="Delivery inbox — replay stuck rows individually or via Finance reconcile."
+      />
+
+      <div className="d-flex flex-wrap gap-2 mb-3">
+        <Link to="/finance" className="btn btn-sm btn-outline-primary">
+          Finance overview
+        </Link>
+        <Link to="/settings?tab=system" className="btn btn-sm btn-outline-secondary">
+          Payment flags
+        </Link>
+      </div>
+
       <ComponentCard
         title="Webhook deliveries"
         desc="Unprocessed rows are replayed by Reconcile on Finance Overview, or individually here (superadmin)."
       >
-        <div className="mb-4 flex flex-wrap gap-2">
-          {(['pending', 'all'] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                filter === f
-                  ? 'bg-brand-500 text-white'
-                  : 'bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200'
-              }`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'pending' ? 'Pending only' : 'All recent'}
+        <OpsToolbar
+          title="Inbox"
+          subtitle={
+            loading
+              ? 'Loading…'
+              : filter === 'pending'
+                ? `${pendingCount} pending in this view`
+                : `${rows.length} recent row(s)`
+          }
+          actions={
+            <>
+              <div className="btn-group btn-group-sm" role="group" aria-label="Filter deliveries">
+                {(['pending', 'all'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={`btn ${filter === f ? 'btn-primary' : 'btn-outline-secondary'}`}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === 'pending' ? 'Pending only' : 'All recent'}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary"
+                disabled={loading}
+                onClick={() => void load()}
+              >
+                Refresh
+              </button>
+            </>
+          }
+        />
+
+        {err ? (
+          <div className="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span className="small mb-0">{err}</span>
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void load()}>
+              Retry
             </button>
-          ))}
-        </div>
-        {err ? <p className="mb-3 text-sm text-red-600 dark:text-red-400">{err}</p> : null}
+          </div>
+        ) : null}
+
         {loading ? (
-          <p className="text-sm text-gray-500">Loading…</p>
+          <div className="card border-0 bg-body-secondary placeholder-glow">
+            <div className="card-body">
+              <span className="placeholder col-12 mb-2" />
+              <span className="placeholder col-10 mb-2" />
+              <span className="placeholder col-8" />
+            </div>
+          </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-            <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-white/5">
+          <div className="table-responsive">
+            <table className="table table-sm table-striped table-hover align-middle mb-0">
+              <thead className="table-light">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">ID</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Event</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Resource</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Processed</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Created</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Action</th>
+                  <th scope="col">ID</th>
+                  <th scope="col">Event</th>
+                  <th scope="col">Resource</th>
+                  <th scope="col">Processed</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900/30">
+              <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-gray-500">
-                      No rows.
+                    <td colSpan={6} className="text-center text-secondary small py-4">
+                      No rows match this filter.
                     </td>
                   </tr>
                 ) : (
                   rows.map((r) => (
                     <tr key={r.id}>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{r.id}</td>
-                      <td className="px-3 py-2">{r.event_type}</td>
-                      <td className="max-w-[12rem] break-all px-3 py-2 font-mono text-xs">{r.resource_id}</td>
-                      <td className="px-3 py-2">{r.processed ? 'yes' : 'no'}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-400" title={r.created_at}>
+                      <td className="font-monospace small text-nowrap">{r.id}</td>
+                      <td className="small">{r.event_type}</td>
+                      <td className="font-monospace small text-break" style={{ maxWidth: '14rem' }}>
+                        {r.resource_id}
+                      </td>
+                      <td className="small">
+                        <span className={`badge ${r.processed ? 'text-bg-success' : 'text-bg-warning'}`}>
+                          {r.processed ? 'Yes' : 'No'}
+                        </span>
+                      </td>
+                      <td className="small text-secondary text-nowrap" title={r.created_at}>
                         {formatRelativeTime(r.created_at)}
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="small">
                         {!r.processed && isSuper ? (
                           <button
                             type="button"
                             disabled={busyId === r.id}
-                            className="text-xs text-brand-600 underline disabled:opacity-50 dark:text-brand-400"
+                            className="btn btn-link btn-sm p-0"
                             onClick={() => void reprocess(r.id)}
                           >
                             {busyId === r.id ? '…' : 'Reprocess'}
@@ -148,13 +207,6 @@ export default function FystackWebhookInboxPage() {
             </table>
           </div>
         )}
-        <button
-          type="button"
-          className="mt-4 rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-600"
-          onClick={() => void load()}
-        >
-          Refresh
-        </button>
       </ComponentCard>
     </>
   )

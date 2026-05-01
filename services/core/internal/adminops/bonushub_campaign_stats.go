@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
 	"github.com/jackc/pgx/v5"
@@ -13,38 +14,94 @@ import (
 func (h *Handler) bonusHubCampaignDailyStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	vidStr := strings.TrimSpace(r.URL.Query().Get("promotion_version_id"))
-	limitDays := 90
-	if v := strings.TrimSpace(r.URL.Query().Get("days")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 366 {
-			limitDays = n
-		}
+	promoIDStr := strings.TrimSpace(r.URL.Query().Get("promotion_id"))
+	start, end, all, err := parseAnalyticsWindow(r)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	windowStart := start
+	if all {
+		windowStart = time.Time{}
 	}
 	var rows pgx.Rows
-	var err error
+	var qErr error
 	if vidStr != "" {
 		vid, perr := strconv.ParseInt(vidStr, 10, 64)
 		if perr != nil || vid <= 0 {
 			adminapi.WriteError(w, http.StatusBadRequest, "bad_param", "invalid promotion_version_id")
 			return
 		}
-		rows, err = h.Pool.Query(ctx, `
+		if all {
+			rows, qErr = h.Pool.Query(ctx, `
 			SELECT stat_date::text, promotion_version_id, grants_count, grant_volume_minor,
 				active_instances_end, completed_wr, forfeited, cost_minor
 			FROM bonus_campaign_daily_stats
 			WHERE promotion_version_id = $1
+			  AND stat_date <= $2::date
 			ORDER BY stat_date DESC
-			LIMIT $2
-		`, vid, limitDays)
-	} else {
-		rows, err = h.Pool.Query(ctx, `
+			LIMIT 1500
+		`, vid, end)
+		} else {
+			rows, qErr = h.Pool.Query(ctx, `
 			SELECT stat_date::text, promotion_version_id, grants_count, grant_volume_minor,
 				active_instances_end, completed_wr, forfeited, cost_minor
 			FROM bonus_campaign_daily_stats
+			WHERE promotion_version_id = $1
+			  AND stat_date BETWEEN $2::date AND $3::date
+			ORDER BY stat_date DESC
+			LIMIT 1500
+		`, vid, windowStart, end)
+		}
+	} else if promoIDStr != "" {
+		promoID, perr := strconv.ParseInt(promoIDStr, 10, 64)
+		if perr != nil || promoID <= 0 {
+			adminapi.WriteError(w, http.StatusBadRequest, "bad_param", "invalid promotion_id")
+			return
+		}
+		if all {
+			rows, qErr = h.Pool.Query(ctx, `
+			SELECT s.stat_date::text, s.promotion_version_id, s.grants_count, s.grant_volume_minor,
+				s.active_instances_end, s.completed_wr, s.forfeited, s.cost_minor
+			FROM bonus_campaign_daily_stats s
+			JOIN promotion_versions pv ON pv.id = s.promotion_version_id
+			WHERE pv.promotion_id = $1
+			  AND s.stat_date <= $2::date
+			ORDER BY s.stat_date DESC, s.promotion_version_id DESC
+			LIMIT 3000
+		`, promoID, end)
+		} else {
+			rows, qErr = h.Pool.Query(ctx, `
+			SELECT s.stat_date::text, s.promotion_version_id, s.grants_count, s.grant_volume_minor,
+				s.active_instances_end, s.completed_wr, s.forfeited, s.cost_minor
+			FROM bonus_campaign_daily_stats s
+			JOIN promotion_versions pv ON pv.id = s.promotion_version_id
+			WHERE pv.promotion_id = $1
+			  AND s.stat_date BETWEEN $2::date AND $3::date
+			ORDER BY s.stat_date DESC, s.promotion_version_id DESC
+			LIMIT 3000
+		`, promoID, windowStart, end)
+		}
+	} else if all {
+		rows, qErr = h.Pool.Query(ctx, `
+			SELECT stat_date::text, promotion_version_id, grants_count, grant_volume_minor,
+				active_instances_end, completed_wr, forfeited, cost_minor
+			FROM bonus_campaign_daily_stats
+			WHERE stat_date <= $1::date
 			ORDER BY stat_date DESC, promotion_version_id DESC
-			LIMIT $1
-		`, limitDays*20)
+			LIMIT 3000
+		`, end)
+	} else {
+		rows, qErr = h.Pool.Query(ctx, `
+			SELECT stat_date::text, promotion_version_id, grants_count, grant_volume_minor,
+				active_instances_end, completed_wr, forfeited, cost_minor
+			FROM bonus_campaign_daily_stats
+			WHERE stat_date BETWEEN $1::date AND $2::date
+			ORDER BY stat_date DESC
+			LIMIT 3000
+		`, windowStart, end)
 	}
-	if err != nil {
+	if qErr != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
 		return
 	}

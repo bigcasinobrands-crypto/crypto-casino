@@ -1,19 +1,27 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 @import "@repo/design-tokens/theme.css";
 
-/* Player UI — violet / charcoal (Banani reference). Overrides shared tokens below. */
+/* Player UI — vybebet source-of-truth: #000 canvas, #1a1a1a chrome, #7b61ff purple CTAs */
 @theme {
-  --color-casino-primary: #7c4dff;
-  --color-casino-primary-dim: #6a3ab8;
-  --color-casino-accent: #9b6cff;
-  --color-casino-bg: #121016;
-  --color-casino-surface: #14111a;
-  --color-casino-sidebar: #0f0d12;
-  --color-casino-topbar: #0f0d12;
-  --color-casino-elevated: #1b1520;
-  --color-casino-border: rgb(0 0 0 / 0.08);
-  --color-casino-muted: #a099a8;
-  --color-casino-success: #14f195;
+  --color-casino-primary: #7b61ff;
+  --color-casino-primary-dim: #6348ea;
+  --color-casino-accent: #9585ff;
+  --color-casino-bg: #000000;
+  --color-casino-surface: #1a1a1a;
+  --color-casino-sidebar: #000000;
+  --color-casino-topbar: #000000;
+  --color-casino-elevated: #222222;
+  --color-casino-border: rgb(255 255 255 / 0.06);
+  --color-casino-muted: #94949e;
+  --color-casino-foreground: #ffffff;
+  --color-casino-segment: #00e676;
+  --color-casino-toggle-active: #7b61ff;
+  --color-casino-segment-track: #141414;
+  /* Deposit / primary actions — same brand purple */
+  --color-casino-deposit: #7b61ff;
+  --color-casino-chip: #1a1a1a;
+  --color-casino-chip-hover: #252525;
+  --color-casino-success: #00e676;
   --color-casino-warning: #ffaa00;
   --color-casino-destructive: #ff4b4b;
   --color-casino-card: rgba(255, 255, 255, 0.03);
@@ -25,12 +33,19 @@
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--color-casino-bg);
   }
 }
 
 body {
-  background: var(--color-casino-bg);
+  background-color: var(--color-casino-bg);
   color: var(--color-casino-foreground);
+}
+
+/* Prevent flash of wrong tone behind the app shell */
+#root {
+  min-height: 100%;
+  background-color: var(--color-casino-bg);
 }
 
 /* Hide scrollbars while keeping scroll (Firefox / WebKit / legacy Edge). */
@@ -100,12 +115,33 @@ body {
   .scrollbar-chat::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  /* Modals & panels: visible thumb using brand primary (violet) — not system default. */
+  .scrollbar-casino {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-casino-primary) 55%, transparent) rgba(255, 255, 255, 0.05);
+  }
+  .scrollbar-casino::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-casino::-webkit-scrollbar-track {
+    margin: 2px 0;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+  }
+  .scrollbar-casino::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--color-casino-primary) 55%, rgba(0, 0, 0, 0.15));
+    border-radius: 6px;
+  }
+  .scrollbar-casino:hover::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--color-casino-primary) 75%, rgba(0, 0, 0, 0.1));
+  }
 }
 
 @layer components {
   /* Game tiles: soft violet glow on hover around the thumbnail frame. */
   .game-thumb-link {
-    @apply block overflow-hidden rounded-[2px] border border-casino-border bg-casino-surface shadow-sm;
+    @apply block overflow-hidden rounded-casino-md border border-casino-border bg-casino-surface shadow-sm;
     transition:
       border-color 0.25s ease,
       box-shadow 0.25s ease;

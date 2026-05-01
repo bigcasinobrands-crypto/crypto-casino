@@ -1,12 +1,16 @@
 import { useMemo } from 'react'
-import { SliderField } from '../admin-ui'
+import { SliderField, adminInputCls, ImageUrlField, adminHintCls } from '../admin-ui'
 import { DEPOSIT_CHANNEL_OPTIONS } from '../../lib/depositChannels'
 import { isDepositFamily, isScheduleFamily } from './bonusRuleTemplates'
 import GameExcludePicker from './GameExcludePicker'
 import SegmentTargetingSection from './SegmentTargetingSection'
 
-const inputCls =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100'
+const inputCls = adminInputCls
+const moneyPreviewFmt = {
+  USD: new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }),
+  EUR: new Intl.NumberFormat(undefined, { style: 'currency', currency: 'EUR' }),
+  GBP: new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GBP' }),
+}
 
 function asRec(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
@@ -32,9 +36,91 @@ type Props = {
   onRulesChange: (r: unknown) => void
   termsText: string
   onTermsTextChange: (t: string) => void
+  /** Player My Bonuses card image for this version (optional). */
+  playerHeroImageUrl?: string
+  onPlayerHeroImageUrlChange?: (url: string) => void
+  uploadFile?: (file: File) => Promise<string | null>
   showTerms?: boolean
   /** Load games / VIP tiers for targeting UI (wizard, operations, rules page). */
   apiFetch?: ApiFetch
+}
+
+function PromoHeroImageBlock({
+  value,
+  onChange,
+  uploadFile,
+}: {
+  value: string
+  onChange: (url: string) => void
+  uploadFile?: (file: File) => Promise<string | null>
+}) {
+  return (
+    <div>
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        Promotion image
+      </h4>
+      <p className={`${adminHintCls} mb-3 max-w-2xl`}>
+        Optional hero for player-facing bonus cards (My Bonuses). Paste a URL or upload.
+      </p>
+      <div className="max-w-2xl">
+        <ImageUrlField
+          id="bonus-promo-hero"
+          label="Image URL"
+          hint={
+            uploadFile
+              ? 'PNG or JPG recommended. Stored on the promotion version.'
+              : 'Enter a full HTTPS image URL.'
+          }
+          value={value}
+          onChange={onChange}
+          uploadFile={uploadFile}
+        />
+      </div>
+    </div>
+  )
+}
+
+function minorToMajor(minor: number): string {
+  return (minor / 100).toFixed(2)
+}
+
+function majorToMinor(raw: string): number {
+  const n = Number.parseFloat(raw)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.round(n * 100)
+}
+
+function MoneyMinorField({
+  label,
+  hint,
+  valueMinor,
+  onChangeMinor,
+}: {
+  label: string
+  hint?: string
+  valueMinor: number
+  onChangeMinor: (minor: number) => void
+}) {
+  const major = valueMinor / 100
+  return (
+    <div>
+      <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{label}</span>
+      <input
+        type="number"
+        min={0}
+        step="0.01"
+        className={inputCls}
+        value={minorToMajor(valueMinor)}
+        onChange={(e) => onChangeMinor(majorToMinor(e.target.value))}
+      />
+      <p className={`${adminHintCls} mt-1 mb-0`}>
+        {hint ?? 'Decimal input is converted to minor units on save.'}
+        <br />
+        Preview: {moneyPreviewFmt.USD.format(major)} · {moneyPreviewFmt.EUR.format(major)} ·{' '}
+        {moneyPreviewFmt.GBP.format(major)}
+      </p>
+    </div>
+  )
 }
 
 export default function RulesEditor({
@@ -43,6 +129,9 @@ export default function RulesEditor({
   onRulesChange,
   termsText,
   onTermsTextChange,
+  playerHeroImageUrl = '',
+  onPlayerHeroImageUrlChange = () => {},
+  uploadFile,
   showTerms = true,
   apiFetch,
 }: Props) {
@@ -66,6 +155,7 @@ export default function RulesEditor({
     const rw = asRew(r)
     const w = asWag(r)
     const excluded = Array.isArray(r.excluded_game_ids) ? (r.excluded_game_ids as string[]) : []
+    const allowed = Array.isArray(r.allowed_game_ids) ? (r.allowed_game_ids as string[]) : []
 
     const setTrigger = (k: string, v: unknown) =>
       patch({ trigger: { ...t, type: 'deposit', channels: Array.isArray(t.channels) ? t.channels : [], [k]: v } })
@@ -100,23 +190,19 @@ export default function RulesEditor({
               />
             </div>
             <div>
-              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Min deposit (minor)</span>
-              <input
-                type="number"
-                min={0}
-                className={inputCls}
-                value={typeof t.min_minor === 'number' ? t.min_minor : 0}
-                onChange={(e) => setTrigger('min_minor', parseInt(e.target.value, 10) || 0)}
+              <MoneyMinorField
+                label="Min deposit"
+                hint="Minimum qualifying deposit."
+                valueMinor={typeof t.min_minor === 'number' ? t.min_minor : 0}
+                onChangeMinor={(n) => setTrigger('min_minor', n)}
               />
             </div>
             <div>
-              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Max deposit (minor, 0 = none)</span>
-              <input
-                type="number"
-                min={0}
-                className={inputCls}
-                value={typeof t.max_minor === 'number' ? t.max_minor : 0}
-                onChange={(e) => setTrigger('max_minor', parseInt(e.target.value, 10) || 0)}
+              <MoneyMinorField
+                label="Max deposit"
+                hint="Set 0 for no maximum."
+                valueMinor={typeof t.max_minor === 'number' ? t.max_minor : 0}
+                onChangeMinor={(n) => setTrigger('max_minor', n)}
               />
             </div>
             <div className="sm:col-span-2">
@@ -164,13 +250,10 @@ export default function RulesEditor({
                   />
                 </div>
                 <div>
-                  <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Bonus cap (minor)</span>
-                  <input
-                    type="number"
-                    min={0}
-                    className={inputCls}
-                    value={typeof rw.cap_minor === 'number' ? rw.cap_minor : 0}
-                    onChange={(e) => setReward('cap_minor', parseInt(e.target.value, 10) || 0)}
+                  <MoneyMinorField
+                    label="Bonus cap"
+                    valueMinor={typeof rw.cap_minor === 'number' ? rw.cap_minor : 0}
+                    onChangeMinor={(n) => setReward('cap_minor', n)}
                   />
                 </div>
               </>
@@ -183,47 +266,73 @@ export default function RulesEditor({
           </div>
         </div>
 
-        <div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            Wagering & game exclusions
-          </h4>
-          <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <SliderField
-                label="Wagering multiplier"
-                hint="Bonus + deposit must be wagered this many times (typical 20–50)."
-                min={1}
-                max={80}
-                value={typeof w.multiplier === 'number' ? w.multiplier : 1}
-                onChange={(n) => setWagering('multiplier', n)}
-              />
-            </div>
-            <div>
-              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Max bet while wagering (minor)</span>
-              <input
-                type="number"
-                min={0}
-                className={inputCls}
-                value={typeof w.max_bet_minor === 'number' ? w.max_bet_minor : 0}
-                onChange={(e) => setWagering('max_bet_minor', parseInt(e.target.value, 10) || 0)}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                Exclude games from wagering (catalog)
-              </span>
-              {apiFetch ? (
-                <GameExcludePicker
-                  apiFetch={apiFetch}
-                  excludedIds={excluded}
-                  onExcludedChange={(ids) => patch({ excluded_game_ids: ids })}
+        <div className="space-y-8">
+          <div>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Wagering
+            </h4>
+            <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <SliderField
+                  label="Wagering multiplier"
+                  hint="Bonus + deposit must be wagered this many times (typical 20–50)."
+                  min={1}
+                  max={80}
+                  value={typeof w.multiplier === 'number' ? w.multiplier : 1}
+                  onChange={(n) => setWagering('multiplier', n)}
                 />
-              ) : (
-                <p className="text-xs text-amber-800 dark:text-amber-300">
-                  Game picker unavailable (missing api client). Use Operations from a page that loads the editor with catalog access.
-                </p>
-              )}
+              </div>
+              <div className="sm:col-span-2">
+                <MoneyMinorField
+                  label="Max bet while wagering"
+                  valueMinor={typeof w.max_bet_minor === 'number' ? w.max_bet_minor : 0}
+                  onChangeMinor={(n) => setWagering('max_bet_minor', n)}
+                />
+              </div>
             </div>
+          </div>
+
+          <div className="border-t border-gray-200 pt-8 dark:border-gray-700">
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+              Blocklist — excluded from wagering
+            </h4>
+            <p className="mb-3 max-w-2xl text-xs text-gray-500 dark:text-gray-400">
+              These titles never count toward clearing the bonus. Configure this first if you use both blocklist and
+              allow-only lists.
+            </p>
+            {apiFetch ? (
+              <GameExcludePicker
+                apiFetch={apiFetch}
+                selectedIds={excluded}
+                onChange={(ids) => patch({ excluded_game_ids: ids })}
+                mode="exclude"
+              />
+            ) : (
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                Game picker unavailable (missing api client). Use Operations from a page that loads the editor with catalog
+                access.
+              </p>
+            )}
+          </div>
+
+          <div className="border-t border-gray-200 pt-8 dark:border-gray-700">
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">
+              Allow-only list — restrict wagering to selected games
+            </h4>
+            <p className="mb-3 max-w-2xl text-xs text-gray-500 dark:text-gray-400">
+              Optional. When this list is non-empty, <strong>only</strong> checked games advance wagering; everything else
+              does not. Leave empty to use “any game except blocklist” behavior.
+            </p>
+            {apiFetch ? (
+              <GameExcludePicker
+                apiFetch={apiFetch}
+                selectedIds={allowed}
+                onChange={(ids) => patch({ allowed_game_ids: ids })}
+                mode="allow_only"
+              />
+            ) : (
+              <p className="text-xs text-amber-800 dark:text-amber-300">Game picker unavailable (missing api client).</p>
+            )}
           </div>
         </div>
 
@@ -246,15 +355,22 @@ export default function RulesEditor({
         ) : null}
 
         {showTerms ? (
-          <div>
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Terms (optional)</span>
-            <textarea
-              className={`${inputCls} min-h-[80px]`}
-              value={termsText}
-              onChange={(e) => onTermsTextChange(e.target.value)}
-              placeholder="Short player-facing terms for this version"
+          <>
+            <PromoHeroImageBlock
+              value={playerHeroImageUrl}
+              onChange={onPlayerHeroImageUrlChange}
+              uploadFile={uploadFile}
             />
-          </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Terms (optional)</span>
+              <textarea
+                className={`${inputCls} min-h-[80px]`}
+                value={termsText}
+                onChange={(e) => onTermsTextChange(e.target.value)}
+                placeholder="Short player-facing terms for this version"
+              />
+            </div>
+          </>
         ) : null}
       </div>
     )
@@ -283,13 +399,10 @@ export default function RulesEditor({
             />
           </div>
           <div>
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Cap (minor)</span>
-            <input
-              type="number"
-              min={0}
-              className={inputCls}
-              value={typeof rw.cap_minor === 'number' ? rw.cap_minor : 0}
-              onChange={(e) => setReward('cap_minor', parseInt(e.target.value, 10) || 0)}
+            <MoneyMinorField
+              label="Cap"
+              valueMinor={typeof rw.cap_minor === 'number' ? rw.cap_minor : 0}
+              onChangeMinor={(n) => setReward('cap_minor', n)}
             />
           </div>
           <div className="sm:col-span-2">
@@ -302,25 +415,29 @@ export default function RulesEditor({
             />
           </div>
           <div>
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Max bet while wagering (minor)</span>
-            <input
-              type="number"
-              min={0}
-              className={inputCls}
-              value={typeof w.max_bet_minor === 'number' ? w.max_bet_minor : 0}
-              onChange={(e) => setWagering('max_bet_minor', parseInt(e.target.value, 10) || 0)}
+            <MoneyMinorField
+              label="Max bet while wagering"
+              valueMinor={typeof w.max_bet_minor === 'number' ? w.max_bet_minor : 0}
+              onChangeMinor={(n) => setWagering('max_bet_minor', n)}
             />
           </div>
         </div>
         {showTerms ? (
-          <div>
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Terms (optional)</span>
-            <textarea
-              className={`${inputCls} min-h-[80px]`}
-              value={termsText}
-              onChange={(e) => onTermsTextChange(e.target.value)}
+          <>
+            <PromoHeroImageBlock
+              value={playerHeroImageUrl}
+              onChange={onPlayerHeroImageUrlChange}
+              uploadFile={uploadFile}
             />
-          </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Terms (optional)</span>
+              <textarea
+                className={`${inputCls} min-h-[80px]`}
+                value={termsText}
+                onChange={(e) => onTermsTextChange(e.target.value)}
+              />
+            </div>
+          </>
         ) : null}
       </div>
     )
@@ -335,13 +452,10 @@ export default function RulesEditor({
       <div className="space-y-6">
         <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
           <div>
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Fixed credit (minor)</span>
-            <input
-              type="number"
-              min={0}
-              className={inputCls}
-              value={typeof rw.fixed_minor === 'number' ? rw.fixed_minor : 0}
-              onChange={(e) => setReward('fixed_minor', parseInt(e.target.value, 10) || 0)}
+            <MoneyMinorField
+              label="Fixed credit"
+              valueMinor={typeof rw.fixed_minor === 'number' ? rw.fixed_minor : 0}
+              onChangeMinor={(n) => setReward('fixed_minor', n)}
             />
           </div>
           <div className="sm:col-span-2">
@@ -354,25 +468,29 @@ export default function RulesEditor({
             />
           </div>
           <div>
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Max bet while wagering (minor)</span>
-            <input
-              type="number"
-              min={0}
-              className={inputCls}
-              value={typeof w.max_bet_minor === 'number' ? w.max_bet_minor : 0}
-              onChange={(e) => setWagering('max_bet_minor', parseInt(e.target.value, 10) || 0)}
+            <MoneyMinorField
+              label="Max bet while wagering"
+              valueMinor={typeof w.max_bet_minor === 'number' ? w.max_bet_minor : 0}
+              onChangeMinor={(n) => setWagering('max_bet_minor', n)}
             />
           </div>
         </div>
         {showTerms ? (
-          <div>
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Terms (optional)</span>
-            <textarea
-              className={`${inputCls} min-h-[80px]`}
-              value={termsText}
-              onChange={(e) => onTermsTextChange(e.target.value)}
+          <>
+            <PromoHeroImageBlock
+              value={playerHeroImageUrl}
+              onChange={onPlayerHeroImageUrlChange}
+              uploadFile={uploadFile}
             />
-          </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Terms (optional)</span>
+              <textarea
+                className={`${inputCls} min-h-[80px]`}
+                value={termsText}
+                onChange={(e) => onTermsTextChange(e.target.value)}
+              />
+            </div>
+          </>
         ) : null}
       </div>
     )

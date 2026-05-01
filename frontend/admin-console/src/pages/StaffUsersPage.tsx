@@ -10,6 +10,7 @@ type StaffRow = {
   id: string
   email: string
   role: string
+  mfa_webauthn_enforced: boolean
   created_at: string
 }
 
@@ -39,7 +40,13 @@ export default function StaffUsersPage() {
         return
       }
       const j = (await res.json()) as { staff?: StaffRow[] }
-      setStaff(Array.isArray(j.staff) ? j.staff : [])
+      const rows = Array.isArray(j.staff) ? j.staff : []
+      setStaff(
+        rows.map((r) => ({
+          ...r,
+          mfa_webauthn_enforced: Boolean(r.mfa_webauthn_enforced),
+        })),
+      )
     } catch {
       setErr('Network error')
       setStaff([])
@@ -103,40 +110,65 @@ export default function StaffUsersPage() {
     }
   }
 
+  const patchMfaEnforced = async (id: string, enforced: boolean) => {
+    if (!isSuper) return
+    setBusyId(id)
+    try {
+      const res = await apiFetch(`/v1/admin/staff-users/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfa_webauthn_enforced: enforced }),
+      })
+      if (!res.ok) {
+        toast.error(`MFA update failed (${res.status})`)
+        return
+      }
+      toast.success(enforced ? 'WebAuthn MFA required for this user' : 'WebAuthn MFA no longer enforced')
+      await load()
+    } catch {
+      toast.error('Network error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   return (
     <>
       <PageMeta title="Staff users · Admin" description="Admin and support accounts" />
-      <PageBreadcrumb pageTitle="Staff users" />
+      <PageBreadcrumb
+        pageTitle="Staff users"
+        subtitle="Admin and support accounts that can sign in to this console."
+      />
       {isSuper ? (
         <ComponentCard
           className="mb-6"
           title="Invite staff"
           desc="Superadmin only. Password is set once at creation; share via your secure channel."
         >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-              Email
+          <div className="row g-3 align-items-end">
+            <div className="col-md-4 col-lg-3">
+              <label className="form-label small mb-1">Email</label>
               <input
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                className="form-control form-control-sm"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 autoComplete="off"
               />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-              Password
+            </div>
+            <div className="col-md-4 col-lg-3">
+              <label className="form-label small mb-1">Password</label>
               <input
                 type="password"
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                className="form-control form-control-sm"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 autoComplete="new-password"
               />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-              Role
+            </div>
+            <div className="col-md-4 col-lg-3">
+              <label className="form-label small mb-1">Role</label>
               <select
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                className="form-select form-select-sm"
                 value={newRole}
                 onChange={(e) => setNewRole(e.target.value as (typeof ROLES)[number])}
               >
@@ -146,12 +178,12 @@ export default function StaffUsersPage() {
                   </option>
                 ))}
               </select>
-            </label>
-            <div className="flex items-end">
+            </div>
+            <div className="col-md-4 col-lg-3">
               <button
                 type="button"
                 disabled={createBusy}
-                className="rounded-lg bg-brand-500 px-4 py-2 text-sm text-white hover:bg-brand-600 disabled:opacity-50"
+                className="btn btn-primary btn-sm"
                 onClick={() => void createStaff()}
               >
                 {createBusy ? 'Creating…' : 'Create'}
@@ -160,36 +192,60 @@ export default function StaffUsersPage() {
           </div>
         </ComponentCard>
       ) : (
-        <p className="mb-6 text-sm text-amber-700 dark:text-amber-400">Superadmin only: staff creation and role changes.</p>
+        <div className="alert alert-warning small py-2 mb-4">Superadmin only: staff creation and role changes.</div>
       )}
 
-      <ComponentCard title="Directory" desc="GET /v1/admin/staff-users">
-        {err ? <p className="mb-3 text-sm text-red-600 dark:text-red-400">{err}</p> : null}
+      <ComponentCard title="Directory" desc="Staff accounts that can sign in to this console.">
+        {err ? <div className="alert alert-danger small py-2 mb-3">{err}</div> : null}
         {loading ? (
           <p className="text-sm text-gray-500">Loading…</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-            <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-white/5">
+          <div className="table-responsive">
+            <table className="table table-sm table-striped table-hover align-middle mb-0">
+              <thead className="table-light">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Email</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Role</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Created</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Change role</th>
+                  <th className="small">Email</th>
+                  <th className="small">Role</th>
+                  <th className="small">MFA WebAuthn</th>
+                  <th className="small">Created</th>
+                  <th className="small">Change role</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900/30">
+              <tbody>
                 {staff.map((s) => (
                   <tr key={s.id}>
-                    <td className="px-3 py-2 font-mono text-xs">{s.email}</td>
-                    <td className="px-3 py-2">{s.role}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-400" title={s.created_at}>
+                    <td className="font-monospace small">{s.email}</td>
+                    <td className="small">{s.role}</td>
+                    <td className="small">
+                      {isSuper ? (
+                        <div className="form-check form-switch mb-0">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            role="switch"
+                            id={`mfa-${s.id}`}
+                            checked={Boolean(s.mfa_webauthn_enforced)}
+                            disabled={busyId === s.id}
+                            onChange={(e) => void patchMfaEnforced(s.id, e.target.checked)}
+                          />
+                          <label className="form-check-label small" htmlFor={`mfa-${s.id}`}>
+                            Enforced
+                          </label>
+                        </div>
+                      ) : s.mfa_webauthn_enforced ? (
+                        <span className="badge text-bg-info">on</span>
+                      ) : (
+                        <span className="text-secondary">off</span>
+                      )}
+                    </td>
+                    <td className="text-secondary text-nowrap small" title={s.created_at}>
                       {formatRelativeTime(s.created_at)}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="small">
                       {isSuper ? (
                         <select
-                          className="rounded border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-900"
+                          className="form-select form-select-sm"
+                          style={{ maxWidth: 160 }}
                           value={s.role}
                           disabled={busyId === s.id}
                           onChange={(e) => void patchRole(s.id, e.target.value)}
@@ -210,11 +266,7 @@ export default function StaffUsersPage() {
             </table>
           </div>
         )}
-        <button
-          type="button"
-          className="mt-4 rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-600"
-          onClick={() => void load()}
-        >
+        <button type="button" className="btn btn-outline-secondary btn-sm mt-3" onClick={() => void load()}>
           Refresh
         </button>
       </ComponentCard>

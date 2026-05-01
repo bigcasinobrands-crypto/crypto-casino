@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 
+import type { RewardsHubPayload } from '../hooks/useRewardsHub'
 import { usePlayerAuth } from '../playerAuth'
 import { IconBell } from './icons'
 
@@ -37,7 +39,7 @@ function formatNotificationTime(iso: string): string {
 }
 
 const defaultOpenClass =
-  'bg-casino-primary-dim text-casino-foreground [&_svg]:text-casino-foreground'
+  'bg-casino-primary/25 text-white ring-casino-primary/40 [&_svg]:text-white'
 
 const panelClass =
   'absolute right-0 top-full z-[60] mt-1.5 max-h-[min(70vh,24rem)] w-[min(100vw-2rem,22rem)] overflow-hidden rounded-xl border border-casino-border bg-casino-bg text-casino-foreground shadow-2xl ring-1 ring-white/[0.04]'
@@ -47,13 +49,16 @@ type NotificationBellProps = {
   className?: string
   /** Appended while the dropdown is open (matches other header toggles). */
   openClassName?: string
+  /** Rewards hub from shell (rakeback boost live indicator). */
+  rewardsHub?: RewardsHubPayload | null
 }
 
 export default function NotificationBell({
   className = '',
   openClassName = defaultOpenClass,
+  rewardsHub = null,
 }: NotificationBellProps) {
-  const { accessToken, apiFetch } = usePlayerAuth()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<PlayerNotification[]>([])
   const [initialLoading, setInitialLoading] = useState(false)
@@ -62,7 +67,7 @@ export default function NotificationBell({
   const rootRef = useRef<HTMLDivElement>(null)
 
   const fetchNotifications = useCallback(async () => {
-    if (!accessToken) return
+    if (!isAuthenticated) return
     try {
       const res = await apiFetch('/v1/notifications')
       if (!res.ok) {
@@ -75,10 +80,10 @@ export default function NotificationBell({
     } catch {
       setError('Could not load notifications')
     }
-  }, [accessToken, apiFetch])
+  }, [isAuthenticated, apiFetch])
 
   useEffect(() => {
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setNotifications([])
       setError(null)
       setOpen(false)
@@ -98,11 +103,11 @@ export default function NotificationBell({
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [accessToken, fetchNotifications])
+  }, [isAuthenticated, fetchNotifications])
 
   useEffect(() => {
-    if (open && accessToken) void fetchNotifications()
-  }, [open, accessToken, fetchNotifications])
+    if (open && isAuthenticated) void fetchNotifications()
+  }, [open, isAuthenticated, fetchNotifications])
 
   useEffect(() => {
     if (!open) return
@@ -115,6 +120,21 @@ export default function NotificationBell({
   }, [open])
 
   const unreadCount = notifications.filter((n) => !n.read).length
+
+  const { rakebackBoostLive, rakebackBoostLine } = useMemo(() => {
+    const rb = rewardsHub?.vip?.rakeback_boost
+    const enabled = rb?.enabled === true
+    const claimable = rb?.claimable_now === true
+    const active = rb?.active_now === true
+    const live = enabled && (claimable || active)
+    if (!live) {
+      return { rakebackBoostLive: false, rakebackBoostLine: null as string | null }
+    }
+    if (active) {
+      return { rakebackBoostLive: true, rakebackBoostLine: 'Your rakeback boost is running.' }
+    }
+    return { rakebackBoostLive: true, rakebackBoostLine: 'Rakeback boost claim window is open.' }
+  }, [rewardsHub?.vip?.rakeback_boost])
 
   const markRead = async (notificationId: number) => {
     setMarkingId(notificationId)
@@ -136,7 +156,7 @@ export default function NotificationBell({
     }
   }
 
-  if (!accessToken) return null
+  if (!isAuthenticated) return null
 
   const triggerClasses = `${className} ${open ? openClassName : ''}`.trim()
 
@@ -145,14 +165,20 @@ export default function NotificationBell({
       <button
         type="button"
         className={triggerClasses}
-        aria-label="Notifications"
+        aria-label={rakebackBoostLive ? 'Notifications, rakeback boost is live' : 'Notifications'}
         aria-expanded={open}
         aria-haspopup="true"
         onClick={() => setOpen((o) => !o)}
       >
         <IconBell size={18} aria-hidden />
+        {rakebackBoostLive ? (
+          <span
+            className="pointer-events-none absolute bottom-0 right-0 z-[1] h-2.5 w-2.5 rounded-full bg-casino-segment shadow-[0_0_10px_rgba(0,230,118,0.65)] ring-2 ring-casino-bg animate-pulse"
+            aria-hidden
+          />
+        ) : null}
         {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-casino-destructive px-1 text-[10px] font-bold text-white">
+          <span className="absolute -right-0.5 -top-0.5 z-[2] flex h-4 min-w-4 items-center justify-center rounded-full bg-casino-segment px-1 text-[10px] font-bold text-casino-bg ring-2 ring-casino-bg">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -164,6 +190,33 @@ export default function NotificationBell({
             <p className="text-[10px] font-bold uppercase tracking-wider text-casino-muted">Notifications</p>
           </div>
           <div className="scrollbar-chat max-h-[min(70vh-2.5rem,22rem)] overflow-y-auto">
+            {rakebackBoostLive && rakebackBoostLine ? (
+              <div className="border-b border-emerald-500/30 bg-emerald-500/[0.09] px-3 py-3">
+                <Link
+                  to="/vip"
+                  className="block rounded-lg text-left no-underline outline-none ring-casino-primary transition hover:bg-emerald-500/10 focus-visible:ring-2"
+                  onClick={() => setOpen(false)}
+                >
+                  <div className="flex items-start gap-2">
+                    <span
+                      className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-base ring-1 ring-white/10"
+                      aria-hidden
+                    >
+                      ⚡
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/95">
+                        Rakeback boost
+                      </p>
+                      <p className="mt-1 text-sm font-semibold leading-snug text-casino-foreground">
+                        {rakebackBoostLine}
+                      </p>
+                      <p className="mt-1 text-[11px] font-medium text-emerald-100/80">Open VIP rewards →</p>
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            ) : null}
             {initialLoading && notifications.length === 0 ? (
               <p className="px-3 py-4 text-sm text-casino-muted">Loading…</p>
             ) : error && notifications.length === 0 ? (
@@ -178,7 +231,7 @@ export default function NotificationBell({
                     className={`px-3 py-3 transition-colors ${
                       n.read
                         ? 'opacity-90'
-                        : 'bg-casino-primary/[0.07] shadow-[inset_0_0_0_1px_rgba(124,77,255,0.12)]'
+                        : 'bg-casino-primary/[0.07] shadow-[inset_0_0_0_1px_rgba(123,97,255,0.12)]'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">

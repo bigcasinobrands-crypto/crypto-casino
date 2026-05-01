@@ -62,7 +62,7 @@ type DepositAddressPanelProps = {
 }
 
 export function DepositAddressPanel({ symbol, network, amountUsdText, onBack, onSent }: DepositAddressPanelProps) {
-  const { accessToken, apiFetch } = usePlayerAuth()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
   const logoUrls = useCryptoLogoUrlMap()
   const [data, setData] = useState<DepositAddrRes | null>(null)
   const [loading, setLoading] = useState(true)
@@ -95,9 +95,9 @@ export function DepositAddressPanel({ symbol, network, amountUsdText, onBack, on
   }, [apiFetch, symbol, network])
 
   useEffect(() => {
-    if (!accessToken) return
+    if (!isAuthenticated) return
     void load()
-  }, [accessToken, load])
+  }, [isAuthenticated, load])
 
   const copyAddress = async () => {
     const a = data?.address?.trim()

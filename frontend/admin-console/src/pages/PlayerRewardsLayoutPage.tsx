@@ -12,8 +12,8 @@ type RewardProgramRow = {
   priority: number
 }
 
-const PLAYER_PREVIEW_PATH = '/rewards/preview'
-const PLAYER_LIVE_PATH = '/rewards'
+const PLAYER_PREVIEW_PATH = '/bonuses/preview'
+const PLAYER_LIVE_PATH = '/bonuses'
 
 /** Base URL for the player app (no trailing slash). `.env`: VITE_PLAYER_UI_ORIGIN or VITE_PLAYER_APP_ORIGIN */
 function playerUiOrigin(): string {
@@ -60,12 +60,13 @@ export default function PlayerRewardsLayoutPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Player rewards layout</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Player My Bonuses layout</h2>
         <p className="mt-1 max-w-3xl text-sm text-gray-600 dark:text-gray-400">
-          Use the <strong>preview</strong> page to review the full grid, calendar strip, and stat cards with{' '}
-          <strong>deterministic demo data</strong> (no login). The live <strong>/rewards</strong> page uses{' '}
+          Use the <strong>preview</strong> page to review the streamlined bonus cards with{' '}
+          <strong>deterministic demo data</strong> (no login). The live <strong>/bonuses</strong> page uses{' '}
           <code className="rounded bg-gray-100 px-1 font-mono text-xs dark:bg-white/10">GET /v1/rewards/hub</code> for
-          signed-in players. Load sample promos and programs with{' '}
+          signed-in players (same payload drives Bonus Hub–published <code className="font-mono text-xs">available_offers</code>
+          ). Load sample promos and programs with{' '}
           <code className="font-mono text-xs">npm run seed:rewards-demo</code> (Postgres must match{' '}
           <code className="font-mono text-xs">services/core/.env</code>). Then run{' '}
           <code className="font-mono text-xs">npm run demo:rewards</code> (optional{' '}
@@ -125,28 +126,14 @@ export default function PlayerRewardsLayoutPage() {
         </table>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <a
-          href={previewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-brand-700"
-        >
+      <div className="d-flex flex-wrap gap-2">
+        <a href={previewUrl} target="_blank" rel="noreferrer" className="btn btn-primary">
           Open player preview (new tab)
         </a>
-        <a
-          href={liveUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
-        >
-          Open live rewards (requires player login)
+        <a href={liveUrl} target="_blank" rel="noreferrer" className="btn btn-outline-secondary">
+          Open live My Bonuses (requires player login)
         </a>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="inline-flex items-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-white/5"
-        >
+        <button type="button" onClick={() => void load()} className="btn btn-outline-secondary">
           Refresh programs
         </button>
       </div>
@@ -167,41 +154,41 @@ export default function PlayerRewardsLayoutPage() {
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
             <tr>
-              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Stat cards (3)</td>
+              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Balance strip (3)</td>
               <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
-                aggregates.wagering_remaining_minor, lifetime_promo_minor, bonus_locked_minor
+                <code className="font-mono">aggregates.*</code> — scoped to the player&apos;s current in-progress bonus
+                (non–<code className="font-mono">exempt_from_primary_slot</code> instance first, else oldest
+                active/pending/pending_review), not all-time or all-instance totals. Fields:{' '}
+                <code className="font-mono">wagering_remaining_minor</code>, <code className="font-mono">bonus_locked_minor</code>,{' '}
+                <code className="font-mono">lifetime_promo_minor</code> (<code className="font-mono">promo.grant</code>{' '}
+                lines tagged to that instance, else <code className="font-mono">granted_amount_minor</code>).
               </td>
             </tr>
             <tr>
-              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Calendar strip</td>
+              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Available bonus cards</td>
               <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
-                calendar[] — POST /v1/rewards/daily/claim
+                available_offers[] — Bonus Hub published versions; card copy from{' '}
+                <code className="font-mono">player_title</code> / <code className="font-mono">player_description</code>; hero
+                from <code className="font-mono">player_hero_image_url</code> (Schedule &amp; deliver → Player app — bonus card)
               </td>
             </tr>
             <tr>
-              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Wager milestones (wide card)</td>
-              <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">hunt (daily_hunt program)</td>
-            </tr>
-            <tr>
-              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Offer tiles</td>
+              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">In your wallet</td>
               <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
-                available_offers[] (title, description, bonus_type, schedule_summary)
+                bonus_instances[] (active / pending / pending_review)
               </td>
             </tr>
             <tr>
-              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Level progress row</td>
-              <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">vip (same as GET /v1/vip/status)</td>
+              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Hub payload (unused on this page)</td>
+              <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
+                calendar[], hunt, vip — still returned by <code className="font-mono">GET /v1/rewards/hub</code>; use Profile
+                or future UI for daily claim
+              </td>
             </tr>
             <tr>
               <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Dedicated VIP marketing page</td>
               <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
                 GET /v1/vip/program (public tier ladder + perks); configure in Admin → Engagement → VIP system
-              </td>
-            </tr>
-            <tr>
-              <td className="px-4 py-2 text-gray-800 dark:text-gray-200">Active bonuses list</td>
-              <td className="px-4 py-2 font-mono text-xs text-gray-600 dark:text-gray-300">
-                bonus_instances[] (active / pending)
               </td>
             </tr>
           </tbody>

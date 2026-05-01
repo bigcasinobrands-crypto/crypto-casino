@@ -1,12 +1,20 @@
-import { useCallback, useEffect, useMemo, useState, type FC } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
 import type { OperationalHealth } from '../hooks/useOperationalHealth'
-import CasinoCategoryPills from '../components/CasinoCategoryPills'
+import CasinoCatalogSearchStrip from '../components/CasinoCatalogSearchStrip'
 import { RequireAuthLink } from '../components/RequireAuthLink'
 import { usePlayerAuth } from '../playerAuth'
-import { saveCatalogReturnBeforeGameOpen } from '../lib/catalogReturn'
+import {
+  clearCatalogReturn,
+  getCatalogReturnForNavigation,
+  persistCatalogReturnSnapshot,
+  PLAYER_MAIN_SCROLL_ID,
+  RESTORE_MAIN_SCROLL_STATE_KEY,
+  saveCatalogReturnBeforeGameOpen,
+  type RestoreScrollLocationState,
+} from '../lib/catalogReturn'
 import { playerFetch } from '../lib/playerFetch'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import {
@@ -17,6 +25,8 @@ import {
 } from '../lib/gameStorage'
 import LobbyHomeSections from '../components/LobbyHomeSections'
 import PromoHero from '../components/PromoHero'
+import ChallengesPageContent from '../components/challenges/ChallengesPageContent'
+import { PortraitGameThumb } from '../components/PortraitGameThumb'
 
 type Game = {
   id: string
@@ -24,6 +34,7 @@ type Game = {
   provider: string
   category: string
   thumbnail_url?: string
+  thumb_rev?: number
   provider_system?: string
   is_new?: boolean
   live?: boolean
@@ -56,7 +67,7 @@ const SECTION_SET = new Set<string>([
 ])
 
 const NETWORK_ERR =
-  'Network error — is the API running on port 8080? From the repo root: npm run compose:up then npm run dev:api.'
+  'Network error — is the core API running? Set DEV_API_PROXY in frontend/player-ui/.env.development to match services/core PORT (e.g. http://127.0.0.1:9090), then restart Vite.'
 
 function apiListErrorMessage(status: number): string {
   if (status === 502 || status === 503 || status === 504) {
@@ -112,26 +123,6 @@ const SECTION_TITLE: Record<Section, string> = {
   'bonus-buys': 'Bonus buys',
 }
 
-const PortraitThumb: FC<{ url?: string; title: string }> = ({ url, title }) => {
-  const [bad, setBad] = useState(false)
-  if (!url || bad) {
-    return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-casino-elevated px-2 text-center text-xs text-casino-muted">
-        {title}
-      </div>
-    )
-  }
-  return (
-    <img
-      src={url}
-      alt=""
-      className="h-full w-full object-cover object-center transition-transform duration-300 ease-out group-hover:scale-[1.04]"
-      loading="lazy"
-      onError={() => setBad(true)}
-    />
-  )
-}
-
 function buildListUrl(
   section: Section,
   q: string,
@@ -179,13 +170,15 @@ type LobbyPageProps = {
 }
 
 export default function LobbyPage({ operationalData }: LobbyPageProps) {
+  const location = useLocation()
+  const { pathname } = location
   const { section = 'games' } = useParams<{ section: Section }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const q = searchParams.get('q') ?? ''
   const sort = searchParams.get('sort') ?? 'name'
   const provider = searchParams.get('provider') ?? ''
 
-  const { accessToken, refreshProfile } = usePlayerAuth()
+  const { isAuthenticated, refreshProfile } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const [games, setGames] = useState<Game[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
@@ -211,12 +204,82 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     [sectionValid, sec, q, provider, searchParams, sort],
   )
 
+  /** Sidebar section / filters / home vs list — not `load more` (same key → scroll unchanged). */
+  const catalogScrollResetKey = useMemo(() => {
+    const pill = searchParams.get('pill') ?? ''
+    return [sec, q, sort, provider, pill, isDashboardHome].join('\u0001')
+  }, [sec, q, sort, provider, searchParams, isDashboardHome])
+
+  useLayoutEffect(() => {
+    const main = document.getElementById(PLAYER_MAIN_SCROLL_ID)
+    if (!main) return
+    const st = location.state as RestoreScrollLocationState | null
+    let restoreY = st?.[RESTORE_MAIN_SCROLL_STATE_KEY]
+    let consumedStorage = false
+    if (typeof restoreY !== 'number' || !Number.isFinite(restoreY)) {
+      const ret = getCatalogReturnForNavigation()
+      const cur = `${location.pathname}${location.search}${location.hash}`
+      if (ret && ret.path === cur) {
+        restoreY = ret.scrollTop
+        consumedStorage = true
+      }
+    }
+    if (typeof restoreY === 'number' && Number.isFinite(restoreY)) {
+      const prevBehavior = main.style.scrollBehavior
+      main.style.scrollBehavior = 'auto'
+      main.scrollTop = Math.max(0, restoreY)
+      main.style.scrollBehavior = prevBehavior
+      if (consumedStorage) {
+        clearCatalogReturn()
+      } else if (import.meta.env.PROD && typeof st?.[RESTORE_MAIN_SCROLL_STATE_KEY] === 'number') {
+        clearCatalogReturn()
+      }
+      return
+    }
+    const prevBehavior = main.style.scrollBehavior
+    main.style.scrollBehavior = 'auto'
+    main.scrollTop = 0
+    main.style.scrollBehavior = prevBehavior
+    // Intentionally omit `location.state` from deps: when restoration clears, we must not re-run and jump to top.
+  }, [catalogScrollResetKey])
+
+  /** Sync session snapshot whenever section/filters/home-vs-list change so “Back to games” returns here, not an older section. */
   useEffect(() => {
-    if (accessToken) void refreshProfile()
-  }, [accessToken, refreshProfile])
+    persistCatalogReturnSnapshot()
+  }, [pathname, location.search, location.hash, catalogScrollResetKey])
+
+  /** Keep scroll position in the snapshot while browsing (layout restore runs before effects, so scroll is current). */
+  useEffect(() => {
+    const main = document.getElementById(PLAYER_MAIN_SCROLL_ID)
+    if (!main) return
+    let debounce: number | undefined
+    const onScroll = () => {
+      if (debounce !== undefined) window.clearTimeout(debounce)
+      debounce = window.setTimeout(() => {
+        persistCatalogReturnSnapshot()
+        debounce = undefined
+      }, 100)
+    }
+    main.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.clearTimeout(debounce)
+      main.removeEventListener('scroll', onScroll)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isAuthenticated) void refreshProfile()
+  }, [isAuthenticated, refreshProfile])
 
   useEffect(() => {
     if (!sectionValid) return
+    if (sec === 'challenges') {
+      setGames([])
+      setHasMore(false)
+      setListLoading(false)
+      setLoadErr(null)
+      return
+    }
     if (isDashboardHome) {
       setGames([])
       setHasMore(false)
@@ -284,7 +347,18 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     return () => {
       cancelled = true
     }
-  }, [sectionValid, sec, q, sort, provider, searchParams, isDashboardHome])
+    // Refetch when Blue Ocean catalog sync finishes (operational health exposes last_catalog_sync_at).
+    // Without this, the lobby keeps stale games/thumbnails until the player navigates or hard-refreshes.
+  }, [
+    sectionValid,
+    sec,
+    q,
+    sort,
+    provider,
+    searchParams,
+    isDashboardHome,
+    operationalData?.last_catalog_sync_at,
+  ])
 
   const loadMore = useCallback(async () => {
     if (!sectionValid) return
@@ -354,15 +428,23 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     return (
       <div className="min-w-0 shrink-0 px-5 pb-12 pt-5 md:px-6">
         <PromoHero />
-        <CasinoCategoryPills />
-        <LobbyHomeSections />
+        <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
+        <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
+      </div>
+    )
+  }
+
+  if (sec === 'challenges') {
+    return (
+      <div className="min-w-0 shrink-0 px-5 pb-12 pt-8 md:px-8 md:pt-10">
+        <ChallengesPageContent />
       </div>
     )
   }
 
   return (
     <div className="min-w-0 px-5 pb-12 pt-5 md:px-6">
-      <CasinoCategoryPills />
+      <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={false} />
       {loadErr ? <p className="mb-3 text-sm text-red-400">{loadErr}</p> : null}
 
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -383,11 +465,11 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
             >
               <option value="name">Name</option>
               <option value="new">New first</option>
-              <option value="provider">Provider</option>
+              <option value="provider">Studio</option>
             </select>
           </label>
           <label className="flex min-w-[140px] flex-col gap-1 text-xs text-casino-muted">
-            Provider
+            Studio
             <input
               value={provider}
               onChange={(e) => {
@@ -397,7 +479,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
                 else next.delete('provider')
                 setSearchParams(next, { replace: true })
               }}
-              placeholder="e.g. ez"
+              placeholder="e.g. Pragmatic"
               className="rounded-casino-md border border-casino-border bg-casino-bg px-2 py-2 text-sm text-casino-foreground"
             />
           </label>
@@ -441,8 +523,8 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
           return (
             <div key={g.id} className="group relative">
               <RequireAuthLink to={lobbyTo} className="group game-thumb-link">
-                <div className="aspect-[3/4] w-full overflow-hidden bg-casino-elevated">
-                  <PortraitThumb url={g.thumbnail_url} title={g.title} />
+                <div className="aspect-[3/4] w-full overflow-hidden rounded-casino-md bg-casino-elevated">
+                  <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
                 </div>
                 <span className="sr-only">{g.title}</span>
               </RequireAuthLink>
@@ -453,7 +535,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  if (!accessToken) {
+                  if (!isAuthenticated) {
                     saveCatalogReturnBeforeGameOpen()
                     openAuth('login', { navigateTo: lobbyTo })
                     return

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAdminAuth } from '../authContext'
 import { formatRelativeTime } from '../lib/format'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
+import { OpsToolbar } from '../components/ops'
 
 type EventRow = {
   id: number
@@ -46,41 +48,76 @@ export default function BlueOceanEventsPage() {
   return (
     <>
       <PageMeta title="BlueOcean events · Admin" description="Recent provider webhook / event rows" />
-      <PageBreadcrumb pageTitle="BlueOcean events" />
+      <PageBreadcrumb
+        pageTitle="BlueOcean events"
+        subtitle="Webhook verification, disputes, and provider event audit trail"
+      />
+
+      <div className="d-flex flex-wrap gap-2 mb-3">
+        <Link to="/games" className="btn btn-sm btn-outline-primary">
+          Games catalog
+        </Link>
+        <Link to="/provider-ops" className="btn btn-sm btn-outline-secondary">
+          Provider ops
+        </Link>
+      </div>
+
       <ComponentCard
         title="Provider events"
-        desc="GET /v1/admin/events/blueocean — newest first. Use for webhook verification and dispute debugging."
+        desc="Newest-first rows for debugging and dispute workflows."
       >
-        {err ? <p className="mb-3 text-sm text-red-600 dark:text-red-400">{err}</p> : null}
+        <OpsToolbar
+          title="Event log"
+          subtitle={loading ? 'Loading…' : `${rows.length} row(s) loaded`}
+          actions={
+            <button type="button" className="btn btn-sm btn-outline-primary" disabled={loading} onClick={() => void load()}>
+              Refresh
+            </button>
+          }
+        />
+        {err ? (
+          <div className="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span className="small mb-0">{err}</span>
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void load()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
         {loading ? (
-          <p className="text-sm text-gray-500">Loading…</p>
+          <p className="text-secondary small mb-0">Loading…</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-            <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-white/5">
+          <div className="table-responsive">
+            <table className="table table-sm table-striped table-hover align-middle mb-0">
+              <thead className="table-light">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">ID</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Provider event</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Status</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Verified</th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Created</th>
+                  <th scope="col">ID</th>
+                  <th scope="col">Provider event</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Verified</th>
+                  <th scope="col">Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900/30">
+              <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
+                    <td colSpan={5} className="text-center text-secondary small py-4">
                       No events.
                     </td>
                   </tr>
                 ) : (
                   rows.map((r) => (
                     <tr key={r.id}>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{r.id}</td>
-                      <td className="max-w-[14rem] break-all px-3 py-2 font-mono text-xs">{r.provider_event_id}</td>
-                      <td className="px-3 py-2">{r.status}</td>
-                      <td className="px-3 py-2">{r.verified ? 'yes' : 'no'}</td>
-                      <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-400" title={r.created_at}>
+                      <td className="font-monospace small text-nowrap">{r.id}</td>
+                      <td className="font-monospace small" style={{ maxWidth: '14rem' }}>
+                        <span className="text-break d-inline-block">{r.provider_event_id}</span>
+                      </td>
+                      <td className="small">{r.status}</td>
+                      <td className="small">
+                        <span className={`badge ${r.verified ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                          {r.verified ? 'Yes' : 'No'}
+                        </span>
+                      </td>
+                      <td className="small text-secondary text-nowrap" title={r.created_at}>
                         {formatRelativeTime(r.created_at)}
                       </td>
                     </tr>
@@ -90,13 +127,6 @@ export default function BlueOceanEventsPage() {
             </table>
           </div>
         )}
-        <button
-          type="button"
-          className="mt-4 rounded-lg bg-brand-500 px-4 py-2 text-sm text-white hover:bg-brand-600"
-          onClick={() => void load()}
-        >
-          Refresh
-        </button>
       </ComponentCard>
     </>
   )

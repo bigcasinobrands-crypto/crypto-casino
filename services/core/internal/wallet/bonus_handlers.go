@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -25,7 +26,10 @@ func BonusesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		rows, err := pool.Query(r.Context(), `
 			SELECT ubi.id::text, ubi.promotion_version_id, ubi.status, ubi.granted_amount_minor, ubi.currency,
 				ubi.wr_required_minor, ubi.wr_contributed_minor, COALESCE(ubi.terms_version,''), ubi.created_at,
-				COALESCE(pv.player_title, ''), COALESCE(pv.bonus_type, '')
+				COALESCE(pv.player_title, ''), COALESCE(NULLIF(TRIM(pv.player_description), ''), ''),
+				COALESCE(pv.bonus_type, ''),
+				pv.published_at, pv.valid_from, pv.valid_to,
+				COALESCE(ubi.snapshot, '{}'::jsonb)
 			FROM user_bonus_instances ubi
 			LEFT JOIN promotion_versions pv ON pv.id = ubi.promotion_version_id
 			WHERE ubi.user_id = $1::uuid ORDER BY ubi.created_at DESC LIMIT 50
@@ -41,22 +45,30 @@ func BonusesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		for rows.Next() {
 			var id string
 			var pvid int64
-			var st, ccy, terms, title, btype string
+			var st, ccy, terms, title, desc, btype string
 			var g, wr, wc int64
 			var ct time.Time
-			if err := rows.Scan(&id, &pvid, &st, &g, &ccy, &wr, &wc, &terms, &ct, &title, &btype); err != nil {
+			var snap []byte
+			var pubAt, vf, vt sql.NullTime
+			if err := rows.Scan(&id, &pvid, &st, &g, &ccy, &wr, &wc, &terms, &ct, &title, &desc, &btype, &pubAt, &vf, &vt, &snap); err != nil {
 				continue
 			}
-			list = append(list, map[string]any{
+			item := map[string]any{
 				"id": id, "promotion_version_id": pvid, "status": st,
 				"granted_amount_minor": g, "currency": ccy,
 				"wr_required_minor": wr, "wr_contributed_minor": wc,
 				"terms_version": terms,
 				"terms_hash":    terms,
-				"title":         title,
-				"bonus_type":    btype,
+				"title":         bonus.HumanizeOfferTitle(pvid, title, desc, btype),
+				"bonus_type": btype,
 				"created_at": ct.UTC().Format(time.RFC3339),
-			})
+			}
+			d := bonus.PlayerSnapshotDetails(snap)
+			bonus.MergePlayerDetailsSchedule(d, pubAt, vf, vt)
+			if len(d) > 0 {
+				item["details"] = d
+			}
+			list = append(list, item)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -82,6 +94,85 @@ func AvailableBonusesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"offers": offers})
+	}
+}
+
+// ClaimOfferHandler POST /v1/bonuses/claim-offer — instant grant when rules allow, else same as deposit-intent.
+func ClaimOfferHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := playerapi.UserIDFromContext(r.Context())
+		if !ok {
+			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+			return
+		}
+		var body struct {
+			PromotionVersionID int64 `json:"promotion_version_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PromotionVersionID <= 0 {
+			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "promotion_version_id required")
+			return
+		}
+		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		res, err := bonus.ClaimPlayerOffer(r.Context(), pool, uid, cc, body.PromotionVersionID)
+		if err != nil {
+			switch {
+			case errors.Is(err, bonus.ErrClaimOfferNotEligible), errors.Is(err, bonus.ErrDepositIntentNotEligible):
+				playerapi.WriteError(w, http.StatusConflict, "not_eligible", "this offer is not available for you right now")
+			case errors.Is(err, bonus.ErrClaimOfferBlocked):
+				playerapi.WriteError(w, http.StatusConflict, "grant_blocked", "could not activate this offer — try again later or contact support")
+			default:
+				playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "claim failed")
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res)
+	}
+}
+
+// DepositBonusIntentHandler POST /v1/bonuses/deposit-intent — remember chosen promo for the next deposit grant evaluation.
+func DepositBonusIntentHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := playerapi.UserIDFromContext(r.Context())
+		if !ok {
+			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+			return
+		}
+		var body struct {
+			PromotionVersionID int64 `json:"promotion_version_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PromotionVersionID <= 0 {
+			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "promotion_version_id required")
+			return
+		}
+		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		if err := bonus.UpsertPlayerDepositIntent(r.Context(), pool, uid, cc, body.PromotionVersionID); err != nil {
+			if errors.Is(err, bonus.ErrDepositIntentNotEligible) {
+				playerapi.WriteError(w, http.StatusConflict, "not_eligible", "this offer is not available for you right now")
+				return
+			}
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not save intent")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}
+}
+
+// CancelDepositIntentHandler POST /v1/bonuses/cancel-deposit-intent — revoke hub “Get bonus” choice before a qualifying deposit credits the match.
+func CancelDepositIntentHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid, ok := playerapi.UserIDFromContext(r.Context())
+		if !ok {
+			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+			return
+		}
+		if err := bonus.CancelPlayerDepositIntentWithRelinquishment(r.Context(), pool, uid); err != nil {
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not cancel offer")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}
 }
 

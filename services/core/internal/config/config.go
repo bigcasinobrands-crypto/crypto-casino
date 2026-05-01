@@ -12,15 +12,23 @@ import (
 )
 
 type Config struct {
+	AppEnv            string
 	DatabaseURL       string
 	Port              string
 	JWTSecret         string
 	PlayerJWTSecret   string
+	// JWTRSAKeyFile — optional PEM path for RS256 + JWKS; when unset, HS256 only.
+	JWTRSAKeyFile     string
+	JWTIssuer         string
+	JWTPlayerAudience string
+	JWTStaffAudience  string
 	AdminCORSOrigins  []string
 	PlayerCORSOrigins []string
 	RedisURL          string
 	// Player auth baseline
 	PublicPlayerURL string
+	// APIPublicBase — optional public origin for this API (no trailing slash). Used for absolute URLs (bonus uploads, docs).
+	APIPublicBase string
 	TurnstileSecret string
 	SMTPHost        string
 	SMTPPort        string
@@ -30,31 +38,51 @@ type Config struct {
 	TermsVersion    string
 	PrivacyVersion  string
 	// Blue Ocean Gaming XAPI (server-to-server)
-	BlueOceanAPIBaseURL    string
-	BlueOceanAPILogin      string
-	BlueOceanAPIPassword   string
-	BlueOceanAgentID       string
-	BlueOceanCurrency      string
-	BlueOceanMulticurrency bool
-	BlueOceanLaunchMode   string // "demo" | "real"
-	BlueOceanWalletSalt    string // seamless GET callback key=sha1(salt+query)
+	BlueOceanAPIBaseURL       string
+	BlueOceanAPILogin         string
+	BlueOceanAPIPassword      string
+	BlueOceanAgentID          string
+	BlueOceanCurrency         string
+	BlueOceanMulticurrency    bool
+	BlueOceanLaunchMode       string // "demo" | "real"
+	// BlueOceanUserIDNoHyphens — when true, UUID-shaped remote player ids are sent to XAPI without hyphens (some BO sandboxes reject dashed UUIDs).
+	BlueOceanUserIDNoHyphens bool
+	BlueOceanWalletSalt       string // seamless GET callback key=sha1(salt+query)
+	// BlueOceanWalletFloatAmountIsMajorUnits: seamless wallet sends amount/bet/win as decimal major units (e.g. 0.25); multiply by 100 to minor. Integer params are still interpreted as minor units.
+	BlueOceanWalletFloatAmountIsMajorUnits bool
 	BlueOceanFeaturedIDHashes []string
-	BlueOceanLobbyTagsJSON string // optional JSON map pill_id -> [id_hash]
+	BlueOceanLobbyTagsJSON    string // optional JSON map pill_id -> [id_hash]
 	// Catalog sync: getGameList often returns one page only; use paging to load full staging catalogs.
 	BlueOceanCatalogPageSize    int    // 0 = single request (no limit/offset params); default 500
 	BlueOceanCatalogPagingStyle string // offset | page | from — query param shape for paging
 	BlueOceanImageBaseURL       string // optional origin for relative thumbnail paths from the API
+	// BlueOceanCatalogSnapshotPath — JSON file (raw getGameList-style body). When set, SyncCatalog reads this instead of calling Blue Ocean (no outbound API / IP allowlist).
+	BlueOceanCatalogSnapshotPath string
+	// BlueOceanCatalogSnapshotOnStartup — if true and snapshot path is set, apply snapshot once when the API process starts.
+	BlueOceanCatalogSnapshotOnStartup bool
 	// Full sportsbook (distinct BO product id / XAPI method — see BLUEOCEAN_SPORTSBOOK_* envs in .env.example)
-	BlueOceanSportsbookBOGID            int64
-	BlueOceanSportsbookCatalogGameID    string // optional internal games.id for the main sportsbook tile
-	BlueOceanSportsbookXAPIMethod       string // optional: non-empty → Call(method, params) instead of getGame/getGameDemo
-	BlueOceanSportsbookXAPIExtraParams  map[string]any
+	BlueOceanSportsbookBOGID           int64
+	BlueOceanSportsbookCatalogGameID   string // optional internal games.id for the main sportsbook tile
+	BlueOceanSportsbookXAPIMethod      string // optional: non-empty → Call(method, params) instead of getGame/getGameDemo
+	BlueOceanSportsbookXAPIExtraParams map[string]any
 	// Operations
 	MaintenanceMode       bool
 	DisableGameLaunch     bool
 	SupportCRMURLTemplate string // e.g. https://desk.example/ticket?user={user_id}
 	// Phase 2 legal stub: ISO 3166-1 alpha-2 codes, comma-separated (empty = no block)
 	BlockedCountryCodes []string
+	// AdminIPAllowlist — optional CIDRs or IPs for /v1/admin (e.g. VPN egress only).
+	AdminIPAllowlist []string
+	// PlayerCookieAuth — set httpOnly access/refresh cookies on login/refresh; Bearer middleware also reads access cookie.
+	PlayerCookieAuth bool
+	// PlayerCookieSameSite: lax | strict | none (none forces Secure cookies — use with cross-site HTTPS).
+	PlayerCookieSameSite string
+	// PlayerCookieOmitJSONTokens — when true (with PlayerCookieAuth), login/register/refresh JSON omits access_token and refresh_token (cookies only). Default false for API clients that read tokens from the body.
+	PlayerCookieOmitJSONTokens bool
+	// HIBPCheckPasswords — when true, register/change/reset password rejects passwords found in Have I Been Pwned (k-anonymity API; fails open on API errors).
+	HIBPCheckPasswords bool
+	// AllowJWTHS256InProduction — escape hatch: allow HS256 player/staff JWTs when JWT_RSA_PRIVATE_KEY_FILE is unset (not recommended).
+	AllowJWTHS256InProduction bool
 	// CoinMarketCap Pro API (server-side only; used for public /v1/market/crypto-tickers)
 	CoinMarketCapAPIKey string
 	// Logo.dev — crypto/blockchain logos (https://img.logo.dev/crypto/{symbol}?token=pk_…)
@@ -84,10 +112,29 @@ type Config struct {
 	// BlueOceanBonusSyncEnabled logs dry-run mapping for promotion sync (no dual-grant without full integration).
 	BlueOceanBonusSyncEnabled bool
 	// Withdrawal fraud parameters (all in USD cents unless noted)
-	WithdrawMaxSingleCents  int64 // max single withdrawal; 0 = no limit
-	WithdrawDailyLimitCents int64 // max total per user per 24h; 0 = no limit
-	WithdrawDailyCountLimit int   // max number of withdrawals per user per 24h; 0 = no limit
-	WithdrawMinAccountAgeSec int  // minimum account age in seconds; 0 = no restriction
+	WithdrawMaxSingleCents   int64 // max single withdrawal; 0 = no limit
+	WithdrawDailyLimitCents  int64 // max total per user per 24h; 0 = no limit
+	WithdrawDailyCountLimit  int   // max number of withdrawals per user per 24h; 0 = no limit
+	WithdrawMinAccountAgeSec int   // minimum account age in seconds; 0 = no restriction
+	// BonusMaxBetViolationsAutoForfeit forfeits active instances when max_bet_violations_count >= this value; 0 = disabled.
+	BonusMaxBetViolationsAutoForfeit int
+	// Challenges: when true, worker skips challenge_bo_* jobs (emergency kill-switch).
+	ChallengeIngestDisabled bool
+	// SecurityCSPMode: off | report | enforce — Content-Security-Policy on API responses. Empty defaults to report in production, off in dev.
+	SecurityCSPMode string
+	// LogFormat: text | json — json enables slog JSON on stderr for log aggregators (Datadog, ELK, etc.).
+	LogFormat string
+	// VaultAddress — optional Vault API base (e.g. https://vault.example:8200). When set with VaultToken + VaultTransitKeyName, PII helpers use Transit.
+	VaultAddress        string
+	VaultToken          string
+	VaultTransitMount   string
+	VaultTransitKeyName string
+	// PIIEmailLookupSecret — optional HMAC key for users.email_hmac (see internal/pii.EmailLookupHMACBytes). When set, register/login backfill store deterministic lookup bytes.
+	PIIEmailLookupSecret string
+	// WebAuthnRPID — e.g. localhost or admin.example.com (no scheme). With WebAuthnRPOrigins enables staff WebAuthn.
+	WebAuthnRPID          string
+	WebAuthnRPDisplayName string
+	WebAuthnRPOrigins     []string
 }
 
 // FystackDepositAssetCanonicalKeys are the standard on-chain deposit combinations we surface in admin UI.
@@ -100,13 +147,14 @@ func Load() (Config, error) {
 	_ = godotenv.Load("../../.env")
 
 	c := Config{
+		AppEnv:      strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV"))),
 		DatabaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		Port:        strings.TrimSpace(os.Getenv("PORT")),
 		JWTSecret:   strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		RedisURL:    strings.TrimSpace(os.Getenv("REDIS_URL")),
 	}
 	if c.Port == "" {
-		c.Port = "8080"
+		c.Port = "9090"
 	}
 	c.AdminCORSOrigins = parseOriginsList(os.Getenv("ADMIN_CORS_ORIGINS"), []string{"http://localhost:5173"})
 	c.PlayerCORSOrigins = parseOriginsList(os.Getenv("PLAYER_CORS_ORIGINS"), []string{"http://localhost:5174"})
@@ -114,10 +162,15 @@ func Load() (Config, error) {
 	if c.PlayerJWTSecret == "" {
 		c.PlayerJWTSecret = c.JWTSecret
 	}
+	c.JWTRSAKeyFile = strings.TrimSpace(os.Getenv("JWT_RSA_PRIVATE_KEY_FILE"))
+	c.JWTIssuer = strings.TrimSpace(os.Getenv("JWT_ISSUER"))
+	c.JWTPlayerAudience = strings.TrimSpace(os.Getenv("JWT_PLAYER_AUDIENCE"))
+	c.JWTStaffAudience = strings.TrimSpace(os.Getenv("JWT_STAFF_AUDIENCE"))
 	c.PublicPlayerURL = strings.TrimSpace(os.Getenv("PUBLIC_PLAYER_URL"))
 	if c.PublicPlayerURL == "" {
 		c.PublicPlayerURL = "http://localhost:5174"
 	}
+	c.APIPublicBase = strings.TrimSuffix(strings.TrimSpace(os.Getenv("API_PUBLIC_BASE")), "/")
 	c.TurnstileSecret = strings.TrimSpace(os.Getenv("TURNSTILE_SECRET"))
 	c.SMTPHost = strings.TrimSpace(os.Getenv("SMTP_HOST"))
 	c.SMTPPort = strings.TrimSpace(os.Getenv("SMTP_PORT"))
@@ -145,7 +198,14 @@ func Load() (Config, error) {
 	if c.BlueOceanLaunchMode == "" {
 		c.BlueOceanLaunchMode = "demo"
 	}
+	// Default true: many BO staging XAPI integrations reject dashed UUIDs in userid (unset env → compact ids).
+	if strings.TrimSpace(os.Getenv("BLUEOCEAN_USERID_NO_HYPHENS")) == "" {
+		c.BlueOceanUserIDNoHyphens = true
+	} else {
+		c.BlueOceanUserIDNoHyphens = parseBoolEnv(os.Getenv("BLUEOCEAN_USERID_NO_HYPHENS"))
+	}
 	c.BlueOceanWalletSalt = strings.TrimSpace(os.Getenv("BLUEOCEAN_WALLET_SALT"))
+	c.BlueOceanWalletFloatAmountIsMajorUnits = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_FLOAT_AMOUNT_IS_MAJOR"))
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {
 		for _, p := range strings.Split(s, ",") {
 			p = strings.TrimSpace(p)
@@ -171,6 +231,8 @@ func Load() (Config, error) {
 		c.BlueOceanCatalogPagingStyle = "offset"
 	}
 	c.BlueOceanImageBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("BLUEOCEAN_IMAGE_BASE_URL")), "/")
+	c.BlueOceanCatalogSnapshotPath = strings.TrimSpace(os.Getenv("BLUEOCEAN_CATALOG_SNAPSHOT_PATH"))
+	c.BlueOceanCatalogSnapshotOnStartup = parseBoolEnv(os.Getenv("BLUEOCEAN_CATALOG_SNAPSHOT_ON_START"))
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_SPORTSBOOK_BOG_GAME_ID")); s != "" {
 		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
 			c.BlueOceanSportsbookBOGID = n
@@ -196,6 +258,27 @@ func Load() (Config, error) {
 			}
 		}
 	}
+	if raw := strings.TrimSpace(os.Getenv("ADMIN_IP_ALLOWLIST")); raw != "" {
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				c.AdminIPAllowlist = append(c.AdminIPAllowlist, p)
+			}
+		}
+	}
+	c.PlayerCookieAuth = parseBoolEnv(os.Getenv("PLAYER_COOKIE_AUTH"))
+	c.PlayerCookieSameSite = strings.TrimSpace(strings.ToLower(os.Getenv("PLAYER_COOKIE_SAMESITE")))
+	if c.PlayerCookieSameSite == "" {
+		c.PlayerCookieSameSite = "lax"
+	}
+	switch c.PlayerCookieSameSite {
+	case "lax", "strict", "none":
+	default:
+		c.PlayerCookieSameSite = "lax"
+	}
+	c.PlayerCookieOmitJSONTokens = parseBoolEnv(os.Getenv("PLAYER_COOKIE_OMIT_JSON_TOKENS"))
+	c.HIBPCheckPasswords = parseBoolEnv(os.Getenv("HIBP_CHECK_PASSWORDS"))
+	c.AllowJWTHS256InProduction = parseBoolEnv(os.Getenv("ALLOW_JWT_HS256_IN_PRODUCTION"))
 	c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("COINMARKETCAP_API_KEY"))
 	if c.CoinMarketCapAPIKey == "" {
 		c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("CMC_API_KEY"))
@@ -249,6 +332,38 @@ func Load() (Config, error) {
 	c.WithdrawDailyLimitCents = parseIntEnv(os.Getenv("WITHDRAW_DAILY_LIMIT_CENTS"), 0)
 	c.WithdrawDailyCountLimit = int(parseIntEnv(os.Getenv("WITHDRAW_DAILY_COUNT_LIMIT"), 0))
 	c.WithdrawMinAccountAgeSec = int(parseIntEnv(os.Getenv("WITHDRAW_MIN_ACCOUNT_AGE_SEC"), 0))
+	v := int(parseIntEnv(os.Getenv("BONUS_MAX_BET_VIOLATIONS_AUTO_FORFEIT"), 0))
+	if v < 0 {
+		v = 0
+	}
+	if v > 100000 {
+		v = 100000
+	}
+	c.BonusMaxBetViolationsAutoForfeit = v
+	c.ChallengeIngestDisabled = parseBoolEnv(os.Getenv("CHALLENGE_INGEST_DISABLED"))
+	c.SecurityCSPMode = strings.TrimSpace(strings.ToLower(os.Getenv("SECURITY_CSP_MODE")))
+	c.LogFormat = strings.TrimSpace(strings.ToLower(os.Getenv("LOG_FORMAT")))
+	c.VaultAddress = strings.TrimSuffix(strings.TrimSpace(os.Getenv("VAULT_ADDR")), "/")
+	c.VaultToken = strings.TrimSpace(os.Getenv("VAULT_TOKEN"))
+	c.VaultTransitMount = strings.TrimSpace(os.Getenv("VAULT_TRANSIT_MOUNT"))
+	if c.VaultTransitMount == "" {
+		c.VaultTransitMount = "transit"
+	}
+	c.VaultTransitKeyName = strings.TrimSpace(os.Getenv("VAULT_TRANSIT_KEY_NAME"))
+	c.PIIEmailLookupSecret = strings.TrimSpace(os.Getenv("PII_EMAIL_LOOKUP_SECRET"))
+	c.WebAuthnRPID = strings.TrimSpace(os.Getenv("WEBAUTHN_RP_ID"))
+	c.WebAuthnRPDisplayName = strings.TrimSpace(os.Getenv("WEBAUTHN_RP_DISPLAY_NAME"))
+	if c.WebAuthnRPDisplayName == "" {
+		c.WebAuthnRPDisplayName = "Crypto Casino Admin"
+	}
+	if raw := strings.TrimSpace(os.Getenv("WEBAUTHN_RP_ORIGINS")); raw != "" {
+		for _, o := range strings.Split(raw, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				c.WebAuthnRPOrigins = append(c.WebAuthnRPOrigins, o)
+			}
+		}
+	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
 	}
@@ -258,7 +373,54 @@ func Load() (Config, error) {
 	if len(c.PlayerJWTSecret) < 32 {
 		return c, fmt.Errorf("PLAYER_JWT_SECRET must be at least 32 characters when set; defaults to JWT_SECRET")
 	}
+	if c.PlayerCookieOmitJSONTokens && !c.PlayerCookieAuth {
+		return c, fmt.Errorf("PLAYER_COOKIE_OMIT_JSON_TOKENS requires PLAYER_COOKIE_AUTH")
+	}
+	if c.AppEnv == "" {
+		c.AppEnv = "development"
+	}
 	return c, nil
+}
+
+// ValidateProduction enforces fail-fast rules when APP_ENV=production.
+func (c *Config) ValidateProduction() error {
+	if c == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if c.AppEnv != "production" {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(c.JWTSecret), "dev-only") || strings.Contains(strings.ToLower(c.JWTSecret), "change-me") {
+		return fmt.Errorf("APP_ENV=production: JWT_SECRET must not contain dev placeholder strings")
+	}
+	if strings.TrimSpace(c.RedisURL) == "" {
+		return fmt.Errorf("APP_ENV=production: REDIS_URL is required for queue and security features")
+	}
+	if strings.TrimSpace(c.JWTRSAKeyFile) == "" && !c.AllowJWTHS256InProduction {
+		return fmt.Errorf("APP_ENV=production: JWT_RSA_PRIVATE_KEY_FILE is required (HS256-only production is blocked; set ALLOW_JWT_HS256_IN_PRODUCTION=true only as a temporary migration escape hatch)")
+	}
+	return nil
+}
+
+// SecurityCSPEffectiveMode returns off, report, or enforce for API Content-Security-Policy headers.
+func (c *Config) SecurityCSPEffectiveMode() string {
+	if c == nil {
+		return "off"
+	}
+	switch c.SecurityCSPMode {
+	case "off", "report", "enforce":
+		return c.SecurityCSPMode
+	case "":
+		if c.AppEnv == "production" {
+			return "report"
+		}
+		return "off"
+	default:
+		if c.AppEnv == "production" {
+			return "report"
+		}
+		return "off"
+	}
 }
 
 // FystackConfigured is true when base URL, API key, secret, and workspace id are set (server-side Fystack calls).
@@ -279,8 +441,9 @@ func (c *Config) FystackWithdrawConfigured() bool {
 
 // FystackCheckoutAssetList parses FYSTACK_CHECKOUT_SUPPORTED_ASSETS into tokens like USDC:1.
 func (c *Config) FystackCheckoutAssetList() []string {
+	def := []string{"USDC:1", "ETH:1", "ETH:8453"}
 	if c == nil || strings.TrimSpace(c.FystackCheckoutAssets) == "" {
-		return []string{"USDC:1", "ETH:1"}
+		return def
 	}
 	var out []string
 	for _, p := range strings.Split(c.FystackCheckoutAssets, ",") {
@@ -288,6 +451,9 @@ func (c *Config) FystackCheckoutAssetList() []string {
 		if p != "" {
 			out = append(out, p)
 		}
+	}
+	if len(out) == 0 {
+		return def
 	}
 	return out
 }

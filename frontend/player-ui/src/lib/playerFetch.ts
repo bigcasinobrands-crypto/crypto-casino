@@ -1,10 +1,46 @@
 import { playerApiUrl } from './playerApiUrl'
 
+/** Cookie name for double-submit CSRF (must match core `playercookies.CSRFCookieName`). */
+export const PLAYER_CSRF_COOKIE = 'cc_player_csrf'
+
+/** When true, send cookies on same-origin / CORS credentialed player API calls (enable with PLAYER_COOKIE_AUTH on core). */
+export const playerCredentialsMode =
+  import.meta.env.VITE_PLAYER_CREDENTIALS === '1' ||
+  import.meta.env.VITE_PLAYER_CREDENTIALS === 'true'
+
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null
+  const parts = document.cookie.split(';')
+  for (const p of parts) {
+    const i = p.indexOf('=')
+    if (i === -1) continue
+    const k = p.slice(0, i).trim()
+    if (k !== name) continue
+    return decodeURIComponent(p.slice(i + 1).trim())
+  }
+  return null
+}
+
+function unsafeMethod(method: string | undefined): boolean {
+  const m = (method || 'GET').toUpperCase()
+  return m === 'POST' || m === 'PATCH' || m === 'PUT' || m === 'DELETE'
+}
+
+/** Attach X-CSRF-Token from the readable cookie for mutating requests (cookie-auth mode). */
+export function applyPlayerMutatingCSRF(headers: Headers, method: string | undefined): void {
+  if (!playerCredentialsMode || !unsafeMethod(method)) return
+  const tok = readCookie(PLAYER_CSRF_COOKIE)
+  if (tok) headers.set('X-CSRF-Token', tok)
+}
+
 /** Browser fetch to the player API with a per-request id (echoed by the server when possible). */
 export function playerFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
+  applyPlayerMutatingCSRF(headers, init.method)
   if (!headers.has('X-Request-Id')) {
     headers.set('X-Request-Id', crypto.randomUUID())
   }
-  return fetch(playerApiUrl(path), { ...init, headers })
+  const credentials: RequestCredentials =
+    init.credentials ?? (playerCredentialsMode ? 'include' : 'omit')
+  return fetch(playerApiUrl(path), { ...init, credentials, headers })
 }

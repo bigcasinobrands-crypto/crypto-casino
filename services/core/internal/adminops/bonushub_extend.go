@@ -17,7 +17,7 @@ func (h *Handler) bonusHubActiveOffers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rows, err := h.Pool.Query(ctx, `
 		SELECT pv.id, pv.promotion_id, p.name, pv.published_at, pv.valid_from, pv.valid_to,
-			COALESCE(p.grants_paused, false), pv.priority,
+			COALESCE(p.grants_paused, false), COALESCE(p.vip_only, false), pv.priority,
 			(SELECT COUNT(*)::bigint FROM user_bonus_instances bi WHERE bi.promotion_version_id = pv.id AND bi.status = 'active') AS active_n,
 			(SELECT COUNT(*)::bigint FROM user_bonus_instances bi WHERE bi.promotion_version_id = pv.id AND bi.created_at > now() - interval '24 hours') AS grants_24h
 		FROM promotion_versions pv
@@ -40,16 +40,17 @@ func (h *Handler) bonusHubActiveOffers(w http.ResponseWriter, r *http.Request) {
 		var pubAt time.Time
 		var vf, vt *time.Time
 		var paused bool
+		var vipOnly bool
 		var pri int
 		var activeN, g24 int64
-		if err := rows.Scan(&vid, &pid, &name, &pubAt, &vf, &vt, &paused, &pri, &activeN, &g24); err != nil {
+		if err := rows.Scan(&vid, &pid, &name, &pubAt, &vf, &vt, &paused, &vipOnly, &pri, &activeN, &g24); err != nil {
 			continue
 		}
 		list = append(list, map[string]any{
 			"promotion_version_id": vid, "promotion_id": pid, "promotion_name": name,
 			"published_at": pubAt.UTC().Format(time.RFC3339),
 			"valid_from":   nullRFC3339(vf), "valid_to": nullRFC3339(vt),
-			"grants_paused": paused, "priority": pri,
+			"grants_paused": paused, "vip_only": vipOnly, "priority": pri,
 			"active_instances": activeN, "grants_last_24h": g24,
 		})
 	}
@@ -153,15 +154,16 @@ func (h *Handler) bonusHubVersionPerformance(w http.ResponseWriter, r *http.Requ
 }
 
 type patchVersionReq struct {
-	PlayerTitle       *string          `json:"player_title"`
-	PlayerDescription *string          `json:"player_description"`
-	InternalTitle     *string          `json:"internal_title"`
-	Priority          *int             `json:"priority"`
-	DedupeGroupKey    *string          `json:"dedupe_group_key"`
-	ValidFrom         *string          `json:"valid_from"`
-	ValidTo           *string          `json:"valid_to"`
-	Rules             *json.RawMessage `json:"rules"`
-	TermsText         *string          `json:"terms_text"`
+	PlayerTitle        *string          `json:"player_title"`
+	PlayerDescription  *string          `json:"player_description"`
+	PlayerHeroImageURL *string          `json:"player_hero_image_url"`
+	InternalTitle      *string          `json:"internal_title"`
+	Priority           *int             `json:"priority"`
+	DedupeGroupKey     *string          `json:"dedupe_group_key"`
+	ValidFrom          *string          `json:"valid_from"`
+	ValidTo            *string          `json:"valid_to"`
+	Rules              *json.RawMessage `json:"rules"`
+	TermsText          *string          `json:"terms_text"`
 }
 
 func (h *Handler) bonusHubPatchPromotionVersion(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +201,14 @@ func (h *Handler) bonusHubPatchPromotionVersion(w http.ResponseWriter, r *http.R
 	}
 	if body.PlayerDescription != nil {
 		_, _ = h.Pool.Exec(ctx, `UPDATE promotion_versions SET player_description = $2 WHERE id = $1`, vid, *body.PlayerDescription)
+	}
+	if body.PlayerHeroImageURL != nil {
+		u := strings.TrimSpace(*body.PlayerHeroImageURL)
+		if u == "" {
+			_, _ = h.Pool.Exec(ctx, `UPDATE promotion_versions SET player_hero_image_url = NULL WHERE id = $1`, vid)
+		} else {
+			_, _ = h.Pool.Exec(ctx, `UPDATE promotion_versions SET player_hero_image_url = $2 WHERE id = $1`, vid, u)
+		}
 	}
 	if body.InternalTitle != nil {
 		_, _ = h.Pool.Exec(ctx, `UPDATE promotion_versions SET internal_title = $2 WHERE id = $1`, vid, *body.InternalTitle)
@@ -244,28 +254,36 @@ func (h *Handler) bonusHubClonePromotionVersion(w http.ResponseWriter, r *http.R
 		return
 	}
 	ctx := r.Context()
-	var pid int64
-	var rules []byte
-	var terms *string
-	err = h.Pool.QueryRow(ctx, `
-		SELECT promotion_id, rules, terms_text FROM promotion_versions WHERE id = $1
-	`, vid).Scan(&pid, &rules, &terms)
-	if err != nil {
-		adminapi.WriteError(w, http.StatusNotFound, "not_found", "version not found")
-		return
-	}
-	var next int
-	_ = h.Pool.QueryRow(ctx, `SELECT COALESCE(MAX(version),0)+1 FROM promotion_versions WHERE promotion_id = $1`, pid).Scan(&next)
 	var newID int64
+	var newVer int
 	err = h.Pool.QueryRow(ctx, `
-		INSERT INTO promotion_versions (promotion_id, version, rules, terms_text, published_at)
-		VALUES ($1, $2, $3::jsonb, $4, NULL) RETURNING id
-	`, pid, next, rules, terms).Scan(&newID)
+		WITH src AS (
+			SELECT promotion_id, rules, terms_text, bonus_type,
+				player_title, player_description, player_hero_image_url, promo_code, priority,
+				valid_from, valid_to, internal_title, dedupe_group_key, offer_family, eligibility_fingerprint,
+				weekly_schedule, timezone
+			FROM promotion_versions WHERE id = $1
+		), nver AS (
+			SELECT COALESCE(MAX(pv.version),0)+1 AS v FROM promotion_versions pv WHERE pv.promotion_id = (SELECT promotion_id FROM src)
+		)
+		INSERT INTO promotion_versions (
+			promotion_id, version, rules, terms_text, published_at, bonus_type,
+			player_title, player_description, player_hero_image_url, promo_code, priority,
+			valid_from, valid_to, internal_title, dedupe_group_key, offer_family, eligibility_fingerprint,
+			weekly_schedule, timezone
+		)
+		SELECT s.promotion_id, n.v, s.rules, s.terms_text, NULL, s.bonus_type,
+			s.player_title, s.player_description, s.player_hero_image_url, s.promo_code, s.priority,
+			s.valid_from, s.valid_to, s.internal_title, s.dedupe_group_key, s.offer_family, s.eligibility_fingerprint,
+			s.weekly_schedule, s.timezone
+		FROM src s, nver n
+		RETURNING id, version
+	`, vid).Scan(&newID, &newVer)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "insert failed")
 		return
 	}
-	writeJSON(w, map[string]any{"promotion_version_id": newID, "version": next})
+	writeJSON(w, map[string]any{"promotion_version_id": newID, "version": newVer})
 }
 
 func (h *Handler) bonusHubPromotionsCalendar(w http.ResponseWriter, r *http.Request) {
@@ -283,10 +301,11 @@ func (h *Handler) bonusHubPromotionsCalendar(w http.ResponseWriter, r *http.Requ
 	}
 	ctx := r.Context()
 	rows, err := h.Pool.Query(ctx, `
-		SELECT pv.id, p.id, p.name, pv.valid_from, pv.valid_to, pv.published_at
+		SELECT pv.id, p.id, p.name, pv.valid_from, pv.valid_to, pv.published_at, p.admin_color, pv.bonus_type
 		FROM promotion_versions pv
 		JOIN promotions p ON p.id = pv.promotion_id
 		WHERE p.status != 'archived'
+		  AND COALESCE(p.grants_paused, false) = false
 		  AND pv.published_at IS NOT NULL
 		  AND (pv.valid_to IS NULL OR pv.valid_to >= $1)
 		  AND (pv.valid_from IS NULL OR pv.valid_from <= $2)
@@ -302,14 +321,22 @@ func (h *Handler) bonusHubPromotionsCalendar(w http.ResponseWriter, r *http.Requ
 		var vid, pid int64
 		var name string
 		var vf, vt, pub *time.Time
-		if err := rows.Scan(&vid, &pid, &name, &vf, &vt, &pub); err != nil {
+		var adminColor, bonusType *string
+		if err := rows.Scan(&vid, &pid, &name, &vf, &vt, &pub, &adminColor, &bonusType); err != nil {
 			continue
 		}
-		evs = append(evs, map[string]any{
+		item := map[string]any{
 			"promotion_version_id": vid, "promotion_id": pid, "name": name,
 			"valid_from": nullRFC3339(vf), "valid_to": nullRFC3339(vt),
 			"published_at": nullRFC3339(pub),
-		})
+		}
+		if adminColor != nil && strings.TrimSpace(*adminColor) != "" {
+			item["admin_color"] = strings.ToUpper(strings.TrimSpace(*adminColor))
+		}
+		if bonusType != nil && strings.TrimSpace(*bonusType) != "" {
+			item["bonus_type"] = strings.TrimSpace(*bonusType)
+		}
+		evs = append(evs, item)
 	}
 	writeJSON(w, map[string]any{"events": evs})
 }

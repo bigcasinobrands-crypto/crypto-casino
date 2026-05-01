@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/passhash"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -33,13 +33,13 @@ func main() {
 	}
 	defer pool.Close()
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashStr, err := passhash.Hash(password)
 	if err != nil {
 		log.Fatal(err)
 	}
 	tag, err := pool.Exec(ctx, `
 		UPDATE staff_users SET password_hash = $1 WHERE lower(email) = lower($2)
-	`, string(hash), email)
+	`, hashStr, email)
 	if err != nil {
 		log.Fatalf("update: %v", err)
 	}

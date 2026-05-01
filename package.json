@@ -7,25 +7,33 @@
   ],
   "devDependencies": {
     "concurrently": "^9.1.2",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "wait-on": "^8.0.5"
   },
   "scripts": {
     "dev:admin": "npm run dev -w @repo/admin-console",
     "dev:player": "npm run dev -w @repo/player-ui",
-    "dev:casino": "concurrently -n api,player -c blue,green \"npm run dev:api\" \"npm run dev:player\"",
-    "dev:with-worker": "concurrently -n api,player,worker -c blue,green,cyan \"npm run dev:api\" \"npm run dev:player\" \"npm run dev:worker\"",
+    "dev:app": "concurrently -k -n api,player,admin -c blue,green,magenta \"npm run dev:api\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:player\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:admin\"",
+    "dev:casino": "concurrently -k -n api,player -c blue,green \"npm run dev:api\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:player\"",
+    "dev:with-worker": "concurrently -k -n api,player,worker -c blue,green,cyan \"npm run dev:api\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:player\" \"npm run dev:worker\"",
     "dev:casino:stack": "node scripts/ensure-core-env.mjs && docker compose up -d postgres redis && node scripts/wait-tcp.mjs 127.0.0.1 5432 120000 && npm run dev:casino",
     "compose:up": "docker compose up -d",
     "compose:down": "docker compose down",
     "build": "npm run build --workspaces --if-present",
     "build:admin": "npm run build -w @repo/admin-console",
+    "check:admin": "npm run check -w @repo/admin-console",
     "build:player": "npm run build -w @repo/player-ui",
     "build:core": "node scripts/build-core.mjs",
     "demo:vip-journey": "powershell -ExecutionPolicy Bypass -File scripts/vip-journey-demo.ps1",
     "demo:rewards": "powershell -ExecutionPolicy Bypass -File scripts/rewards-bonus-demo.ps1",
     "demo:player-journey": "powershell -ExecutionPolicy Bypass -Command \"npm run demo:vip-journey; npm run demo:rewards\"",
     "seed:rewards-demo": "node scripts/seed-rewards-demo.mjs",
+    "stress:api": "node scripts/stress-api.mjs",
+    "k6:api": "node scripts/k6-docker.mjs",
     "dev:api": "node scripts/go-dev.mjs ./cmd/api",
-    "dev:worker": "node scripts/go-dev.mjs ./cmd/worker"
+    "dev:worker": "node scripts/go-dev.mjs ./cmd/worker",
+    "ngrok:api": "ngrok http 9090",
+    "ngrok:print": "node scripts/print-ngrok-callback.mjs",
+    "ngrok:print:wait": "node scripts/print-ngrok-callback.mjs --wait 60000"
   }
 }

@@ -43,8 +43,18 @@ func (h *Handler) Mount(r chi.Router) {
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/vip/tiers/{id}/benefits/{bid}", h.patchVIPTierBenefit)
 	r.With(adminapi.RequireAnyRole("superadmin")).Delete("/vip/tiers/{id}/benefits/{bid}", h.deleteVIPTierBenefit)
 	r.Get("/vip/delivery/summary", h.vipDeliverySummary)
+	r.Get("/vip/delivery/runs", h.listVIPDeliveryRuns)
+	r.Get("/vip/delivery/schedules", h.listVIPDeliverySchedules)
+	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/vip/delivery/schedules/{pipeline}", h.patchVIPDeliverySchedule)
+	r.Get("/vip/rewards/payout-log", h.listVIPRewardPayoutLog)
+	r.Get("/vip/support/trace", h.adminVIPIdempotencyTrace)
+	r.Get("/vip/support/players/{id}/snapshot", h.getVIPPlayerSupportSnapshot)
+	r.Get("/vip/hunt/config", h.getHuntConfigAdmin)
+	r.With(adminapi.RequireAnyRole("superadmin")).Put("/vip/hunt/config", h.putHuntConfigAdmin)
+	r.Get("/vip/messages/preview", h.vipBroadcastPreview)
+	r.With(adminapi.RequireAnyRole("superadmin")).Post("/vip/messages/broadcast", h.vipBroadcastMessage)
 	r.Get("/vip/players", h.listVIPPlayers)
-	r.Get("/users/{id}/export", h.GDPRExportUser)
+	r.Get("/compliance/player-erasure-jobs", h.ListComplianceErasureJobs)
 	r.Get("/users/{id}/compliance-export", h.ComplianceExportUser)
 	r.Get("/users/{id}/bonus-risk", h.UserBonusRiskDecisions)
 	r.Get("/ledger", h.ListLedger)
@@ -62,6 +72,9 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/client-logs", h.ListClientLogs)
 	r.Get("/client-logs/count", h.CountClientLogsSince)
 	r.Get("/games", h.ListGamesAdmin)
+	r.Get("/payments/deposit-assets", h.ListDepositAssets)
+	// Same payload as deposit-assets: Fystack keys / chains shown to players for prizes (not only deposits).
+	r.Get("/payments/payout-options", h.ListDepositAssets)
 	r.Get("/game-providers", h.ListGameProviders)
 	r.Get("/game-launches", h.ListGameLaunches)
 	r.Get("/game-disputes", h.ListGameDisputes)
@@ -70,6 +83,9 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/dashboard/top-games", h.DashboardTopGames)
 	r.Get("/dashboard/player-stats", h.DashboardPlayerStats)
 	r.Get("/dashboard/system", h.DashboardSystem)
+	r.Get("/dashboard/casino-analytics", h.DashboardCasinoAnalytics)
+	r.Get("/dashboard/crypto-chain-summary", h.DashboardCryptoChainSummary)
+	r.Get("/analytics/traffic", h.TrafficAnalytics)
 	r.Get("/games/{id}/rtp-stats", h.GameRTPStats)
 	r.Get("/audit-log", h.AuditLog)
 	r.Get("/search", h.SearchAdmin)
@@ -80,16 +96,34 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/settings", h.GetSettings)
 	r.Get("/content", h.GetAllContent)
 	r.Get("/content/{key}", h.GetContentByKey)
+	r.Route("/security/approvals", func(ar chi.Router) {
+		ar.Get("/", h.ListApprovalRequests)
+		ar.Get("/{id}", h.GetApprovalRequest)
+		ar.Post("/", h.CreateApprovalRequest)
+		ar.Group(func(sr chi.Router) {
+			sr.Use(adminapi.RequireAnyRole("superadmin"))
+			sr.Post("/{id}/approve", h.ApproveApprovalRequest)
+			sr.Post("/{id}/reject", h.RejectApprovalRequest)
+		})
+	})
 	r.Group(func(r chi.Router) {
 		r.Use(adminapi.RequireAnyRole("superadmin"))
 		r.Patch("/games/{id}/hidden", h.PatchGameHidden)
+		r.Patch("/games/{id}/thumbnail-override", h.PatchGameThumbnailOverride)
 		r.Patch("/game-providers/lobby-hidden", h.PatchProviderLobbyHidden)
 		r.Patch("/ops/payment-flags", h.PatchPaymentFlags)
 		r.Post("/ops/reconcile-fystack", h.PostOpsReconcileFystack)
 		r.Post("/ops/fystack-webhook-deliveries/{id}/reprocess", h.PostReprocessFystackWebhookDelivery)
 		r.Post("/ops/provision-fystack-wallet", h.PostOpsProvisionFystackWallet)
 		r.Post("/withdrawals/{id}/approve", h.ApproveWithdrawal)
-		r.Post("/withdrawals/{id}/reject", h.RejectWithdrawal)
+		r.Post("/compliance/player-erasure", h.EnqueuePlayerErasure)
+		r.Route("/security/break-glass", func(sr chi.Router) {
+			sr.Get("/grants", h.ListBreakGlassGrants)
+			sr.Post("/grants", h.CreateBreakGlassGrant)
+			sr.Post("/grants/{id}/approve", h.ApproveBreakGlassGrant)
+			sr.Post("/grants/{id}/reject", h.RejectBreakGlassGrant)
+			sr.Post("/grants/{id}/consume", h.ConsumeBreakGlassGrant)
+		})
 		r.Patch("/settings", h.PatchSettings)
 		r.Put("/content/{key}", h.PutContent)
 		r.Post("/content/upload", h.UploadContentImage)
@@ -99,6 +133,7 @@ func (h *Handler) Mount(r chi.Router) {
 			chat.MountStaffRoutes(sr, h.ChatHub, h.Pool)
 		})
 	}
+	h.mountChallenges(r)
 	h.mountBonusHub(r)
 }
 
@@ -188,7 +223,7 @@ func (h *Handler) ListBlueOcean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	var list []map[string]any
+	list := make([]map[string]any, 0)
 	for rows.Next() {
 		var id int64
 		var peid, status string

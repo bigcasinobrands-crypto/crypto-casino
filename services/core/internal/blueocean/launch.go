@@ -48,3 +48,32 @@ func walkForURL(v any) string {
 func isHTTP(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
+
+// LaunchPayloadOK reports whether a getGame / getGameDemo JSON body indicates success.
+// Blue Ocean often returns HTTP 200 with {"error":1,"message":"Invalid user details!"} when
+// XAPI credentials are wrong — callers must check this before ExtractLaunchURL.
+func LaunchPayloadOK(raw json.RawMessage) bool {
+	if strings.TrimSpace(string(raw)) == "" {
+		return false
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil || m == nil {
+		return false
+	}
+	return launchEnvelopeOK(m)
+}
+
+func launchEnvelopeOK(m map[string]any) bool {
+	if v, has := m["error"]; has && !isZeroish(v) {
+		return false
+	}
+	if s, ok := m["success"].(bool); ok && !s {
+		return false
+	}
+	if r, ok := m["response"].(map[string]any); ok {
+		if v, has := r["error"]; has && !isZeroish(v) {
+			return false
+		}
+	}
+	return true
+}

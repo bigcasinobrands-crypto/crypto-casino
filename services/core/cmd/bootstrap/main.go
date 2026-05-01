@@ -9,8 +9,8 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
+	"github.com/crypto-casino/core/internal/passhash"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -46,13 +46,13 @@ func main() {
 		log.Printf("staff user already exists: %s (use cmd/resetstaffpw to change password)", email)
 		return
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashStr, err := passhash.Hash(password)
 	if err != nil {
 		log.Fatal(err)
 	}
 	_, err = pool.Exec(ctx, `
 		INSERT INTO staff_users (email, password_hash, role) VALUES ($1, $2, 'superadmin')
-	`, email, string(hash))
+	`, email, hashStr)
 	if err != nil {
 		log.Fatalf("insert: %v", err)
 	}

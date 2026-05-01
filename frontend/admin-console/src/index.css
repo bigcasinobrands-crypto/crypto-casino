@@ -1,14 +1,23 @@
-﻿@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap")
+﻿/* Match AdminLTE demo typography closer than the old TailAdmin “Outfit” stack */
+@import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap")
 layer(base);
 
-@import "tailwindcss";
+/* AdminLTE v4 + Bootstrap 5 (see https://github.com/ColorlibHQ/AdminLTE) */
+@import "overlayscrollbars/styles/overlayscrollbars.css";
+@import "bootstrap-icons/font/bootstrap-icons.min.css";
+@import "admin-lte/dist/css/adminlte.min.css";
+
 @import "@repo/design-tokens/theme.css";
+
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
 
 @custom-variant dark (&:is(.dark *));
 
 @theme {
   --font-*: initial;
-  --font-outfit: Outfit, sans-serif;
+  --font-outfit: "Source Sans 3", system-ui, sans-serif;
 
   --breakpoint-*: initial;
   --breakpoint-2xsm: 375px;
@@ -166,28 +175,25 @@ layer(base);
   --z-index-999999: 999999;
 }
 
-/*
-  The default border color has changed to `currentColor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
-
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
 @layer base {
-  *,
-  ::after,
-  ::before,
-  ::backdrop,
-  ::file-selector-button {
-    border-color: var(--color-gray-200, currentColor);
-  }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+  /* Let AdminLTE + Bootstrap own body background, font, and layout colors */
   body {
-    @apply relative font-normal font-outfit z-1 bg-gray-50;
+    position: relative;
+    z-index: 1;
+    font-family: "Source Sans 3", var(--bs-body-font-family);
+  }
+  html {
+    min-height: 100%;
+  }
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
   }
 }
 
@@ -289,6 +295,43 @@ layer(base);
   input[type="time"]::-webkit-calendar-picker-indicator {
     display: none;
     -webkit-appearance: none;
+  }
+
+  /*
+   * Opt-in native calendar / clock indicators (VIP scheduling, etc.).
+   * Overrides the global hide above via higher specificity.
+   */
+  input.vip-native-datetime-input[type="date"]::-webkit-calendar-picker-indicator,
+  input.vip-native-datetime-input[type="time"]::-webkit-calendar-picker-indicator {
+    display: block !important;
+    -webkit-appearance: auto !important;
+    appearance: auto;
+    opacity: 1 !important;
+    cursor: pointer;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-inline-start: 0.15rem;
+  }
+
+  input.vip-native-datetime-input[type="date"]::-webkit-inner-spin-button,
+  input.vip-native-datetime-input[type="time"]::-webkit-inner-spin-button {
+    display: block !important;
+    opacity: 1 !important;
+    -webkit-appearance: auto !important;
+    height: auto;
+  }
+
+  .vip-native-datetime-input[type='date'],
+  .vip-native-datetime-input[type='time'] {
+    padding-inline-end: 0.35rem;
+  }
+
+  [data-bs-theme='dark']
+    input.vip-native-datetime-input[type='date']::-webkit-calendar-picker-indicator,
+  [data-bs-theme='dark']
+    input.vip-native-datetime-input[type='time']::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.05);
+    opacity: 0.92 !important;
   }
 }
 
@@ -790,4 +833,322 @@ span.flatpickr-weekday,
 
 .simplebar-scrollbar.simplebar-visible:before {
   @apply opacity-100;
+}
+
+/* Bootstrap tooltips — room for short explainer copy on dashboard / analytics */
+.tooltip.cc-admin-tooltip .tooltip-inner {
+  max-width: min(22rem, 92vw);
+  text-align: left;
+}
+
+/* World map: block SVG avoids inline layout gap; centers in card */
+.world-sessions-map__svg {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Sidebar section headers use <button>; inherit link color from AdminLTE nav */
+.app-sidebar .nav-link[type="button"] {
+  color: inherit;
+}
+
+.app-sidebar .nav-link[type="button"]:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
+
+/* AdminLTE small-box: keep watermark icons inside the card, black tint, visible on mobile */
+.small-box.stat-card {
+  overflow: hidden;
+  margin-bottom: 0;
+  height: 100%;
+}
+
+.small-box.stat-card > .inner {
+  position: relative;
+  z-index: 2;
+  padding-right: clamp(2.75rem, 22%, 5rem);
+}
+
+.small-box.stat-card .inner p {
+  margin-bottom: 0;
+  min-height: 2.4em;
+}
+
+.dashboard-kpi-grid > [class*="col-"] {
+  display: flex;
+}
+
+.dashboard-kpi-grid .small-box.stat-card {
+  width: 100%;
+}
+
+.small-box.stat-card .small-box-icon {
+  top: auto;
+  bottom: clamp(0.35rem, 1.5vw, 0.65rem);
+  right: clamp(0.35rem, 1.5vw, 0.65rem);
+  left: auto;
+  z-index: 0;
+  height: 1em;
+  width: 1em;
+  margin: 0;
+  font-size: clamp(1.85rem, 10vw, 3.25rem);
+  line-height: 1;
+  /* Solid black glyph; opacity gives watermark read on colored text-bg-* cards */
+  color: #000 !important;
+  opacity: 0.38;
+  -webkit-text-fill-color: #000;
+  transition: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.small-box.stat-card:hover .small-box-icon {
+  transform: none;
+}
+
+.small-box.stat-card .small-box-icon svg {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  fill: currentColor;
+  opacity: 1;
+}
+
+@media (max-width: 575.98px) {
+  .small-box.stat-card {
+    text-align: start;
+  }
+
+  .small-box.stat-card .small-box-icon {
+    display: flex;
+    font-size: clamp(1.65rem, 14vw, 2.6rem);
+  }
+
+  .small-box.stat-card > .inner {
+    padding-right: clamp(2.5rem, 28%, 4rem);
+  }
+}
+
+/* React-controlled sidebar: rotate chevron when section is open (AdminLTE treeview JS not used). */
+.app-sidebar .nav-item.menu-open > .nav-link .nav-arrow {
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.app-sidebar .nav-link .nav-arrow {
+  transition: transform 0.15s ease;
+}
+
+/* Cleaner list-style submenu rows: no decorative circle icon */
+.app-sidebar .nav-treeview > .nav-item > .nav-link {
+  padding-left: 1.5rem;
+}
+
+/* Bonus hub table polish: cleaner, quieter rows with subtle live emphasis. */
+.bonushub-promotions-table thead th {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.bonushub-promotions-table tbody td {
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+  border-color: var(--bs-border-color-translucent);
+}
+
+.bonushub-promotions-table tbody tr:hover {
+  background-color: rgba(var(--bs-primary-rgb), 0.06);
+}
+
+.bonushub-promotions-table tbody tr.bonushub-row-live {
+  box-shadow: inset 3px 0 0 rgba(var(--bs-success-rgb), 0.85);
+}
+
+.bonushub-action-card {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  background: linear-gradient(180deg, rgba(var(--bs-primary-rgb), 0.04), transparent 70%);
+}
+
+.bonushub-tip-stack p {
+  color: var(--bs-secondary-color);
+  line-height: 1.35;
+}
+
+/* Calendar timeline chips: visually connect start->end across day cells. */
+.calendar-timeline-chip {
+  border-radius: 0 !important;
+  margin-left: -3px;
+  margin-right: -3px;
+  display: block;
+  width: calc(100% + 6px) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.calendar-timeline-chip-start {
+  border-top-left-radius: 999px !important;
+  border-bottom-left-radius: 999px !important;
+  margin-left: 0;
+}
+
+.calendar-timeline-chip-end {
+  border-top-right-radius: 999px !important;
+  border-bottom-right-radius: 999px !important;
+  margin-right: 0;
+}
+
+.calendar-timeline-chip-single {
+  border-radius: 999px !important;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Admin content: hover + motion (AdminLTE-aligned; respects reduced motion)
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .app-content .btn {
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease,
+      box-shadow 0.18s ease,
+      transform 0.1s ease;
+  }
+
+  .app-content .btn:not(:disabled):not(.disabled):active {
+    transform: scale(0.97);
+  }
+
+  .app-content .card.shadow-sm {
+    transition:
+      box-shadow 0.22s ease,
+      border-color 0.15s ease;
+  }
+
+  .app-content .card.shadow-sm:hover {
+    box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.12) !important;
+  }
+
+  [data-bs-theme="dark"] .app-content .card.shadow-sm:hover {
+    box-shadow: 0 0.5rem 1.25rem rgba(0, 0, 0, 0.55) !important;
+  }
+
+  .small-box.stat-card {
+    transition:
+      transform 0.18s ease,
+      box-shadow 0.22s ease;
+  }
+
+  .small-box.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.45rem 1rem rgba(0, 0, 0, 0.14);
+  }
+
+  [data-bs-theme="dark"] .small-box.stat-card:hover {
+    box-shadow: 0 0.55rem 1.2rem rgba(0, 0, 0, 0.5);
+  }
+
+  .app-sidebar .nav-link {
+    transition: background-color 0.14s ease, color 0.14s ease;
+  }
+
+  .bonushub-sidenav .nav-link {
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      transform 0.12s ease;
+  }
+
+  .bonushub-sidenav .nav-link:not(.active):hover {
+    background-color: var(--bs-secondary-bg);
+    transform: translateX(3px);
+  }
+
+  .bonushub-mission-card {
+    transition: transform 0.18s ease, box-shadow 0.2s ease;
+  }
+
+  .bonushub-mission-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--bs-box-shadow);
+  }
+
+  .bonus-hub-dash-tile {
+    transition: transform 0.16s ease, box-shadow 0.2s ease, border-color 0.15s ease;
+  }
+
+  .bonus-hub-dash-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.35rem 0.85rem rgba(0, 0, 0, 0.1) !important;
+  }
+
+  [data-bs-theme="dark"] .bonus-hub-dash-tile:hover {
+    box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.45) !important;
+  }
+
+  .table-hover > tbody > tr {
+    transition: background-color 0.12s ease;
+  }
+
+  .calendar-offer-row {
+    transition: background-color 0.12s ease;
+  }
+
+  .calendar-offer-row:hover {
+    background-color: var(--bs-secondary-bg);
+  }
+}
+
+/* Light table headers in dark mode: avoid stark white thead bars */
+[data-bs-theme="dark"] .table thead.table-light th {
+  background-color: var(--bs-tertiary-bg) !important;
+  color: var(--bs-emphasis-color) !important;
+  border-color: var(--bs-border-color) !important;
+}
+
+/* Range sliders: Bootstrap `form-range` track uses secondary-bg + inset shadow — nearly invisible on dark panels */
+.form-range::-webkit-slider-runnable-track {
+  height: 0.625rem;
+  background-color: rgba(16, 24, 40, 0.14);
+  border: 1px solid rgba(16, 24, 40, 0.2);
+  border-radius: 9999px;
+  box-shadow: none;
+}
+
+.form-range::-webkit-slider-thumb {
+  margin-top: calc((0.625rem - 1rem) / 2);
+}
+
+[data-bs-theme="dark"] .form-range::-webkit-slider-runnable-track,
+.dark .form-range::-webkit-slider-runnable-track {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.form-range::-moz-range-track {
+  height: 0.625rem;
+  background-color: rgba(16, 24, 40, 0.14);
+  border: 1px solid rgba(16, 24, 40, 0.2);
+  border-radius: 9999px;
+  box-shadow: none;
+}
+
+[data-bs-theme="dark"] .form-range::-moz-range-track,
+.dark .form-range::-moz-range-track {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.form-range::-moz-range-progress {
+  height: 0.625rem;
+  background-color: var(--bs-primary);
+  border-radius: 9999px;
 }

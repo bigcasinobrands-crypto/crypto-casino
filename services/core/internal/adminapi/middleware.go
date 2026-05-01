@@ -4,12 +4,17 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/crypto-casino/core/internal/jwtstaff"
+	"github.com/crypto-casino/core/internal/jtiredis"
+	"github.com/crypto-casino/core/internal/jwtissuer"
 )
 
-func BearerMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
+func BearerMiddleware(iss *jwtissuer.Issuer, rev *jtiredis.Revoker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if iss == nil {
+				WriteError(w, http.StatusInternalServerError, "server_error", "jwt not configured")
+				return
+			}
 			h := r.Header.Get("Authorization")
 			const p = "bearer "
 			if len(h) < len(p) || strings.ToLower(h[:len(p)]) != p {
@@ -21,10 +26,21 @@ func BearerMiddleware(jwtSecret []byte) func(http.Handler) http.Handler {
 				WriteError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token")
 				return
 			}
-			id, role, err := jwtstaff.ParseAccess(jwtSecret, raw)
+			id, role, jti, err := iss.ParseStaff(raw)
 			if err != nil {
 				WriteError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
 				return
+			}
+			if rev != nil && jti != "" {
+				revoked, rerr := rev.IsRevoked(r.Context(), jti)
+				if rerr != nil {
+					WriteError(w, http.StatusServiceUnavailable, "unavailable", "session check failed")
+					return
+				}
+				if revoked {
+					WriteError(w, http.StatusUnauthorized, "unauthorized", "token revoked")
+					return
+				}
 			}
 			ctx := WithStaff(r.Context(), id, role)
 			next.ServeHTTP(w, r.WithContext(ctx))

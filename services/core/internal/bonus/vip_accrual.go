@@ -3,6 +3,7 @@ package bonus
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,7 +49,7 @@ func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID stri
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
-		VALUES ($1::uuid, (SELECT id FROM vip_tiers ORDER BY sort_order ASC, id ASC LIMIT 1), $2, $2, now())
+		VALUES ($1::uuid, NULL, $2, $2, now())
 		ON CONFLICT (user_id) DO UPDATE SET
 			points_balance = player_vip_state.points_balance + EXCLUDED.points_balance,
 			lifetime_wager_minor = player_vip_state.lifetime_wager_minor + EXCLUDED.lifetime_wager_minor,
@@ -60,12 +61,11 @@ func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID stri
 	}
 	_, err = tx.Exec(ctx, `
 		UPDATE player_vip_state AS pvs
-		SET tier_id = COALESCE(
-			(SELECT vt.id FROM vip_tiers vt
-			 WHERE vt.min_lifetime_wager_minor <= pvs.lifetime_wager_minor
-			 ORDER BY vt.sort_order DESC, vt.id DESC
-			 LIMIT 1),
-			(SELECT id FROM vip_tiers ORDER BY sort_order ASC, id ASC LIMIT 1)
+		SET tier_id = (
+			SELECT vt.id FROM vip_tiers vt
+			WHERE vt.min_lifetime_wager_minor <= pvs.lifetime_wager_minor
+			ORDER BY vt.min_lifetime_wager_minor DESC, vt.id DESC
+			LIMIT 1
 		),
 		updated_at = now()
 		WHERE pvs.user_id = $1::uuid
@@ -102,6 +102,60 @@ func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID stri
 		ApplyVIPTierUpgrade(ctx, pool, userID, oldTierID, newTierID, lifeWager)
 	}
 	return nil
+}
+
+// ReverseVIPAccrualForCashRollbackTx subtracts cash rollback stake from VIP lifetime/points (idempotent).
+// idempotencyKey should match the ledger rollback idempotency key (e.g. bo:game:rollback:cash:...).
+func ReverseVIPAccrualForCashRollbackTx(ctx context.Context, tx pgx.Tx, userID string, cashRollbackMinor int64, idempotencyKey string) error {
+	if cashRollbackMinor <= 0 || strings.TrimSpace(idempotencyKey) == "" {
+		return nil
+	}
+	var has bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM player_vip_state WHERE user_id = $1::uuid)`, userID).Scan(&has); err != nil {
+		return err
+	}
+	if !has {
+		return nil
+	}
+	vipIdem := "vip:rollback:cash:" + strings.TrimSpace(idempotencyKey)
+	var dup int
+	switch err := tx.QueryRow(ctx, `SELECT 1 FROM vip_point_ledger WHERE idempotency_key = $1`, vipIdem).Scan(&dup); err {
+	case nil:
+		return nil
+	case pgx.ErrNoRows:
+	default:
+		return err
+	}
+	negDelta := -cashRollbackMinor
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO vip_point_ledger (user_id, delta, reason, idempotency_key)
+		VALUES ($1::uuid, $2, 'game_wager_rollback', $3)
+	`, userID, negDelta, vipIdem); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE player_vip_state
+		SET
+			lifetime_wager_minor = GREATEST(0, lifetime_wager_minor + $2),
+			points_balance = GREATEST(0, points_balance + $2),
+			last_accrual_at = now(),
+			updated_at = now()
+		WHERE user_id = $1::uuid
+	`, userID, negDelta); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE player_vip_state AS pvs
+		SET tier_id = (
+			SELECT vt.id FROM vip_tiers vt
+			WHERE vt.min_lifetime_wager_minor <= pvs.lifetime_wager_minor
+			ORDER BY vt.min_lifetime_wager_minor DESC, vt.id DESC
+			LIMIT 1
+		),
+		updated_at = now()
+		WHERE pvs.user_id = $1::uuid
+	`, userID)
+	return err
 }
 
 // ProcessRecentVIPAccruals scans recent game.debit rows and accrues (worker batch).

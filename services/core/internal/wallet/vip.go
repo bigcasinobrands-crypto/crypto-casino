@@ -3,6 +3,7 @@ package wallet
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,7 +17,8 @@ func VIPStatusHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
 			return
 		}
-		out, err := VIPStatusMap(r.Context(), pool, uid)
+		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		out, err := VIPStatusMap(r.Context(), pool, uid, cc)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "query failed")
 			return

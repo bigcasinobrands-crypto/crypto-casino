@@ -28,9 +28,12 @@ export function extractAdminListRows(
   data: unknown,
 ): Record<string, unknown>[] | null {
   if (!isRecord(data)) return null
-  const mapped = ADMIN_LIST_PATH_TO_KEY[apiPath]
+  const pathKey = apiPath.split('?')[0] ?? apiPath
+  const mapped = ADMIN_LIST_PATH_TO_KEY[pathKey]
   if (mapped) {
     const arr = data[mapped]
+    // Go JSON encodes nil slices as null — treat as empty table instead of unexpected_shape.
+    if (arr === null || arr === undefined) return []
     if (isObjectArray(arr)) return arr
     return null
   }

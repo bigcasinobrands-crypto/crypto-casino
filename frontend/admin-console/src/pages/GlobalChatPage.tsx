@@ -49,27 +49,16 @@ type BlockedTerm = {
   created_at: string
 }
 
-const tabBtn =
-  'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors border border-transparent'
-const tabBtnActive = 'bg-brand-500 text-white border-brand-500'
-const tabBtnIdle =
-  'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-white/10 dark:text-gray-200 dark:hover:bg-white/15'
+const inputClass = 'form-control form-control-sm'
 
-const inputClass =
-  'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100'
+const btnPrimary = 'btn btn-primary btn-sm'
 
-const btnPrimary =
-  'rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50 disabled:pointer-events-none'
+const btnDanger = 'btn btn-danger btn-sm'
 
-const btnDanger =
-  'rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:pointer-events-none'
-
-const tableWrap = 'overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700'
-const tableClass =
-  'min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-700'
-const thClass =
-  'bg-gray-50 px-3 py-2 font-medium text-gray-700 dark:bg-white/5 dark:text-gray-200'
-const tdClass = 'px-3 py-2 text-gray-800 dark:text-gray-200'
+const tableWrap = 'table-responsive'
+const tableClass = 'table table-sm table-striped table-hover align-middle mb-0'
+const thClass = 'small'
+const tdClass = 'small'
 
 function formatTime(iso: string): string {
   try {
@@ -481,22 +470,44 @@ export default function GlobalChatPage() {
         title="Global chat · Admin"
         description="Moderation, settings, broadcast, and blocked terms"
       />
-      <PageBreadcrumb pageTitle="Global chat" />
+      <PageBreadcrumb
+        pageTitle="Global chat"
+        subtitle="Moderation, settings, broadcast, and blocked terms."
+      />
 
-      {globalErr ? (
-        <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-          {globalErr}
-        </p>
-      ) : null}
+      {globalErr ? <div className="alert alert-danger small py-2 mb-3">{globalErr}</div> : null}
 
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard label="Online now" value={online != null ? formatCompact(online) : '—'} />
-        <StatCard label="Messages today" value="—" />
-        <StatCard label="Active bans" value={bans.length > 0 ? formatCompact(bans.length) : '—'} />
-        <StatCard label="Active mutes" value={mutes.length > 0 ? formatCompact(mutes.length) : '—'} />
+      <div className="row g-3 mb-4">
+        <div className="col-6 col-lg-3">
+          <StatCard
+            label="Online now"
+            value={online != null ? formatCompact(online) : '—'}
+            variant="info"
+            iconClass="bi-people"
+          />
+        </div>
+        <div className="col-6 col-lg-3">
+          <StatCard label="Messages today" value="—" variant="secondary" iconClass="bi-chat-dots" />
+        </div>
+        <div className="col-6 col-lg-3">
+          <StatCard
+            label="Active bans"
+            value={bans.length > 0 ? formatCompact(bans.length) : '—'}
+            variant="danger"
+            iconClass="bi-slash-circle"
+          />
+        </div>
+        <div className="col-6 col-lg-3">
+          <StatCard
+            label="Active mutes"
+            value={mutes.length > 0 ? formatCompact(mutes.length) : '—'}
+            variant="warning"
+            iconClass="bi-mic-mute"
+          />
+        </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="btn-group flex-wrap mb-3" role="group" aria-label="Chat sections">
         {(
           [
             ['transcript', 'Transcript'],
@@ -509,7 +520,7 @@ export default function GlobalChatPage() {
           <button
             key={id}
             type="button"
-            className={`${tabBtn} ${activeTab === id ? tabBtnActive : tabBtnIdle}`}
+            className={`btn btn-sm ${activeTab === id ? 'btn-primary' : 'btn-outline-secondary'}`}
             onClick={() => {
               setActiveTab(id)
               setGlobalErr(null)
@@ -525,23 +536,18 @@ export default function GlobalChatPage() {
           title="Transcript"
           desc="Recent chat messages (auto-refreshes every 5 seconds). Moderation actions require a reason."
         >
-          <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
+          <div className="d-flex flex-wrap align-items-center gap-2 mb-3 small">
             <span>
-              Online:{' '}
-              <strong className="text-gray-900 dark:text-white">
-                {online ?? '—'}
-              </strong>
+              Online: <strong>{online ?? '—'}</strong>
             </span>
-            {transcriptLoading ? (
-              <span className="text-gray-500 dark:text-gray-400">Refreshing…</span>
-            ) : null}
+            {transcriptLoading ? <span className="text-secondary">Refreshing…</span> : null}
             <button type="button" className={btnPrimary} onClick={() => void loadTranscript()}>
               Refresh now
             </button>
           </div>
           <div className={tableWrap}>
             <table className={tableClass}>
-              <thead>
+              <thead className="table-light">
                 <tr>
                   <th className={thClass}>ID</th>
                   <th className={thClass}>User</th>
@@ -552,10 +558,10 @@ export default function GlobalChatPage() {
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody>
                 {messages.length === 0 ? (
                   <tr>
-                    <td className={`${tdClass} py-6 text-center text-gray-500`} colSpan={7}>
+                    <td className="text-center text-secondary py-5" colSpan={7}>
                       No messages yet.
                     </td>
                   </tr>
@@ -583,7 +589,7 @@ export default function GlobalChatPage() {
                           {m.deleted ? (
                             <span className="text-gray-400">—</span>
                           ) : (
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="d-flex flex-wrap gap-1">
                               <button
                                 type="button"
                                 className={btnDanger}
@@ -629,10 +635,10 @@ export default function GlobalChatPage() {
           {bansLoading ? (
             <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
           ) : null}
-          <h3 className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-100">Bans</h3>
-          <div className={`${tableWrap} mb-8`}>
+          <h3 className="h6 mb-2">Bans</h3>
+          <div className={`${tableWrap} mb-4`}>
             <table className={tableClass}>
-              <thead>
+              <thead className="table-light">
                 <tr>
                   <th className={thClass}>ID</th>
                   <th className={thClass}>User ID</th>
@@ -642,10 +648,10 @@ export default function GlobalChatPage() {
                   <th className={thClass}>Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody>
                 {bans.length === 0 ? (
                   <tr>
-                    <td className={`${tdClass} py-4 text-center text-gray-500`} colSpan={6}>
+                    <td className="text-center text-secondary py-4" colSpan={6}>
                       No bans.
                     </td>
                   </tr>
@@ -678,10 +684,10 @@ export default function GlobalChatPage() {
               </tbody>
             </table>
           </div>
-          <h3 className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-100">Mutes</h3>
+          <h3 className="h6 mb-2">Mutes</h3>
           <div className={tableWrap}>
             <table className={tableClass}>
-              <thead>
+              <thead className="table-light">
                 <tr>
                   <th className={thClass}>ID</th>
                   <th className={thClass}>User ID</th>
@@ -691,10 +697,10 @@ export default function GlobalChatPage() {
                   <th className={thClass}>Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody>
                 {mutes.length === 0 ? (
                   <tr>
-                    <td className={`${tdClass} py-4 text-center text-gray-500`} colSpan={6}>
+                    <td className="text-center text-secondary py-4" colSpan={6}>
                       No mutes.
                     </td>
                   </tr>
@@ -747,11 +753,12 @@ export default function GlobalChatPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
           ) : null}
           {settingsDraft ? (
-            <div className="max-w-lg space-y-4">
-              <label className="flex cursor-pointer items-center gap-3 text-sm text-gray-800 dark:text-gray-200">
+            <div className="mw-100" style={{ maxWidth: 520 }}>
+              <div className="form-check mb-3">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-900"
+                  className="form-check-input"
+                  id="chat-enabled"
                   checked={settingsDraft.chat_enabled}
                   onChange={(e) =>
                     setSettingsDraft((s) =>
@@ -759,12 +766,12 @@ export default function GlobalChatPage() {
                     )
                   }
                 />
-                Chat enabled
-              </label>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Slow mode (seconds between messages)
+                <label className="form-check-label" htmlFor="chat-enabled">
+                  Chat enabled
                 </label>
+              </div>
+              <div className="mb-3">
+                <label className="form-label small mb-1">Slow mode (seconds between messages)</label>
                 <input
                   type="number"
                   min={0}
@@ -779,10 +786,8 @@ export default function GlobalChatPage() {
                   }
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Minimum account age (seconds)
-                </label>
+              <div className="mb-3">
+                <label className="form-label small mb-1">Minimum account age (seconds)</label>
                 <input
                   type="number"
                   min={0}
@@ -810,7 +815,7 @@ export default function GlobalChatPage() {
               </button>
             </div>
           ) : !settingsLoading ? (
-            <p className="text-sm text-gray-500">No settings loaded.</p>
+            <p className="text-secondary small mb-0">No settings loaded.</p>
           ) : null}
         </ComponentCard>
       ) : null}
@@ -820,22 +825,19 @@ export default function GlobalChatPage() {
           title="Broadcast"
           desc="Sends a system message to all connected chat clients. Logged to the admin audit trail."
         >
-          <div className="max-w-xl space-y-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Message
-              </label>
+          <div className="mw-100" style={{ maxWidth: 560 }}>
+            <div className="mb-3">
+              <label className="form-label small mb-1">Message</label>
               <textarea
-                className={`${inputClass} min-h-[120px] resize-y`}
+                className={`${inputClass}`}
+                style={{ minHeight: 120 }}
                 value={broadcastMessage}
                 onChange={(e) => setBroadcastMessage(e.target.value)}
                 placeholder="Message shown in chat…"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Reason (optional, audit log)
-              </label>
+            <div className="mb-3">
+              <label className="form-label small mb-1">Reason (optional, audit log)</label>
               <input
                 type="text"
                 className={inputClass}
@@ -864,10 +866,11 @@ export default function GlobalChatPage() {
           {termsLoading ? (
             <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">Loading…</p>
           ) : null}
-          <div className="mb-6 flex max-w-xl flex-wrap gap-2">
+          <div className="d-flex flex-wrap gap-2 mb-4">
             <input
               type="text"
-              className={`${inputClass} min-w-[200px] flex-1`}
+              className={`${inputClass} flex-grow-1`}
+              style={{ minWidth: 200 }}
               value={newTerm}
               onChange={(e) => setNewTerm(e.target.value)}
               placeholder="New blocked term…"
@@ -883,7 +886,7 @@ export default function GlobalChatPage() {
           </div>
           <div className={tableWrap}>
             <table className={tableClass}>
-              <thead>
+              <thead className="table-light">
                 <tr>
                   <th className={thClass}>ID</th>
                   <th className={thClass}>Term</th>
@@ -892,10 +895,10 @@ export default function GlobalChatPage() {
                   <th className={thClass}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody>
                 {terms.length === 0 ? (
                   <tr>
-                    <td className={`${tdClass} py-4 text-center text-gray-500`} colSpan={5}>
+                    <td className="text-center text-secondary py-4" colSpan={5}>
                       No blocked terms.
                     </td>
                   </tr>

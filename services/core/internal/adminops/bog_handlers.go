@@ -1,7 +1,9 @@
 package adminops
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/crypto-casino/core/internal/adminapi"
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/games"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
@@ -22,11 +25,16 @@ func (h *Handler) cfg() *config.Config {
 }
 
 func (h *Handler) SyncBlueOceanCatalog(w http.ResponseWriter, r *http.Request) {
-	if h.BOG == nil || !h.BOG.Configured() {
+	cfg := h.cfg()
+	useSnapshot := cfg != nil && strings.TrimSpace(cfg.BlueOceanCatalogSnapshotPath) != ""
+	if !useSnapshot && (h.BOG == nil || !h.BOG.Configured()) {
 		adminapi.WriteError(w, http.StatusServiceUnavailable, "bog_unconfigured", "Blue Ocean client not configured")
 		return
 	}
-	n, err := blueocean.SyncCatalog(r.Context(), h.Pool, h.BOG, h.cfg())
+	// Cap outbound/catalog work (admin routes are mounted without global chi Timeout — see cmd/api/main.go).
+	syncCtx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
+	defer cancel()
+	n, err := blueocean.SyncCatalog(syncCtx, h.Pool, h.BOG, h.cfg())
 	if err != nil {
 		adminapi.WriteError(w, http.StatusBadGateway, "sync_failed", err.Error())
 		return
@@ -67,20 +75,56 @@ func (h *Handler) OperationalFlags(w http.ResponseWriter, r *http.Request) {
 		"maintenance_mode":    c.MaintenanceMode,
 		"disable_game_launch": c.DisableGameLaunch,
 		"blueocean_launch_mode": c.BlueOceanLaunchMode,
+		// API process env; worker must use the same value in production for auto-forfeit to match operator expectations.
+		"bonus_max_bet_violations_auto_forfeit": c.BonusMaxBetViolationsAutoForfeit,
 	})
 }
 
 func (h *Handler) ListGamesAdmin(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 200)
-	rows, err := h.Pool.Query(r.Context(), `
-		SELECT g.id, g.title, g.provider, COALESCE(g.category,''), COALESCE(g.thumbnail_url,''),
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	prov := strings.TrimSpace(r.URL.Query().Get("provider"))
+
+	argPos := 1
+	where := strings.Builder{}
+	where.WriteString(`FROM games g
+		LEFT JOIN provider_lobby_settings pls ON pls.provider = g.provider
+		WHERE 1=1`)
+	args := make([]any, 0, 8)
+	if prov != "" {
+		fmt.Fprintf(&where, " AND g.provider = $%d", argPos)
+		args = append(args, prov)
+		argPos++
+	}
+	if q != "" {
+		patterns := games.StudioSearchPatterns(q)
+		var groups []string
+		for _, raw := range patterns {
+			like := strings.ToLower(raw)
+			p := argPos
+			groups = append(groups, fmt.Sprintf(`(
+				lower(g.title) LIKE $%d OR lower(g.provider) LIKE $%d OR lower(g.id) LIKE $%d
+				OR lower(COALESCE(g.provider_system,'')) LIKE $%d OR lower(COALESCE(g.game_type,'')) LIKE $%d
+				OR lower(COALESCE(g.category,'')) LIKE $%d OR lower(COALESCE(g.metadata::text,'')) LIKE $%d)`, p, p, p, p, p, p, p))
+			args = append(args, like)
+			argPos++
+		}
+		if len(groups) > 0 {
+			where.WriteString(" AND (")
+			where.WriteString(strings.Join(groups, " OR "))
+			where.WriteString(")")
+		}
+	}
+	fmt.Fprintf(&where, " ORDER BY g.updated_at DESC LIMIT $%d", argPos)
+	args = append(args, limit)
+
+	sqlStr := `SELECT g.id, g.title, g.provider, COALESCE(g.category,''), ` + games.EffectiveThumbnailAliased("g") + `,
+			COALESCE(g.thumbnail_url,''), COALESCE(g.thumbnail_url_override,''),
 			COALESCE(g.game_type,''), COALESCE(g.provider_system,''), g.hidden, COALESCE(g.hidden_reason,''),
 			COALESCE(g.bog_game_id,0), g.updated_at,
 			COALESCE(pls.lobby_hidden, false)
-		FROM games g
-		LEFT JOIN provider_lobby_settings pls ON pls.provider = g.provider
-		ORDER BY g.updated_at DESC LIMIT $1
-	`, limit)
+		` + where.String()
+	rows, err := h.Pool.Query(r.Context(), sqlStr, args...)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
 		return
@@ -88,18 +132,21 @@ func (h *Handler) ListGamesAdmin(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	var list []map[string]any
 	for rows.Next() {
-		var id, title, prov, cat, thumb, gt, ps, hr string
+		var id, title, prov, cat, thumbEff, thumbCatalog, thumbOverride, gt, ps, hr string
 		var hid bool
 		var bog int
 		var up time.Time
 		var provLobbyHid bool
-		if err := rows.Scan(&id, &title, &prov, &cat, &thumb, &gt, &ps, &hid, &hr, &bog, &up, &provLobbyHid); err != nil {
+		if err := rows.Scan(&id, &title, &prov, &cat, &thumbEff, &thumbCatalog, &thumbOverride, &gt, &ps, &hid, &hr, &bog, &up, &provLobbyHid); err != nil {
 			continue
 		}
 		effectiveLobby := !hid && !provLobbyHid
 		list = append(list, map[string]any{
-			"id": id, "title": title, "provider": prov, "category": cat, "thumbnail_url": thumb,
-			"game_type": gt, "provider_system": ps, "hidden": hid, "hidden_reason": hr,
+			"id": id, "title": title, "provider": prov, "category": cat,
+			"thumbnail_url":          thumbEff,
+			"thumbnail_url_catalog":  thumbCatalog,
+			"thumbnail_url_override": thumbOverride,
+			"game_type":              gt, "provider_system": ps, "hidden": hid, "hidden_reason": hr,
 			"bog_game_id": bog, "updated_at": up.UTC().Format(time.RFC3339),
 			"provider_lobby_hidden": provLobbyHid,
 			"effective_in_lobby":    effectiveLobby,
@@ -128,6 +175,53 @@ func (h *Handler) PatchGameHidden(w http.ResponseWriter, r *http.Request) {
 	tag, err := h.Pool.Exec(r.Context(), `
 		UPDATE games SET hidden = $2, hidden_reason = NULLIF($3,''), updated_at = now() WHERE id = $1
 	`, id, body.Hidden, reason)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "update failed")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		adminapi.WriteError(w, http.StatusNotFound, "not_found", "game not found")
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+type patchThumbnailOverrideReq struct {
+	// ClearThumbnailOverride removes staff URL so catalog feed thumbnail shows again.
+	ClearThumbnailOverride bool `json:"clear_thumbnail_override"`
+	ThumbnailURLOverride     string `json:"thumbnail_url_override"`
+}
+
+func (h *Handler) PatchGameThumbnailOverride(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if id == "" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "missing id")
+		return
+	}
+	var body patchThumbnailOverrideReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid body")
+		return
+	}
+	url := strings.TrimSpace(body.ThumbnailURLOverride)
+	if body.ClearThumbnailOverride {
+		url = ""
+	}
+	if !body.ClearThumbnailOverride && url == "" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "set thumbnail_url_override or clear_thumbnail_override")
+		return
+	}
+	var tag interface{ RowsAffected() int64 }
+	var err error
+	if url == "" {
+		tag, err = h.Pool.Exec(r.Context(), `
+			UPDATE games SET thumbnail_url_override = NULL, updated_at = now() WHERE id = $1
+		`, id)
+	} else {
+		tag, err = h.Pool.Exec(r.Context(), `
+			UPDATE games SET thumbnail_url_override = $2, updated_at = now() WHERE id = $1
+		`, id, url)
+	}
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "update failed")
 		return
@@ -185,7 +279,11 @@ func (h *Handler) ListGameProviders(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, item)
 	}
-	writeJSON(w, map[string]any{"providers": list})
+	var studioCount int
+	_ = h.Pool.QueryRow(r.Context(), `
+		SELECT COUNT(DISTINCT NULLIF(TRIM(provider_system), '')) FROM games
+	`).Scan(&studioCount)
+	writeJSON(w, map[string]any{"providers": list, "studio_count": studioCount})
 }
 
 type patchProviderLobbyReq struct {

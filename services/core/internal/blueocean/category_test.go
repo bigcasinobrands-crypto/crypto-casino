@@ -24,3 +24,30 @@ func TestPrimaryLobbyKey(t *testing.T) {
 		}
 	}
 }
+
+func TestLobbyCategory(t *testing.T) {
+	tests := []struct {
+		gameType    string
+		subcategory string
+		want        string
+	}{
+		{"", "", "other"},
+		{"casino", "slots", "slots"},
+		{"", "roulette", "table"},
+		{"", "megaways", "slots"},
+		{"rng-slots", "", "slots"},
+		{"rng-roulette", "", "table"},
+		{"live-casino", "blackjack", "live"},
+		{"", "live-roulette", "live"},
+		{"jackpot-slots", "", "slots"},
+		{"virtual-sports", "", "sports"},
+		{"scratch-cards", "", "scratch"},
+		{"bingo", "", "lottery"},
+		{"live-bingo", "", "live"},
+	}
+	for _, tt := range tests {
+		if got := LobbyCategory(tt.gameType, tt.subcategory); got != tt.want {
+			t.Errorf("LobbyCategory(%q, %q) = %q, want %q", tt.gameType, tt.subcategory, got, tt.want)
+		}
+	}
+}

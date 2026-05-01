@@ -35,7 +35,7 @@ function InputRow({
   right?: ReactNode
 }) {
   return (
-    <div className="flex min-h-10 items-center gap-2 rounded-casino-md bg-[#171218] px-3 transition-shadow focus-within:ring-1 focus-within:ring-casino-primary/35">
+    <div className="flex min-h-10 items-center gap-2 rounded-casino-md bg-casino-surface px-3 transition-shadow focus-within:ring-1 focus-within:ring-casino-primary/35">
       {children}
       {right ? <div className="flex shrink-0 items-center">{right}</div> : null}
     </div>

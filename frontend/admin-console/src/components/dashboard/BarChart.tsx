@@ -1,6 +1,8 @@
 import { type FC, useMemo } from 'react'
 import Chart from 'react-apexcharts'
 import type { ApexOptions } from 'apexcharts'
+import ChartEmpty from './ChartEmpty'
+import { CHART_COLORS, useApexChartOptions } from './apexAdminLTE'
 
 interface BarChartProps {
   labels: string[]
@@ -11,29 +13,55 @@ interface BarChartProps {
   yFormatter?: (val: number) => string
 }
 
-const BarChart: FC<BarChartProps> = ({ labels, data, color = '#4318FF', height = 300, horizontal = true, yFormatter }) => {
-  const options: ApexOptions = useMemo(() => ({
-    chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'inherit' },
-    plotOptions: {
-      bar: { horizontal, borderRadius: 4, barHeight: '60%', columnWidth: '40%' },
-    },
-    colors: [color],
-    dataLabels: { enabled: false },
-    xaxis: {
-      categories: labels,
-      labels: { style: { colors: '#A3AED0', fontSize: '11px' } },
-      axisBorder: { show: false },
-      axisTicks: { show: false },
-    },
-    yaxis: {
-      labels: {
-        style: { colors: '#A3AED0', fontSize: '11px' },
-        formatter: yFormatter,
+const BarChart: FC<BarChartProps> = ({
+  labels,
+  data,
+  color = CHART_COLORS.primary,
+  height = 300,
+  horizontal = true,
+  yFormatter,
+}) => {
+  const { base } = useApexChartOptions()
+
+  const options: ApexOptions = useMemo(
+    () => ({
+      ...base,
+      chart: { ...base.chart, type: 'bar' },
+      colors: [color],
+      plotOptions: {
+        bar: {
+          horizontal,
+          borderRadius: horizontal ? 4 : 2,
+          barHeight: horizontal ? '72%' : undefined,
+          columnWidth: horizontal ? undefined : '55%',
+        },
       },
-    },
-    grid: { borderColor: '#F4F7FE', strokeDashArray: 4 },
-    tooltip: { theme: 'dark', y: { formatter: yFormatter } },
-  }), [labels, color, height, horizontal, yFormatter])
+      xaxis: {
+        ...base.xaxis,
+        categories: labels,
+      },
+      yaxis: {
+        labels: {
+          style: { fontSize: '11px' },
+          formatter: yFormatter,
+        },
+      },
+      tooltip: {
+        ...base.tooltip,
+        y: { formatter: yFormatter },
+      },
+    }),
+    [base, labels, color, horizontal, yFormatter],
+  )
+
+  if (labels.length === 0) {
+    return (
+      <ChartEmpty
+        height={height}
+        message="No rows in this range — sync data or widen the time window."
+      />
+    )
+  }
 
   return <Chart options={options} series={[{ name: 'Value', data }]} type="bar" height={height} />
 }

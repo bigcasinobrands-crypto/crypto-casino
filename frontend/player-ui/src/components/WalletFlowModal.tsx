@@ -200,7 +200,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
           </button>
         </div>
 
-        <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
           {mainTab === 'deposit' ? (
             depositFlowStep === 'pick' ? (
               <>
@@ -268,7 +268,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
           {showRecentTxs ? (
             <div className="mt-4 border-t border-casino-border pt-3">
               <h3 className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-casino-muted">Recent</h3>
-              <ul className="max-h-28 space-y-1 overflow-y-auto text-[11px] text-casino-foreground">
+              <ul className="max-h-28 space-y-1 overflow-y-auto text-[11px] text-casino-foreground scrollbar-casino">
                 {txs.map((t) => (
                   <li key={t.id} className="flex justify-between gap-2 border-b border-casino-border/60 pb-1">
                     <span className="truncate text-casino-muted">{t.entry_type}</span>

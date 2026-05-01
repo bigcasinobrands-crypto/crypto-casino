@@ -2,10 +2,8 @@ import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
-import { toastApiError } from '../notifications/adminToast'
-import GridShape from '../components/common/GridShape'
 import PageMeta from '../components/common/PageMeta'
-import { EyeCloseIcon, EyeIcon } from '../icons'
+import { toastApiError } from '../notifications/adminToast'
 
 /** Default staff login (matches seeded row after migrations; override via bootstrap if needed). */
 const DEFAULT_ADMIN_EMAIL = 'admin@twox.gg'
@@ -62,12 +60,14 @@ function persistLoginCredentials(remember: boolean, email: string, password: str
 }
 
 export default function LoginPage() {
-  const { accessToken, login } = useAdminAuth()
+  const { accessToken, login, finishMfaWebAuthn } = useAdminAuth()
   const [loginForm, setLoginForm] = useState(() => readInitialLoginState())
   const { email, password, rememberPassword } = loginForm
   const [showPw, setShowPw] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [mfaBusy, setMfaBusy] = useState(false)
 
   if (accessToken) return <Navigate to="/" replace />
 
@@ -77,147 +77,225 @@ export default function LoginPage() {
     setLoading(true)
     const r = await login(email, password)
     setLoading(false)
-    if (!r.ok) {
+    if (r.status === 'mfa_pending') {
+      setMfaToken(r.mfaToken)
+      return
+    }
+    if (r.status === 'error') {
       toastApiError(r.error, r.error.status, 'POST /v1/admin/auth/login')
       setErr(formatApiError(r.error, 'Invalid credentials'))
       return
     }
+    setMfaToken(null)
     persistLoginCredentials(rememberPassword, email, password)
   }
 
+  async function onWebAuthnMfa() {
+    if (!mfaToken) return
+    setErr(null)
+    setMfaBusy(true)
+    const r = await finishMfaWebAuthn(mfaToken)
+    setMfaBusy(false)
+    if (r.status === 'error') {
+      toastApiError(r.error, r.error.status, 'POST /v1/admin/auth/mfa/webauthn/finish')
+      setErr(formatApiError(r.error, 'Security key verification failed'))
+      return
+    }
+    setMfaToken(null)
+    persistLoginCredentials(rememberPassword, email, password)
+  }
+
+  function cancelMfa() {
+    setMfaToken(null)
+    setErr(null)
+  }
+
   return (
-    <div className="relative z-1 flex min-h-screen flex-col bg-white dark:bg-gray-900 lg:flex-row">
-      <PageMeta title="Sign in · Admin" description="Staff sign-in for Crypto Casino admin" />
+    <div
+      className="d-flex min-vh-100 flex-column flex-lg-row"
+      style={{
+        background:
+          'linear-gradient(165deg, var(--bs-body-bg) 0%, var(--bs-secondary-bg) 48%, var(--bs-body-bg) 100%)',
+      }}
+    >
+      <PageMeta title="Sign in · Admin" description="Staff sign-in — Crypto Casino admin console" />
 
-      <div className="relative flex w-full flex-1 flex-col justify-center px-4 py-10 sm:px-6 lg:w-1/2 lg:px-10 xl:px-16">
-        <div className="relative z-10 mx-auto w-full max-w-md">
-          <GridShape />
-          <div className="mb-8">
-            <Link to="/" className="mb-6 inline-block lg:hidden">
-              <img className="h-8 dark:hidden" src="/images/logo/logo.svg" alt="Logo" />
-              <img className="hidden h-8 dark:block" src="/images/logo/logo-dark.svg" alt="Logo" />
-            </Link>
-            <div className="mb-6 hidden lg:block">
-              <img className="h-10 dark:hidden" src="/images/logo/logo.svg" alt="Logo" />
-              <img className="hidden h-10 dark:block" src="/images/logo/logo-dark.svg" alt="Logo" />
-            </div>
-            <h1 className="mb-2 text-title-md font-semibold text-gray-800 dark:text-white/90 sm:text-title-lg">
-              Staff sign in
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Staff accounts and password hashes live in Postgres (<code className="font-mono text-xs">staff_users</code>).
-              Sign-in is validated by the API only; defaults below match the seeded dev row after migrations.
-            </p>
-          </div>
-
-          <form onSubmit={(e) => void onSubmit(e)} className="space-y-5">
-            {err && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-                {err}
-              </div>
-            )}
-
-            <div>
-              <label
-                htmlFor="admin-email"
-                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-              >
-                Email
-              </label>
-              <input
-                id="admin-email"
-                type="email"
-                name="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(e) =>
-                  setLoginForm((f) => ({ ...f, email: e.target.value }))
-                }
-                placeholder={DEFAULT_ADMIN_EMAIL}
-                className="h-11 w-full rounded-lg border border-gray-200 bg-transparent px-4 py-2.5 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="admin-password"
-                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400"
-              >
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="admin-password"
-                  type={showPw ? 'text' : 'password'}
-                  name="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(e) =>
-                    setLoginForm((f) => ({ ...f, password: e.target.value }))
-                  }
-                  placeholder="••••••••"
-                  className="h-11 w-full rounded-lg border border-gray-200 bg-transparent py-2.5 pr-12 pl-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute top-1/2 right-3 z-30 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white/80"
-                  aria-label={showPw ? 'Hide password' : 'Show password'}
+      <div className="position-relative d-flex flex-grow-1 flex-column justify-content-center px-3 px-sm-4 py-5 px-lg-5">
+        <div className="mx-auto w-100" style={{ maxWidth: '26rem' }}>
+          <div className="card shadow-lg border-secondary-subtle rounded-3 bg-body">
+            <div className="card-body p-4 p-sm-5">
+              <div className="d-flex align-items-center gap-3 pb-4 border-bottom border-secondary-subtle">
+                <Link
+                  to="/"
+                  className="d-flex align-items-center gap-3 text-decoration-none text-body-emphasis"
                 >
-                  {showPw ? (
-                    <EyeCloseIcon className="size-5" />
-                  ) : (
-                    <EyeIcon className="size-5" />
-                  )}
-                </button>
+                  <img
+                    src="/images/logo/logo-icon.svg"
+                    alt=""
+                    width={44}
+                    height={44}
+                    className="rounded-2 shadow-sm"
+                  />
+                  <span className="fw-semibold fs-6">Crypto Casino</span>
+                </Link>
+              </div>
+
+              <h1 className="h4 fw-semibold text-body-emphasis mt-4 mb-2">Staff sign in</h1>
+              <p className="small text-secondary mb-0 lh-base">
+                Sign in with your staff email and password. If you need access, contact an administrator.
+              </p>
+              {import.meta.env.DEV ? (
+                <div className="alert alert-warning py-2 px-3 small mt-3 mb-0 border-warning-subtle">
+                  Local dev: form defaults match the seeded admin user after running migrations.
+                </div>
+              ) : null}
+
+              <div className="mt-4">
+                {err ? (
+                  <div className="alert alert-danger py-2 small mb-3" role="alert">
+                    {err}
+                  </div>
+                ) : null}
+
+                {mfaToken ? (
+                  <div className="rounded border border-secondary-subtle bg-body-secondary px-3 py-3 mb-2">
+                    <p className="small text-secondary mb-3 mb-lg-4">
+                      Password accepted. Use your registered security key to finish sign-in.
+                    </p>
+                    <div className="d-flex flex-column gap-2 flex-sm-row">
+                      <button
+                        type="button"
+                        disabled={mfaBusy}
+                        onClick={() => void onWebAuthnMfa()}
+                        className="btn btn-primary flex-grow-1"
+                      >
+                        {mfaBusy ? 'Waiting for security key…' : 'Continue with security key'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={mfaBusy}
+                        onClick={cancelMfa}
+                        className="btn btn-outline-secondary"
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={(e) => void onSubmit(e)} className="d-flex flex-column gap-3">
+                    <div>
+                      <label htmlFor="admin-email" className="form-label small fw-semibold mb-1">
+                        Email
+                      </label>
+                      <input
+                        id="admin-email"
+                        type="email"
+                        name="email"
+                        autoComplete="username"
+                        required
+                        value={email}
+                        onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
+                        placeholder={DEFAULT_ADMIN_EMAIL}
+                        className="form-control form-control-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="admin-password" className="form-label small fw-semibold mb-1">
+                        Password
+                      </label>
+                      <div className="input-group input-group-lg">
+                        <input
+                          id="admin-password"
+                          type={showPw ? 'text' : 'password'}
+                          name="password"
+                          autoComplete="current-password"
+                          required
+                          value={password}
+                          onChange={(e) =>
+                            setLoginForm((f) => ({ ...f, password: e.target.value }))
+                          }
+                          placeholder="••••••••"
+                          className="form-control"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPw((v) => !v)}
+                          className="btn btn-outline-secondary px-3 d-inline-flex align-items-center justify-content-center"
+                          style={{ minWidth: '3rem' }}
+                          aria-label={showPw ? 'Hide password' : 'Show password'}
+                          aria-pressed={showPw}
+                        >
+                          <i
+                            className={`bi ${showPw ? 'bi-eye-slash-fill' : 'bi-eye-fill'} fs-5 text-body`}
+                            aria-hidden
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="form-check mt-1">
+                      <input
+                        id="admin-remember-password"
+                        type="checkbox"
+                        checked={rememberPassword}
+                        onChange={(e) =>
+                          setLoginForm((f) => ({
+                            ...f,
+                            rememberPassword: e.target.checked,
+                          }))
+                        }
+                        className="form-check-input"
+                      />
+                      <label htmlFor="admin-remember-password" className="form-check-label small">
+                        Remember email and password on this device
+                      </label>
+                    </div>
+
+                    <button type="submit" disabled={loading} className="btn btn-primary btn-lg w-100 mt-1">
+                      {loading ? 'Signing in…' : 'Sign in'}
+                    </button>
+                  </form>
+                )}
               </div>
             </div>
-
-            <div className="flex items-start gap-3">
-              <input
-                id="admin-remember-password"
-                type="checkbox"
-                checked={rememberPassword}
-                onChange={(e) =>
-                  setLoginForm((f) => ({
-                    ...f,
-                    rememberPassword: e.target.checked,
-                  }))
-                }
-                className="mt-0.5 size-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500/20 dark:border-gray-600 dark:bg-gray-900"
-              />
-              <label
-                htmlFor="admin-remember-password"
-                className="text-sm leading-snug text-gray-600 dark:text-gray-400"
-              >
-                Remember email and password on this device
-              </label>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex h-11 w-full items-center justify-center rounded-lg bg-brand-500 px-4 text-sm font-medium text-white shadow-theme-xs transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
+          </div>
         </div>
       </div>
 
-      <div className="relative hidden h-auto flex-1 items-center justify-center bg-brand-950 p-10 lg:flex lg:w-1/2">
-        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(70,95,255,0.35)_0%,transparent_50%)]" />
-        <div className="relative z-10 max-w-md text-center">
-          <div className="mb-10 flex justify-center">
-            <img src="/images/logo/auth-logo.svg" alt="" className="h-24 w-auto opacity-95" />
+      <div
+        className="d-none d-lg-flex flex-lg-grow-1 flex-column justify-content-center align-items-center px-5 py-5 text-center position-relative overflow-hidden border-start border-secondary-subtle"
+        data-bs-theme="dark"
+        style={{
+          minHeight: '100vh',
+          background:
+            'linear-gradient(145deg, #1a1d24 0%, #12151a 45%, #0d0f12 100%)',
+        }}
+      >
+        <div
+          className="position-absolute top-0 start-0 w-100 h-100 opacity-[0.07] pointer-events-none"
+          style={{
+            backgroundImage: `radial-gradient(circle at 30% 20%, rgba(13,110,253,0.35), transparent 45%),
+              url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' fill='white' opacity='0.12'%3E%3Cpath d='M0 0h14v14H0zm14 14h14v14H14z'/%3E%3C/svg%3E")`,
+            backgroundSize: 'auto, 28px 28px',
+          }}
+          aria-hidden
+        />
+        <div className="position-relative z-1">
+          <div className="mb-4 d-flex justify-content-center">
+            <img
+              src="/images/logo/logo-icon.svg"
+              alt=""
+              width={88}
+              height={88}
+              className="rounded-3 shadow-lg"
+            />
           </div>
-          <p className="text-xl font-medium text-white/95">Crypto Casino</p>
-          <p className="mt-2 text-sm text-white/70">Staff tools, live data, secure access.</p>
-        </div>
-        <div className="absolute right-0 bottom-0 opacity-20">
-          <img src="/images/shape/grid-01.svg" alt="" className="max-w-xs rotate-180" />
+          <p className="fs-5 fw-semibold text-white mb-1">Crypto Casino</p>
+          <p className="text-secondary small mb-3">Staff console</p>
+          <p className="small text-secondary mb-0 mx-auto opacity-90" style={{ maxWidth: '22rem' }}>
+            Staff tools, live data, secure access — same mark as the signed-in sidebar.
+          </p>
         </div>
       </div>
     </div>

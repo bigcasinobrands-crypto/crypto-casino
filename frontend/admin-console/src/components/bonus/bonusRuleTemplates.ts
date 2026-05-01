@@ -33,6 +33,7 @@ export function defaultRulesForType(typeId: string): Record<string, unknown> {
       wagering: defaultWagering(),
       withdraw_policy: 'block',
       excluded_game_ids: [] as string[],
+      allowed_game_ids: [] as string[],
       segment: defaultSegment(),
     }
   }
@@ -43,16 +44,26 @@ export function defaultRulesForType(typeId: string): Record<string, unknown> {
       wagering: defaultWagering(),
       withdraw_policy: 'block',
       excluded_game_ids: [] as string[],
+      allowed_game_ids: [] as string[],
       segment: defaultSegment(),
     }
   }
   if (typeId === 'free_spins_only') {
     return {
       trigger: depositTrigger(false),
-      reward: { type: 'freespins', percent: 0, cap_minor: 0, fixed_minor: 0 },
+      reward: {
+        type: 'freespins',
+        percent: 0,
+        cap_minor: 0,
+        fixed_minor: 0,
+        rounds: 20,
+        game_id: '',
+        bet_per_round_minor: 1,
+      },
       wagering: defaultWagering(),
       withdraw_policy: 'block',
       excluded_game_ids: [] as string[],
+      allowed_game_ids: [] as string[],
       segment: defaultSegment(),
     }
   }
@@ -60,9 +71,11 @@ export function defaultRulesForType(typeId: string): Record<string, unknown> {
     return {
       trigger: depositTrigger(false),
       reward: { type: 'percent_match', percent: 100, cap_minor: 100000, fixed_minor: 0 },
+      free_spins: { rounds: 20, game_id: '', bet_per_round_minor: 1 },
       wagering: defaultWagering(),
       withdraw_policy: 'block',
       excluded_game_ids: [] as string[],
+      allowed_game_ids: [] as string[],
       segment: defaultSegment(),
     }
   }
@@ -80,6 +93,7 @@ export function defaultRulesForType(typeId: string): Record<string, unknown> {
       wagering: { multiplier: 1, max_bet_minor: 0, game_weight_pct: 100 },
       withdraw_policy: 'default',
       excluded_game_ids: [] as string[],
+      allowed_game_ids: [] as string[],
       segment: defaultSegment(),
     }
   }
@@ -97,6 +111,7 @@ export function defaultRulesForType(typeId: string): Record<string, unknown> {
       wagering: { multiplier: 1, max_bet_minor: 0, game_weight_pct: 100 },
       withdraw_policy: 'default',
       excluded_game_ids: [] as string[],
+      allowed_game_ids: [] as string[],
       segment: defaultSegment(),
     }
   }
@@ -114,6 +129,7 @@ export function defaultRulesForType(typeId: string): Record<string, unknown> {
       wagering: { multiplier: 40, max_bet_minor: 25000, game_weight_pct: 100 },
       withdraw_policy: 'block',
       excluded_game_ids: [] as string[],
+      allowed_game_ids: [] as string[],
       segment: defaultSegment(),
     }
   }

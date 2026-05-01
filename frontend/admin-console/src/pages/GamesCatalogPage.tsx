@@ -16,7 +16,12 @@ type Row = {
   title: string
   provider: string
   category: string
+  /** Effective image (override if set, else catalog from Blue Ocean / snapshot). */
   thumbnail_url?: string
+  /** Catalog feed only (not shown to players when override is set). */
+  thumbnail_url_catalog?: string
+  /** Staff override URL; empty when using catalog. */
+  thumbnail_url_override?: string
   game_type?: string
   provider_system?: string
   hidden: boolean
@@ -200,6 +205,7 @@ export default function GamesCatalogPage() {
 
   const [rows, setRows] = useState<Row[]>([])
   const [providers, setProviders] = useState<ProviderRow[]>([])
+  const [studioCount, setStudioCount] = useState<number | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [provErr, setProvErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -211,6 +217,8 @@ export default function GamesCatalogPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(50)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+  const [thumbModal, setThumbModal] = useState<Row | null>(null)
+  const [thumbDraft, setThumbDraft] = useState('')
 
   const [rtpGame, setRtpGame] = useState<Row | null>(null)
   const [rtpData, setRtpData] = useState<GameRtpStats | null>(null)
@@ -275,11 +283,13 @@ export default function GamesCatalogPage() {
       reportApiFailure({ res, parsed, method: 'GET', path: provPath })
       setProvErr(formatApiError(parsed, `HTTP ${res.status}`))
       setProviders([])
+      setStudioCount(null)
       setProvLoading(false)
       return
     }
-    const j = (await res.json()) as { providers: ProviderRow[] }
+    const j = (await res.json()) as { providers: ProviderRow[]; studio_count?: number }
     setProviders(j.providers ?? [])
+    setStudioCount(typeof j.studio_count === 'number' ? j.studio_count : null)
     setProvLoading(false)
   }, [apiFetch, reportApiFailure])
 
@@ -320,14 +330,28 @@ export default function GamesCatalogPage() {
     return () => { cancelled = true }
   }, [apiFetch])
 
-  const stats = useMemo(() => {
-    const total = rows.length
-    const inLobby = rows.filter((r) => isEffectiveInLobby(r)).length
-    const gameHidden = rows.filter((r) => r.hidden).length
-    const blockedByProvider = rows.filter((r) => r.provider_lobby_hidden).length
-    const providerKeys = new Set(rows.map((r) => r.provider).filter(Boolean)).size
-    return { total, inLobby, gameHidden, blockedByProvider, providerKeys }
-  }, [rows])
+  /** Full-catalog aggregates from /v1/admin/game-providers (not capped by the games list limit). */
+  const catalogStats = useMemo(() => {
+    const totalGames = providers.reduce((s, p) => s + p.game_count, 0)
+    const inLobby = providers.reduce((s, p) => s + p.effective_lobby_visible_count, 0)
+    const hiddenGames = providers.reduce(
+      (s, p) => s + Math.max(0, p.game_count - p.individually_visible_count),
+      0,
+    )
+    const integrationLobbyOffGames = providers.reduce(
+      (s, p) => s + (p.lobby_hidden ? p.game_count : 0),
+      0,
+    )
+    const integrationCount = providers.length
+    return {
+      totalGames,
+      inLobby,
+      hiddenGames,
+      integrationLobbyOffGames,
+      integrationCount,
+      studioCount,
+    }
+  }, [providers, studioCount])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -358,6 +382,29 @@ export default function GamesCatalogPage() {
       setSortDir(key === 'updated_at' ? 'desc' : 'asc')
     }
     setPage(1)
+  }
+
+  const runPatchThumbnail = async () => {
+    if (!thumbModal) return
+    const patchPath = `/v1/admin/games/${encodeURIComponent(thumbModal.id)}/thumbnail-override`
+    const trimmed = thumbDraft.trim()
+    const body =
+      trimmed.length > 0
+        ? { thumbnail_url_override: trimmed }
+        : { clear_thumbnail_override: true }
+    const res = await apiFetch(patchPath, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const parsed = await readApiError(res)
+      reportApiFailure({ res, parsed, method: 'PATCH', path: patchPath })
+      setErr(formatApiError(parsed, 'Thumbnail update failed'))
+      return
+    }
+    setThumbModal(null)
+    void load()
   }
 
   const runPatchGameHidden = async (id: string, hidden: boolean) => {
@@ -396,8 +443,8 @@ export default function GamesCatalogPage() {
   const sortBtn = (key: SortKey, label: string) => (
     <button
       type="button"
-      className={`inline-flex items-center gap-1 font-medium hover:text-brand-600 dark:hover:text-brand-400 ${
-        sortKey === key ? 'text-brand-600 dark:text-brand-400' : ''
+      className={`btn btn-link btn-sm text-decoration-none p-0 text-body fw-semibold ${
+        sortKey === key ? 'link-primary' : ''
       }`}
       onClick={() => onSort(key)}
     >
@@ -416,18 +463,18 @@ export default function GamesCatalogPage() {
         ? 'Turn off this game?'
         : 'Turn this game back on?'
       : confirm?.nextLobbyHidden
-        ? 'Turn off entire provider?'
-        : 'Turn provider back on?'
+        ? 'Turn off entire catalog integration?'
+        : 'Turn integration back on in the lobby?'
 
   const confirmMessage =
     confirm?.kind === 'game'
       ? confirm.nextHidden
         ? `This removes “${confirm.row.title || confirm.row.id}” from the player lobby. Players will not see or launch it until you turn it on again.`
-        : `Show “${confirm.row.title || confirm.row.id}” in the player lobby again (unless the whole provider is turned off or this row is still marked hidden).`
+        : `Show “${confirm.row.title || confirm.row.id}” in the player lobby again (unless the integration lobby is off or this row is still marked hidden).`
       : confirm
         ? confirm.nextLobbyHidden
-          ? `This hides every game from provider “${confirm.row.provider}” in the player lobby at once (${confirm.row.game_count} games). Individually hidden games stay hidden when the provider is on again.`
-          : `Re-enable provider “${confirm.row.provider}” in the lobby. Games you hid individually will remain hidden.`
+          ? `This hides every game from integration “${confirm.row.provider}” in the player lobby at once (${confirm.row.game_count} games). Individually hidden games stay hidden when the integration is on again.`
+          : `Re-enable integration “${confirm.row.provider}” in the lobby. Games you hid individually will remain hidden.`
         : ''
 
   const confirmLabel =
@@ -436,8 +483,8 @@ export default function GamesCatalogPage() {
         ? 'Yes, turn off game'
         : 'Yes, turn on game'
       : confirm?.nextLobbyHidden
-        ? 'Yes, turn off provider'
-        : 'Yes, turn on provider'
+        ? 'Yes, turn off integration'
+        : 'Yes, turn on integration'
 
   const confirmDanger =
     confirm?.kind === 'game' ? confirm?.nextHidden : confirm?.nextLobbyHidden
@@ -445,79 +492,96 @@ export default function GamesCatalogPage() {
   return (
     <>
       <PageMeta title="Games · Admin" description="Catalog, visibility, and monitoring" />
-      <PageBreadcrumb pageTitle="Games" />
+      <PageBreadcrumb
+        pageTitle="Games catalog"
+        subtitle="Lobby visibility, studios & integrations, RTP stats, and player lobby links"
+      />
 
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <StatCard
-          label="Total games"
-          value={loading ? '—' : formatCompact(stats.total)}
-        />
-        <StatCard
-          label="Active providers"
-          value={loading ? '—' : formatCompact(stats.providerKeys)}
-        />
-        <StatCard
-          label="Launches 24h"
-          value={launches24h != null ? formatCompact(launches24h) : '—'}
-        />
+      <div className="row row-cols-1 row-cols-sm-3 g-3 mb-3">
+        <div className="col">
+          <StatCard
+            label="Total games"
+            value={provLoading ? '—' : provErr ? '—' : formatCompact(catalogStats.totalGames)}
+            iconClass="bi bi-controller"
+            variant="primary"
+          />
+        </div>
+        <div className="col">
+          <StatCard
+            label="Studios"
+            value={provLoading ? '—' : provErr ? '—' : formatCompact(catalogStats.studioCount ?? 0)}
+            iconClass="bi bi-building"
+            variant="info"
+          />
+        </div>
+        <div className="col">
+          <StatCard
+            label="Launches (24h)"
+            value={launches24h != null ? formatCompact(launches24h) : '—'}
+            iconClass="bi bi-play-btn"
+            variant="success"
+          />
+        </div>
       </div>
 
       <ComponentCard
-        title="Providers"
-        desc="GET /v1/admin/game-providers — turn a whole provider off in the player lobby (superadmin only). PATCH /v1/admin/game-providers/lobby-hidden"
+        title="Catalog integrations"
+        desc="Integration rows (e.g. Blue Ocean). Turning one off hides its entire catalog from the lobby — this is not the same as individual game studios. Superadmin only."
       >
         {!canManageLobby ? (
-          <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
-            Lobby on/off controls require the <strong className="text-gray-900 dark:text-white">superadmin</strong>{' '}
-            role. Your role: <span className="font-mono text-xs">{role ?? 'unknown'}</span>.
-          </p>
+          <div className="alert alert-secondary small py-2 mb-3" role="note">
+            Lobby on/off requires <strong>superadmin</strong>. Your role:{' '}
+            <span className="font-monospace">{role ?? 'unknown'}</span>.
+          </div>
         ) : null}
         {provErr ? (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400">
-            {provErr}{' '}
-            <button type="button" className="underline" onClick={() => void loadProviders()}>
+          <div className="alert alert-danger small d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span>{provErr}</span>
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void loadProviders()}>
               Retry
             </button>
-          </p>
+          </div>
         ) : null}
         {provLoading ? (
-          <p className="text-sm text-gray-500">Loading providers…</p>
+          <p className="text-secondary small mb-0">Loading integrations…</p>
         ) : (
-          <div className="max-w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
-            <table className="min-w-[720px] divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-              <thead className="bg-gray-50 dark:bg-gray-900/50">
+          <div className="table-responsive">
+            <table className="table table-sm table-striped table-hover align-middle mb-0">
+              <thead className="table-light">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Provider</th>
-                  <th className="px-3 py-2 font-medium">Games</th>
-                  <th className="px-3 py-2 font-medium">Not individually hidden</th>
-                  <th className="px-3 py-2 font-medium">In player lobby now</th>
-                  <th className="px-3 py-2 font-medium">Lobby status</th>
-                  {canManageLobby ? <th className="px-3 py-2 font-medium">Actions</th> : null}
+                  <th scope="col">Integration</th>
+                  <th scope="col" className="text-end">
+                    Games
+                  </th>
+                  <th scope="col" className="text-end">
+                    Visible
+                  </th>
+                  <th scope="col" className="text-end">
+                    In lobby
+                  </th>
+                  <th scope="col">Lobby</th>
+                  {canManageLobby ? <th scope="col">Actions</th> : null}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+              <tbody>
                 {providers.map((p) => (
                   <tr key={p.provider || '—'}>
-                    <td className="px-3 py-2 font-mono text-xs">{p.provider || '—'}</td>
-                    <td className="px-3 py-2">{p.game_count}</td>
-                    <td className="px-3 py-2">{p.individually_visible_count}</td>
-                    <td className="px-3 py-2">{p.effective_lobby_visible_count}</td>
-                    <td className="px-3 py-2 text-xs">
+                    <td className="font-monospace small">{p.provider || '—'}</td>
+                    <td className="text-end small">{p.game_count}</td>
+                    <td className="text-end small">{p.individually_visible_count}</td>
+                    <td className="text-end small">{p.effective_lobby_visible_count}</td>
+                    <td className="small">
                       {p.lobby_hidden ? (
-                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-800 dark:text-amber-200">
-                          Off in lobby
-                        </span>
+                        <span className="badge text-bg-warning">Off</span>
                       ) : (
-                        <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-800 dark:text-emerald-200">
-                          On
-                        </span>
+                        <span className="badge text-bg-success">On</span>
                       )}
                     </td>
                     {canManageLobby ? (
-                      <td className="px-3 py-2">
+                      <td className="small">
                         <button
                           type="button"
-                          className="text-xs text-brand-600 underline dark:text-brand-400"
+                          className="btn btn-link btn-sm p-0"
                           onClick={() =>
                             setConfirm({
                               kind: 'provider',
@@ -542,105 +606,115 @@ export default function GamesCatalogPage() {
 
       <ComponentCard
         title="Game management"
-        desc={`GET /v1/admin/games — up to ${FETCH_LIMIT} rows. Per-game lobby toggle: superadmin only (PATCH /v1/admin/games/{id}/hidden).`}
+        desc={`Loads up to ${FETCH_LIMIT} games for search and edits below — summary totals match the full catalog. Catalog sync updates Blue Ocean metadata into thumbnail_url; optional staff thumbnail URL overrides the lobby image for players. Superadmin only.`}
       >
         {err ? (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400">
-            {err}{' '}
-            <button type="button" className="underline" onClick={() => void load()}>
+          <div className="alert alert-danger small d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span>{err}</span>
+            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void load()}>
               Retry
             </button>
-          </p>
+          </div>
         ) : null}
 
-        {!loading && rows.length > 0 ? (
-          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-white/[0.03]">
-              <p className="text-xs text-gray-500 dark:text-gray-400">In catalog</p>
-              <p className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.total}</p>
+        {!provLoading && !provErr ? (
+          <div className="row row-cols-2 row-cols-lg-5 g-2 mb-3">
+            <div className="col">
+              <div className="border rounded p-2 h-100 bg-body-tertiary">
+                <div className="small text-secondary">In catalog</div>
+                <div className="fs-5 fw-semibold">{formatCompact(catalogStats.totalGames)}</div>
+              </div>
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-white/[0.03]">
-              <p className="text-xs text-gray-500 dark:text-gray-400">In player lobby</p>
-              <p className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
-                {stats.inLobby}
-              </p>
+            <div className="col">
+              <div className="border rounded p-2 h-100 bg-body-tertiary">
+                <div className="small text-secondary">In lobby</div>
+                <div className="fs-5 fw-semibold text-success">{formatCompact(catalogStats.inLobby)}</div>
+              </div>
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-white/[0.03]">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Hidden (game)</p>
-              <p className="text-2xl font-semibold text-amber-600 dark:text-amber-400">
-                {stats.gameHidden}
-              </p>
+            <div className="col">
+              <div className="border rounded p-2 h-100 bg-body-tertiary">
+                <div className="small text-secondary">Hidden game</div>
+                <div className="fs-5 fw-semibold text-warning">{formatCompact(catalogStats.hiddenGames)}</div>
+              </div>
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-white/[0.03]">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Rows under provider off</p>
-              <p className="text-2xl font-semibold text-orange-600 dark:text-orange-400">
-                {stats.blockedByProvider}
-              </p>
+            <div className="col">
+              <div className="border rounded p-2 h-100 bg-body-tertiary">
+                <div className="small text-secondary">Games under integration lobby off</div>
+                <div className="fs-5 fw-semibold text-danger">{formatCompact(catalogStats.integrationLobbyOffGames)}</div>
+              </div>
             </div>
-            <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-white/[0.03]">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Provider keys</p>
-              <p className="text-2xl font-semibold text-gray-900 dark:text-white">
-                {stats.providerKeys}
-              </p>
+            <div className="col">
+              <div className="border rounded p-2 h-100 bg-body-tertiary">
+                <div className="small text-secondary">Integrations</div>
+                <div className="fs-5 fw-semibold">{formatCompact(catalogStats.integrationCount)}</div>
+              </div>
             </div>
           </div>
         ) : null}
 
-        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <label htmlFor="game-search" className="text-xs font-medium text-gray-600 dark:text-gray-400">
+        <div className="row g-2 align-items-end mb-3">
+          <div className="col-lg-6">
+            <label htmlFor="game-search" className="form-label small mb-1">
               Search
             </label>
             <input
               id="game-search"
               type="search"
-              placeholder="Title, id, provider, category, BOG id…"
+              placeholder="Title, id, studio, integration, category, BOG id…"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value)
                 setPage(1)
               }}
-              className="w-full max-w-xl rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              className="form-control form-control-sm"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {(['all', 'visible', 'hidden'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => {
-                  setVisibility(v)
-                  setPage(1)
-                }}
-                className={`rounded-lg px-3 py-2 text-xs font-medium capitalize ${
-                  visibility === v
-                    ? 'bg-brand-500 text-white'
-                    : 'bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-300'
-                }`}
-              >
-                {v === 'all' ? 'All' : v === 'visible' ? 'In lobby' : 'Not in lobby'}
-              </button>
-            ))}
+          <div className="col-lg-6">
+            <span className="form-label small mb-1 d-block">Visibility</span>
+            <div className="btn-group btn-group-sm" role="group" aria-label="Lobby visibility filter">
+              {(['all', 'visible', 'hidden'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => {
+                    setVisibility(v)
+                    setPage(1)
+                  }}
+                  className={`btn ${visibility === v ? 'btn-primary' : 'btn-outline-secondary'}`}
+                >
+                  {v === 'all' ? 'All' : v === 'visible' ? 'In lobby' : 'Not in lobby'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         {loading ? (
-          <p className="text-sm text-gray-500">Loading…</p>
+          <p className="text-secondary small">Loading…</p>
         ) : (
           <>
-            <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+            <p className="mb-2 small text-secondary">
               Showing {filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1}–
-              {Math.min(safePage * pageSize, filtered.length)} of {filtered.length} matching
-              {filtered.length !== rows.length ? ` (${rows.length} loaded)` : ''}
+              {Math.min(safePage * pageSize, filtered.length)} of {filtered.length} matching in this table
+              {!provLoading && !provErr && catalogStats.totalGames > rows.length
+                ? ` · showing ${rows.length} of ${formatCompact(catalogStats.totalGames)} in table`
+                : ''}
+              {!provLoading && !provErr ? (
+                <>
+                  {' · '}
+                  <span className="text-body-secondary">{formatCompact(catalogStats.totalGames)} games in catalog</span>
+                </>
+              ) : null}
             </p>
-            <div className="max-w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-800">
-              <table className="min-w-[1040px] divide-y divide-gray-200 text-left text-sm dark:divide-gray-800">
-                <thead className="bg-gray-50 dark:bg-gray-900/50">
+            <div className="table-responsive">
+              <table className="table table-sm table-hover align-middle mb-0" style={{ minWidth: '1180px' }}>
+                <thead className="table-light">
                   <tr>
                     <th className="px-3 py-2 font-medium">Thumb</th>
                     <th className="px-3 py-2 font-medium">{sortBtn('title', 'Title')}</th>
                     <th className="px-3 py-2 font-medium">{sortBtn('id', 'Game id')}</th>
-                    <th className="px-3 py-2 font-medium">{sortBtn('provider', 'Provider')}</th>
+                    <th className="px-3 py-2 font-medium">{sortBtn('provider', 'Integration')}</th>
+                    <th className="px-3 py-2 font-medium">{sortBtn('provider_system', 'Studio')}</th>
                     <th className="px-3 py-2 font-medium">{sortBtn('category', 'Category')}</th>
                     <th className="px-3 py-2 font-medium">{sortBtn('game_type', 'Type')}</th>
                     <th className="px-3 py-2 font-medium">{sortBtn('bog_game_id', 'BOG id')}</th>
@@ -651,11 +725,18 @@ export default function GamesCatalogPage() {
                     {canManageLobby ? <th className="px-3 py-2 font-medium">Actions</th> : null}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                <tbody>
                   {pageRows.map((r) => (
-                    <tr key={r.id} className="align-middle">
+                    <tr key={r.id}>
                       <td className="px-3 py-2">
-                        <Thumbnail url={r.thumbnail_url} title={r.title} />
+                        <div className="flex flex-col gap-0.5">
+                          <Thumbnail url={r.thumbnail_url} title={r.title} />
+                          {r.thumbnail_url_override?.trim() ? (
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-sky-600 dark:text-sky-400">
+                              Custom
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="max-w-[14rem] px-3 py-2">
                         <span className="line-clamp-2 font-medium text-gray-900 dark:text-white">
@@ -671,6 +752,9 @@ export default function GamesCatalogPage() {
                       </td>
                       <td className="max-w-[8rem] px-3 py-2 font-mono text-xs break-all">{r.id}</td>
                       <td className="px-3 py-2 text-xs">{r.provider || '—'}</td>
+                      <td className="max-w-[8rem] truncate px-3 py-2 text-xs" title={r.provider_system}>
+                        {r.provider_system?.trim() || '—'}
+                      </td>
                       <td className="px-3 py-2 text-xs">{r.category || '—'}</td>
                       <td className="max-w-[6rem] truncate px-3 py-2 text-xs" title={r.game_type}>
                         {r.game_type || '—'}
@@ -691,7 +775,7 @@ export default function GamesCatalogPage() {
                           </span>
                         ) : r.provider_lobby_hidden ? (
                           <span className="rounded bg-orange-500/15 px-1.5 py-0.5 text-orange-800 dark:text-orange-200">
-                            Provider off
+                            Integration off
                           </span>
                         ) : r.hidden ? (
                           <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
@@ -724,19 +808,31 @@ export default function GamesCatalogPage() {
                       </td>
                       {canManageLobby ? (
                         <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            className="text-xs text-brand-600 underline dark:text-brand-400"
-                            onClick={() =>
-                              setConfirm({
-                                kind: 'game',
-                                row: r,
-                                nextHidden: !r.hidden,
-                              })
-                            }
-                          >
-                            {r.hidden ? 'Turn on in lobby' : 'Turn off in lobby'}
-                          </button>
+                          <div className="flex flex-col gap-1">
+                            <button
+                              type="button"
+                              className="text-xs text-brand-600 underline dark:text-brand-400"
+                              onClick={() =>
+                                setConfirm({
+                                  kind: 'game',
+                                  row: r,
+                                  nextHidden: !r.hidden,
+                                })
+                              }
+                            >
+                              {r.hidden ? 'Turn on in lobby' : 'Turn off in lobby'}
+                            </button>
+                            <button
+                              type="button"
+                              className="text-start text-xs text-gray-600 underline dark:text-gray-400"
+                              onClick={() => {
+                                setThumbModal(r)
+                                setThumbDraft(r.thumbnail_url_override?.trim() ?? '')
+                              }}
+                            >
+                              Thumbnail…
+                            </button>
+                          </div>
                         </td>
                       ) : null}
                     </tr>
@@ -751,16 +847,19 @@ export default function GamesCatalogPage() {
               </p>
             ) : null}
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-                <span>Rows per page</span>
+            <div className="mt-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+              <div className="d-flex align-items-center gap-2 small text-secondary">
+                <label htmlFor="games-page-size" className="mb-0">
+                  Rows per page
+                </label>
                 <select
+                  id="games-page-size"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value) as (typeof PAGE_SIZES)[number])
                     setPage(1)
                   }}
-                  className="rounded border border-gray-300 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-900"
+                  className="form-select form-select-sm w-auto"
                 >
                   {PAGE_SIZES.map((n) => (
                     <option key={n} value={n}>
@@ -769,22 +868,22 @@ export default function GamesCatalogPage() {
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="d-flex align-items-center gap-2">
                 <button
                   type="button"
                   disabled={safePage <= 1}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700"
+                  className="btn btn-outline-secondary btn-sm"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                 >
                   Previous
                 </button>
-                <span className="text-xs text-gray-600 dark:text-gray-400">
+                <span className="small text-secondary px-1">
                   Page {safePage} / {totalPages}
                 </span>
                 <button
                   type="button"
                   disabled={safePage >= totalPages}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs disabled:opacity-40 dark:border-gray-700"
+                  className="btn btn-outline-secondary btn-sm"
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 >
                   Next
@@ -854,6 +953,63 @@ export default function GamesCatalogPage() {
             </div>
           ) : null}
         </ComponentCard>
+      ) : null}
+
+      {thumbModal ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="thumb-edit-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Close"
+            onClick={() => setThumbModal(null)}
+          />
+          <div className="relative z-[1] w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+            <h3 id="thumb-edit-title" className="text-lg font-semibold text-gray-900 dark:text-white">
+              Lobby thumbnail
+            </h3>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              {thumbModal.title || thumbModal.id}
+            </p>
+            {thumbModal.thumbnail_url_catalog?.trim() ? (
+              <p className="mt-2 break-all text-xs text-gray-500 dark:text-gray-400">
+                <span className="font-medium text-gray-700 dark:text-gray-300">Catalog (sync):</span>{' '}
+                {thumbModal.thumbnail_url_catalog}
+              </p>
+            ) : null}
+            <label htmlFor="thumb-override-url" className="mt-4 block text-sm font-medium text-gray-800 dark:text-gray-200">
+              Custom image URL (optional)
+            </label>
+            <textarea
+              id="thumb-override-url"
+              rows={3}
+              value={thumbDraft}
+              onChange={(e) => setThumbDraft(e.target.value)}
+              placeholder="https://… Leave empty and save to use catalog image."
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-950 dark:text-white"
+            />
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-600"
+                onClick={() => setThumbModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+                onClick={() => void runPatchThumbnail()}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <ConfirmDialog

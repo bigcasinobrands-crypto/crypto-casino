@@ -1,0 +1,12 @@
+# Example: Istio STRICT mTLS for the casino namespace (Istio / CNI required).
+# Apply only after mesh is installed and sidecars (or ambient) are injected.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: casino-prod
+spec:
+  mtls:
+    mode: STRICT
+
+# Optional second PeerAuthentication for ingress (see Istio docs). Do not apply commented YAML verbatim.

@@ -38,7 +38,7 @@ export function SliderField({
           value={value}
           disabled={disabled}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="h-2 min-w-[140px] flex-1 cursor-pointer accent-brand-600 disabled:opacity-50"
+          className="form-range min-w-[140px] flex-1 cursor-pointer accent-brand-600 disabled:opacity-50"
         />
         <input
           type="number"

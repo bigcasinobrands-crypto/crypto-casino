@@ -22,3 +22,8 @@ func insertNotification(ctx context.Context, pool *pgxpool.Pool, userID, kind, t
 	`, userID, kind, title, body, metaJSON)
 	return err
 }
+
+// SendPlayerNotification writes one in-app notification row for a player.
+func SendPlayerNotification(ctx context.Context, pool *pgxpool.Pool, userID, kind, title, body string, meta map[string]any) error {
+	return insertNotification(ctx, pool, userID, kind, title, body, meta)
+}

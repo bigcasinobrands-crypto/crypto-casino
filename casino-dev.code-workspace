@@ -1,0 +1,21 @@
+{
+  "folders": [
+    {
+      "name": "crypto-casino (monorepo)",
+      "path": "."
+    },
+    {
+      "name": "casino-operations",
+      "path": "../casino-operations"
+    },
+    {
+      "name": "casino-player",
+      "path": "../casino-player"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/node_modules": true
+    }
+  }
+}

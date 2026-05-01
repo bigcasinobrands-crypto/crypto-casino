@@ -27,13 +27,13 @@ const panelCopy: Record<AuthPanel, { kicker: string; title: string; subtitle: st
 
 export function AuthModal() {
   const { panel, closeAuth, setPanel } = useAuthModal()
-  const { accessToken } = usePlayerAuth()
+  const { isAuthenticated } = usePlayerAuth()
   const titleId = useId()
   const descId = useId()
 
   useEffect(() => {
-    if (accessToken && panel) closeAuth()
-  }, [accessToken, panel, closeAuth])
+    if (isAuthenticated && panel) closeAuth()
+  }, [isAuthenticated, panel, closeAuth])
 
   useEffect(() => {
     if (!panel) return
@@ -64,7 +64,7 @@ export function AuthModal() {
     >
       <button
         type="button"
-        className="absolute inset-0 bg-[#050408]/90 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-black/85 backdrop-blur-[2px]"
         aria-label="Close"
         onClick={closeAuth}
       />
@@ -73,7 +73,7 @@ export function AuthModal() {
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={copy.subtitle ? descId : undefined}
-        className="scrollbar-none relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[400px] flex-col gap-3 overflow-y-auto overflow-x-hidden rounded-casino-lg border border-casino-border/30 bg-casino-surface p-5 text-casino-foreground shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:max-w-[420px]"
+        className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[400px] flex-col gap-3 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth rounded-casino-lg border border-casino-border/30 bg-casino-surface p-5 text-casino-foreground shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:max-w-[420px] scrollbar-casino"
       >
         <button
           type="button"

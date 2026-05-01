@@ -15,7 +15,7 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** Rich demo payload for `/rewards/preview` — mirrors GET /v1/rewards/hub shape. */
+/** Demo payload for `/bonuses/preview` — mirrors GET /v1/rewards/hub shape. */
 export function buildMockRewardsHub(): RewardsHubPayload {
   const today = utcToday()
   const calendar = []
@@ -68,6 +68,7 @@ export function buildMockRewardsHub(): RewardsHubPayload {
         bonus_type: 'reload_deposit',
         valid_from: addDays(today, -1).toISOString(),
         valid_to: addDays(today, 5).toISOString(),
+        hero_image_url: 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?w=800&q=80',
       },
       {
         promotion_version_id: 102,
@@ -85,6 +86,16 @@ export function buildMockRewardsHub(): RewardsHubPayload {
         kind: 'auto_on_deposit',
         bonus_type: 'deposit_match',
       },
+      {
+        promotion_version_id: 105,
+        title: 'Token drop code',
+        description: 'Limited code from campaigns — enter under Profile → Promo Code.',
+        kind: 'redeem_code',
+        schedule_summary: 'While supplies last',
+        trigger_type: 'deposit',
+        bonus_type: 'no_deposit',
+        promo_code: 'DEMO-DROP-2026',
+      },
     ],
     bonus_instances: [
       {
@@ -97,7 +108,21 @@ export function buildMockRewardsHub(): RewardsHubPayload {
         wr_contributed_minor: 850_00,
         title: 'Welcome 100% match',
         bonus_type: 'deposit_match',
+        hero_image_url: 'https://images.unsplash.com/photo-1511192336575-5a79af67a629?w=800&q=80',
         created_at: addDays(today, -5).toISOString(),
+        details: {
+          wagering_multiplier: 30,
+          max_bet_minor: 50_00,
+          game_weight_pct: 100,
+          withdraw_policy: 'block',
+          deposit_minor: 100_00,
+          grant_minor: 100_00,
+          allowed_game_ids: [],
+          excluded_game_ids: [],
+          promotion_published_at: addDays(today, -10).toISOString(),
+          promotion_valid_from: addDays(today, -10).toISOString(),
+          promotion_valid_to: addDays(today, 90).toISOString(),
+        },
       },
       {
         id: '00000000-0000-0000-0000-000000000002',

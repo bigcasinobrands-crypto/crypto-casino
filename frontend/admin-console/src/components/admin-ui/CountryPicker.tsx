@@ -1,10 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  COUNTRY_OPTIONS,
-  countriesByRegion,
-  flagEmoji,
-  type CountryRegion,
-} from '../../lib/countryIsoList'
+import { COUNTRY_OPTIONS, countriesByRegion, flagEmoji } from '../../lib/countryIsoList'
 import { adminInputCls } from './inputStyles'
 
 export function CountryPicker({
@@ -116,22 +111,4 @@ export function CountryPicker({
       </div>
     </div>
   )
-}
-
-export function countrySelectOptions(): { value: string; label: string }[] {
-  return COUNTRY_OPTIONS.map((c) => ({
-    value: c.code,
-    label: `${flagEmoji(c.code)} ${c.region} · ${c.name} (${c.code})`,
-  }))
-}
-
-/** Add or remove all ISO codes in a region from a list (uppercase). */
-export function toggleRegionCodes(region: CountryRegion, current: string[], add: boolean): string[] {
-  const codes = new Set(current.map((x) => x.toUpperCase()))
-  const inRegion = COUNTRY_OPTIONS.filter((c) => c.region === region).map((c) => c.code)
-  for (const code of inRegion) {
-    if (add) codes.add(code)
-    else codes.delete(code)
-  }
-  return Array.from(codes)
 }

@@ -1,0 +1,51 @@
+# Example NetworkPolicy for `casino-api` — EDIT selectors before apply.
+# Goal: default posture = only expected ingress + egress (replace placeholders).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: casino-api-restricted
+  namespace: casino-prod
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: casino-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only from ingress controller in this cluster (example: ingress-nginx)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 9090
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # Postgres / Redis — use podSelector or namespaceSelector for your data plane
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # TODO: add CIDR or FQDN-based egress for Fystack, BlueOcean, Turnstile, etc. (or use egress gateway)

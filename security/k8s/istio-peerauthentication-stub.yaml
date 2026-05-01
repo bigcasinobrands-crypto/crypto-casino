@@ -1,0 +1,9 @@
+# Istio PeerAuthentication (STRICT mTLS) — enable when Istio is installed.
+# apiVersion: security.istio.io/v1beta1
+# kind: PeerAuthentication
+# metadata:
+#   name: default
+#   namespace: casino
+# spec:
+#   mtls:
+#     mode: STRICT

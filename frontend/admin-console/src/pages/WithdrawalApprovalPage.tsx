@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAdminAuth } from '../authContext'
 import { StatCard, StatusBadge } from '../components/dashboard'
-import { usePendingWithdrawals } from '../hooks/useDashboard'
+import { usePendingWithdrawals, type PendingWithdrawalRow } from '../hooks/useDashboard'
 import { formatCurrency, formatRelativeTime } from '../lib/format'
 
 function SkeletonRow() {
@@ -28,7 +28,7 @@ export default function WithdrawalApprovalPage() {
 
   const pending = data?.pending ?? []
   const pendingCount = data?.count ?? 0
-  const pendingValue = pending.reduce((sum: number, w: any) => sum + (w.amount_minor ?? 0), 0)
+  const pendingValue = pending.reduce((sum: number, w: PendingWithdrawalRow) => sum + (w.amount_minor ?? 0), 0)
 
   const handleApprove = async (id: string) => {
     setActionBusy(id)
@@ -127,7 +127,7 @@ export default function WithdrawalApprovalPage() {
                   </td>
                 </tr>
               ) : (
-                pending.map((w: any, idx: number) => {
+                pending.map((w: PendingWithdrawalRow, idx: number) => {
                   const amountMajor = (w.amount_minor ?? 0) / 100
                   const isHigh = amountMajor > 1000
                   return (
@@ -153,7 +153,7 @@ export default function WithdrawalApprovalPage() {
                         <StatusBadge label={w.status ?? 'pending'} variant="warning" dot />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-gray-500 dark:text-gray-400" title={w.created_at}>
-                        {formatRelativeTime(w.created_at)}
+                        {w.created_at ? formatRelativeTime(w.created_at) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">

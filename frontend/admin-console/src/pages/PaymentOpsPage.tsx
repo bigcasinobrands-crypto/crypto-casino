@@ -1,16 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAdminAuth } from '../authContext'
-import { StatCard, StatusBadge } from '../components/dashboard'
-import { useDashboardKPIs } from '../hooks/useDashboard'
-import { formatCurrency, formatCompact } from '../lib/format'
 import { ApiResultSummary } from '../components/admin/ApiResultSummary'
-import { AdminSection } from '../components/admin-ui'
-import ComponentCard from '../components/common/ComponentCard'
+import {
+  AreaChart,
+  CHART_COLORS,
+  ChartCard,
+  ChartEmpty,
+  MetricRow,
+  StatCard,
+  StatusBadge,
+} from '../components/dashboard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
-import { Toggle } from '../components/common/Toggle'
+import { useDashboardCharts, useDashboardKPIs } from '../hooks/useDashboard'
+import { alignTwoDailyTotals } from '../lib/dashboardSeries'
+import { formatCompact, formatCurrency } from '../lib/format'
+import DataTimeframeBar from '../components/dashboard/DataTimeframeBar'
+import { useCasinoAnalytics } from '../hooks/useCasinoAnalytics'
 
 type Summary = Record<string, unknown>
 
@@ -26,14 +34,94 @@ type DepositAssetsPayload = {
   configured?: Record<string, boolean>
 }
 
+const CHART_PERIODS = ['7d', '30d', '90d'] as const
+const FINANCE_PERIOD_OPTIONS = [
+  { value: '7d', label: '7D' },
+  { value: '30d', label: '30D' },
+  { value: '90d', label: '90D' },
+  { value: '6m', label: '6M' },
+  { value: 'ytd', label: 'YTD' },
+  { value: 'all', label: 'All time' },
+  { value: 'custom', label: 'Custom range' },
+]
+
+const FLAG_LABELS: Record<string, string> = {
+  deposits_enabled: 'Player deposits',
+  withdrawals_enabled: 'Player withdrawals',
+  real_play_enabled: 'Real-money play',
+  bonuses_enabled: 'Bonus promotions',
+  automated_grants_enabled: 'Automated bonus grants',
+}
+
+function ChartSkeleton({ h = 300 }: { h?: number }) {
+  return <div className="placeholder-glow rounded bg-body-secondary w-100" style={{ height: h }} />
+}
+
+function periodLabel(period: string) {
+  if (period === '7d') return '7d'
+  if (period === '90d') return '90d'
+  return '30d'
+}
+
 export default function PaymentOpsPage() {
   const { apiFetch, role } = useAdminAuth()
+  const [chartPeriod, setChartPeriod] = useState<string>('30d')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
   const [summary, setSummary] = useState<Summary | null>(null)
   const [flags, setFlags] = useState<PaymentFlags | null>(null)
   const [depositAssets, setDepositAssets] = useState<DepositAssetsPayload | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [flagBusyKey, setFlagBusyKey] = useState<string | null>(null)
+
+  const { data: kpis, loading: kpisLoading } = useDashboardKPIs()
+  const { data: charts, loading: chartsLoading, error: chartsError } = useDashboardCharts(
+    chartPeriod,
+    customStart,
+    customEnd,
+  )
+  const { data: casinoAnalytics, loading: casinoAnalyticsLoading } = useCasinoAnalytics(
+    chartPeriod,
+    customStart,
+    customEnd,
+  )
+  const selectedPeriod = periodLabel(chartPeriod)
+
+  const depWd = useMemo(() => {
+    if (!charts) return null
+    return alignTwoDailyTotals(
+      charts.deposits_by_day.map((d) => ({ date: d.date, total_minor: d.total_minor })),
+      charts.withdrawals_by_day.map((d) => ({ date: d.date, total_minor: d.total_minor })),
+    )
+  }, [charts])
+
+  const ggrDates = charts?.ggr_by_day.map((d) => d.date) ?? []
+  const ggrValues = charts?.ggr_by_day.map((d) => d.ggr_minor) ?? []
+
+  const dailyTxnRows = useMemo(() => {
+    if (!charts) return []
+    const depMap = new Map(charts.deposits_by_day.map((d) => [d.date, d.count]))
+    const wdMap = new Map(charts.withdrawals_by_day.map((d) => [d.date, d.count]))
+    const dates = new Set<string>()
+    charts.deposits_by_day.forEach((d) => dates.add(d.date))
+    charts.withdrawals_by_day.forEach((d) => dates.add(d.date))
+    return [...dates].sort().map((date) => ({
+      date,
+      dep: depMap.get(date) ?? 0,
+      wd: wdMap.get(date) ?? 0,
+    }))
+  }, [charts])
+  const selectedDeposits = charts?.deposits_by_day.reduce((n, row) => n + (row.total_minor ?? 0), 0) ?? 0
+  const selectedWithdrawals =
+    charts?.withdrawals_by_day.reduce((n, row) => n + (row.total_minor ?? 0), 0) ?? 0
+  const selectedGGR = ggrValues.reduce((n, row) => n + row, 0)
+  const selectedRegistrations = charts?.registrations_by_day.reduce((n, row) => n + (row.count ?? 0), 0) ?? 0
+  const selectedFTD = casinoAnalytics?.kpis.ftd_count ?? 0
+  const selectedDepositConv = casinoAnalytics?.kpis.reg_to_ftd_conversion_rate ?? 0
+  const selectedAvgDeposit = casinoAnalytics?.kpis.avg_first_deposit_minor ?? 0
+  const selectedActivePlayers = chartPeriod === '7d' ? (kpis?.active_players_7d ?? 0) : (kpis?.active_players_30d ?? 0)
+  const selectedArpu = selectedActivePlayers > 0 ? selectedGGR / selectedActivePlayers : 0
 
   const load = useCallback(async () => {
     setErr(null)
@@ -67,7 +155,6 @@ export default function PaymentOpsPage() {
     void load()
   }, [load])
 
-  // Auto-refresh ops data every 10s
   useEffect(() => {
     const t = window.setInterval(() => void load(), 10_000)
     return () => window.clearInterval(t)
@@ -91,7 +178,7 @@ export default function PaymentOpsPage() {
         toast.error('Could not update payment flag')
         return
       }
-      toast.success(`Updated ${key.replace(/_/g, ' ')}`)
+      toast.success(`Updated ${FLAG_LABELS[key] ?? key}`)
       await load()
     } catch {
       toast.error('Network error updating flag')
@@ -110,6 +197,7 @@ export default function PaymentOpsPage() {
         return
       }
       await load()
+      toast.success('Reconciliation started')
     } catch {
       setErr('Reconcile request failed')
     } finally {
@@ -117,130 +205,598 @@ export default function PaymentOpsPage() {
     }
   }
 
-  const { data: kpis } = useDashboardKPIs()
+  const processMetrics = summary?.process_metrics as Record<string, unknown> | undefined
+  const summaryForTable = useMemo(() => {
+    if (!summary) return null
+    return Object.fromEntries(
+      Object.entries(summary).filter(([key]) => key !== 'process_metrics'),
+    ) as Record<string, unknown>
+  }, [summary])
+
+  const yMoney = (v: number) => formatCurrency(v)
 
   return (
     <>
-      <PageMeta title="Finance Overview · Admin" description="Deposits, withdrawals, and pipeline health" />
-      <PageBreadcrumb pageTitle="Finance Overview" />
+      <PageMeta title="Finance · Admin" description="Deposits, withdrawals, liquidity, and payment controls" />
+      <PageBreadcrumb
+        pageTitle="Finance overview"
+        subtitle="Cash movement, pipeline health, Fystack configuration, and payment switches"
+      />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Deposit Volume (24h)"
-          value={kpis ? formatCurrency(kpis.deposits_24h) : '—'}
-          deltaLabel="txns"
-          delta={undefined}
-        />
-        <StatCard
-          label="Withdrawal Volume (24h)"
-          value={kpis ? formatCurrency(kpis.withdrawals_24h) : '—'}
-        />
-        <StatCard
-          label="Pending Withdrawals"
-          value={kpis ? `${formatCurrency(kpis.pending_withdrawals_value)} (${formatCompact(kpis.pending_withdrawals_count)})` : '—'}
-        />
-        <StatCard
-          label="Net Cash Flow (30d)"
-          value={kpis ? formatCurrency(kpis.net_cash_flow_30d) : '—'}
-          delta={kpis ? (kpis.net_cash_flow_30d >= 0 ? 0.1 : -0.1) : undefined}
-        />
+      <DataTimeframeBar
+        value={chartPeriod}
+        onChange={setChartPeriod}
+        options={FINANCE_PERIOD_OPTIONS}
+        startDate={customStart}
+        endDate={customEnd}
+        onStartDateChange={setCustomStart}
+        onEndDateChange={setCustomEnd}
+      />
+
+      {/* Finance + acquisition summary (mirrors dashboard money cards) */}
+      <div className="row mb-3">
+        <div className="col-xl-2 col-md-4 col-6 mb-3">
+          {chartsLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`GGR (${selectedPeriod})`}
+              value={formatCurrency(selectedGGR)}
+              iconClass="bi bi-graph-up-arrow"
+              variant="primary"
+            />
+          )}
+        </div>
+        <div className="col-xl-2 col-md-4 col-6 mb-3">
+          {casinoAnalyticsLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`FTD (${selectedPeriod})`}
+              value={formatCompact(selectedFTD)}
+              iconClass="bi bi-cash-coin"
+              variant="secondary"
+            />
+          )}
+        </div>
+        <div className="col-xl-2 col-md-4 col-6 mb-3">
+          {casinoAnalyticsLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`Reg → FTD (${selectedPeriod})`}
+              value={`${selectedDepositConv.toFixed(2)}%`}
+              iconClass="bi bi-percent"
+              variant="info"
+            />
+          )}
+        </div>
+        <div className="col-xl-2 col-md-4 col-6 mb-3">
+          {casinoAnalyticsLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`Avg first deposit (${selectedPeriod})`}
+              value={formatCurrency(selectedAvgDeposit)}
+              iconClass="bi bi-bank"
+              variant="success"
+            />
+          )}
+        </div>
+        <div className="col-xl-2 col-md-4 col-6 mb-3">
+          {chartsLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`ARPU (${selectedPeriod === '7d' ? '7d' : '30d'})`}
+              value={formatCurrency(selectedArpu)}
+              iconClass="bi bi-currency-dollar"
+              variant="warning"
+            />
+          )}
+        </div>
+        <div className="col-xl-2 col-md-4 col-6 mb-3">
+          {chartsLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`New registrations (${selectedPeriod})`}
+              value={formatCompact(selectedRegistrations)}
+              iconClass="bi bi-person-plus"
+              variant="danger"
+            />
+          )}
+        </div>
       </div>
 
-      {kpis && kpis.pending_withdrawals_count > 0 && (
-        <div className="mb-6">
-          <Link
-            to="/withdrawal-approvals"
-            className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800 transition hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/60"
-          >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white">
-              {kpis.pending_withdrawals_count}
-            </span>
-            Review pending withdrawal approvals
+      {/* KPI strip */}
+      <div className="row mb-3">
+        <div className="col-xl-3 col-md-6 mb-3 mb-xl-0">
+          {kpisLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`Deposit volume (${selectedPeriod})`}
+              value={formatCurrency(selectedDeposits)}
+              iconClass="bi bi-arrow-down-circle"
+              variant="success"
+            />
+          )}
+        </div>
+        <div className="col-xl-3 col-md-6 mb-3 mb-xl-0">
+          {kpisLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`Withdrawal volume (${selectedPeriod})`}
+              value={formatCurrency(selectedWithdrawals)}
+              iconClass="bi bi-arrow-up-circle"
+              variant="danger"
+            />
+          )}
+        </div>
+        <div className="col-xl-3 col-md-6 mb-3 mb-xl-0">
+          {kpisLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label="Pending withdrawals"
+              value={`${formatCurrency(kpis?.pending_withdrawals_value ?? 0)} · ${formatCompact(kpis?.pending_withdrawals_count ?? 0)}`}
+              iconClass="bi bi-hourglass-split"
+              variant="warning"
+            />
+          )}
+        </div>
+        <div className="col-xl-3 col-md-6">
+          {kpisLoading ? (
+            <div className="small-box text-bg-secondary placeholder-glow">
+              <div className="inner">
+                <h3 className="placeholder col-8" />
+                <p className="placeholder col-10" />
+              </div>
+            </div>
+          ) : (
+            <StatCard
+              label={`Net cash flow (${selectedPeriod})`}
+              value={formatCurrency(selectedDeposits - selectedWithdrawals)}
+              iconClass="bi bi-graph-up-arrow"
+              variant="info"
+            />
+          )}
+        </div>
+      </div>
+
+      {kpis && kpis.pending_withdrawals_count > 0 ? (
+        <div className="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+          <span>
+            <strong>{formatCompact(kpis.pending_withdrawals_count)}</strong> withdrawal
+            {kpis.pending_withdrawals_count === 1 ? '' : 's'} awaiting approval ({formatCurrency(kpis.pending_withdrawals_value)}).
+          </span>
+          <Link to="/withdrawal-approvals" className="btn btn-sm btn-warning">
+            Open approval queue
           </Link>
         </div>
-      )}
+      ) : null}
 
-      <AdminSection
-        title="Pipeline summary"
-        desc="Webhook backlog, wallets, worker failures, and queue depth — labeled fields below."
-      >
-        {err ? <p className="text-sm text-red-500">{err}</p> : null}
-        {summary ? <ApiResultSummary data={summary} embedded /> : <p className="text-sm text-gray-500">No summary loaded.</p>}
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            type="button"
-            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            onClick={() => void load()}
-          >
-            Refresh
-          </button>
-          <span className="text-[10px] text-gray-400 dark:text-gray-500">Auto-refresh every 10s</span>
+      {/* Quick links */}
+      <div className="card shadow-sm mb-4">
+        <div className="card-header">
+          <h3 className="card-title mb-0 fs-6">Data &amp; tools</h3>
+          <p className="text-secondary small mb-0 mt-1">Jump to live tables and integrations</p>
         </div>
-      </AdminSection>
+        <div className="card-body d-flex flex-wrap gap-2">
+          <Link to="/deposits" className="btn btn-outline-primary btn-sm">
+            Deposits
+          </Link>
+          <Link to="/withdrawals" className="btn btn-outline-primary btn-sm">
+            Withdrawals
+          </Link>
+          <Link to="/ledger" className="btn btn-outline-primary btn-sm">
+            Ledger
+          </Link>
+          <Link to="/finance/fystack-webhooks" className="btn btn-outline-secondary btn-sm">
+            Fystack webhooks
+          </Link>
+          <Link to="/withdrawal-approvals" className="btn btn-outline-secondary btn-sm">
+            Withdrawal approvals
+          </Link>
+        </div>
+      </div>
 
-      <AdminSection
-        title="On-chain deposit asset keys"
-        desc="Which Fystack deposit asset slots are configured in the environment (read-only snapshot)."
-      >
-        {depositAssets?.configured ? (
-          <ApiResultSummary data={depositAssets.configured} embedded />
-        ) : (
-          <p className="text-sm text-gray-500">Could not load deposit-asset config snapshot.</p>
-        )}
-      </AdminSection>
-
-      <ComponentCard
-        title="Payment flags"
-        desc="Deposits, withdrawals, real play, and bonus automation. Changes are audited."
-      >
-        {flags ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {(
-              [
-                ['deposits_enabled', flags.deposits_enabled],
-                ['withdrawals_enabled', flags.withdrawals_enabled],
-                ['real_play_enabled', flags.real_play_enabled],
-                ['bonuses_enabled', flags.bonuses_enabled ?? true],
-                ['automated_grants_enabled', flags.automated_grants_enabled ?? true],
-              ] as const
-            ).map(([key, val]) => (
-              <div
-                key={key}
-                className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-white/[0.02]"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                    {key.replace(/_/g, ' ')}
-                  </span>
-                  <StatusBadge label={val ? 'ON' : 'OFF'} variant={val ? 'success' : 'error'} dot />
-                </div>
-                <Toggle
-                  checked={!!val}
-                  disabled={flagBusyKey === key || !isSuper}
-                  onChange={() => void togglePaymentFlag(key, !!val)}
-                />
+      {/* Charts */}
+      <div className="row">
+        <div className="col-lg-6 mb-4">
+          {chartsLoading ? (
+            <div className="card shadow-sm mb-4">
+              <div className="card-header">
+                <span className="placeholder col-6" />
               </div>
-            ))}
+              <div className="card-body">
+                <ChartSkeleton />
+              </div>
+            </div>
+          ) : chartsError && !charts ? (
+            <ChartCard
+              title="Cash in vs cash out (daily)"
+              periods={[...CHART_PERIODS]}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <ChartEmpty message={`Could not load charts: ${chartsError}`} height={280} />
+            </ChartCard>
+          ) : (
+            <ChartCard
+              title="Cash in vs cash out (daily)"
+              periods={[...CHART_PERIODS]}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <AreaChart
+                series={[
+                  { name: 'Deposits', data: depWd?.valuesA ?? [], color: CHART_COLORS.success },
+                  { name: 'Withdrawals', data: depWd?.valuesB ?? [], color: CHART_COLORS.danger },
+                ]}
+                categories={depWd?.categories ?? []}
+                yFormatter={yMoney}
+              />
+            </ChartCard>
+          )}
+        </div>
+        <div className="col-lg-6 mb-4">
+          {chartsLoading ? (
+            <div className="card shadow-sm mb-4">
+              <div className="card-header">
+                <span className="placeholder col-6" />
+              </div>
+              <div className="card-body">
+                <ChartSkeleton />
+              </div>
+            </div>
+          ) : chartsError && !charts ? (
+            <ChartCard
+              title="Gross gaming revenue (daily)"
+              periods={[...CHART_PERIODS]}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <ChartEmpty message={`Could not load charts: ${chartsError}`} height={280} />
+            </ChartCard>
+          ) : (
+            <ChartCard
+              title="Gross gaming revenue (daily)"
+              periods={[...CHART_PERIODS]}
+              activePeriod={chartPeriod}
+              onPeriodChange={setChartPeriod}
+            >
+              <AreaChart
+                series={[{ name: 'GGR', data: ggrValues, color: CHART_COLORS.primary }]}
+                categories={ggrDates}
+                yFormatter={yMoney}
+              />
+            </ChartCard>
+          )}
+        </div>
+      </div>
+
+      <div className="row mb-4">
+        <div className="col-lg-6 mb-4 mb-lg-0">
+          <div className="card shadow-sm h-100">
+            <div className="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+              <div>
+                <h3 className="card-title mb-0 fs-6">Daily deposit transactions</h3>
+                <p className="text-secondary small mb-0 mt-1">Count per day (same period as charts)</p>
+              </div>
+            </div>
+            <div className="card-body p-0">
+              {chartsLoading || !charts ? (
+                <div className="p-3">
+                  <div className="placeholder-glow rounded bg-body-secondary w-100" style={{ height: 200 }} />
+                </div>
+              ) : (
+                <div className="table-responsive" style={{ maxHeight: 280 }}>
+                  <table className="table table-sm table-striped table-hover align-middle mb-0">
+                    <thead className="table-light sticky-top">
+                      <tr>
+                        <th>Date</th>
+                        <th className="text-end">Deposits</th>
+                        <th className="text-end">Withdrawals</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyTxnRows.map((row) => (
+                        <tr key={row.date}>
+                          <td className="font-monospace small">{row.date}</td>
+                          <td className="text-end small">{formatCompact(row.dep)}</td>
+                          <td className="text-end small">{formatCompact(row.wd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="text-sm text-gray-500">Flags unavailable.</p>
-        )}
-        {!isSuper ? (
-          <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">Superadmin role required to edit toggles.</p>
-        ) : null}
-      </ComponentCard>
+        </div>
+        <div className="col-lg-6">
+          <div className="card shadow-sm h-100">
+            <div className="card-header">
+              <h3 className="card-title mb-0 fs-6">Pipeline summary</h3>
+              <p className="text-secondary small mb-0 mt-1">Operational counters (refreshed every 10s)</p>
+            </div>
+            <div className="card-body py-0">
+              {err ? <p className="text-danger small py-3 mb-0">{err}</p> : null}
+              {!summaryForTable || Object.keys(summaryForTable).length === 0 ? (
+                <p className="text-secondary small py-3 mb-0">No summary loaded.</p>
+              ) : (
+                <>
+                  <MetricRow
+                    label="Fystack webhooks pending"
+                    value={String(summaryForTable.webhook_deliveries_pending ?? '—')}
+                    subValue={
+                      <Link to="/finance/fystack-webhooks" className="link-primary small">
+                        Open inbox
+                      </Link>
+                    }
+                    trailing={
+                      <StatusBadge
+                        label={Number(summaryForTable.webhook_deliveries_pending) > 0 ? 'Backlog' : 'Clear'}
+                        variant={Number(summaryForTable.webhook_deliveries_pending) > 0 ? 'warning' : 'success'}
+                        dot
+                      />
+                    }
+                  />
+                  <MetricRow
+                    label="Withdrawals in flight"
+                    value={String(summaryForTable.withdrawals_in_flight ?? '—')}
+                    subValue={
+                      <Link to="/withdrawals" className="link-primary small">
+                        Withdrawals table
+                      </Link>
+                    }
+                  />
+                  <MetricRow
+                    label="Users missing Fystack wallet"
+                    value={String(summaryForTable.users_missing_fystack_wallet ?? '—')}
+                    subValue="Provisioning gap"
+                  />
+                  <MetricRow
+                    label="Ledger entries (total rows)"
+                    value={String(summaryForTable.ledger_entries_total ?? '—')}
+                    subValue={
+                      <Link to="/ledger" className="link-primary small">
+                        Ledger
+                      </Link>
+                    }
+                  />
+                  <MetricRow
+                    label="Worker failures (unresolved)"
+                    value={String(summaryForTable.worker_failed_jobs_unresolved ?? '—')}
+                    subValue={
+                      <Link to="/bonushub/operations?tab=failed_jobs" className="link-primary small">
+                        Failed jobs
+                      </Link>
+                    }
+                    trailing={
+                      <StatusBadge
+                        label={Number(summaryForTable.worker_failed_jobs_unresolved) > 0 ? 'Action' : 'Clear'}
+                        variant={Number(summaryForTable.worker_failed_jobs_unresolved) > 0 ? 'error' : 'success'}
+                        dot
+                      />
+                    }
+                  />
+                  <MetricRow
+                    label="Bonus outbox pending"
+                    value={String(summaryForTable.bonus_outbox_pending_delivery ?? '—')}
+                    subValue={
+                      <Link to="/bonushub/bonus-audit?tab=outbox" className="link-primary small">
+                        Compliance → Outbox
+                      </Link>
+                    }
+                  />
+                  <MetricRow
+                    label="Bonus outbox DLQ"
+                    value={String(summaryForTable.bonus_outbox_dead_letter ?? '—')}
+                    subValue={
+                      <Link to="/bonushub/bonus-audit?tab=outbox&outbox=dlq" className="link-primary small">
+                        DLQ filter
+                      </Link>
+                    }
+                  />
+                  <MetricRow
+                    label="Redis job queue depth"
+                    value={
+                      summaryForTable.redis_queue_depth != null
+                        ? String(summaryForTable.redis_queue_depth)
+                        : '—'
+                    }
+                    subValue="casino:jobs"
+                  />
+                </>
+              )}
+              <div className="d-flex flex-wrap align-items-center gap-2 py-3 border-top">
+                <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => void load()}>
+                  Refresh now
+                </button>
+                <span className="text-secondary small">Auto-refresh every 10s</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {processMetrics && Object.keys(processMetrics).length > 0 ? (
+        <div className="card shadow-sm mb-4">
+          <div className="card-header">
+            <h3 className="card-title mb-0 fs-6">Process metrics</h3>
+            <p className="text-secondary small mb-0 mt-1">In-process counters (SLI stubs)</p>
+          </div>
+          <div className="card-body">
+            <ApiResultSummary data={processMetrics} embedded />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="card shadow-sm mb-4">
+        <div className="card-header">
+          <h3 className="card-title mb-0 fs-6">On-chain deposit asset keys</h3>
+          <p className="text-secondary small mb-0 mt-1">
+            Fystack deposit slots configured in the environment (read-only)
+          </p>
+        </div>
+        <div className="card-body p-0">
+          {depositAssets?.configured && Object.keys(depositAssets.configured).length > 0 ? (
+            <div className="table-responsive">
+              <table className="table table-sm table-hover align-middle mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th scope="col">Asset key</th>
+                    <th scope="col" className="text-end">
+                      Status
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(depositAssets.configured)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([key, ok]) => (
+                      <tr key={key}>
+                        <td>
+                          <code className="small">{key}</code>
+                        </td>
+                        <td className="text-end">
+                          <span className={`badge ${ok ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                            {ok ? 'Configured' : 'Not set'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-secondary small mb-0 p-3">Could not load deposit-asset snapshot.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="card shadow-sm mb-4">
+        <div className="card-header">
+          <h3 className="card-title mb-0 fs-6">Payment flags</h3>
+          <p className="text-secondary small mb-0 mt-1">Runtime switches — changes are audited (superadmin only)</p>
+        </div>
+        <div className="card-body">
+          {flags ? (
+            <ul className="list-group list-group-flush border rounded overflow-hidden">
+              {(
+                [
+                  ['deposits_enabled', flags.deposits_enabled],
+                  ['withdrawals_enabled', flags.withdrawals_enabled],
+                  ['real_play_enabled', flags.real_play_enabled],
+                  ['bonuses_enabled', flags.bonuses_enabled ?? true],
+                  ['automated_grants_enabled', flags.automated_grants_enabled ?? true],
+                ] as const
+              ).map(([key, val]) => (
+                <li
+                  key={key}
+                  className="list-group-item d-flex align-items-center justify-content-between gap-3 flex-wrap"
+                >
+                  <div className="d-flex align-items-center gap-2 min-w-0">
+                    <span className="fw-medium text-break">{FLAG_LABELS[key] ?? key}</span>
+                    <StatusBadge label={val ? 'On' : 'Off'} variant={val ? 'success' : 'error'} dot />
+                  </div>
+                  <div className="form-check form-switch mb-0">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      role="switch"
+                      id={`flag-${key}`}
+                      checked={!!val}
+                      disabled={flagBusyKey === key || !isSuper}
+                      onChange={() => void togglePaymentFlag(key, !!val)}
+                      aria-label={`Toggle ${FLAG_LABELS[key] ?? key}`}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-secondary small mb-0">Flags unavailable.</p>
+          )}
+          {!isSuper ? (
+            <p className="text-warning small mb-0 mt-3">Superadmin role required to edit payment flags.</p>
+          ) : null}
+        </div>
+      </div>
 
       {isSuper ? (
-        <ComponentCard title="Reconciliation" desc="Replay stale Fystack webhook deliveries (idempotent).">
-          <button
-            type="button"
-            disabled={busy}
-            className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white/10"
-            onClick={() => void reconcile()}
-          >
-            {busy ? 'Running…' : 'Run reconcile'}
-          </button>
-        </ComponentCard>
+        <div className="card shadow-sm mb-4">
+          <div className="card-header">
+            <h3 className="card-title mb-0 fs-6">Fystack reconciliation</h3>
+            <p className="text-secondary small mb-0 mt-1">Replay stale webhook deliveries (idempotent)</p>
+          </div>
+          <div className="card-body">
+            <button
+              type="button"
+              disabled={busy}
+              className="btn btn-dark"
+              onClick={() => void reconcile()}
+            >
+              {busy ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden />
+                  Running…
+                </>
+              ) : (
+                'Run reconcile'
+              )}
+            </button>
+          </div>
+        </div>
       ) : null}
     </>
   )

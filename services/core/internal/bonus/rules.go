@@ -14,12 +14,25 @@ type promoRules struct {
 		NthDeposit       int      `json:"nth_deposit"` // e.g. 2 = second deposit only; 0 = any
 		Channels         []string `json:"channels"`    // empty = any; else must match ev.Channel
 	} `json:"trigger"`
+	// PlayerOptInGrantMinor (JSON player_opt_in_grant_minor): when >0 and promotion has hub boost,
+	// POST /v1/bonuses/claim-offer can credit this amount without a deposit (e.g. starter balance).
+	PlayerOptInGrantMinor int64 `json:"player_opt_in_grant_minor"`
 	Reward struct {
 		Type       string `json:"type"`
 		Percent    int    `json:"percent"`
 		CapMinor   int64  `json:"cap_minor"`
 		FixedMinor int64  `json:"fixed_minor"`
+		// Free spin packages (Blue Ocean addFreeRounds) when reward type is freespins / free_spins.
+		Rounds           int    `json:"rounds"`
+		GameID           string `json:"game_id"`
+		BetPerRoundMinor int64  `json:"bet_per_round_minor"`
 	} `json:"reward"`
+	// FreeSpins: optional second package for composite_match_and_fs (match % from reward + free rounds).
+	FreeSpins *struct {
+		Rounds           int    `json:"rounds"`
+		GameID           string `json:"game_id"`
+		BetPerRoundMinor int64  `json:"bet_per_round_minor"`
+	} `json:"free_spins"`
 	Wagering struct {
 		Multiplier    int     `json:"multiplier"`
 		MaxBetMinor   int64   `json:"max_bet_minor"`
@@ -27,6 +40,8 @@ type promoRules struct {
 	} `json:"wagering"`
 	WithdrawPolicy  string   `json:"withdraw_policy"`
 	ExcludedGameIDs []string `json:"excluded_game_ids"`
+	// AllowedGameIDs when non-empty: only these games count toward wagering (others do not progress WR).
+	AllowedGameIDs []string `json:"allowed_game_ids"`
 }
 
 func parseRules(raw []byte) (promoRules, error) {
@@ -51,6 +66,8 @@ func parseRules(raw []byte) (promoRules, error) {
 	return r, nil
 }
 
+// matchesDeposit enforces this payment against trigger rules. It does not use the player’s
+// pre-deposit cash balance; optional balance gates belong in the JSON rules if product adds them.
 func (r promoRules) matchesDeposit(ev PaymentSettled) bool {
 	if strings.TrimSpace(strings.ToLower(r.Trigger.Type)) != "deposit" {
 		return false
@@ -120,4 +137,61 @@ func (r promoRules) gameExcluded(gameID string) bool {
 		}
 	}
 	return false
+}
+
+// freeSpinFromRules returns a Blue Ocean free-round package if rules specify rounds + a catalog game_id (our games.id / id_hash).
+// Used to enqueue free_spin_grants (pending) for the worker to call addFreeRounds.
+func (r promoRules) freeSpinFromRules() (rounds int, betPerRoundMinor int64, gameID string, ok bool) {
+	if r.FreeSpins != nil && r.FreeSpins.Rounds > 0 {
+		gid := strings.TrimSpace(r.FreeSpins.GameID)
+		if gid == "" {
+			return 0, 0, "", false
+		}
+		bet := r.FreeSpins.BetPerRoundMinor
+		if bet <= 0 {
+			bet = 1
+		}
+		return r.FreeSpins.Rounds, bet, gid, true
+	}
+	t := strings.ToLower(strings.TrimSpace(r.Reward.Type))
+	if t == "freespins" || t == "free_spins" || t == "spins" {
+		if r.Reward.Rounds <= 0 {
+			return 0, 0, "", false
+		}
+		gid := strings.TrimSpace(r.Reward.GameID)
+		if gid == "" {
+			return 0, 0, "", false
+		}
+		bet := r.Reward.BetPerRoundMinor
+		if bet <= 0 {
+			bet = 1
+		}
+		return r.Reward.Rounds, bet, gid, true
+	}
+	return 0, 0, "", false
+}
+
+// notionalForFreeSpinRisk is a small cash-style figure for abuse / velocity checks on non-cash free-spin grants.
+func notionalForFreeSpinRisk(rounds int, betPerRoundMinor int64) int64 {
+	if rounds <= 0 {
+		return 0
+	}
+	if betPerRoundMinor <= 0 {
+		return int64(rounds * 100)
+	}
+	return int64(rounds) * betPerRoundMinor
+}
+
+func isDepositTrigger(r promoRules) bool {
+	return strings.ToLower(strings.TrimSpace(r.Trigger.Type)) == "deposit"
+}
+
+// FreeSpinSpecFromRulesJSON extracts free-round parameters from a promotion version’s rules JSON (for admin / diagnostics).
+func FreeSpinSpecFromRulesJSON(raw []byte) (rounds int, betPerRoundMinor int64, gameID string, ok bool, err error) {
+	r, err := parseRules(raw)
+	if err != nil {
+		return 0, 0, "", false, err
+	}
+	rounds, betPerRoundMinor, gameID, ok = r.freeSpinFromRules()
+	return rounds, betPerRoundMinor, gameID, ok, nil
 }

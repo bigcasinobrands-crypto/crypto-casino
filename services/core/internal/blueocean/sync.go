@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 
@@ -12,8 +13,43 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// SyncCatalogFromSnapshot parses raw JSON (same shapes as getGameList) and upserts games — no outbound Blue Ocean call.
+func SyncCatalogFromSnapshot(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, raw []byte) (upserted int, err error) {
+	imageBase := ""
+	cur := "EUR"
+	if cfg != nil {
+		imageBase = cfg.BlueOceanImageBaseURL
+		if t := strings.TrimSpace(cfg.BlueOceanCurrency); t != "" {
+			cur = t
+		}
+	}
+	games, err := ParseCatalogGames(raw, imageBase)
+	if err != nil {
+		_ = saveSyncState(ctx, pool, cur, 0, err.Error())
+		return 0, err
+	}
+	n, err := upsertCatalogBatch(ctx, pool, cfg, games)
+	if err != nil {
+		_ = saveSyncState(ctx, pool, cur, 0, err.Error())
+		return 0, err
+	}
+	_ = saveSyncState(ctx, pool, cur, n, "")
+	return n, nil
+}
+
 // SyncCatalog fetches getGameList (paginated when BLUEOCEAN_CATALOG_PAGE_SIZE > 0) and upserts into games.
+// If BLUEOCEAN_CATALOG_SNAPSHOT_PATH is set, reads that file instead (no remote calls).
 func SyncCatalog(ctx context.Context, pool *pgxpool.Pool, client *Client, cfg *config.Config) (upserted int, err error) {
+	if cfg != nil {
+		p := strings.TrimSpace(cfg.BlueOceanCatalogSnapshotPath)
+		if p != "" {
+			raw, err := os.ReadFile(p)
+			if err != nil {
+				return 0, fmt.Errorf("blueocean: read catalog snapshot %q: %w", p, err)
+			}
+			return SyncCatalogFromSnapshot(ctx, pool, cfg, raw)
+		}
+	}
 	if client == nil || !client.Configured() {
 		return 0, fmt.Errorf("blueocean: client not configured")
 	}
@@ -135,7 +171,7 @@ func upsertCatalogBatch(ctx context.Context, pool *pgxpool.Pool, cfg *config.Con
 	n := 0
 	for _, g := range games {
 		id := StableGameID(g)
-		cat := PrimaryLobbyKey(g.GameType)
+		cat := LobbyCategory(g.GameType, g.Subcategory)
 		meta := map[string]any{
 			"subcategory": g.Subcategory,
 			"mobile":      g.Mobile,

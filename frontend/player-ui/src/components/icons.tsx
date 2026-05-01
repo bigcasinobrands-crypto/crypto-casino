@@ -1,4 +1,8 @@
+import type { ImgHTMLAttributes, ReactNode } from 'react'
 import type { SVGProps } from 'react'
+import { PigmoAssetIcon } from './PigmoAssetIcon'
+import { getPigmoShellIconUrl } from '../lib/pigmoShellIconMap'
+import type { PigmoShellIconSlot } from '../lib/pigmoShellIconMap'
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number }
 
@@ -6,13 +10,35 @@ function base({ size = 20, className, ...p }: IconProps) {
   return { width: size, height: size, className, viewBox: '0 0 24 24', fill: 'none', ...p }
 }
 
+/** When `VITE_PIGMO_SHELL_ICONS` supplies a URL for `slot`, render that asset instead of inline SVG. */
+function pigmoOrSvg(slot: PigmoShellIconSlot, props: IconProps, svg: ReactNode, monochrome = true) {
+  const src = getPigmoShellIconUrl(slot)
+  if (!src) return svg
+  const { size = 20, className, style, id, role, 'aria-label': ariaLabel, 'aria-hidden': ariaHidden } = props
+  return (
+    <PigmoAssetIcon
+      src={src}
+      size={size}
+      className={className}
+      style={style}
+      id={id}
+      role={role as ImgHTMLAttributes<HTMLImageElement>['role']}
+      aria-label={ariaLabel}
+      aria-hidden={ariaHidden}
+      monochrome={monochrome}
+    />
+  )
+}
+
 export function IconSearch(props: IconProps) {
   const b = base(props)
-  return (
+  return pigmoOrSvg(
+    'search',
+    props,
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="11" cy="11" r="8" />
       <path d="m21 21-4.3-4.3" />
-    </svg>
+    </svg>,
   )
 }
 
@@ -27,50 +53,60 @@ export function IconX(props: IconProps) {
 
 export function IconMenu(props: IconProps) {
   const b = base(props)
-  return (
+  return pigmoOrSvg(
+    'menu',
+    props,
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 6h16M4 12h16M4 18h16" />
-    </svg>
+    </svg>,
   )
 }
 
 export function IconMessageSquare(props: IconProps) {
   const b = base(props)
-  return (
+  return pigmoOrSvg(
+    'message',
+    props,
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
+    </svg>,
   )
 }
 
 export function IconBell(props: IconProps) {
   const b = base(props)
-  return (
+  return pigmoOrSvg(
+    'bell',
+    props,
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
       <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-    </svg>
+    </svg>,
   )
 }
 
 export function IconUser(props: IconProps) {
   const b = base(props)
-  return (
+  return pigmoOrSvg(
+    'user',
+    props,
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="8" r="4" />
       <path d="M4 20v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" />
-    </svg>
+    </svg>,
   )
 }
 
 export function IconWallet(props: IconProps) {
   const b = base(props)
-  return (
+  return pigmoOrSvg(
+    'wallet',
+    props,
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
       <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
       <path d="M18 12a2 2 0 0 0 0 4h4v-4Z" />
-    </svg>
+    </svg>,
   )
 }
 
@@ -691,6 +727,70 @@ export function IconAtSign(props: IconProps) {
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="4" />
       <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </svg>
+  )
+}
+
+/** Circle with dollar stem (Lucide circle-dollar-sign style). */
+export function IconCircleDollarSign(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
+      <path d="M12 18V6" />
+    </svg>
+  )
+}
+
+export function IconHexagon(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+    </svg>
+  )
+}
+
+export function IconSkull(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="12" r="1" />
+      <circle cx="15" cy="12" r="1" />
+      <path d="M8 20v2h8v-2" />
+      <path d="m12.5 17-.5-1-.5 1h1z" />
+      <path d="M16 20a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20" />
+    </svg>
+  )
+}
+
+export function IconPaperclip(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.58A4 4 0 1 1 18 8.83l-8.61 8.61a2 2 0 0 1-2.83-2.82l8.51-8.49" />
+    </svg>
+  )
+}
+
+export function IconBoxes(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+    </svg>
+  )
+}
+
+export function IconHeart(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
     </svg>
   )
 }

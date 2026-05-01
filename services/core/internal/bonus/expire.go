@@ -26,7 +26,7 @@ func SweepExpiredForfeits(ctx context.Context, pool *pgxpool.Pool) (int, error) 
 	}
 	n := 0
 	for _, id := range ids {
-		if err := ForfeitInstance(ctx, pool, id, "", "expired"); err != nil {
+		if err := ForfeitInstance(ctx, pool, id, "", "expired", false); err != nil {
 			continue
 		}
 		if _, err := pool.Exec(ctx, `UPDATE user_bonus_instances SET status = 'expired', updated_at = now() WHERE id = $1::uuid`, id); err != nil {

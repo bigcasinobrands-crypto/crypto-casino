@@ -24,7 +24,7 @@ import { usePlayerAuth } from '../playerAuth'
 const MIN_USD = 10
 
 export default function WalletDepositPage() {
-  const { accessToken, balanceMinor } = usePlayerAuth()
+  const { isAuthenticated, balanceMinor } = usePlayerAuth()
   const logoUrls = useCryptoLogoUrlMap()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -110,7 +110,7 @@ export default function WalletDepositPage() {
     setSearchParams(next, { replace: true })
   }
 
-  if (!accessToken) return <Navigate to="/?auth=login" replace />
+  if (!isAuthenticated) return <Navigate to="/?auth=login" replace />
 
   if (phase === 'address') {
     return (

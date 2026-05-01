@@ -7,8 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type execer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
 
 // ApplyCredit inserts a ledger line if idempotency_key is new. Amount in minor units (integer).
 // Credits go to the cash pocket unless you use ApplyCreditWithPocket.
@@ -16,8 +22,27 @@ func ApplyCredit(ctx context.Context, pool *pgxpool.Pool, userID, currency, entr
 	return ApplyCreditWithPocket(ctx, pool, userID, currency, entryType, idempotencyKey, amountMinor, PocketCash, meta)
 }
 
+// ApplyCreditTx is like ApplyCredit but runs inside the caller's transaction.
+func ApplyCreditTx(ctx context.Context, tx pgx.Tx, userID, currency, entryType, idempotencyKey string, amountMinor int64, meta map[string]any) (inserted bool, err error) {
+	return ApplyCreditWithPocketTx(ctx, tx, userID, currency, entryType, idempotencyKey, amountMinor, PocketCash, meta)
+}
+
 // ApplyCreditWithPocket inserts a credit (or negative amount) into the given pocket.
 func ApplyCreditWithPocket(ctx context.Context, pool *pgxpool.Pool, userID, currency, entryType, idempotencyKey string, amountMinor int64, pocket string, meta map[string]any) (inserted bool, err error) {
+	return applyCreditWithPocketExec(ctx, pool, userID, currency, entryType, idempotencyKey, amountMinor, pocket, meta)
+}
+
+// ApplyCreditWithPocketTx runs ApplyCreditWithPocket using an explicit transaction.
+func ApplyCreditWithPocketTx(ctx context.Context, tx pgx.Tx, userID, currency, entryType, idempotencyKey string, amountMinor int64, pocket string, meta map[string]any) (inserted bool, err error) {
+	return applyCreditWithPocketExec(ctx, tx, userID, currency, entryType, idempotencyKey, amountMinor, pocket, meta)
+}
+
+// ApplyCreditTxWithPocket is an alias for ApplyCreditWithPocketTx (legacy exported name).
+func ApplyCreditTxWithPocket(ctx context.Context, tx pgx.Tx, userID, currency, entryType, idempotencyKey string, amountMinor int64, pocket string, meta map[string]any) (inserted bool, err error) {
+	return ApplyCreditWithPocketTx(ctx, tx, userID, currency, entryType, idempotencyKey, amountMinor, pocket, meta)
+}
+
+func applyCreditWithPocketExec(ctx context.Context, ex execer, userID, currency, entryType, idempotencyKey string, amountMinor int64, pocket string, meta map[string]any) (inserted bool, err error) {
 	pocket = NormalizePocket(pocket)
 	var metaJSON []byte
 	if meta != nil {
@@ -26,7 +51,7 @@ func ApplyCreditWithPocket(ctx context.Context, pool *pgxpool.Pool, userID, curr
 			return false, err
 		}
 	}
-	tag, err := pool.Exec(ctx, `
+	tag, err := ex.Exec(ctx, `
 		INSERT INTO ledger_entries (user_id, amount_minor, currency, entry_type, idempotency_key, pocket, metadata)
 		VALUES ($1::uuid, $2, $3, $4, $5, $6, COALESCE($7::jsonb, '{}'::jsonb))
 		ON CONFLICT (idempotency_key) DO NOTHING
@@ -35,6 +60,12 @@ func ApplyCreditWithPocket(ctx context.Context, pool *pgxpool.Pool, userID, curr
 		return false, fmt.Errorf("ledger insert: %w", err)
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// RecordNonBalanceEvent writes amount zero to the cash pocket so the activity appears in
+// /wallet/transactions without changing balances (e.g. promo.activation, promo.relinquish).
+func RecordNonBalanceEvent(ctx context.Context, pool *pgxpool.Pool, userID, currency, entryType, idempotencyKey string, meta map[string]any) (inserted bool, err error) {
+	return ApplyCreditWithPocket(ctx, pool, userID, currency, entryType, idempotencyKey, 0, PocketCash, meta)
 }
 
 // BalanceMinor returns playable balance (cash + bonus_locked).
