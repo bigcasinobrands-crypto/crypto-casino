@@ -44,7 +44,11 @@ The API loads `services/core/.env` via `godotenv` (and optionally the repo-root 
 - **Player (Vercel):** set `VITE_PLAYER_API_ORIGIN` to the same **core API** public URL. Without it, the player SPA posts sign-in to its own static origin and requests fail (often shown as HTTP 404 / “network”).
 - **CORS:** set `ADMIN_CORS_ORIGINS` and `PLAYER_CORS_ORIGINS` in the core env to your admin/player origins (e.g. Vercel preview URLs).
 
-## 6. Redis and other services
+## 6. Deploy core API on Render (example env file)
+
+Copy placeholders from **[`docs/env/render-core.env.template`](./env/render-core.env.template)** into Render → **Environment** (or download that file from the repo and fill it locally — do not commit secrets).
+
+## 7. Redis and other services
 
 `REDIS_URL` is still used for parts of the stack (queues, some auth flows). Supabase does not replace Redis. For a small cloud setup, a free [Upstash](https://upstash.com) Redis URL is a common choice, or keep using local Redis via Docker when developing.
 
