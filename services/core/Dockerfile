@@ -1,5 +1,5 @@
 # Build: docker build -t casino-api -f services/core/Dockerfile services/core
-FROM golang:1.22-alpine AS build
+FROM golang:1.23-alpine AS build
 RUN apk add --no-cache git ca-certificates
 WORKDIR /src
 COPY go.mod go.sum ./
