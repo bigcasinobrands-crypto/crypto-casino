@@ -404,7 +404,7 @@ export default function ChallengesPageContent() {
         {loading ? (
           <p className="text-center text-sm text-casino-muted">Loading challenges…</p>
         ) : (
-          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 md:gap-4 xl:grid-cols-5 2xl:grid-cols-6">
             {visible.map((c) => (
               <li key={c.id}>
                 <ChallengeCard

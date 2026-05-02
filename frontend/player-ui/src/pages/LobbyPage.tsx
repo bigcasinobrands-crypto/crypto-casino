@@ -426,7 +426,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   if (isDashboardHome) {
     return (
-      <div className="min-w-0 shrink-0 px-5 pb-12 pt-5 md:px-6">
+      <div className="min-w-0 shrink-0 px-4 pb-12 pt-4 sm:px-5 sm:pt-5 md:px-6">
         <PromoHero />
         <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
         <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
@@ -436,14 +436,14 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   if (sec === 'challenges') {
     return (
-      <div className="min-w-0 shrink-0 px-5 pb-12 pt-8 md:px-8 md:pt-10">
+      <div className="min-w-0 shrink-0 px-4 pb-12 pt-8 sm:px-5 md:px-8 md:pt-10">
         <ChallengesPageContent />
       </div>
     )
   }
 
   return (
-    <div className="min-w-0 px-5 pb-12 pt-5 md:px-6">
+    <div className="min-w-0 px-4 pb-12 pt-5 sm:px-5 md:px-6">
       <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={false} />
       {loadErr ? <p className="mb-3 text-sm text-red-400">{loadErr}</p> : null}
 
@@ -517,7 +517,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4 lg:grid-cols-5 xl:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-3 lg:grid-cols-5 lg:gap-4 xl:grid-cols-6 2xl:grid-cols-7 2xl:gap-3">
         {games.map((g) => {
           const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
           return (

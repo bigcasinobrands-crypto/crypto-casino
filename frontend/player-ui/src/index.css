@@ -34,17 +34,28 @@
   html {
     font-family: 'Inter', system-ui, sans-serif;
     background-color: var(--color-casino-bg);
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
   }
 }
 
 body {
   background-color: var(--color-casino-bg);
   color: var(--color-casino-foreground);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 /* Prevent flash of wrong tone behind the app shell */
 #root {
   min-height: 100%;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   background-color: var(--color-casino-bg);
 }
 

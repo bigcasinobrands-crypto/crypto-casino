@@ -129,7 +129,7 @@ function GameSection({
 
   return (
     <section className="mb-7">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
         <Link
           to={viewAllTo}
           className="group/rowtitle flex min-w-0 flex-1 items-center gap-2 text-sm font-extrabold tracking-tight text-white transition-colors duration-150 hover:text-white/95"
@@ -142,22 +142,29 @@ function GameSection({
           />
         </Link>
         {games.length > 0 ? (
-          <ViewAllScrollCluster
-            viewAllTo={viewAllTo}
-            onScrollLeft={() => scrollStrip(-1)}
-            onScrollRight={() => scrollStrip(1)}
-          />
+          <>
+            <Link to={viewAllTo} className={`${outlinedViewAllClass} shrink-0 md:hidden`}>
+              View all
+            </Link>
+            <div className="hidden md:flex">
+              <ViewAllScrollCluster
+                viewAllTo={viewAllTo}
+                onScrollLeft={() => scrollStrip(-1)}
+                onScrollRight={() => scrollStrip(1)}
+              />
+            </div>
+          </>
         ) : null}
       </div>
-      <div className="relative -mx-0.5">
+      <div className="relative min-w-0">
         <div
           ref={stripRef}
-          className="scrollbar-none flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]"
+          className="scrollbar-none grid grid-cols-3 gap-2 sm:gap-2.5 md:flex md:snap-x md:snap-mandatory md:gap-3 md:overflow-x-auto md:pb-1 [-webkit-overflow-scrolling:touch]"
         >
           {games.map((g) => (
             <div
               key={g.id}
-              className="w-[42vw] max-w-[188px] shrink-0 snap-start sm:max-w-[200px]"
+              className="min-w-0 md:w-[min(28vw,148px)] md:max-w-[152px] md:shrink-0 md:snap-start lg:w-[min(24vw,132px)] lg:max-w-[140px] xl:w-[min(20vw,120px)] xl:max-w-[128px] 2xl:w-[min(17vw,110px)] 2xl:max-w-[118px]"
             >
               <RequireAuthLink
                 to={`/casino/game-lobby/${encodeURIComponent(g.id)}`}

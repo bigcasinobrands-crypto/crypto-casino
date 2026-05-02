@@ -184,7 +184,7 @@ function AppShell() {
   return (
     <PlayerLayoutProvider chatOpen={chatOpen}>
       <PersistentMiniPlayerProvider>
-        <div className="flex h-full min-h-0 w-full overflow-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased">
+        <div className="flex h-full min-h-0 w-full min-w-0 max-w-[100vw] overflow-hidden bg-casino-bg pt-[env(safe-area-inset-top,0px)] text-[14px] leading-normal text-casino-foreground antialiased">
           <CasinoSidebar
             mobileOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
@@ -269,7 +269,7 @@ function AppShell() {
             />
             <main
               id={PLAYER_MAIN_SCROLL_ID}
-              className="scrollbar-none overscroll-y-contain flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto scroll-smooth [overflow-anchor:none]"
+              className="scrollbar-none overscroll-y-contain flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto scroll-smooth pb-[max(0px,env(safe-area-inset-bottom))] [overflow-anchor:none]"
             >
               <Routes>
                 <Route path="/" element={<Navigate to="/casino/games" replace />} />
@@ -318,17 +318,17 @@ function HeaderAccount() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex max-w-full items-center gap-1.5 sm:gap-2">
         <button
           type="button"
-          className="rounded-[10px] bg-casino-chip px-4 py-2 text-xs font-bold text-white/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover"
+          className="rounded-[10px] bg-casino-chip px-2.5 py-1.5 text-[11px] font-bold text-white/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover sm:px-4 sm:py-2 sm:text-xs"
           onClick={() => openAuth('login')}
         >
           Sign in
         </button>
         <button
           type="button"
-          className="rounded-[10px] bg-casino-primary px-4 py-2 text-xs font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition hover:brightness-110"
+          className="rounded-[10px] bg-casino-primary px-2.5 py-1.5 text-[11px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition hover:brightness-110 sm:px-4 sm:py-2 sm:text-xs"
           onClick={() => openAuth('register')}
         >
           Register

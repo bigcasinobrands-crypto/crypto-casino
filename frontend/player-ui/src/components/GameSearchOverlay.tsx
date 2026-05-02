@@ -218,7 +218,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
             ) : null}
 
             {games.length > 0 ? (
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2 md:grid-cols-5 md:gap-2">
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 sm:grid-cols-3 md:grid-cols-5 md:gap-2 lg:grid-cols-6 2xl:grid-cols-7">
                 {games.map((g) => {
                   const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
                   return (

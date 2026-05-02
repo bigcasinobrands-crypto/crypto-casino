@@ -56,7 +56,7 @@ const tagClass =
   'inline-flex rounded-[4px] bg-casino-accent px-[7px] py-0.5 text-[9px] font-extrabold uppercase leading-tight text-white'
 
 const promoTileClass =
-  'relative z-0 flex min-h-[126px] items-center justify-between overflow-hidden rounded-casino-md bg-casino-surface px-4 py-3.5 transition-[transform,box-shadow] duration-300 ease-out hover:z-10 hover:scale-[1.025] hover:shadow-[0_12px_40px_rgba(0,0,0,0.35)] motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:hover:shadow-none'
+  'relative z-0 flex min-h-[112px] items-center justify-between overflow-hidden rounded-casino-md bg-casino-surface px-3 py-3 transition-[transform,box-shadow] duration-300 ease-out hover:z-10 hover:scale-[1.025] hover:shadow-[0_12px_40px_rgba(0,0,0,0.35)] motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:hover:shadow-none sm:min-h-[126px] sm:px-4 sm:py-3.5'
 
 function gridCols(count: number) {
   if (count === 1) return 'grid-cols-1'
@@ -96,7 +96,7 @@ const RaffleTicketWidget: FC = () => {
 
 const SlideCard: FC<{ slide: HeroSlide }> = ({ slide }) => (
   <article className={promoTileClass}>
-    <div className="relative z-[2] flex max-w-[58%] flex-col items-start gap-2">
+    <div className="relative z-[2] flex max-w-[62%] flex-col items-start gap-1.5 sm:max-w-[58%] sm:gap-2">
       {slide.tag && <span className={tagClass}>{slide.tag}</span>}
       <h2 className="text-sm font-extrabold leading-tight text-casino-foreground">
         {slide.title}
@@ -128,7 +128,7 @@ const SlideCard: FC<{ slide: HeroSlide }> = ({ slide }) => (
       <img
         src={slide.image_url}
         alt=""
-        className="absolute bottom-0 right-0 z-[1] h-full w-[118px] object-cover [mask-image:linear-gradient(to_right,transparent,black_34%)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_34%)]"
+        className="absolute bottom-0 right-0 z-[1] h-full w-[88px] object-cover [mask-image:linear-gradient(to_right,transparent,black_34%)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_34%)] sm:w-[118px]"
       />
     )}
   </article>
