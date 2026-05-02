@@ -21,9 +21,21 @@ type WithdrawFormPanelProps = {
   onNetwork: (n: WithdrawPanelNetwork) => void
   onSymbol: (s: WithdrawPanelSymbol) => void
   onSuccess: (p: { id: string; network: WithdrawPanelNetwork; symbol: WithdrawPanelSymbol }) => void
+  /**
+   * When true (e.g. wallet modal on mobile), primary action is pinned in a footer below a scroll area
+   * so the submit button stays visible above the home indicator / bottom nav.
+   */
+  splitFooter?: boolean
 }
 
-export function WithdrawFormPanel({ network, symbol, onNetwork, onSymbol, onSuccess }: WithdrawFormPanelProps) {
+export function WithdrawFormPanel({
+  network,
+  symbol,
+  onNetwork,
+  onSymbol,
+  onSuccess,
+  splitFooter = false,
+}: WithdrawFormPanelProps) {
   const { apiFetch, refreshProfile, balanceMinor } = usePlayerAuth()
   const logoUrls = useCryptoLogoUrlMap()
   const [amount, setAmount] = useState('10')
@@ -83,8 +95,8 @@ export function WithdrawFormPanel({ network, symbol, onNetwork, onSymbol, onSucc
     }
   }
 
-  return (
-    <div className="space-y-0">
+  const fields = (
+    <>
       <div className="mb-3">
         <label className="mb-1 block text-xs font-medium text-casino-foreground">
           Amount (USD)<span className="font-normal text-casino-muted"> · e.g. 10.00</span>
@@ -140,15 +152,37 @@ export function WithdrawFormPanel({ network, symbol, onNetwork, onSymbol, onSucc
           {err}
         </p>
       ) : null}
+    </>
+  )
 
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void submit()}
-        className="mt-3 w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110 disabled:opacity-50"
-      >
-        {busy ? 'Processing…' : 'Withdraw'}
-      </button>
+  const submitBtn = (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void submit()}
+      className="w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110 disabled:opacity-50"
+    >
+      {busy ? 'Processing…' : 'Withdraw'}
+    </button>
+  )
+
+  if (splitFooter) {
+    return (
+      <>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
+          {fields}
+        </div>
+        <div className="shrink-0 border-t border-casino-border bg-casino-surface px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
+          {submitBtn}
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <div className="space-y-0">
+      {fields}
+      <div className="mt-3">{submitBtn}</div>
     </div>
   )
 }

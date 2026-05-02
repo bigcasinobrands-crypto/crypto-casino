@@ -33,16 +33,13 @@ const MIN_USD = 10
 
 const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }) => {
   const titleId = useId()
-  const { apiFetch, balanceMinor } = usePlayerAuth()
+  const { balanceMinor } = usePlayerAuth()
   const logoUrls = useCryptoLogoUrlMap()
   const [mainTab, setMainTab] = useState<WalletMainTab>(initialTab)
   const [amountUsd, setAmountUsd] = useState('10.00')
   const [amountErr, setAmountErr] = useState<string | null>(null)
   const [symbol, setSymbol] = useState<DepositAssetSymbol>('ETH')
   const [network, setNetwork] = useState<DepositNetworkId>('ERC20')
-  const [txs, setTxs] = useState<
-    { id: string; amount_minor: number; currency: string; entry_type: string; created_at: string }[]
-  >([])
 
   const [depositFlowStep, setDepositFlowStep] = useState<'pick' | 'address' | 'sent'>('pick')
   const [committedAmountUsd, setCommittedAmountUsd] = useState('10.00')
@@ -98,25 +95,6 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
   }, [open])
 
   useEffect(() => {
-    if (!open) {
-      setTxs([])
-      return
-    }
-    void (async () => {
-      try {
-        const res = await apiFetch('/v1/wallet/transactions?limit=15')
-        if (!res.ok) return
-        const j = (await res.json()) as {
-          transactions?: { id: string; amount_minor: number; currency: string; entry_type: string; created_at: string }[]
-        }
-        setTxs(j.transactions ?? [])
-      } catch {
-        setTxs([])
-      }
-    })()
-  }, [open, apiFetch])
-
-  useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -138,11 +116,6 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
 
   if (!open) return null
 
-  const showRecentTxs =
-    txs.length > 0 &&
-    !(mainTab === 'deposit' && depositFlowStep !== 'pick') &&
-    !(mainTab === 'withdraw' && withdrawFlowStep !== 'form')
-
   return (
     <div
       className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-end justify-center sm:items-center sm:p-4`}
@@ -158,7 +131,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative flex max-h-[min(90vh,640px)] w-full max-w-md flex-col overflow-hidden rounded-t-xl border border-casino-border bg-casino-surface shadow-2xl sm:rounded-xl"
+        className="relative flex max-h-[min(90dvh,640px)] w-full max-w-md flex-col overflow-hidden rounded-t-xl border border-casino-border bg-casino-surface shadow-2xl sm:max-h-[min(90vh,640px)] sm:rounded-xl"
       >
         <h2 id={titleId} className="sr-only">
           {mainTab === 'deposit'
@@ -204,50 +177,59 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {mainTab === 'deposit' ? (
             depositFlowStep === 'pick' ? (
               <>
-                <UsdAmountField value={amountUsd} onChange={setAmountUsd} minUsd={MIN_USD} />
-                {amountErr ? (
-                  <p className="mb-1 text-xs text-red-400" role="alert">
-                    {amountErr}
-                  </p>
-                ) : null}
-                <ChooseAssetNetworkHint />
-                <AssetToggleRow symbol={symbol} onSymbol={setSymbol} searchFilter="" logoUrls={logoUrls} />
-                <NetworkCardGrid
-                  symbol={symbol}
-                  network={network}
-                  onNetwork={setNetwork}
-                  balanceLabel={balanceLabel}
-                  depositAmountInput={amountUsd}
-                  logoUrls={logoUrls}
-                />
-                <div className="mt-2">
-                  <DepositWrongChainWarning symbol={symbol} networkLabel={depositNetworkTitle(network)} />
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
+                  <UsdAmountField value={amountUsd} onChange={setAmountUsd} minUsd={MIN_USD} />
+                  {amountErr ? (
+                    <p className="mb-1 text-xs text-red-400" role="alert">
+                      {amountErr}
+                    </p>
+                  ) : null}
+                  <ChooseAssetNetworkHint />
+                  <AssetToggleRow symbol={symbol} onSymbol={setSymbol} searchFilter="" logoUrls={logoUrls} />
+                  <NetworkCardGrid
+                    symbol={symbol}
+                    network={network}
+                    onNetwork={setNetwork}
+                    balanceLabel={balanceLabel}
+                    depositAmountInput={amountUsd}
+                    logoUrls={logoUrls}
+                  />
+                  <div className="mt-2">
+                    <DepositWrongChainWarning symbol={symbol} networkLabel={depositNetworkTitle(network)} />
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={continueToAddressInModal}
-                  className="mt-3 w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110"
-                >
-                  Continue
-                </button>
+                <div className="shrink-0 border-t border-casino-border bg-casino-surface px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
+                  <button
+                    type="button"
+                    onClick={continueToAddressInModal}
+                    className="w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110"
+                  >
+                    Continue
+                  </button>
+                </div>
               </>
-            ) : depositFlowStep === 'address' ? (
-              <DepositAddressPanel
-                symbol={symbol}
-                network={network}
-                amountUsdText={committedAmountUsd}
-                onBack={() => setDepositFlowStep('pick')}
-                onSent={() => setDepositFlowStep('sent')}
-              />
             ) : (
-              <DepositSentPanel symbol={symbol} network={network} onDepositAgain={() => setDepositFlowStep('pick')} />
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
+                {depositFlowStep === 'address' ? (
+                  <DepositAddressPanel
+                    symbol={symbol}
+                    network={network}
+                    amountUsdText={committedAmountUsd}
+                    onBack={() => setDepositFlowStep('pick')}
+                    onSent={() => setDepositFlowStep('sent')}
+                  />
+                ) : (
+                  <DepositSentPanel symbol={symbol} network={network} onDepositAgain={() => setDepositFlowStep('pick')} />
+                )}
+              </div>
             )
           ) : withdrawFlowStep === 'form' ? (
             <WithdrawFormPanel
+              splitFooter
               network={wdNetwork}
               symbol={wdSymbol}
               onNetwork={setWdNetwork}
@@ -258,31 +240,16 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
               }}
             />
           ) : withdrawCtx ? (
-            <WithdrawSuccessPanel
-              id={withdrawCtx.id}
-              network={withdrawCtx.network}
-              symbol={withdrawCtx.symbol}
-              onAnother={() => {
-                setWithdrawFlowStep('form')
-                setWithdrawCtx(null)
-              }}
-            />
-          ) : null}
-
-          {showRecentTxs ? (
-            <div className="mt-4 border-t border-casino-border pt-3">
-              <h3 className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-casino-muted">Recent</h3>
-              <ul className="max-h-28 space-y-1 overflow-y-auto text-[11px] text-casino-foreground scrollbar-casino">
-                {txs.map((t) => (
-                  <li key={t.id} className="flex justify-between gap-2 border-b border-casino-border/60 pb-1">
-                    <span className="truncate text-casino-muted">{t.entry_type}</span>
-                    <span className="shrink-0 font-mono">
-                      {t.amount_minor > 0 ? '+' : ''}
-                      {t.amount_minor} {t.currency}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
+              <WithdrawSuccessPanel
+                id={withdrawCtx.id}
+                network={withdrawCtx.network}
+                symbol={withdrawCtx.symbol}
+                onAnother={() => {
+                  setWithdrawFlowStep('form')
+                  setWithdrawCtx(null)
+                }}
+              />
             </div>
           ) : null}
         </div>
