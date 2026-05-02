@@ -463,6 +463,7 @@ function AppShell() {
           />
 
           <div className="relative z-[200] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <PullToRefreshOverlay scrollRef={mainScrollRef} enabled={pullToRefreshEnabled} />
             <div
               ref={mainScrollRef}
               id={PLAYER_MAIN_SCROLL_ID}
@@ -470,7 +471,6 @@ function AppShell() {
                 showBottomNav ? '' : 'casino-shell-scroll--no-bottom-nav'
               }`}
             >
-              <PullToRefreshOverlay scrollRef={mainScrollRef} enabled={pullToRefreshEnabled} />
               <div className="relative z-[210] shrink-0">
                 <OperationalBanner data={op.data} />
               </div>

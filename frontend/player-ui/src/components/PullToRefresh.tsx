@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 
 /** Aligns with casino shell mobile breakpoint (< 768px). */
@@ -29,9 +30,9 @@ function useMatchMedia(query: string): boolean {
 }
 
 /**
- * Mobile pull-to-refresh on the main scroll surface (nested scroll; native document PTR does not apply).
- * Pull past threshold → full page reload. Uses touch-only gestures (iPhone, Android).
- * Indicator follows common native patterns: arrow → release / spinner while reloading.
+ * Mobile pull-to-refresh: gesture on the main scroll surface (same as browser-like PTR when the
+ * column is scrolled to top). Indicator is portaled `fixed` under the mobile header so it reads as
+ * refreshing the whole page, not a nested “in-app” strip inside the scroll column.
  */
 export function PullToRefreshOverlay({
   scrollRef,
@@ -145,12 +146,15 @@ export function PullToRefreshOverlay({
   const showIndicator = pullPx > 2 || refreshing
   const heightPx = refreshing ? 52 : pullPx
 
-  return (
+  const strip = (
     <div
-      className={`pointer-events-none flex shrink-0 justify-center overflow-hidden bg-casino-bg ${
+      className={`pointer-events-none fixed left-0 right-0 z-[208] flex justify-center overflow-hidden bg-casino-bg ${
         reduceMotion ? '' : 'transition-[height] duration-150 ease-out'
       }`}
-      style={{ height: showIndicator ? heightPx : 0 }}
+      style={{
+        top: 'calc(env(safe-area-inset-top, 0px) + var(--casino-header-h-mobile))',
+        height: showIndicator ? heightPx : 0,
+      }}
       aria-live="polite"
       aria-busy={refreshing}
     >
@@ -171,6 +175,8 @@ export function PullToRefreshOverlay({
       </div>
     </div>
   )
+
+  return createPortal(strip, document.body)
 }
 
 function PtrSpinner() {
