@@ -14,6 +14,8 @@
     "dev:admin": "npm run dev -w @repo/admin-console",
     "dev:player": "npm run dev -w @repo/player-ui",
     "dev:app": "concurrently -k -n api,player,admin -c blue,green,magenta \"npm run dev:api\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:player\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:admin\"",
+    "dev:ui": "concurrently -k -n player,admin -c green,magenta \"npm run dev -w @repo/player-ui\" \"npm run dev -w @repo/admin-console\"",
+    "dev:ui:staging": "concurrently -k -n player,admin -c green,magenta \"npm run dev:staging -w @repo/player-ui\" \"npm run dev:staging -w @repo/admin-console\"",
     "dev:casino": "concurrently -k -n api,player -c blue,green \"npm run dev:api\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:player\"",
     "dev:with-worker": "concurrently -k -n api,player,worker -c blue,green,cyan \"npm run dev:api\" \"wait-on -t 120s -l http-get://127.0.0.1:9090/health && npm run dev:player\" \"npm run dev:worker\"",
     "dev:casino:stack": "node scripts/ensure-core-env.mjs && docker compose up -d postgres redis && node scripts/wait-tcp.mjs 127.0.0.1 5432 120000 && npm run dev:casino",

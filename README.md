@@ -39,6 +39,8 @@ npm run dev:app      # API + player + admin (waits for http://127.0.0.1:9090/hea
 npm run dev:casino   # API + player (same health wait)
 npm run dev:with-worker   # API + player + worker (player waits for health)
 npm run dev:worker   # worker — needs REDIS_URL in services/core/.env
+npm run dev:ui          # player + admin only (no local Go — expects DEV_API_PROXY / API already running)
+npm run dev:ui:staging  # player + admin using `vite --mode staging` — copy each app’s `staging.env.example` → `.env.staging` and set `DEV_API_PROXY` to your **public** staging API URL (same pattern as local proxy, but remote target)
 ```
 
 ## Stack lock (plan `stack-document-lock`)
