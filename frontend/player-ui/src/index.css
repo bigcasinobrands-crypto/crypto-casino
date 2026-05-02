@@ -57,6 +57,20 @@
     /* Avoid bright default scrollbar track when layout reflows on resize (Firefox). */
     scrollbar-color: rgba(255, 255, 255, 0.12) #000000;
   }
+
+  /**
+   * iOS Safari (and several mobile browsers) auto-zoom the page when a focused form control’s
+   * font-size is below ~16px. Enforce 16px on phone/tablet widths so focus never triggers zoom.
+   * !important beats utility classes like `text-xs` on `<input>`.
+   */
+  /* Same zoom quirk on many tablets in mobile layout — align with shell `<1024px` tier. */
+  @media screen and (max-width: 1023px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='range']):not([type='color']),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
 }
 
 body {
