@@ -55,6 +55,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	log.Printf("startup: APP_ENV=%q PORT=%q", cfg.AppEnv, cfg.Port)
 	if err := cfg.ValidateProduction(); err != nil {
 		log.Fatalf("config: %v", err)
 	}
@@ -64,8 +65,14 @@ func main() {
 		log.Printf("vault: transit configured (mount=%s key=%s)", cfg.VaultTransitMount, cfg.VaultTransitKeyName)
 	}
 	ctx := context.Background()
-	if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
-		log.Fatalf("migrations: %v", err)
+	skipRaw := strings.TrimSpace(os.Getenv("SKIP_DB_MIGRATIONS_ON_START"))
+	skipMig := skipRaw == "1" || strings.EqualFold(skipRaw, "true")
+	if skipMig {
+		log.Printf("WARNING: SKIP_DB_MIGRATIONS_ON_START set — migrations skipped (run npm run migrate:core or ./migrate separately)")
+	} else {
+		if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
+			log.Fatalf("migrations: %v", err)
+		}
 	}
 	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {

@@ -8,7 +8,8 @@ COPY . ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# base-debian12 includes CA certs — needed for TLS to Supabase Postgres and rediss:// Redis (static image alone can break HTTPS/TLS).
+FROM gcr.io/distroless/base-debian12:nonroot
 WORKDIR /app
 COPY --from=build /out/api /app/api
 COPY --from=build /out/migrate /app/migrate
