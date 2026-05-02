@@ -6,8 +6,10 @@ The core API is a normal **Go + PostgreSQL** app. [Supabase](https://supabase.co
 
 1. Open your project in the **Supabase Dashboard**.
 2. Go to **Connect** (or **Settings → Database**).
-3. Under **Connection string**, choose **URI** and use the **Direct** / **Session** connection to the database (port **5432** on the `db.<ref>.supabase.co` host is the usual “direct” host).
-4. Copy the URI and ensure it includes TLS, e.g. `?sslmode=require` at the end (add it if missing).
+3. Under **Connection string**, choose **URI**.
+4. **Local dev:** **Direct** (`db.<ref>.supabase.co:5432`) is usually fine.
+5. **Hosted APIs (e.g. Render, Railway):** prefer the **Session pooler** / **Pooler** URI — same Postgres, but **IPv4-friendly**. The **direct** host often resolves to **IPv6 only**; many clouds cannot reach it and you see errors like `dial tcp ... network is unreachable`.
+6. Copy the URI and ensure TLS, e.g. `?sslmode=require` at the end (use `&sslmode=require` if the string already has `?`).
 
 **Security:** the password is the **database user password** from the Database settings, not the `anon` / `service_role` API keys.
 
@@ -54,6 +56,6 @@ Copy placeholders from **[`docs/env/render-core.env.template`](./env/render-core
 
 ## Troubleshooting
 
-- **“connection refused” / SSL errors:** double-check `sslmode=require` and that you are not mixing up pooler port **6543** with direct **5432** without following Supabase’s docs for your driver.
-- **Migrations fail through the pooler:** run migrations using the **direct** `5432` connection string; use the pooler for app traffic if you prefer.
-- **IPv6:** if your network cannot reach Supabase over IPv6, see Supabase **Database** settings for IPv4 or pooler options.
+- **Render / deploy: `network is unreachable` dialing `[ipv6]:5432` to `db.*.supabase.co`:** your host has **no IPv6 route** to Supabase’s direct endpoint. Fix: set **`DATABASE_URL`** to the **Session pooler** connection string from **Connect** (pooler hostname, often `*.pooler.supabase.com`). Alternatively enable Supabase **IPv4 add-on** for the direct connection (paid).
+- **“connection refused” / SSL errors:** double-check `sslmode=require` and pooler **username** shape (`postgres` vs `postgres.<project-ref>`) per what Supabase shows for that URI.
+- **Migrations through the pooler:** Session pooler is commonly used for app + migrations. If a specific migration fails, check Supabase docs for **transaction** vs **session** pooler; avoid the wrong pooler mode for long DDL if their docs warn about it.
