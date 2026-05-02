@@ -251,19 +251,21 @@
 }
 
 @media (max-width: 767px) {
-  /* Horizontal swipe through 3×2 “pages” (chunks); inner grid is row-major 1…6. */
+  /* Horizontal swipe through full-width 3×2 “pages”; each chunk = one viewport width of the strip. */
   .casino-home-section-strip--phone {
     display: flex !important;
     flex-direction: row !important;
     flex-wrap: nowrap !important;
     grid-template-columns: none !important;
-    gap: 8px;
+    /* No gap between chunks — keeps each slide exactly one strip width (strict 3×2). */
+    gap: 0;
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     touch-action: pan-x pan-y;
     padding-bottom: 4px;
+    scroll-snap-type: x mandatory;
   }
 
   .casino-home-section-strip--phone::-webkit-scrollbar {
@@ -276,10 +278,14 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-rows: repeat(2, auto);
     gap: 8px;
-    flex: 0 0 auto;
-    width: calc(3 * min(42vw, 148px) + 16px);
-    min-width: 0;
+    flex: 0 0 100%;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     align-content: start;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
   }
 
   .casino-home-section-strip--phone > .casino-home-section-phone-chunk > * {

@@ -203,8 +203,8 @@ function GameSection({
       if (!el) return
       let step = Math.max(el.clientWidth * 0.65, 240)
       if (isPhoneStrip) {
-        const chunk = el.querySelector('.casino-home-section-phone-chunk') as HTMLElement | null
-        if (chunk) step = chunk.offsetWidth + 8
+        /* One chunk = one full strip viewport width (3×2 page). */
+        step = el.clientWidth
       }
       el.scrollBy({ left: dir * step, behavior: reduceMotion ? 'auto' : 'smooth' })
     },
