@@ -30,9 +30,9 @@ function useMatchMedia(query: string): boolean {
 }
 
 /**
- * Mobile pull-to-refresh: gesture on the main scroll surface (same as browser-like PTR when the
- * column is scrolled to top). Indicator is portaled `fixed` under the mobile header so it reads as
- * refreshing the whole page, not a nested “in-app” strip inside the scroll column.
+ * Mobile pull-to-refresh: gesture on the main scroll surface (column at scrollTop 0).
+ * Indicator is portaled `fixed` at the **top of the viewport** (above the fixed header, z-index > header)
+ * with a transparent track so only the arrow/spinner shows — no filled band behind the chrome.
  */
 export function PullToRefreshOverlay({
   scrollRef,
@@ -148,17 +148,17 @@ export function PullToRefreshOverlay({
 
   const strip = (
     <div
-      className={`pointer-events-none fixed left-0 right-0 z-[208] flex justify-center overflow-hidden bg-casino-bg ${
+      className={`pointer-events-none fixed inset-x-0 top-0 z-[220] box-border flex flex-col overflow-hidden bg-transparent ${
         reduceMotion ? '' : 'transition-[height] duration-150 ease-out'
       }`}
       style={{
-        top: 'calc(env(safe-area-inset-top, 0px) + var(--casino-header-h-mobile))',
-        height: showIndicator ? heightPx : 0,
+        height: showIndicator ? `calc(${heightPx}px + env(safe-area-inset-top, 0px))` : 0,
+        paddingTop: 'env(safe-area-inset-top, 0px)',
       }}
       aria-live="polite"
       aria-busy={refreshing}
     >
-      <div className="flex h-16 flex-col items-center justify-center px-3">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-3">
         {refreshing ? (
           <>
             <span className="sr-only">Refreshing page</span>
@@ -182,7 +182,7 @@ export function PullToRefreshOverlay({
 function PtrSpinner() {
   return (
     <svg
-      className="size-7 text-casino-primary motion-safe:animate-spin"
+      className="size-7 text-casino-primary motion-safe:animate-spin drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)]"
       viewBox="0 0 24 24"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
@@ -202,7 +202,7 @@ function PtrArrow({ progress, reduceMotion }: { progress: number; reduceMotion: 
   const rot = progress >= 1 ? 180 : 0
   return (
     <svg
-      className={`size-6 text-casino-primary ${reduceMotion ? '' : 'transition-[transform,opacity] duration-200 ease-out'}`}
+      className={`size-6 text-casino-primary drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)] ${reduceMotion ? '' : 'transition-[transform,opacity] duration-200 ease-out'}`}
       style={{
         transform: `rotate(${rot}deg)`,
         opacity: 0.35 + progress * 0.65,
