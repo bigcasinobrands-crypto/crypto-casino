@@ -230,7 +230,7 @@
 }
 
 /* ----- Lobby home category rows (strict layout tiers; tile counts enforced in JS) -----
- * Phone (<768): 3 columns × 2 rows (6 tiles).
+ * Phone (<768): horizontal scroll row — swipe right for more tiles (matches fetched preview cap in JS).
  * iPad / tablet (768–1279): 6 cols × 2 rows (768–1023) or 7 cols × 2 rows (1024–1279).
  * Desktop (≥1280): single horizontal row, scroll-x only (160px tiles).
  */
@@ -248,6 +248,34 @@
 
 .casino-home-section-strip > * {
   min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .casino-home-section-strip {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    grid-template-columns: none;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    touch-action: pan-x pan-y;
+    padding-bottom: 4px;
+  }
+
+  .casino-home-section-strip::-webkit-scrollbar {
+    display: none;
+    height: 0;
+  }
+
+  .casino-home-section-strip > * {
+    flex: 0 0 min(42vw, 148px);
+    width: min(42vw, 148px);
+    max-width: 148px;
+    min-width: 112px;
+  }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {

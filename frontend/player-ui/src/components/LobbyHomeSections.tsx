@@ -69,9 +69,13 @@ const VISIBILITY_REFETCH_MS = 45_000
 /** Desktop horizontal row: max tiles fetched into each home section strip. */
 const HOME_SECTION_PREVIEW_CAP = 24
 
-/** Matches `.casino-home-section-strip` tiers: 3×2 phone, 6×2 / 7×2 tablet, one row desktop. */
+/** API / slice caps — phone horizontal strip, tablet grid, desktop horizontal row up to 24 */
+const HOME_FETCH_LIMIT = 24
+
+/** Matches `.casino-home-section-strip` tiers: horizontal scroll phone, grid tablet, row desktop. */
 function homeSectionTileCapForWidth(width: number): number {
-  if (width < 768) return 6
+  /* Phone: same cap as fetch — tiles live in a horizontal strip; swipe right reveals more. */
+  if (width < 768) return HOME_FETCH_LIMIT
   if (width < 1024) return 12
   if (width < 1280) return 14
   return HOME_SECTION_PREVIEW_CAP
@@ -137,9 +141,6 @@ function ViewAllScrollCluster({
   )
 }
 
-/** API / slice caps — phone strip, tablet grid, desktop horizontal row up to 24 */
-const HOME_FETCH_LIMIT = 24
-
 function GameSection({
   title,
   viewAllTo,
@@ -160,6 +161,8 @@ function GameSection({
     () => dedupeGamesById(games.slice(0, tileCap)),
     [games, tileCap],
   )
+
+  const skeletonTileCount = Math.min(tileCap, 12)
 
   const scrollStrip = useCallback((dir: -1 | 1) => {
     const el = stripRef.current
@@ -228,7 +231,7 @@ function GameSection({
           role="list"
         >
           {showSkeletons
-            ? Array.from({ length: tileCap }, (_, i) => (
+            ? Array.from({ length: skeletonTileCount }, (_, i) => (
                 <div key={`sk-${title}-${i}`} className="min-w-0" role="listitem">
                   <div className="game-thumb-link pointer-events-none block">
                     <GameCardSkeleton />
