@@ -150,6 +150,14 @@ body {
 }
 
 @layer components {
+  /**
+   * Centered main column (~1440px) so casino/home grids stay dense on ultrawide
+   * (reference: compact thumbnail rows on large desktop).
+   */
+  .player-casino-max {
+    @apply mx-auto w-full min-w-0 max-w-[min(100%,90rem)];
+  }
+
   /* Game tiles: soft violet glow on hover around the thumbnail frame. */
   .game-thumb-link {
     @apply block overflow-hidden rounded-casino-md border border-casino-border bg-casino-surface shadow-sm;

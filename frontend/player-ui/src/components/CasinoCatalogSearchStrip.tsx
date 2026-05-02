@@ -113,7 +113,7 @@ const CasinoCatalogSearchStrip: FC<CasinoCatalogSearchStripProps> = ({
   return (
     <div className="mb-6 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
       <div
-        className={`${searchTrayInteractive} ${searchShellFocus} flex min-h-[44px] min-w-0 flex-1 items-center gap-2.5 px-3.5 py-2.5 sm:max-w-xl`}
+        className={`${searchTrayInteractive} ${searchShellFocus} flex min-h-[44px] min-w-0 flex-1 items-center gap-2.5 px-3.5 py-2.5`}
       >
         <IconSearch size={17} className="shrink-0 text-white/48" aria-hidden />
         <input

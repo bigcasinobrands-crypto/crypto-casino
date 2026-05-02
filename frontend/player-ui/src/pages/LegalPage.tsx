@@ -51,7 +51,7 @@ const LegalPage: FC<LegalPageProps> = ({ contentKey, fallbackTitle }) => {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl min-w-0 px-4 py-10 sm:px-5 md:px-6 md:py-14">
+    <div className="player-casino-max max-w-3xl px-4 py-10 sm:px-5 md:px-6 md:py-14 lg:px-8">
       <h1 className="mb-2 text-2xl font-bold tracking-tight text-casino-foreground md:text-3xl">
         {title}
       </h1>

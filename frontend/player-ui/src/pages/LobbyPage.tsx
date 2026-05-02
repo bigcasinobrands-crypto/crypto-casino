@@ -81,6 +81,19 @@ function sortGamesByIdOrder(ids: string[], list: Game[]): Game[] {
   return [...list].sort((a, b) => (order.get(a.id) ?? 99) - (order.get(b.id) ?? 99))
 }
 
+/** API can echo duplicate id rows; keep first occurrence for stable grid keys. */
+function dedupeGamesById<T extends { id: string }>(games: T[]): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const g of games) {
+    const id = String(g.id ?? '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(g)
+  }
+  return out
+}
+
 function emptySectionCopy(
   sec: Section,
   q: string,
@@ -312,7 +325,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
             return
           }
           const j = (await res.json()) as { games: Game[] }
-          const list = sortGamesByIdOrder(ids, j.games ?? [])
+          const list = dedupeGamesById(sortGamesByIdOrder(ids, j.games ?? []))
           if (!cancelled) setGames(list)
           setListLoading(false)
           return
@@ -330,10 +343,11 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
           return
         }
         const j = (await res.json()) as { games: Game[] }
-        const batch = j.games ?? []
+        const raw = j.games ?? []
+        const batch = dedupeGamesById(raw)
         if (!cancelled) {
           setGames(batch)
-          setHasMore(batch.length === PAGE_SIZE)
+          setHasMore(raw.length === PAGE_SIZE)
         }
         setListLoading(false)
       } catch {
@@ -378,9 +392,10 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         return
       }
       const j = (await res.json()) as { games: Game[] }
-      const batch = j.games ?? []
-      setGames((prev) => [...prev, ...batch])
-      setHasMore(batch.length === PAGE_SIZE)
+      const raw = j.games ?? []
+      const batch = dedupeGamesById(raw)
+      setGames((prev) => dedupeGamesById([...prev, ...batch]))
+      setHasMore(raw.length === PAGE_SIZE)
     } catch {
       toastPlayerNetworkError(NETWORK_ERR, 'GET /v1/games (load more)')
       setLoadErr(NETWORK_ERR)
@@ -426,7 +441,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   if (isDashboardHome) {
     return (
-      <div className="min-w-0 shrink-0 px-4 pb-12 pt-4 sm:px-5 sm:pt-5 md:px-6">
+      <div className="player-casino-max min-w-0 shrink-0 px-4 pb-12 pt-4 sm:px-5 sm:pt-5 md:px-6 lg:px-8">
         <PromoHero />
         <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
         <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
@@ -436,14 +451,14 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   if (sec === 'challenges') {
     return (
-      <div className="min-w-0 shrink-0 px-4 pb-12 pt-8 sm:px-5 md:px-8 md:pt-10">
+      <div className="player-casino-max min-w-0 shrink-0 px-4 pb-12 pt-8 sm:px-5 md:px-8 md:pt-10 lg:px-8">
         <ChallengesPageContent />
       </div>
     )
   }
 
   return (
-    <div className="min-w-0 px-4 pb-12 pt-5 sm:px-5 md:px-6">
+    <div className="player-casino-max min-w-0 px-4 pb-12 pt-5 sm:px-5 md:px-6 lg:px-8">
       <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={false} />
       {loadErr ? <p className="mb-3 text-sm text-red-400">{loadErr}</p> : null}
 
@@ -517,7 +532,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-3 lg:grid-cols-5 lg:gap-4 xl:grid-cols-6 2xl:grid-cols-7 2xl:gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 sm:gap-2.5 md:grid-cols-4 md:gap-3 lg:grid-cols-6 lg:gap-3 xl:grid-cols-7 xl:gap-3 2xl:grid-cols-8 2xl:gap-2.5 min-[1700px]:grid-cols-9 min-[1920px]:grid-cols-10">
         {games.map((g) => {
           const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
           return (

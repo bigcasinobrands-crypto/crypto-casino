@@ -123,7 +123,7 @@ function GameSection({
   const scrollStrip = useCallback((dir: -1 | 1) => {
     const el = stripRef.current
     if (!el) return
-    const step = Math.max(el.clientWidth * 0.75, 280)
+    const step = Math.max(el.clientWidth * 0.75, 240)
     el.scrollBy({ left: dir * step, behavior: 'smooth' })
   }, [])
 
@@ -164,7 +164,7 @@ function GameSection({
           {games.map((g) => (
             <div
               key={g.id}
-              className="min-w-0 md:w-[min(28vw,148px)] md:max-w-[152px] md:shrink-0 md:snap-start lg:w-[min(24vw,132px)] lg:max-w-[140px] xl:w-[min(20vw,120px)] xl:max-w-[128px] 2xl:w-[min(17vw,110px)] 2xl:max-w-[118px]"
+              className="min-w-0 md:w-[104px] md:max-w-[108px] md:shrink-0 md:snap-start lg:w-[96px] lg:max-w-[100px] xl:w-[92px] xl:max-w-[96px] 2xl:w-[88px] 2xl:max-w-[92px]"
             >
               <RequireAuthLink
                 to={`/casino/game-lobby/${encodeURIComponent(g.id)}`}

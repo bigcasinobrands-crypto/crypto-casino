@@ -120,10 +120,10 @@ const SiteFooter: FC = () => {
   ])
 
   return (
-    <footer id="help" className="mt-auto border-t border-casino-border bg-casino-bg px-5 pb-8 pt-10 md:px-6">
+    <footer id="help" className="mt-auto border-t border-casino-border bg-casino-bg px-4 pb-8 pt-10 sm:px-5 md:px-6 lg:px-8">
       <div
         id="blog"
-        className="relative mx-auto max-w-[1200px] scroll-mt-24 rounded-casino-md bg-casino-surface p-6"
+        className="relative mx-auto max-w-[min(100%,90rem)] scroll-mt-24 rounded-casino-md bg-casino-surface p-6"
       >
         <h2 className="mb-4 text-sm font-extrabold text-casino-foreground">{seoTitle}</h2>
         <div
@@ -161,7 +161,7 @@ const SiteFooter: FC = () => {
         ) : null}
       </div>
 
-      <div className="mx-auto mt-10 flex max-w-[1200px] flex-col gap-7">
+      <div className="mx-auto mt-10 flex max-w-[min(100%,90rem)] flex-col gap-7">
         <div className="flex flex-col gap-6 sm:gap-5 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
           <Link
             to="/casino/games"

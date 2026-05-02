@@ -162,7 +162,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
           <IconX size={18} aria-hidden />
         </button>
 
-        <div className="mx-auto grid h-full min-h-0 w-full max-w-6xl grid-rows-[minmax(0,0.22fr)_auto_minmax(0,1.6fr)] px-3 sm:px-4">
+        <div className="mx-auto grid h-full min-h-0 w-full max-w-[min(100%,90rem)] grid-rows-[minmax(0,0.22fr)_auto_minmax(0,1.6fr)] px-3 sm:px-4 lg:px-6">
           <div className="min-h-0" aria-hidden />
           <div
             className="pointer-events-auto flex justify-center px-0 pb-3"
@@ -218,7 +218,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
             ) : null}
 
             {games.length > 0 ? (
-              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 sm:grid-cols-3 md:grid-cols-5 md:gap-2 lg:grid-cols-6 2xl:grid-cols-7">
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-3 sm:gap-2 md:grid-cols-5 md:gap-2 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 min-[1700px]:grid-cols-9 min-[1920px]:grid-cols-10">
                 {games.map((g) => {
                   const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
                   return (

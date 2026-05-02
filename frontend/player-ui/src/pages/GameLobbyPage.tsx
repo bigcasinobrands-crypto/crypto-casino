@@ -164,7 +164,7 @@ function StatsKeyValueTable({
 const relatedGameCardShell =
   'group flex h-full flex-col overflow-hidden rounded-casino-md border border-white/[0.08] bg-casino-surface transition hover:border-casino-primary/35 hover:bg-casino-elevated'
 
-const lobbyRailInner = 'mx-auto w-full max-w-4xl px-3 sm:px-4 lg:max-w-5xl'
+const lobbyRailInner = 'mx-auto w-full max-w-[min(100%,90rem)] px-3 sm:px-4 lg:px-6'
 
 /**
  * Full-page game lobby: catalog links here; provider iframe loads in a top-aligned “theater”
@@ -613,7 +613,7 @@ export default function GameLobbyPage() {
 
       {showTheater ? (
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
-          <div className="mx-auto w-full max-w-4xl shrink-0 px-3 pt-2 sm:px-4 sm:pt-3 lg:max-w-5xl">
+          <div className="mx-auto w-full max-w-[min(100%,90rem)] shrink-0 px-3 pt-2 sm:px-4 sm:pt-3 lg:px-6">
             <div
               ref={stageRef}
               className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
@@ -996,7 +996,7 @@ export default function GameLobbyPage() {
                           <RequireAuthLink
                             key={g.id}
                             to={lobbyTo}
-                            className={`${relatedGameCardShell} w-[min(10.5rem,calc(100vw-6.5rem))] shrink-0 snap-start text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-casino-primary focus-visible:ring-offset-2 focus-visible:ring-offset-casino-surface`}
+                            className={`${relatedGameCardShell} w-[min(9.25rem,calc(100vw-6.5rem))] shrink-0 snap-start text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-casino-primary focus-visible:ring-offset-2 focus-visible:ring-offset-casino-surface sm:w-[min(8.75rem,calc(100vw-7rem))] lg:w-[min(8.25rem,calc(100vw-8rem))]`}
                             style={{ touchAction: 'manipulation' }}
                             onClick={(e) => {
                               if (e.defaultPrevented) return
