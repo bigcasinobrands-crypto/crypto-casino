@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -51,12 +52,15 @@ import (
 )
 
 func main() {
+	fmt.Fprintf(os.Stderr, "crypto-casino core api: starting\n")
 	cfg, err := config.Load()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL config load: %v\n", err)
 		log.Fatalf("config: %v", err)
 	}
 	log.Printf("startup: APP_ENV=%q PORT=%q", cfg.AppEnv, cfg.Port)
 	if err := cfg.ValidateProduction(); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL production validation: %v\n", err)
 		log.Fatalf("config: %v", err)
 	}
 	obs.InitLogging(cfg.LogFormat)
@@ -71,11 +75,13 @@ func main() {
 		log.Printf("WARNING: SKIP_DB_MIGRATIONS_ON_START set — migrations skipped (run npm run migrate:core or ./migrate separately)")
 	} else {
 		if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
+			fmt.Fprintf(os.Stderr, "FATAL migrations: %v\n", err)
 			log.Fatalf("migrations: %v", err)
 		}
 	}
 	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL db pool: %v\n", err)
 		log.Fatalf("db pool: %v", err)
 	}
 	defer pool.Close()
@@ -111,6 +117,7 @@ func main() {
 	if p := strings.TrimSpace(cfg.JWTRSAKeyFile); p != "" {
 		rsaKey, rsaKeyErr = jwtissuer.LoadRSAPrivateKeyFromFile(p)
 		if rsaKeyErr != nil {
+			fmt.Fprintf(os.Stderr, "FATAL jwt rsa key: %v\n", rsaKeyErr)
 			log.Fatalf("jwt rsa key: %v", rsaKeyErr)
 		}
 	}

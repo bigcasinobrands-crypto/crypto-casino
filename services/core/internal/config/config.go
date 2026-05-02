@@ -390,6 +390,18 @@ func (c *Config) ValidateProduction() error {
 	if c.AppEnv != "production" {
 		return nil
 	}
+	jwtUpper := strings.ToUpper(c.JWTSecret)
+	dbUpper := strings.ToUpper(c.DatabaseURL)
+	redisUpper := strings.ToUpper(c.RedisURL)
+	if strings.Contains(jwtUpper, "CHANGE_ME") {
+		return fmt.Errorf("APP_ENV=production: JWT_SECRET still looks like a template (contains CHANGE_ME) — generate a real secret (e.g. openssl rand -hex 32)")
+	}
+	if strings.Contains(dbUpper, "CHANGE_ME") {
+		return fmt.Errorf("APP_ENV=production: DATABASE_URL still looks like a template (contains CHANGE_ME) — paste your full Supabase Postgres URI")
+	}
+	if strings.Contains(redisUpper, "CHANGE_ME") {
+		return fmt.Errorf("APP_ENV=production: REDIS_URL still looks like a template (contains CHANGE_ME) — paste your Redis URL (e.g. Upstash rediss://)")
+	}
 	if strings.Contains(strings.ToLower(c.JWTSecret), "dev-only") || strings.Contains(strings.ToLower(c.JWTSecret), "change-me") {
 		return fmt.Errorf("APP_ENV=production: JWT_SECRET must not contain dev placeholder strings")
 	}
