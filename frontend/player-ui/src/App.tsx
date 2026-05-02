@@ -89,9 +89,9 @@ function CatalogFooter() {
 const iconBtn =
   'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-casino-chip text-white/90 no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50 [&_svg]:shrink-0'
 
-/** Rewards trigger — same family as icon tiles, wider. */
+/** Rewards trigger — icon-only on smallest widths so wallet + deposit stay visible. */
 const rewardsHeaderBtn =
-  'inline-flex h-9 min-h-9 min-w-0 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-casino-chip px-2.5 text-[10px] font-extrabold uppercase tracking-wide text-white/95 no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50 sm:px-3 [&_svg]:shrink-0'
+  'inline-flex h-9 min-h-9 w-9 min-w-[2.25rem] shrink-0 items-center justify-center gap-0 rounded-[10px] bg-casino-chip px-0 text-[10px] font-extrabold uppercase tracking-wide text-white/95 no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50 sm:w-auto sm:min-w-0 sm:gap-1.5 sm:px-3 [&_svg]:shrink-0'
 
 const iconBtnActive =
   'bg-casino-primary/25 text-white ring-casino-primary/40 [&_svg]:text-white'
@@ -200,8 +200,8 @@ function AppShell() {
             <div className="shrink-0">
               <OperationalBanner data={op.data} />
             </div>
-            <header className="relative z-50 flex h-16 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-casino-topbar px-3 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] sm:px-5 md:px-6">
-              <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
+            <header className="relative z-50 flex min-h-16 shrink-0 flex-wrap items-center gap-x-1 gap-y-2 border-b border-white/[0.06] bg-casino-topbar px-2 py-2 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] sm:flex-nowrap sm:gap-2 sm:px-5 sm:py-0 md:px-6">
+              <div className="order-1 flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-3">
                 <button
                   type="button"
                   className={`${iconBtn} shrink-0 lg:hidden`}
@@ -219,10 +219,10 @@ function AppShell() {
                   onNavigate={() => setSidebarOpen(false)}
                 />
               </div>
-              <div className="min-w-0 flex-1 px-1">
+              <div className="order-3 flex min-w-0 w-full basis-full overflow-visible px-0 sm:order-none sm:w-auto sm:flex-1 sm:basis-0 sm:px-1">
                 <HeaderWalletBar onOpenWallet={openWallet} />
               </div>
-              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2 md:gap-3">
+              <div className="order-2 ml-auto flex shrink-0 items-center gap-0.5 sm:order-none sm:ml-0 sm:gap-2 md:gap-3">
                 {showCasinoSearch ? (
                   <button
                     type="button"

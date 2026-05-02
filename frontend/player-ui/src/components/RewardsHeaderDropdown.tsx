@@ -149,7 +149,7 @@ export default function RewardsHeaderDropdown({
   const hunt = hub?.hunt
 
   return (
-    <div ref={rootRef} className="relative hidden sm:inline-flex">
+    <div ref={rootRef} className="relative inline-flex shrink-0">
       <button
         type="button"
         className={triggerClasses}
@@ -159,7 +159,7 @@ export default function RewardsHeaderDropdown({
         onClick={() => setOpen((o) => !o)}
       >
         <IconGift size={18} aria-hidden />
-        <span className="max-w-[4.5rem] truncate text-[10px] font-extrabold uppercase leading-none tracking-wide">
+        <span className="hidden max-w-[4.5rem] truncate text-[10px] font-extrabold uppercase leading-none tracking-wide sm:inline">
           Rewards
         </span>
       </button>

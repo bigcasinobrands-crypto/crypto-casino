@@ -198,55 +198,61 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
     return true
   })
 
-  const walletBarInner = (
+  /** Balance + asset picker only — never clip the Deposit control (stays as sibling). */
+  const walletBarCore = (
     <>
-      <div className="flex shrink-0 flex-col items-end pl-3">
-        <span className="text-sm font-semibold tabular-nums text-white">
+      <div className="flex min-w-0 shrink flex-col items-end pl-1.5 sm:pl-3">
+        <span className="truncate text-xs font-semibold tabular-nums text-white sm:text-sm">
           {formatBalance(isAuthenticated ? balanceMinor : 0)}
         </span>
         {isAuthenticated && balanceBreakdown && balanceBreakdown.bonusLockedMinor > 0 ? (
-          <span className="text-[10px] tabular-nums text-white/45">
+          <span className="max-w-full truncate text-[9px] tabular-nums text-white/45 sm:text-[10px]">
             Bonus {formatBalance(balanceBreakdown.bonusLockedMinor)}
           </span>
         ) : null}
       </div>
-      <div className="ml-1 shrink-0">
+      <div className="ml-0.5 shrink-0 sm:ml-1">
         <button
           type="button"
           disabled={!isAuthenticated}
           onClick={() => setOpen((p) => !p)}
-          className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-white/80 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-8 max-w-[100vw] items-center gap-1 rounded-lg px-1.5 text-xs font-semibold text-white/80 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:px-2"
         >
           <ChainLogo wallet={active} logoUrl={logoUrls[chainLogoSlug]} />
           <span className="hidden text-white sm:inline">{active.symbol}</span>
           <span className="hidden text-casino-muted sm:inline">·</span>
           <span className="hidden sm:inline">{active.network}</span>
           <IconChevronDown
-            className={`size-3.5 text-white/50 transition ${open ? 'rotate-180' : ''}`}
+            className={`size-3.5 shrink-0 text-white/50 transition ${open ? 'rotate-180' : ''}`}
             size={14}
             aria-hidden
           />
         </button>
       </div>
-      <div className="mx-1 hidden h-6 w-px shrink-0 bg-white/[0.10] sm:block" aria-hidden />
-      <button
-        type="button"
-        onClick={onDeposit}
-        className="shrink-0 rounded-[10px] bg-casino-primary px-4 py-2.5 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/70"
-      >
-        Deposit
-      </button>
     </>
   )
 
+  const depositButton = (
+    <button
+      type="button"
+      onClick={onDeposit}
+      title="Deposit"
+      aria-label="Deposit"
+      className="min-h-9 w-full shrink-0 whitespace-nowrap rounded-[10px] bg-casino-primary px-3 py-2 text-center text-[11px] font-bold leading-none text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/70 sm:w-auto sm:px-4 sm:py-2.5 sm:text-sm"
+    >
+      Deposit
+    </button>
+  )
+
   return (
-    <div className="mx-auto flex w-full max-w-md min-w-0 items-center justify-center">
+    <div className="mx-auto flex w-full min-w-0 max-w-full flex-col items-stretch justify-center gap-1.5 sm:max-w-md sm:flex-row sm:items-center sm:gap-2">
       <div
         ref={barRef}
-        className="flex min-w-0 max-w-full items-center gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25"
+        className="flex min-h-9 min-w-0 w-full flex-1 items-center gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 sm:w-auto sm:flex-initial sm:max-w-[min(100%,28rem)]"
       >
-        {walletBarInner}
+        {walletBarCore}
       </div>
+      {depositButton}
 
       {open && panelPos && createPortal(
         <>
@@ -257,13 +263,13 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
             aria-hidden
           />
 
-          {/* Floating wallet bar — sharp, above the blur */}
+          {/* Floating wallet chip — matches barRef (balance + picker only) */}
           {barRect && (
             <div
               style={{ position: 'fixed', top: barRect.top, left: barRect.left, width: barRect.width, height: barRect.height, zIndex: 200 }}
               className="flex items-center gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ring-1 ring-black/25"
             >
-              {walletBarInner}
+              {walletBarCore}
             </div>
           )}
 

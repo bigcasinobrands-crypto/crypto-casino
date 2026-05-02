@@ -935,8 +935,8 @@ export default function VipPage() {
   }, [apiFetch, monthlyUnlockMs, nowMs, refreshProfile, reloadHub, scheduledOfferByKey.monthly, scheduledOfferByKey.weekly, weeklyUnlockMs])
 
   return (
-    <div className="w-full text-casino-foreground">
-      <div className="mx-auto max-w-[1180px] px-4 pb-14 pt-6 sm:px-6 lg:px-8 lg:pb-20 lg:pt-10">
+    <div className="w-full min-w-0 overflow-x-clip text-casino-foreground">
+      <div className="player-casino-max mx-auto px-4 pb-14 pt-6 sm:px-6 lg:pb-20 lg:pt-10">
         <header className="relative mb-6">
           <h1 className="m-0 text-lg font-black uppercase tracking-[0.2em] text-casino-foreground">Rewards</h1>
           <IconGem size={78} className="pointer-events-none absolute -right-2 -top-6 text-white/5" aria-hidden />
@@ -944,7 +944,7 @@ export default function VipPage() {
 
         <section className="mb-6 grid gap-4 lg:grid-cols-[1.1fr_1fr] lg:items-stretch lg:gap-6">
           <VipLoyaltyHeroBanner />
-          <article className="flex h-full min-h-[232px] flex-col rounded-2xl border border-white/10 bg-casino-elevated p-6">
+          <article className="flex h-full min-h-[232px] min-w-0 flex-col rounded-2xl border border-white/10 bg-casino-elevated p-4 sm:p-6">
             {isAuthenticated && !vipLoading ? (
               <div className="flex flex-wrap items-start justify-end gap-2">
                 <span
@@ -972,15 +972,22 @@ export default function VipPage() {
                 }}
               />
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs">
+            <div className="mt-4 grid grid-cols-1 gap-2 text-center text-xs md:grid-cols-3 md:gap-3">
               {[
                 { label: 'Wagered', value: formatWagerMinor(vip?.progress?.lifetime_wager_minor) },
                 { label: 'Next tier', value: formatWagerMinor(vip?.progress?.next_tier_min_wager_minor) },
                 { label: 'Remaining', value: formatWagerMinor(vip?.progress?.remaining_wager_minor) },
               ].map((x) => (
-                <div key={x.label} className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
-                  <div className="text-white/65">{x.label}</div>
-                  <div className="mt-1 font-extrabold text-white">{isAuthenticated ? x.value : '—'}</div>
+                <div
+                  key={x.label}
+                  className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-white/[0.02] px-2.5 py-2.5 md:px-2 md:py-2.5"
+                >
+                  <div className="whitespace-normal break-words text-[10px] leading-tight text-white/65 md:text-xs">
+                    {x.label}
+                  </div>
+                  <div className="mt-1 min-w-0 break-words font-extrabold tabular-nums text-[13px] text-white sm:text-sm">
+                    {isAuthenticated ? x.value : '—'}
+                  </div>
                 </div>
               ))}
             </div>

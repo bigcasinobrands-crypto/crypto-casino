@@ -137,8 +137,8 @@ export function MyBonusesLayout({
       {/* Balances — GET /v1/rewards/hub `aggregates` = current in-progress instance (non-exempt / primary first) */}
       {!err && (loading || data) ? (
         <div className="mb-6 min-w-0 sm:mb-8">
-          <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
-          <div className="min-w-0 rounded-casino-md border border-white/[0.06] bg-casino-card px-3 py-2.5">
+          <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:gap-3">
+          <div className="min-w-0 overflow-hidden rounded-casino-md border border-white/[0.06] bg-casino-card px-3 py-2.5">
             <div className="text-[10px] font-bold uppercase tracking-wide text-casino-muted">Wagering left</div>
             {loading && !data ? (
               <div className="mt-1.5 h-5 w-24 max-w-full animate-pulse rounded bg-white/[0.08]" aria-hidden />
