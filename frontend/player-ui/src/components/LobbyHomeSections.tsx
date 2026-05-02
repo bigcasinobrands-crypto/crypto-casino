@@ -72,6 +72,17 @@ const HOME_SECTION_PREVIEW_CAP = 24
 /** API / slice caps — phone horizontal strip, tablet grid, desktop horizontal row up to 24 */
 const HOME_FETCH_LIMIT = 24
 
+/** Phone home sections: 3 columns × 2 rows per horizontal “page”, chunked in JS. */
+const PHONE_HOME_CHUNK = 6
+
+function chunkIntoSix<T>(items: T[]): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += PHONE_HOME_CHUNK) {
+    out.push(items.slice(i, i + PHONE_HOME_CHUNK))
+  }
+  return out
+}
+
 /** Matches `.casino-home-section-strip` tiers: horizontal scroll phone, grid tablet, row desktop. */
 function homeSectionTileCapForWidth(width: number): number {
   /* Phone: same cap as fetch — tiles live in a horizontal strip; swipe right reveals more. */
@@ -94,6 +105,22 @@ function useHomeSectionTileCap(): number {
   }, [])
 
   return cap
+}
+
+function usePhoneHomeStrip(): boolean {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : false,
+  )
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const fn = () => setNarrow(mq.matches)
+    fn()
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+
+  return narrow
 }
 
 const outlinedViewAllClass =
@@ -156,20 +183,33 @@ function GameSection({
   const reduceMotion = usePrefersReducedMotion()
   const stripRef = useRef<HTMLDivElement>(null)
   const tileCap = useHomeSectionTileCap()
+  const isPhoneStrip = usePhoneHomeStrip()
 
   const previewGames = useMemo(
     () => dedupeGamesById(games.slice(0, tileCap)),
     [games, tileCap],
   )
 
+  const phoneChunks = useMemo(
+    () => (isPhoneStrip ? chunkIntoSix(previewGames) : null),
+    [isPhoneStrip, previewGames],
+  )
+
   const skeletonTileCount = Math.min(tileCap, 12)
 
-  const scrollStrip = useCallback((dir: -1 | 1) => {
-    const el = stripRef.current
-    if (!el) return
-    const step = Math.max(el.clientWidth * 0.65, 240)
-    el.scrollBy({ left: dir * step, behavior: reduceMotion ? 'auto' : 'smooth' })
-  }, [reduceMotion])
+  const scrollStrip = useCallback(
+    (dir: -1 | 1) => {
+      const el = stripRef.current
+      if (!el) return
+      let step = Math.max(el.clientWidth * 0.65, 240)
+      if (isPhoneStrip) {
+        const chunk = el.querySelector('.casino-home-section-phone-chunk') as HTMLElement | null
+        if (chunk) step = chunk.offsetWidth + 8
+      }
+      el.scrollBy({ left: dir * step, behavior: reduceMotion ? 'auto' : 'smooth' })
+    },
+    [isPhoneStrip, reduceMotion],
+  )
 
   const tileLink = (g: Game) => (
     <div key={g.id} className="min-w-0" role="listitem">
@@ -227,18 +267,44 @@ function GameSection({
       <div className="relative min-w-0 w-full max-w-full">
         <div
           ref={stripRef}
-          className="casino-home-section-strip"
+          className={`casino-home-section-strip${isPhoneStrip ? ' casino-home-section-strip--phone' : ''}`}
           role="list"
         >
-          {showSkeletons
-            ? Array.from({ length: skeletonTileCount }, (_, i) => (
+          {showSkeletons ? (
+            isPhoneStrip ? (
+              Array.from({ length: Math.ceil(skeletonTileCount / PHONE_HOME_CHUNK) }, (_, ci) => (
+                <div
+                  key={`sk-${title}-c-${ci}`}
+                  className="casino-home-section-phone-chunk"
+                  role="presentation"
+                >
+                  {Array.from({ length: Math.min(PHONE_HOME_CHUNK, skeletonTileCount - ci * PHONE_HOME_CHUNK) }, (_, i) => (
+                    <div key={`sk-${title}-${ci}-${i}`} className="min-w-0" role="listitem">
+                      <div className="game-thumb-link pointer-events-none block">
+                        <GameCardSkeleton />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))
+            ) : (
+              Array.from({ length: skeletonTileCount }, (_, i) => (
                 <div key={`sk-${title}-${i}`} className="min-w-0" role="listitem">
                   <div className="game-thumb-link pointer-events-none block">
                     <GameCardSkeleton />
                   </div>
                 </div>
               ))
-            : previewGames.map((g) => tileLink(g))}
+            )
+          ) : isPhoneStrip && phoneChunks ? (
+            phoneChunks.map((chunk, ci) => (
+              <div key={`${title}-chunk-${ci}`} className="casino-home-section-phone-chunk" role="presentation">
+                {chunk.map((g) => tileLink(g))}
+              </div>
+            ))
+          ) : (
+            previewGames.map((g) => tileLink(g))
+          )}
         </div>
       </div>
       {!showSkeletons && games.length === 0 ? (

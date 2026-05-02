@@ -230,7 +230,7 @@
 }
 
 /* ----- Lobby home category rows (strict layout tiers; tile counts enforced in JS) -----
- * Phone (<768): horizontal scroll row — swipe right for more tiles (matches fetched preview cap in JS).
+ * Phone (<768): JS wraps tiles in 3×2 chunks; strip scrolls horizontally (see LobbyHomeSections).
  * iPad / tablet (768–1279): 6 cols × 2 rows (768–1023) or 7 cols × 2 rows (1024–1279).
  * Desktop (≥1280): single horizontal row, scroll-x only (160px tiles).
  */
@@ -251,11 +251,12 @@
 }
 
 @media (max-width: 767px) {
-  .casino-home-section-strip {
+  /* Horizontal swipe through 3×2 “pages” (chunks); inner grid is row-major 1…6. */
+  .casino-home-section-strip--phone {
     display: flex !important;
     flex-direction: row !important;
     flex-wrap: nowrap !important;
-    grid-template-columns: none;
+    grid-template-columns: none !important;
     gap: 8px;
     overflow-x: auto;
     overflow-y: hidden;
@@ -265,16 +266,24 @@
     padding-bottom: 4px;
   }
 
-  .casino-home-section-strip::-webkit-scrollbar {
+  .casino-home-section-strip--phone::-webkit-scrollbar {
     display: none;
     height: 0;
   }
 
-  .casino-home-section-strip > * {
-    flex: 0 0 min(42vw, 148px);
-    width: min(42vw, 148px);
-    max-width: 148px;
-    min-width: 112px;
+  .casino-home-section-strip--phone > .casino-home-section-phone-chunk {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, auto);
+    gap: 8px;
+    flex: 0 0 auto;
+    width: calc(3 * min(42vw, 148px) + 16px);
+    min-width: 0;
+    align-content: start;
+  }
+
+  .casino-home-section-strip--phone > .casino-home-section-phone-chunk > * {
+    min-width: 0;
   }
 }
 
