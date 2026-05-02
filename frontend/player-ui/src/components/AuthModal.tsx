@@ -2,8 +2,8 @@ import { useEffect, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuthModal, type AuthPanel } from '../authModalContext'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
+import { useSiteContent } from '../hooks/useSiteContent'
 import { usePlayerAuth } from '../playerAuth'
-import BrandLogo from './BrandLogo'
 import { ForgotPasswordForm, LoginForm, RegisterForm } from './AuthForms'
 import { IconShieldCheck } from './icons'
 
@@ -30,6 +30,8 @@ const panelCopy: Record<AuthPanel, { kicker: string; title: string; subtitle: st
 export function AuthModal() {
   const { panel, closeAuth, setPanel } = useAuthModal()
   const { isAuthenticated } = usePlayerAuth()
+  const { getContent } = useSiteContent()
+  const siteLabel = (getContent<string>('branding.site_name', '') ?? '').trim() || 'vybebet'
   const titleId = useId()
   const descId = useId()
 
@@ -87,7 +89,7 @@ export function AuthModal() {
         </button>
 
         <div className="flex justify-center pr-6 pt-0 sm:pr-7">
-          <BrandLogo compact micro onNavigate={closeAuth} />
+          <span className="text-[15px] font-black tracking-tight text-white sm:text-lg">{siteLabel}</span>
         </div>
 
         <div className="flex flex-col items-center gap-0.5 pr-6 text-center sm:gap-1 sm:pr-7">

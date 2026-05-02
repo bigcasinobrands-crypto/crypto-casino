@@ -13,8 +13,6 @@ import { useRakebackBoostLiveToast } from './hooks/useRakebackBoostLiveToast'
 import { useRewardsHub } from './hooks/useRewardsHub'
 import { AuthModalProvider, useAuthModal, type PostAuthWalletTab } from './authModalContext'
 import { AuthModal } from './components/AuthModal'
-import BrandLogo from './components/BrandLogo'
-import { ShellBrandLogoSlot } from './components/ShellBrandLogoSlot'
 import ChatDrawer from './components/ChatDrawer'
 import { InstallGlobalPlayerToasts } from './components/InstallGlobalPlayerToasts'
 import { PlayerToaster } from './components/PlayerToaster'
@@ -282,16 +280,8 @@ function AppShell() {
         <BootNonLobbyRoutes />
         <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased">
           <header className="casino-shell-mobile-header border-b border-white/[0.06] bg-casino-topbar shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
-            {/*
-              Mobile: logo + actions are flex siblings (`justify-between`). Wallet is absolutely centered in
-              the header (same idea as tablet) so changing logo size/CSS never shifts the deposit pill.
-            */}
+            {/* Mobile: wallet centered in header (`absolute`); actions on the right. */}
             <div className="relative isolate flex h-16 min-h-[4rem] w-full min-w-0 items-center justify-between gap-x-1 px-2">
-              <div className="relative z-[2] flex min-h-[36px] min-w-0 shrink-0 items-center">
-                <ShellBrandLogoSlot>
-                  <BrandLogo compact inHeaderSlot onNavigate={dismissAllChrome} />
-                </ShellBrandLogoSlot>
-              </div>
               {isAuthenticated ? (
                 <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-10 sm:px-12">
                   <div className="pointer-events-auto flex min-h-[36px] min-w-0 max-w-[min(28rem,calc(100vw-7.5rem))] items-center justify-center overflow-hidden px-0.5">
@@ -359,9 +349,6 @@ function AppShell() {
                 >
                   <IconMenu size={18} aria-hidden />
                 </button>
-                <ShellBrandLogoSlot>
-                  <BrandLogo compact inHeaderSlot onNavigate={dismissAllChrome} />
-                </ShellBrandLogoSlot>
               </div>
               {isAuthenticated ? (
                 <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-10 sm:px-12 md:px-14">
@@ -414,20 +401,15 @@ function AppShell() {
             <div
               className={`isolate mx-auto flex h-full min-h-0 w-full min-w-0 max-w-full items-center gap-2 pl-2 pr-3 md:gap-3 md:px-5 min-[1280px]:px-6 ${isAuthenticated ? '' : 'justify-between'}`}
             >
-              <div className="relative z-0 shrink-0">
-                <ShellBrandLogoSlot>
-                  <BrandLogo compact inHeaderSlot onNavigate={dismissAllChrome} />
-                </ShellBrandLogoSlot>
-              </div>
               {isAuthenticated ? (
-                <div className="relative z-[1] flex min-h-[40px] min-w-0 flex-1 basis-0 items-center justify-center overflow-visible px-0 md:px-1">
+                <div className="relative z-[1] flex min-h-[40px] min-w-0 flex-1 basis-0 items-center justify-center overflow-hidden px-0 md:px-1">
                   <HeaderWalletBar
                     onOpenWallet={openWallet}
                     depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
                   />
                 </div>
               ) : null}
-              <div className="relative z-[2] flex shrink-0 items-center justify-end gap-0.5 md:gap-2 min-[1280px]:gap-3">
+              <div className="relative z-[2] ml-auto flex shrink-0 items-center justify-end gap-0.5 md:gap-2 min-[1280px]:gap-3">
                 {showCasinoSearch ? (
                   <button
                     type="button"

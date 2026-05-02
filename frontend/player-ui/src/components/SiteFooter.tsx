@@ -1,10 +1,8 @@
 import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import AcceptedCurrenciesStrip from './AcceptedCurrenciesStrip'
-import { useEffect, useState, type FC } from 'react'
+import { useState, type FC } from 'react'
 import { useSiteContent } from '../hooks/useSiteContent'
-import { usePlayerBrandLogoSrc } from '../hooks/usePlayerBrandLogo'
-import { DEFAULT_PLAYER_LOGO_PNG, DEFAULT_PLAYER_LOGO_SVG } from '../lib/brandLogoAssets'
 
 const linkMuted = 'text-[10px] font-medium leading-snug text-casino-muted transition hover:text-casino-primary'
 const colTitle = 'mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-casino-foreground'
@@ -95,10 +93,7 @@ function renderLinkList(links: FooterLink[]) {
 const SiteFooter: FC = () => {
   const [seoOpen, setSeoOpen] = useState(false)
   const { getContent } = useSiteContent()
-  const footerLogoPrimary = usePlayerBrandLogoSrc()
   const siteLabel = (getContent<string>('branding.site_name', '') ?? '').trim() || 'vybebet'
-  const [footerLogoSrc, setFooterLogoSrc] = useState(footerLogoPrimary)
-  useEffect(() => setFooterLogoSrc(footerLogoPrimary), [footerLogoPrimary])
 
   const seoTitle = getContent<string>('footer.seo_title', FALLBACK_SEO_TITLE)
   const seoBlocks = getContent('footer.seo_blocks', FALLBACK_SEO_BLOCKS)
@@ -172,21 +167,9 @@ const SiteFooter: FC = () => {
         <div className="flex flex-col gap-6 md:gap-5 min-[1280px]:flex-row min-[1280px]:items-start min-[1280px]:justify-between min-[1280px]:gap-8">
           <Link
             to="/casino/games"
-            className="mx-auto flex shrink-0 items-center rounded-casino-md outline-none ring-casino-primary/0 transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-casino-primary min-[1280px]:mx-0 min-[1280px]:pt-0.5"
+            className="mx-auto flex shrink-0 items-center rounded-casino-md text-[15px] font-black tracking-tight text-casino-foreground outline-none ring-casino-primary/0 transition hover:text-white focus-visible:ring-2 focus-visible:ring-casino-primary min-[1280px]:mx-0 min-[1280px]:pt-0.5 min-[1280px]:text-lg"
           >
-            <img
-              src={footerLogoSrc}
-              alt={siteLabel}
-              className="block h-auto max-h-14 w-auto max-w-[min(260px,100%)] shrink-0 object-contain object-left md:max-h-16 min-[1280px]:max-h-[4.5rem]"
-              decoding="async"
-              onError={() => {
-                setFooterLogoSrc((prev) => {
-                  if (prev === DEFAULT_PLAYER_LOGO_SVG) return prev
-                  if (prev === DEFAULT_PLAYER_LOGO_PNG) return DEFAULT_PLAYER_LOGO_SVG
-                  return DEFAULT_PLAYER_LOGO_PNG
-                })
-              }}
-            />
+            {siteLabel}
           </Link>
           <nav
             className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-5 sm:gap-x-4 md:grid-cols-3 md:gap-x-5 min-[1280px]:flex min-[1280px]:min-w-0 min-[1280px]:flex-1 min-[1280px]:flex-row min-[1280px]:flex-wrap min-[1280px]:items-start min-[1280px]:justify-end min-[1280px]:gap-x-5 min-[1280px]:gap-y-4 min-[1536px]:gap-x-6"

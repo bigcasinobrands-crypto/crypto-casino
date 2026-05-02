@@ -1,25 +1,21 @@
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
-import { DEFAULT_PLAYER_LOGO_PNG } from '../lib/brandLogoAssets'
-
-/** Bundled wordmark — same default as `BrandLogo` / CMS fallback. */
-export const BRAND_LOADER_LOGO_SRC = DEFAULT_PLAYER_LOGO_PNG
 
 type Size = 'card' | 'hero' | 'inline'
 
-function sizeClasses(size: Size): string {
+function skeletonBox(size: Size, reduceMotion: boolean): string {
+  const pulse = reduceMotion ? 'opacity-75' : 'animate-pulse'
   switch (size) {
     case 'hero':
-      return 'block h-auto w-[min(78vw,280px)] max-w-[300px] object-contain object-center'
+      return `h-14 w-[min(72vw,260px)] rounded-xl bg-white/[0.08] ${pulse}`
     case 'inline':
-      return 'block h-auto max-h-8 w-auto max-w-[132px] object-contain object-center sm:max-h-9 sm:max-w-[152px]'
+      return `h-7 w-[120px] rounded-md bg-white/[0.08] sm:h-8 sm:w-[140px] ${pulse}`
     case 'card':
     default:
-      /* Horizontal wordmark centered in portrait game tiles */
-      return 'block h-auto max-h-[38px] w-[84%] max-w-[168px] object-contain object-center sm:max-h-[42px] sm:max-w-[184px]'
+      return `h-[38px] w-[84%] max-w-[168px] rounded-lg bg-white/[0.08] sm:h-[42px] sm:max-w-[184px] ${pulse}`
   }
 }
 
-/** Centered vybebet logo with a gentle pulse (respects reduced motion). */
+/** Neutral loading placeholder (no brand artwork — avoids CMS/logo coupling during shell loads). */
 export function PulsingBrandTile({
   className = '',
   size = 'card',
@@ -30,14 +26,7 @@ export function PulsingBrandTile({
   const reduceMotion = usePrefersReducedMotion()
   return (
     <div className={`pointer-events-none flex items-center justify-center ${className}`.trim()}>
-      <img
-        src={BRAND_LOADER_LOGO_SRC}
-        alt=""
-        draggable={false}
-        width={200}
-        height={46}
-        className={`${sizeClasses(size)} ${reduceMotion ? 'opacity-90' : 'animate-vybebet-brand-pulse'}`.trim()}
-      />
+      <div className={skeletonBox(size, reduceMotion)} aria-hidden />
     </div>
   )
 }

@@ -294,7 +294,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
       aria-current={depositNavActive ? 'page' : undefined}
       className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-none text-white transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:mx-0.5 md:mb-0.5 md:mt-0.5 md:w-auto md:rounded-xl md:px-3 md:py-2 md:text-xs md:font-bold md:shadow-none max-[1279px]:md:px-2.5 max-[1279px]:md:py-1.5 min-[1280px]:md:px-4 min-[1280px]:md:py-2 min-[1280px]:md:text-sm bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:aspect-square max-[1000px]:min-[768px]:md:min-h-0 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:px-0 max-[1000px]:min-[768px]:md:py-0 ${
         depositNavActive
-          ? 'ring-2 ring-casino-primary/55 shadow-[0_0_14px_rgba(123,97,255,0.4)] md:ring-white/25'
+          ? 'ring-2 ring-casino-primary/55 shadow-[0_0_12px_rgba(123,97,255,0.38)] md:ring-white/25 min-[1280px]:shadow-[0_0_6px_rgba(123,97,255,0.22)]'
           : ''
       }`}
     >

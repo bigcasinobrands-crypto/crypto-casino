@@ -2,7 +2,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
-import BrandLogo from '../components/BrandLogo'
 import { PortraitGameThumb } from '../components/PortraitGameThumb'
 import {
   IconBarChart3,
@@ -632,9 +631,6 @@ export default function GameLobbyPage() {
                 <span className="rounded bg-white/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-white/85 sm:px-2 sm:py-0.5 sm:text-[10px]">
                   {edgeLabel}
                 </span>
-              </div>
-              <div className="hidden shrink-0 sm:flex">
-                <BrandLogo compact className="shrink-0" />
               </div>
               <div className="relative z-20 flex shrink-0 items-center gap-px sm:gap-0.5">
                 <button
