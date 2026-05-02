@@ -248,6 +248,9 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
   const chipInnerClosed =
     'relative z-[1] inline-flex min-h-8 w-max max-w-full shrink-0 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 md:min-h-[36px] md:rounded-none md:border-0 md:bg-transparent md:py-0 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-[34px] max-[1279px]:md:pl-1 min-[1280px]:md:min-h-[40px] min-[1280px]:md:pl-0'
 
+  /** Same as closed chip but opaque on md+ so the $0 perimeter beam stays in the 2px gutter, not over text. */
+  const chipInnerClosedZeroRing = chipInnerClosed.replace('md:bg-transparent', 'md:bg-[#1A1A1A]')
+
   const chipInnerFloating =
     'relative z-[1] inline-flex min-h-8 w-max max-w-full shrink-0 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ring-1 ring-black/25 md:min-h-[36px] md:rounded-none md:border-0 md:bg-[#1A1A1A] md:py-0 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-[34px] max-[1279px]:md:pl-1 min-[1280px]:md:min-h-[40px] min-[1280px]:md:pl-0'
 
@@ -311,7 +314,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
           className="relative inline-flex shrink-0 overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring"
         >
           <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
-          <div className={chipInnerClosed}>{walletBarCore}</div>
+          <div className={chipInnerClosedZeroRing}>{walletBarCore}</div>
         </div>
       ) : (
         <div ref={barRef} className={chipInnerClosed}>

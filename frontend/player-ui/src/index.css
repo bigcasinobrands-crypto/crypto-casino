@@ -225,9 +225,9 @@ body {
 
   /**
    * Header wallet chip — rotating purple perimeter + pulse when overall balance is $0.
-   * Beam sits behind `.wallet-chip-zero-ring > .wallet-chip-zero-ring__beam`; inner chip covers center.
-   * Desktop header used `overflow-visible` around the wallet — a wide %-inset beam leaked below the bar;
-   * tighter inset + paint containment keeps the glow inside the pill on md+.
+   * Beam sits behind `.wallet-chip-zero-ring > .wallet-chip-zero-ring__beam`; inner chip uses an opaque
+   * md+ fill (`chipInnerClosedZeroRing`) so the glow stays in the 2px gutter — same idea as mobile.
+   * Keep one inset across breakpoints so the arc rides the outside of the pill, not over the label.
    */
   .wallet-chip-zero-ring {
     isolation: isolate;
@@ -254,19 +254,6 @@ body {
     animation:
       wallet-zero-perimeter-spin 2.65s linear infinite,
       wallet-zero-perimeter-pulse 1.35s ease-in-out infinite;
-  }
-
-  @media (min-width: 768px) {
-    .wallet-chip-zero-ring__beam {
-      inset: -22%;
-    }
-  }
-
-  @media (min-width: 1280px) {
-    .wallet-chip-zero-ring__beam {
-      inset: -15%;
-      opacity: 0.92;
-    }
   }
 
   @keyframes wallet-zero-perimeter-spin {
