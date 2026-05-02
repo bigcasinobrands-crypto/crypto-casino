@@ -1,0 +1,35 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 200 46"
+  fill="none"
+  role="img"
+  aria-label="vybebet"
+  shape-rendering="geometricPrecision"
+  text-rendering="geometricPrecision"
+>
+  <defs>
+    <linearGradient id="vbWave" x1="8" y1="0" x2="192" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F0C9A8"/>
+      <stop offset="1" stop-color="#D080F0"/>
+    </linearGradient>
+  </defs>
+  <path
+    d="M10 12C38 6 52 17 76 12c24-5 38 5 62 0 24-5 38 5 54 0"
+    stroke="url(#vbWave)"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"
+  />
+  <text
+    x="100"
+    y="38"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="17"
+    font-weight="700"
+    letter-spacing="-0.02em"
+  >
+    <tspan fill="#FFFFFF">vybe</tspan><tspan fill="#8A5CF5">bet</tspan>
+  </text>
+</svg>

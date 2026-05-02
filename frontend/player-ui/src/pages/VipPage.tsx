@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { readApiError } from '../api/errors'
 import { IconGem } from '../components/icons'
@@ -933,6 +933,8 @@ export default function VipPage() {
       setVipDeliveryClaimBusy(null)
     }
   }, [apiFetch, monthlyUnlockMs, nowMs, refreshProfile, reloadHub, scheduledOfferByKey.monthly, scheduledOfferByKey.weekly, weeklyUnlockMs])
+
+  if (!isAuthenticated) return <Navigate to="/casino/games?auth=login" replace />
 
   return (
     <div className="w-full min-w-0 overflow-x-clip text-casino-foreground">

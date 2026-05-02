@@ -5,7 +5,9 @@ import { PortraitGameThumb } from './PortraitGameThumb'
 import { playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { resolveProviderLogoCandidates } from '../lib/providerLogoUrl'
+import { GameCardSkeleton } from './GameCardSkeleton'
 import { IconBuilding2, IconChevronLeft, IconChevronRight } from './icons'
+import { PulsingBrandTile } from './PulsingBrandTile'
 
 type Game = {
   id: string
@@ -64,6 +66,32 @@ function dedupeGamesById(games: Game[]): Game[] {
 /** Min interval between “tab visible” refetches (navigation refetches always run). */
 const VISIBILITY_REFETCH_MS = 45_000
 
+/** Desktop horizontal row: max tiles fetched into each home section strip. */
+const HOME_SECTION_PREVIEW_CAP = 24
+
+/** Matches `.casino-home-section-strip` tiers: 3×2 phone, 6×2 / 7×2 tablet, one row desktop. */
+function homeSectionTileCapForWidth(width: number): number {
+  if (width < 768) return 6
+  if (width < 1024) return 12
+  if (width < 1280) return 14
+  return HOME_SECTION_PREVIEW_CAP
+}
+
+function useHomeSectionTileCap(): number {
+  const [cap, setCap] = useState<number>(() =>
+    typeof window !== 'undefined' ? homeSectionTileCapForWidth(window.innerWidth) : HOME_SECTION_PREVIEW_CAP,
+  )
+
+  useEffect(() => {
+    const onResize = () => setCap(homeSectionTileCapForWidth(window.innerWidth))
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  return cap
+}
+
 const outlinedViewAllClass =
   'inline-flex min-h-9 items-center justify-center rounded-lg border border-white/[0.10] bg-casino-surface px-3.5 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-white/92 no-underline shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-white/[0.18] hover:bg-casino-chip-hover hover:text-white active:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50'
 
@@ -80,7 +108,7 @@ function ViewAllScrollCluster({
   return (
     <div className="flex shrink-0 items-center gap-2">
       <Link to={viewAllTo} className={outlinedViewAllClass}>
-        View all
+        VIEW ALL
       </Link>
       <div
         className="flex min-h-9 overflow-hidden rounded-lg border border-white/[0.10] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-white/[0.14]"
@@ -109,77 +137,108 @@ function ViewAllScrollCluster({
   )
 }
 
+/** API / slice caps — phone strip, tablet grid, desktop horizontal row up to 24 */
+const HOME_FETCH_LIMIT = 24
+
 function GameSection({
   title,
   viewAllTo,
   games,
+  showSkeletons,
 }: {
   title: string
   viewAllTo: string
   games: Game[]
+  /** First fetch still in flight — pulsing tile placeholders (same footprint as real tiles). */
+  showSkeletons?: boolean
 }) {
+  const reduceMotion = usePrefersReducedMotion()
   const stripRef = useRef<HTMLDivElement>(null)
+  const tileCap = useHomeSectionTileCap()
+
+  const previewGames = useMemo(
+    () => dedupeGamesById(games.slice(0, tileCap)),
+    [games, tileCap],
+  )
 
   const scrollStrip = useCallback((dir: -1 | 1) => {
     const el = stripRef.current
     if (!el) return
-    const step = Math.max(el.clientWidth * 0.75, 240)
-    el.scrollBy({ left: dir * step, behavior: 'smooth' })
-  }, [])
+    const step = Math.max(el.clientWidth * 0.65, 240)
+    el.scrollBy({ left: dir * step, behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [reduceMotion])
+
+  const tileLink = (g: Game) => (
+    <div key={g.id} className="min-w-0" role="listitem">
+      <RequireAuthLink
+        to={`/casino/game-lobby/${encodeURIComponent(g.id)}`}
+        className="group game-thumb-link block"
+      >
+        <div className="casino-game-tile-frame relative rounded-casino-md bg-casino-elevated ring-1 ring-white/[0.06]">
+          <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+        </div>
+        <span className="sr-only">{g.title}</span>
+      </RequireAuthLink>
+    </div>
+  )
 
   return (
-    <section className="mb-7">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+    <section className="mb-5 md:mb-6 min-[1280px]:mb-8">
+      <div className="mb-2 flex flex-nowrap items-center justify-between gap-2 sm:mb-2.5 sm:gap-2.5 min-[1280px]:mb-3">
         <Link
           to={viewAllTo}
-          className="group/rowtitle flex min-w-0 flex-1 items-center gap-2 text-sm font-extrabold tracking-tight text-white transition-colors duration-150 hover:text-white/95"
+          className="group/rowtitle flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-bold leading-tight tracking-tight text-white transition-colors duration-150 hover:text-white/95 sm:text-sm sm:font-extrabold"
         >
-          {title}
+          <span className="min-w-0">{title}</span>
           <IconChevronRight
-            size={18}
-            className="shrink-0 text-white/45 transition-colors duration-150 group-hover/rowtitle:text-casino-primary"
+            size={17}
+            className="shrink-0 text-white/40 transition-colors duration-150 group-hover/rowtitle:text-casino-primary"
             aria-hidden
           />
         </Link>
-        {games.length > 0 ? (
-          <>
-            <Link to={viewAllTo} className={`${outlinedViewAllClass} shrink-0 md:hidden`}>
-              View all
+        {games.length > 0 && !showSkeletons ? (
+          reduceMotion ? (
+            <Link to={viewAllTo} className={`${outlinedViewAllClass} shrink-0`}>
+              VIEW ALL
             </Link>
-            <div className="hidden md:flex">
-              <ViewAllScrollCluster
-                viewAllTo={viewAllTo}
-                onScrollLeft={() => scrollStrip(-1)}
-                onScrollRight={() => scrollStrip(1)}
-              />
-            </div>
-          </>
+          ) : (
+            <>
+              <Link
+                to={viewAllTo}
+                className={`${outlinedViewAllClass} shrink-0 min-[1280px]:hidden`}
+              >
+                VIEW ALL
+              </Link>
+              <div className="hidden min-[1280px]:block">
+                <ViewAllScrollCluster
+                  viewAllTo={viewAllTo}
+                  onScrollLeft={() => scrollStrip(-1)}
+                  onScrollRight={() => scrollStrip(1)}
+                />
+              </div>
+            </>
+          )
         ) : null}
       </div>
-      <div className="relative min-w-0">
+
+      <div className="relative min-w-0 w-full max-w-full">
         <div
           ref={stripRef}
-          className="scrollbar-none grid grid-cols-3 gap-2 sm:gap-2.5 md:flex md:snap-x md:snap-mandatory md:gap-3 md:overflow-x-auto md:pb-1 [-webkit-overflow-scrolling:touch]"
+          className="casino-home-section-strip"
+          role="list"
         >
-          {games.map((g) => (
-            <div
-              key={g.id}
-              className="min-w-0 md:w-[104px] md:max-w-[108px] md:shrink-0 md:snap-start lg:w-[96px] lg:max-w-[100px] xl:w-[92px] xl:max-w-[96px] 2xl:w-[88px] 2xl:max-w-[92px]"
-            >
-              <RequireAuthLink
-                to={`/casino/game-lobby/${encodeURIComponent(g.id)}`}
-                className="group game-thumb-link"
-              >
-                <div className="relative aspect-[3/4] w-full overflow-hidden rounded-casino-md bg-casino-elevated ring-1 ring-white/[0.06]">
-                  <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+          {showSkeletons
+            ? Array.from({ length: tileCap }, (_, i) => (
+                <div key={`sk-${title}-${i}`} className="min-w-0" role="listitem">
+                  <div className="game-thumb-link pointer-events-none block">
+                    <GameCardSkeleton />
+                  </div>
                 </div>
-                <span className="sr-only">{g.title}</span>
-              </RequireAuthLink>
-            </div>
-          ))}
+              ))
+            : previewGames.map((g) => tileLink(g))}
         </div>
       </div>
-      {games.length === 0 ? (
+      {!showSkeletons && games.length === 0 ? (
         <p className="text-center text-xs text-casino-muted">No games in this row yet.</p>
       ) : null}
     </section>
@@ -225,7 +284,7 @@ function ProviderLogoCard({ code, count }: { code: string; count: number }) {
   )
 }
 
-function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
+function ProviderSection({ providers, showSkeletons }: { providers: ProviderAgg[]; showSkeletons?: boolean }) {
   const reduceMotion = usePrefersReducedMotion()
   const stripRef = useRef<HTMLDivElement>(null)
 
@@ -237,33 +296,46 @@ function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
   }, [])
 
   return (
-    <section className="mb-7" id="studios">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+    <section className="mb-5" id="studios">
+      <div className="mb-2 flex flex-nowrap items-center justify-between gap-2 sm:gap-2.5">
         <Link
           to="/casino/games#studios"
-          className="group/prov flex min-w-0 flex-1 items-center gap-2 text-xs font-extrabold uppercase tracking-[0.12em] text-white sm:text-sm"
+          className="group/prov flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-bold leading-tight tracking-tight text-white transition-colors duration-150 hover:text-white/95 sm:text-sm sm:font-extrabold"
         >
-          <IconBuilding2 size={17} className="shrink-0 text-white/55 transition-colors group-hover/prov:text-casino-primary" aria-hidden />
-          Studios
+          <IconBuilding2 size={17} className="shrink-0 text-white/50 transition-colors group-hover/prov:text-casino-primary" aria-hidden />
+          <span className="min-w-0">Studios</span>
           <IconChevronRight
-            size={18}
+            size={17}
             className="shrink-0 text-white/40 transition-colors group-hover/prov:text-casino-primary"
             aria-hidden
           />
         </Link>
-        {providers.length > 0 && !reduceMotion ? (
+        {providers.length > 0 && !showSkeletons && !reduceMotion ? (
           <ViewAllScrollCluster
             viewAllTo="/casino/games#studios"
             onScrollLeft={() => scrollStrip(-1)}
             onScrollRight={() => scrollStrip(1)}
           />
-        ) : providers.length > 0 ? (
+        ) : providers.length > 0 && !showSkeletons ? (
           <Link to="/casino/games#studios" className={outlinedViewAllClass}>
-            View all
+            VIEW ALL
           </Link>
         ) : null}
       </div>
-      {providers.length === 0 ? (
+      {showSkeletons ? (
+        <div className="relative -mx-0.5" role="region" aria-label="Top studios">
+          <div className="scrollbar-none flex gap-2 overflow-x-auto py-1 [-webkit-overflow-scrolling:touch]">
+            {Array.from({ length: 4 }, (_, i) => (
+              <div
+                key={`psk-${i}`}
+                className="flex h-[52px] w-[148px] shrink-0 items-center justify-center rounded-[10px] border border-white/[0.09] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:h-[58px] sm:w-[164px]"
+              >
+                <PulsingBrandTile size="inline" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : providers.length === 0 ? (
         <p className="text-center text-xs text-casino-muted">No studio data yet.</p>
       ) : (
         <div className="relative -mx-0.5" role="region" aria-label="Top studios">
@@ -271,8 +343,8 @@ function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
             ref={stripRef}
             className={
               reduceMotion
-                ? 'scrollbar-none flex flex-wrap justify-center gap-3 py-0.5'
-                : 'scrollbar-none flex gap-3 overflow-x-auto py-1 [-webkit-overflow-scrolling:touch]'
+                ? 'scrollbar-none flex flex-wrap justify-center gap-2 py-0.5'
+                : 'scrollbar-none flex gap-2 overflow-x-auto py-1 [-webkit-overflow-scrolling:touch]'
             }
           >
             {providers.map((p) => (
@@ -288,9 +360,11 @@ function ProviderSection({ providers }: { providers: ProviderAgg[] }) {
 type LobbyHomeSectionsProps = {
   /** When operational `/health/operational` reports a new catalog sync time, refetch tiles (new thumb_rev / URLs). */
   catalogSyncAt?: string | null
+  /** First dashboard-home bundle finished loading — dismisses full-screen initial loader (once per tab session). */
+  onHomeContentReady?: () => void
 }
 
-const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
+const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt, onHomeContentReady }) => {
   const location = useLocation()
   const lastVisFetchAt = useRef(0)
 
@@ -303,6 +377,10 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
   const [bonus, setBonus] = useState<Game[]>([])
   const [providers, setProviders] = useState<ProviderAgg[]>([])
   const [visRefresh, setVisRefresh] = useState(0)
+  const [homeRowsReady, setHomeRowsReady] = useState(false)
+  const bootReadySent = useRef(false)
+  const onReadyRef = useRef(onHomeContentReady)
+  onReadyRef.current = onHomeContentReady
 
   useEffect(() => {
     const onVis = () => {
@@ -319,15 +397,16 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
   useEffect(() => {
     let cancel = false
     void (async () => {
+      const lim = String(HOME_FETCH_LIMIT)
       const [f, s, n, l, b, bulk] = await Promise.all([
-        fetchGames('integration=blueocean&featured=1&limit=14'),
-        fetchGames('integration=blueocean&category=slots&limit=14'),
-        fetchGames('integration=blueocean&category=new&limit=14'),
-        fetchGames('integration=blueocean&category=live&limit=14'),
-        fetchGames('integration=blueocean&category=bonus-buys&limit=14'),
+        fetchGames(`integration=blueocean&featured=1&limit=${lim}`),
+        fetchGames(`integration=blueocean&category=slots&limit=${lim}`),
+        fetchGames(`integration=blueocean&category=new&limit=${lim}`),
+        fetchGames(`integration=blueocean&category=live&limit=${lim}`),
+        fetchGames(`integration=blueocean&category=bonus-buys&limit=${lim}`),
         fetchGames('integration=blueocean&limit=200&sort=provider'),
       ])
-      const hotBack = await fetchGames('integration=blueocean&limit=14&sort=new')
+      const hotBack = await fetchGames(`integration=blueocean&limit=${lim}&sort=new`)
       if (cancel) return
       setFeatured(dedupeGamesById(f))
       setHotFallback(dedupeGamesById(hotBack))
@@ -336,6 +415,12 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
       setLive(dedupeGamesById(l))
       setBonus(dedupeGamesById(b))
       setProviders(aggregateProviders(dedupeGamesById(bulk)))
+      setHomeRowsReady(true)
+      const cb = onReadyRef.current
+      if (cb && !bootReadySent.current) {
+        bootReadySent.current = true
+        cb()
+      }
     })()
     return () => {
       cancel = true
@@ -343,15 +428,21 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
   }, [location.pathname, location.key, visRefresh, catalogSyncAt])
 
   const logoRowGames = featured.length > 0 ? featured : hotFallback
+  const showSkeletons = !homeRowsReady
 
   return (
     <div className="min-w-0">
-      <GameSection title="Hot now" viewAllTo="/casino/challenges" games={logoRowGames} />
-      <GameSection title="Slots" viewAllTo="/casino/slots" games={slots} />
-      <ProviderSection providers={providers} />
-      <GameSection title="New Releases" viewAllTo="/casino/new" games={newRel} />
-      <GameSection title="Live Casino" viewAllTo="/casino/live" games={live} />
-      <GameSection title="Bonus Buys" viewAllTo="/casino/bonus-buys" games={bonus} />
+      <GameSection
+        title="Hot now"
+        viewAllTo="/casino/challenges"
+        games={logoRowGames}
+        showSkeletons={showSkeletons}
+      />
+      <GameSection title="Slots" viewAllTo="/casino/slots" games={slots} showSkeletons={showSkeletons} />
+      <ProviderSection providers={providers} showSkeletons={showSkeletons} />
+      <GameSection title="New releases" viewAllTo="/casino/new" games={newRel} showSkeletons={showSkeletons} />
+      <GameSection title="Live casino" viewAllTo="/casino/live" games={live} showSkeletons={showSkeletons} />
+      <GameSection title="Bonus buys" viewAllTo="/casino/bonus-buys" games={bonus} showSkeletons={showSkeletons} />
     </div>
   )
 }

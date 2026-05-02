@@ -3,7 +3,10 @@ import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-r
 import { readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
 import type { OperationalHealth } from '../hooks/useOperationalHealth'
-import CasinoCatalogSearchStrip from '../components/CasinoCatalogSearchStrip'
+import CasinoCatalogSearchStrip, {
+  CasinoCatalogNavPills,
+  CasinoCatalogSearchField,
+} from '../components/CasinoCatalogSearchStrip'
 import { RequireAuthLink } from '../components/RequireAuthLink'
 import { usePlayerAuth } from '../playerAuth'
 import {
@@ -24,7 +27,9 @@ import {
   toggleFavourite,
 } from '../lib/gameStorage'
 import LobbyHomeSections from '../components/LobbyHomeSections'
+import { GameCardSkeleton } from '../components/GameCardSkeleton'
 import PromoHero from '../components/PromoHero'
+import { useCompleteInitialLoad } from '../context/InitialAppLoadContext'
 import ChallengesPageContent from '../components/challenges/ChallengesPageContent'
 import { PortraitGameThumb } from '../components/PortraitGameThumb'
 
@@ -182,14 +187,18 @@ type LobbyPageProps = {
   operationalData?: OperationalHealth | null
 }
 
+const CATALOG_SKELETON_COUNT = 18
+
 export default function LobbyPage({ operationalData }: LobbyPageProps) {
   const location = useLocation()
   const { pathname } = location
   const { section = 'games' } = useParams<{ section: Section }>()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const q = searchParams.get('q') ?? ''
   const sort = searchParams.get('sort') ?? 'name'
   const provider = searchParams.get('provider') ?? ''
+
+  const completeInitialLoad = useCompleteInitialLoad()
 
   const { isAuthenticated, refreshProfile } = usePlayerAuth()
   const { openAuth } = useAuthModal()
@@ -283,6 +292,11 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
   useEffect(() => {
     if (isAuthenticated) void refreshProfile()
   }, [isAuthenticated, refreshProfile])
+
+  /** Full-screen first-load overlay: casino catalog routes other than dashboard home dismiss immediately. */
+  useEffect(() => {
+    if (!isDashboardHome) completeInitialLoad()
+  }, [isDashboardHome, completeInitialLoad])
 
   useEffect(() => {
     if (!sectionValid) return
@@ -441,10 +455,13 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   if (isDashboardHome) {
     return (
-      <div className="player-casino-max min-w-0 shrink-0 px-4 pb-12 pt-4 sm:px-5 sm:pt-5 md:px-6 lg:px-8">
+      <div className="player-casino-max min-w-0 shrink-0 px-4 pb-12 pt-3 sm:px-5 sm:pt-4 md:px-6 lg:px-8">
         <PromoHero />
         <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
-        <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
+        <LobbyHomeSections
+          catalogSyncAt={operationalData?.last_catalog_sync_at}
+          onHomeContentReady={completeInitialLoad}
+        />
       </div>
     )
   }
@@ -459,47 +476,12 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   return (
     <div className="player-casino-max min-w-0 px-4 pb-12 pt-5 sm:px-5 md:px-6 lg:px-8">
-      <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={false} />
+      <CasinoCatalogNavPills pathname={pathname} lobbyDashboardHome={false} />
       {loadErr ? <p className="mb-3 text-sm text-red-400">{loadErr}</p> : null}
 
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-xl font-semibold tracking-tight text-casino-foreground md:text-2xl">
-          {SECTION_TITLE[sec]}
-        </h1>
-        <div className="flex min-w-0 flex-1 flex-wrap gap-3 sm:justify-end">
-          <label className="flex min-w-[120px] flex-col gap-1 text-xs text-casino-muted">
-            Sort
-            <select
-              value={sort}
-              onChange={(e) => {
-                const next = new URLSearchParams(searchParams)
-                next.set('sort', e.target.value)
-                setSearchParams(next, { replace: true })
-              }}
-              className="rounded-casino-md border border-casino-border bg-casino-bg px-2 py-2 text-sm text-casino-foreground"
-            >
-              <option value="name">Name</option>
-              <option value="new">New first</option>
-              <option value="provider">Studio</option>
-            </select>
-          </label>
-          <label className="flex min-w-[140px] flex-col gap-1 text-xs text-casino-muted">
-            Studio
-            <input
-              value={provider}
-              onChange={(e) => {
-                const next = new URLSearchParams(searchParams)
-                const v = e.target.value.trim()
-                if (v) next.set('provider', v)
-                else next.delete('provider')
-                setSearchParams(next, { replace: true })
-              }}
-              placeholder="e.g. Pragmatic"
-              className="rounded-casino-md border border-casino-border bg-casino-bg px-2 py-2 text-sm text-casino-foreground"
-            />
-          </label>
-        </div>
-      </div>
+      <h1 className="mb-4 text-xl font-semibold tracking-tight text-casino-foreground md:text-2xl">
+        {SECTION_TITLE[sec]}
+      </h1>
 
       {games.length > 0 ? (
         <p className="mb-3 text-xs text-casino-muted">
@@ -507,10 +489,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
           {showLoadMore ? ' · more available' : ''}
         </p>
       ) : null}
-      {listLoading && games.length === 0 ? (
-        <p className="mb-4 text-sm text-casino-muted">Loading games…</p>
-      ) : null}
-
+      <CasinoCatalogSearchField matchHomeStripColumnWidth />
       {sec === 'games' ? (
         <div className="mb-4 flex flex-wrap gap-2 text-sm">
           {[
@@ -532,41 +511,49 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 sm:gap-2.5 md:grid-cols-4 md:gap-3 lg:grid-cols-6 lg:gap-3 xl:grid-cols-7 xl:gap-3 2xl:grid-cols-8 2xl:gap-2.5 min-[1700px]:grid-cols-9 min-[1920px]:grid-cols-10">
-        {games.map((g) => {
-          const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
-          return (
-            <div key={g.id} className="group relative">
-              <RequireAuthLink to={lobbyTo} className="group game-thumb-link">
-                <div className="aspect-[3/4] w-full overflow-hidden rounded-casino-md bg-casino-elevated">
-                  <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+      <div className="casino-game-grid">
+        {listLoading && games.length === 0
+          ? Array.from({ length: CATALOG_SKELETON_COUNT }, (_, i) => (
+              <div key={`sk-${i}`} className="group relative min-w-0">
+                <div className="game-thumb-link pointer-events-none">
+                  <GameCardSkeleton />
                 </div>
-                <span className="sr-only">{g.title}</span>
-              </RequireAuthLink>
-              <button
-                type="button"
-                title={isFavourite(g.id) ? 'Remove favourite' : 'Favourite'}
-                className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-casino-md border border-casino-border/80 bg-casino-bg/90 text-lg text-casino-primary shadow-sm backdrop-blur-sm hover:bg-casino-surface"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  if (!isAuthenticated) {
-                    saveCatalogReturnBeforeGameOpen()
-                    openAuth('login', { navigateTo: lobbyTo })
-                    return
-                  }
-                  toggleFavourite(g.id)
-                  refreshFav()
-                  if (sec === 'favourites') {
-                    setGames((prev) => prev.filter((x) => x.id !== g.id))
-                  }
-                }}
-              >
-                {isFavourite(g.id) ? '★' : '☆'}
-              </button>
-            </div>
-          )
-        })}
+              </div>
+            ))
+          : games.map((g) => {
+              const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
+              return (
+                <div key={g.id} className="group relative min-w-0">
+                  <RequireAuthLink to={lobbyTo} className="group game-thumb-link">
+                    <div className="casino-game-tile-frame overflow-hidden rounded-casino-md bg-casino-elevated">
+                      <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                    </div>
+                    <span className="sr-only">{g.title}</span>
+                  </RequireAuthLink>
+                  <button
+                    type="button"
+                    title={isFavourite(g.id) ? 'Remove favourite' : 'Favourite'}
+                    className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-casino-md border border-casino-border/80 bg-casino-bg/90 text-lg text-casino-primary shadow-sm backdrop-blur-sm hover:bg-casino-surface"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (!isAuthenticated) {
+                        saveCatalogReturnBeforeGameOpen()
+                        openAuth('login', { navigateTo: lobbyTo })
+                        return
+                      }
+                      toggleFavourite(g.id)
+                      refreshFav()
+                      if (sec === 'favourites') {
+                        setGames((prev) => prev.filter((x) => x.id !== g.id))
+                      }
+                    }}
+                  >
+                    {isFavourite(g.id) ? '★' : '☆'}
+                  </button>
+                </div>
+              )
+            })}
       </div>
       {showLoadMore ? (
         <div className="mt-8 flex justify-center pb-8">

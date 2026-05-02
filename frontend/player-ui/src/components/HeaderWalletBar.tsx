@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useRef, useState, type FC } from 'react'
 import { createPortal } from 'react-dom'
+import { useLocation } from 'react-router-dom'
 import { usePlayerAuth } from '../playerAuth'
 import { useAuthModal } from '../authModalContext'
 import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
-import { IconChevronDown, IconSearch } from './icons'
+import { IconBanknote, IconChevronDown, IconSearch } from './icons'
 import type { WalletMainTab } from './WalletFlowModal'
 import type { DepositAssetSymbol, DepositNetworkId } from './DepositFlowShared'
 import { NETWORK_CHAIN_LOGO } from './DepositFlowShared'
+import {
+  PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT,
+  PLAYER_CHROME_CLOSE_REWARDS_EVENT,
+  PLAYER_CHROME_CLOSE_WALLET_EVENT,
+} from '../lib/playerChromeEvents'
 
 type HeaderWalletBarProps = {
   onOpenWallet: (tab: WalletMainTab) => void
+  /** Wallet modal showing Deposit tab — highlights header Deposit (tablet/iPad). */
+  depositFlowActive?: boolean
 }
 
 function formatBalance(minor: number | null): string {
@@ -60,10 +68,10 @@ function ChainLogo({
 }: {
   wallet: WalletOption
   logoUrl?: string
-  size?: 'sm' | 'md'
+  size?: 'xs' | 'sm' | 'md'
 }) {
-  const dim = size === 'md' ? 'size-8' : 'size-5'
-  const textSize = size === 'md' ? 'text-[10px]' : 'text-[7px]'
+  const dim = size === 'md' ? 'size-8' : size === 'xs' ? 'size-4' : 'size-5 max-md:size-4'
+  const textSize = size === 'md' ? 'text-[10px]' : size === 'xs' ? 'text-[6px]' : 'text-[7px] max-md:text-[6px]'
   const [bad, setBad] = useState(false)
 
   if (logoUrl && !bad) {
@@ -124,7 +132,10 @@ function AssetLogo({
 
 type PanelTab = 'crypto' | 'fiat'
 
-const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
+const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowActive = false }) => {
+  const { pathname } = useLocation()
+  const onDepositRoute = pathname.startsWith('/wallet/deposit')
+  const depositNavActive = onDepositRoute || depositFlowActive
   const { isAuthenticated, balanceMinor, balanceBreakdown } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const logoUrls = useCryptoLogoUrlMap()
@@ -132,7 +143,12 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
   const [open, setOpen] = useState(false)
   const barRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
-  const [panelPos, setPanelPos] = useState<{ top: number; right: number } | null>(null)
+  /** Below lg: viewport-centered panel; lg+: right-anchored to the wallet chip (classic desktop). */
+  const [panelPos, setPanelPos] = useState<
+    | { top: number; mobileCentered: true }
+    | { top: number; right: number }
+    | null
+  >(null)
   const [barRect, setBarRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null)
 
   const [search, setSearch] = useState('')
@@ -141,11 +157,26 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
   const [hideZero, setHideZero] = useState(() => localStorage.getItem(HIDE_ZERO_KEY) === '1')
 
   const recalcPos = useCallback(() => {
-    if (barRef.current) {
-      const r = barRef.current.getBoundingClientRect()
-      setBarRect({ top: r.top, left: r.left, width: r.width, height: r.height })
-      setPanelPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) })
+    if (!barRef.current) return
+    const r = barRef.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const gutter = 12
+    const belowLg = vw < 1024
+
+    setBarRect({ top: r.top, left: r.left, width: r.width, height: r.height })
+
+    if (belowLg) {
+      setPanelPos({ top: r.bottom + 8, mobileCentered: true })
+      return
     }
+
+    const isWide = vw >= 640
+    const panelW = Math.min(isWide ? 340 : 320, vw - 2 * gutter)
+    let right = Math.max(gutter, vw - r.right)
+    if (vw - right - panelW < gutter) {
+      right = Math.max(gutter, vw - panelW - gutter)
+    }
+    setPanelPos({ top: r.bottom + 6, right })
   }, [])
 
   useEffect(() => {
@@ -161,6 +192,19 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
       setAssetFilter(active.symbol)
     }
   }, [open, active.symbol])
+
+  useEffect(() => {
+    const close = () => setOpen(false)
+    window.addEventListener(PLAYER_CHROME_CLOSE_WALLET_EVENT, close)
+    return () => window.removeEventListener(PLAYER_CHROME_CLOSE_WALLET_EVENT, close)
+  }, [])
+
+  useEffect(() => {
+    if (open) {
+      window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_REWARDS_EVENT))
+      window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT))
+    }
+  }, [open])
 
   const selectWallet = (w: WalletOption) => {
     setActive(w)
@@ -198,38 +242,47 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
     return true
   })
 
-  /** Balance + asset picker only — never clip the Deposit control (stays as sibling). */
+  /** Overall wallet balance $0.00 (minor units) — show perimeter pulse on every breakpoint. */
+  const showZeroBalanceAlert = isAuthenticated && balanceMinor !== null && balanceMinor === 0
+
+  const chipInnerClosed =
+    'relative z-[1] inline-flex min-h-8 w-max max-w-full shrink-0 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 md:min-h-[36px] md:rounded-none md:border-0 md:bg-transparent md:py-0 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-[34px] max-[1279px]:md:pl-1 min-[1280px]:md:min-h-[40px] min-[1280px]:md:pl-0'
+
+  const chipInnerFloating =
+    'relative z-[1] inline-flex min-h-8 w-max max-w-full shrink-0 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ring-1 ring-black/25 md:min-h-[36px] md:rounded-none md:border-0 md:bg-[#1A1A1A] md:py-0 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-[34px] max-[1279px]:md:pl-1 min-[1280px]:md:min-h-[40px] min-[1280px]:md:pl-0'
+
+  /** Balance + asset picker — width hugs content (no full-column stretch). */
   const walletBarCore = (
-    <>
-      <div className="flex min-w-0 shrink flex-col items-end pl-1.5 sm:pl-3">
-        <span className="truncate text-xs font-semibold tabular-nums text-white sm:text-sm">
+    <div className="inline-flex min-h-8 w-max max-w-full items-center gap-1 md:min-h-9 md:gap-1 min-[1280px]:md:gap-1.5 min-[1280px]:gap-2">
+      <div className="flex min-w-0 flex-col items-start leading-tight">
+        <span className="truncate text-[10px] font-semibold tabular-nums text-white max-[1279px]:md:text-[10px] md:text-xs min-[1280px]:text-sm">
           {formatBalance(isAuthenticated ? balanceMinor : 0)}
         </span>
         {isAuthenticated && balanceBreakdown && balanceBreakdown.bonusLockedMinor > 0 ? (
-          <span className="max-w-full truncate text-[9px] tabular-nums text-white/45 sm:text-[10px]">
+          <span className="max-w-full truncate text-[8px] tabular-nums text-white/45 md:text-[9px] lg:text-[10px]">
             Bonus {formatBalance(balanceBreakdown.bonusLockedMinor)}
           </span>
         ) : null}
       </div>
-      <div className="ml-0.5 shrink-0 sm:ml-1">
-        <button
-          type="button"
-          disabled={!isAuthenticated}
-          onClick={() => setOpen((p) => !p)}
-          className="flex h-8 max-w-[100vw] items-center gap-1 rounded-lg px-1.5 text-xs font-semibold text-white/80 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:gap-1.5 sm:px-2"
-        >
-          <ChainLogo wallet={active} logoUrl={logoUrls[chainLogoSlug]} />
-          <span className="hidden text-white sm:inline">{active.symbol}</span>
-          <span className="hidden text-casino-muted sm:inline">·</span>
-          <span className="hidden sm:inline">{active.network}</span>
-          <IconChevronDown
-            className={`size-3.5 shrink-0 text-white/50 transition ${open ? 'rotate-180' : ''}`}
-            size={14}
-            aria-hidden
-          />
-        </button>
-      </div>
-    </>
+      <button
+        type="button"
+        disabled={!isAuthenticated}
+        onClick={() => setOpen((p) => !p)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="flex h-7 max-w-[100vw] shrink-0 items-center gap-0.5 rounded-lg px-1 text-[10px] font-semibold text-white transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50 md:h-7 md:gap-1 md:px-1 md:text-[11px] max-[1279px]:md:h-7 min-[1280px]:md:h-8 min-[1280px]:md:gap-1.5 min-[1280px]:md:px-1.5 min-[1280px]:md:text-xs"
+      >
+        <ChainLogo wallet={active} logoUrl={logoUrls[chainLogoSlug]} />
+        <span className="font-bold text-white md:inline">{active.symbol}</span>
+        <span className="hidden text-casino-muted min-[1280px]:inline">·</span>
+        <span className="hidden text-xs font-medium text-casino-muted min-[1280px]:inline">{active.network}</span>
+        <IconChevronDown
+          className={`size-3 shrink-0 text-white/50 transition md:size-3.5 md:text-white/45 ${open ? 'rotate-180' : ''}`}
+          size={14}
+          aria-hidden
+        />
+      </button>
+    </div>
   )
 
   const depositButton = (
@@ -238,46 +291,91 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet }) => {
       onClick={onDeposit}
       title="Deposit"
       aria-label="Deposit"
-      className="min-h-9 w-full shrink-0 whitespace-nowrap rounded-[10px] bg-casino-primary px-3 py-2 text-center text-[11px] font-bold leading-none text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/70 sm:w-auto sm:px-4 sm:py-2.5 sm:text-sm"
+      aria-current={depositNavActive ? 'page' : undefined}
+      className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-none text-white transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:mx-0.5 md:mb-0.5 md:mt-0.5 md:w-auto md:rounded-xl md:px-3 md:py-2 md:text-xs md:font-bold md:shadow-none max-[1279px]:md:px-2.5 max-[1279px]:md:py-1.5 min-[1280px]:md:px-4 min-[1280px]:md:py-2 min-[1280px]:md:text-sm bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:aspect-square max-[1000px]:min-[768px]:md:min-h-0 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:px-0 max-[1000px]:min-[768px]:md:py-0 ${
+        depositNavActive
+          ? 'ring-2 ring-casino-primary/55 shadow-[0_0_14px_rgba(123,97,255,0.4)] md:ring-white/25'
+          : ''
+      }`}
     >
-      Deposit
+      <IconBanknote size={15} className="hidden shrink-0 max-[1000px]:min-[768px]:md:inline min-[1001px]:md:hidden" aria-hidden />
+      <span className="max-[1000px]:min-[768px]:md:sr-only min-[1001px]:md:inline">Deposit</span>
     </button>
   )
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-full flex-col items-stretch justify-center gap-1.5 sm:max-w-md sm:flex-row sm:items-center sm:gap-2">
+    <div className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(100%,calc(100vw-15.5rem))] md:flex-row md:items-center md:justify-start md:gap-0 md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:p-0.5 md:pl-2 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] max-[1279px]:md:w-max max-[1279px]:md:p-0.5 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,calc(100vw-15rem))] min-[1280px]:justify-start min-[1280px]:p-1 min-[1280px]:pl-3">
+      {showZeroBalanceAlert ? (
+        <div
+          ref={barRef}
+          className="relative inline-flex shrink-0 overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring"
+        >
+          <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
+          <div className={chipInnerClosed}>{walletBarCore}</div>
+        </div>
+      ) : (
+        <div ref={barRef} className={chipInnerClosed}>
+          {walletBarCore}
+        </div>
+      )}
+
       <div
-        ref={barRef}
-        className="flex min-h-9 min-w-0 w-full flex-1 items-center gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 sm:w-auto sm:flex-initial sm:max-w-[min(100%,28rem)]"
-      >
-        {walletBarCore}
+        className="hidden h-7 w-px shrink-0 bg-white/[0.12] max-[1279px]:md:h-6 min-[1280px]:md:h-8 md:block"
+        aria-hidden
+      />
+
+      {/* Deposit: bottom nav below `md`; header shows Deposit from tablet / iPad landscape up. */}
+      <div className="hidden w-full shrink-0 md:flex md:w-auto md:items-center md:justify-start">
+        {depositButton}
       </div>
-      {depositButton}
 
       {open && panelPos && createPortal(
         <>
-          {/* Blur backdrop — covers everything including header */}
+          {/*
+            Mobile (<768): blur fills content band under header + safe areas down to bottom nav (4rem + safe).
+            Tablet (768–1023): full-width dim below tablet header; bottom flush (no bottom nav in shell).
+            Desktop (lg+): full viewport dim.
+          */}
           <div
-            className="fixed inset-0 z-[199] bg-black/40 backdrop-blur-sm"
+            className="fixed z-[199] bg-black/40 backdrop-blur-sm max-[767px]:left-0 max-[767px]:right-0 max-[767px]:top-[calc(64px+env(safe-area-inset-top,0px))] max-[767px]:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] min-[768px]:max-[1279px]:left-0 min-[768px]:max-[1279px]:right-0 min-[768px]:max-[1279px]:bottom-0 min-[768px]:max-[1279px]:top-[calc(var(--casino-header-h-tablet)+env(safe-area-inset-top,0px))] min-[1280px]:inset-0"
             onClick={() => setOpen(false)}
             aria-hidden
           />
 
-          {/* Floating wallet chip — matches barRef (balance + picker only) */}
+          {/* Floating wallet chip — matches barRef (balance + picker only); above header chrome (z-[210]) */}
           {barRect && (
             <div
-              style={{ position: 'fixed', top: barRect.top, left: barRect.left, width: barRect.width, height: barRect.height, zIndex: 200 }}
-              className="flex items-center gap-0 overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ring-1 ring-black/25"
+              style={{ position: 'fixed', top: barRect.top, left: barRect.left, width: barRect.width, height: barRect.height, zIndex: 218 }}
+              className={
+                showZeroBalanceAlert
+                  ? 'relative inline-flex shrink-0 overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring'
+                  : chipInnerFloating
+              }
             >
-              {walletBarCore}
+              {showZeroBalanceAlert ? (
+                <>
+                  <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
+                  <div className={chipInnerFloating}>{walletBarCore}</div>
+                </>
+              ) : (
+                walletBarCore
+              )}
             </div>
           )}
 
           {/* Dropdown panel */}
           <div
             ref={panelRef}
-            style={{ top: panelPos.top, right: panelPos.right }}
-            className="fixed z-[200] w-80 overflow-hidden rounded-xl border border-casino-border bg-casino-bg shadow-2xl sm:w-[340px]"
+            style={
+              'mobileCentered' in panelPos
+                ? { top: panelPos.top, left: '50%', transform: 'translateX(-50%)' }
+                : { top: panelPos.top, right: panelPos.right }
+            }
+            className={`fixed z-[219] overflow-y-auto overflow-x-hidden rounded-xl border border-casino-border bg-casino-bg shadow-2xl max-lg:max-h-[min(70vh,calc(100dvh-8rem))] ${
+              'mobileCentered' in panelPos
+                ? 'w-[min(21.25rem,calc(100vw-1.5rem))]'
+                : 'lg:w-[min(21.25rem,calc(100vw-1rem))]'
+            }`}
           >
             <div className="relative px-3 pt-3">
               <IconSearch

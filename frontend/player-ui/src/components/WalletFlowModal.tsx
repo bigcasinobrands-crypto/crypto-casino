@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState, type FC } from 'react'
+import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
 import { usePlayerAuth } from '../playerAuth'
 import {
@@ -143,7 +144,10 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
     !(mainTab === 'withdraw' && withdrawFlowStep !== 'form')
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center sm:p-4" role="presentation">
+    <div
+      className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-end justify-center sm:items-center sm:p-4`}
+      role="presentation"
+    >
       <button
         type="button"
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"

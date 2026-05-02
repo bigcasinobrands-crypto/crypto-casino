@@ -13,7 +13,7 @@ function AuthError({ children }: { children: ReactNode }) {
   return (
     <p
       role="alert"
-      className="rounded-casino-md border border-red-500/35 bg-red-950/40 px-2.5 py-1.5 text-xs leading-snug text-red-200"
+      className="rounded-casino-md border border-red-500/35 bg-red-950/40 px-2 py-1 text-[11px] leading-snug text-red-200 sm:px-2.5 sm:py-1.5 sm:text-xs"
     >
       {children}
     </p>
@@ -22,7 +22,7 @@ function AuthError({ children }: { children: ReactNode }) {
 
 function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
   return (
-    <label htmlFor={htmlFor} className="text-[11px] font-semibold text-casino-foreground">
+    <label htmlFor={htmlFor} className="text-[10px] font-semibold text-casino-foreground sm:text-[11px]">
       {children}
     </label>
   )
@@ -36,12 +36,18 @@ function InputRow({
   right?: ReactNode
 }) {
   return (
-    <div className="flex min-h-10 items-center gap-2 rounded-casino-md bg-casino-surface px-3 transition-shadow focus-within:ring-1 focus-within:ring-casino-primary/35">
+    <div className="flex min-h-9 items-center gap-1.5 rounded-casino-md bg-casino-surface px-2.5 transition-shadow focus-within:ring-1 focus-within:ring-casino-primary/35 sm:min-h-10 sm:gap-2 sm:px-3">
       {children}
       {right ? <div className="flex shrink-0 items-center">{right}</div> : null}
     </div>
   )
 }
+
+const authInputClass =
+  'min-w-0 flex-1 bg-transparent py-1 text-[12px] text-casino-foreground outline-none placeholder:text-casino-muted sm:py-1.5 sm:text-[13px]'
+
+const authPrimaryBtnClass =
+  'flex min-h-9 w-full items-center justify-center rounded-casino-md bg-casino-primary text-[13px] font-semibold text-white shadow-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50 sm:min-h-10 sm:text-sm'
 
 function CheckLine({
   checked,
@@ -53,10 +59,10 @@ function CheckLine({
   children: ReactNode
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-snug text-casino-muted">
+    <label className="flex cursor-pointer items-start gap-1.5 text-[10px] leading-snug text-casino-muted sm:gap-2 sm:text-[11px]">
       <input type="checkbox" className="sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span
-        className={`mt-px flex size-[18px] shrink-0 items-center justify-center rounded border ${
+        className={`mt-px flex size-4 shrink-0 items-center justify-center rounded border sm:size-[18px] ${
           checked ? 'border-casino-primary bg-casino-primary' : 'border-casino-border bg-casino-elevated'
         }`}
         aria-hidden
@@ -126,7 +132,7 @@ export function LoginForm({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5 sm:gap-2">
       {import.meta.env.PROD && !playerApiOriginConfigured() ? (
         <AuthError>
           Production build has no <span className="font-mono text-[10px]">VITE_PLAYER_API_ORIGIN</span>. Set it in
@@ -135,14 +141,14 @@ export function LoginForm({
         </AuthError>
       ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
-        <div className="flex flex-col gap-1">
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-1.5 sm:gap-2">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
           <FieldLabel htmlFor={`${idPrefix}-login-email`}>Email or username</FieldLabel>
           <InputRow>
-            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <IconUser size={14} className="shrink-0 text-casino-muted max-sm:scale-90" aria-hidden />
             <input
               id={`${idPrefix}-login-email`}
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              className={authInputClass}
               type="text"
               name="username"
               autoComplete="username"
@@ -154,13 +160,13 @@ export function LoginForm({
           </InputRow>
         </div>
 
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
           <FieldLabel htmlFor={`${idPrefix}-login-pw`}>Password</FieldLabel>
           <InputRow
             right={
               <button
                 type="button"
-                className="flex h-7 w-7 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground"
+                className="flex h-6 w-6 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground sm:h-7 sm:w-7"
                 onClick={() => setShowPw((v) => !v)}
                 aria-label={showPw ? 'Hide password' : 'Show password'}
               >
@@ -168,10 +174,10 @@ export function LoginForm({
               </button>
             }
           >
-            <IconLock size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <IconLock size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
               id={`${idPrefix}-login-pw`}
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              className={authInputClass}
               type={showPw ? 'text' : 'password'}
               autoComplete="current-password"
               required
@@ -184,8 +190,8 @@ export function LoginForm({
 
         <TurnstileField onToken={setCaptcha} />
 
-        <div className="flex items-center justify-between gap-2">
-          <label className="flex min-w-0 cursor-pointer items-center gap-2 text-[11px] leading-snug text-casino-muted">
+        <div className="flex items-center justify-between gap-1.5 sm:gap-2">
+          <label className="flex min-w-0 cursor-pointer items-center gap-1.5 text-[10px] leading-snug text-casino-muted sm:gap-2 sm:text-[11px]">
             <input
               type="checkbox"
               className="sr-only"
@@ -193,7 +199,7 @@ export function LoginForm({
               onChange={(e) => setRemember(e.target.checked)}
             />
             <span
-              className={`flex size-[18px] shrink-0 items-center justify-center rounded border ${
+              className={`flex size-4 shrink-0 items-center justify-center rounded border sm:size-[18px] ${
                 remember ? 'border-casino-primary bg-casino-primary' : 'border-casino-border bg-casino-elevated'
               }`}
               aria-hidden
@@ -209,17 +215,13 @@ export function LoginForm({
           <Link
             to={forgotTo}
             replace
-            className="shrink-0 text-[11px] font-semibold text-casino-foreground transition hover:text-casino-primary"
+            className="shrink-0 text-[10px] font-semibold text-casino-foreground transition hover:text-casino-primary sm:text-[11px]"
           >
             Forgot password?
           </Link>
         </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading} className={authPrimaryBtnClass}>
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
@@ -228,7 +230,7 @@ export function LoginForm({
         to={registerTo}
         replace
         aria-label="Create an account — register"
-        className="mt-3 flex w-full items-center justify-center gap-1.5 py-0.5 text-xs text-casino-muted transition hover:text-casino-foreground"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 py-0.5 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
       >
         <span>Don&apos;t have an account?</span>
         <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">Register</span>
@@ -292,7 +294,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5 sm:gap-2">
       {import.meta.env.PROD && !playerApiOriginConfigured() ? (
         <AuthError>
           Production build has no <span className="font-mono text-[10px]">VITE_PLAYER_API_ORIGIN</span>. Set it in
@@ -301,14 +303,14 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         </AuthError>
       ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
-        <div className="flex flex-col gap-1">
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-1.5 sm:gap-2">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
           <FieldLabel htmlFor={`${idPrefix}-reg-email`}>Email</FieldLabel>
           <InputRow>
-            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <IconUser size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
               id={`${idPrefix}-reg-email`}
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              className={authInputClass}
               type="email"
               autoComplete="email"
               required
@@ -319,13 +321,13 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
           </InputRow>
         </div>
 
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
           <FieldLabel htmlFor={`${idPrefix}-reg-username`}>Username</FieldLabel>
           <InputRow>
-            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <IconUser size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
               id={`${idPrefix}-reg-username`}
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              className={authInputClass}
               type="text"
               autoComplete="username"
               required
@@ -337,16 +339,18 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               placeholder="Choose a username"
             />
           </InputRow>
-          <span className="text-[10px] text-casino-muted">3-20 characters, letters, numbers, and underscores</span>
+          <span className="text-[9px] text-casino-muted sm:text-[10px]">
+            3-20 characters, letters, numbers, and underscores
+          </span>
         </div>
 
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
           <FieldLabel htmlFor={`${idPrefix}-reg-pw`}>Create password</FieldLabel>
           <InputRow
             right={
               <button
                 type="button"
-                className="flex h-7 w-7 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground"
+                className="flex h-6 w-6 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground sm:h-7 sm:w-7"
                 onClick={() => setShowPw((v) => !v)}
                 aria-label={showPw ? 'Hide password' : 'Show password'}
               >
@@ -354,10 +358,10 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               </button>
             }
           >
-            <IconLock size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <IconLock size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
               id={`${idPrefix}-reg-pw`}
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              className={authInputClass}
               type={showPw ? 'text' : 'password'}
               autoComplete="new-password"
               required
@@ -369,13 +373,13 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
           </InputRow>
         </div>
 
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
           <FieldLabel htmlFor={`${idPrefix}-reg-confirm`}>Confirm password</FieldLabel>
           <InputRow>
-            <IconLock size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <IconLock size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
               id={`${idPrefix}-reg-confirm`}
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              className={authInputClass}
               type={showPw ? 'text' : 'password'}
               autoComplete="new-password"
               required
@@ -396,11 +400,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
 
         <TurnstileField onToken={setCaptcha} />
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading} className={authPrimaryBtnClass}>
           {loading ? 'Creating…' : 'Register'}
         </button>
       </form>
@@ -409,7 +409,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         to={loginTo}
         replace
         aria-label="Sign in — already have an account"
-        className="mt-3 flex w-full items-center justify-center gap-1.5 py-0.5 text-xs text-casino-muted transition hover:text-casino-foreground"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 py-0.5 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
       >
         <span>Already have an account?</span>
         <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">Sign in</span>
@@ -447,13 +447,9 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
 
   if (done) {
     return (
-      <div className="flex flex-col gap-3 text-center text-xs text-casino-muted">
+      <div className="flex flex-col gap-2 text-center text-[11px] text-casino-muted sm:gap-3 sm:text-xs">
         <p>If an account exists for that email, we sent reset instructions.</p>
-        <button
-          type="button"
-          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110"
-          onClick={onBack}
-        >
+        <button type="button" className={authPrimaryBtnClass} onClick={onBack}>
           Back to log in
         </button>
       </div>
@@ -461,15 +457,15 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2">
-        <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5 sm:gap-2">
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-1.5 sm:gap-2">
+        <div className="flex flex-col gap-0.5 sm:gap-1">
           <FieldLabel htmlFor="m-forgot-email">Email</FieldLabel>
           <InputRow>
-            <IconUser size={14} className="shrink-0 text-casino-muted" aria-hidden />
+            <IconUser size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
               id="m-forgot-email"
-              className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] text-casino-foreground outline-none placeholder:text-casino-muted"
+              className={authInputClass}
               type="email"
               autoComplete="email"
               required
@@ -479,17 +475,13 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
             />
           </InputRow>
         </div>
-        <button
-          type="submit"
-          disabled={loading}
-          className="flex min-h-10 w-full items-center justify-center rounded-casino-md bg-casino-primary text-sm font-semibold text-white shadow-md transition hover:brightness-110 disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading} className={authPrimaryBtnClass}>
           {loading ? 'Sending…' : 'Send reset link'}
         </button>
       </form>
       <button
         type="button"
-        className="w-full text-[11px] font-semibold text-casino-foreground transition hover:text-casino-primary"
+        className="w-full text-[10px] font-semibold text-casino-foreground transition hover:text-casino-primary sm:text-[11px]"
         onClick={onBack}
       >
         Back to log in

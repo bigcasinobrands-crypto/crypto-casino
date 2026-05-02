@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import AcceptedCurrenciesStrip from './AcceptedCurrenciesStrip'
-import { useState, type FC } from 'react'
+import { useEffect, useState, type FC } from 'react'
 import { useSiteContent } from '../hooks/useSiteContent'
+import { usePlayerBrandLogoSrc } from '../hooks/usePlayerBrandLogo'
+import { DEFAULT_PLAYER_LOGO_PNG, DEFAULT_PLAYER_LOGO_SVG } from '../lib/brandLogoAssets'
 
 const linkMuted = 'text-[10px] font-medium leading-snug text-casino-muted transition hover:text-casino-primary'
 const colTitle = 'mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-casino-foreground'
@@ -39,6 +41,7 @@ const FALLBACK_SEO_BLOCKS = [
   },
 ]
 
+/** Paths match `LobbyPage` `/casino/:section` sections + catalog anchors. */
 const FALLBACK_GAMES_LINKS: FooterLink[] = [
   { label: 'Slots', to: '/casino/slots', requireAuth: true },
   { label: 'Bonus Buys', to: '/casino/bonus-buys', requireAuth: true },
@@ -48,16 +51,8 @@ const FALLBACK_GAMES_LINKS: FooterLink[] = [
   { label: 'Live Casino', to: '/casino/live', requireAuth: true },
 ]
 
-const FALLBACK_ORIGINALS_LINKS: FooterLink[] = [
-  { label: 'Blackjack' },
-  { label: 'Mines' },
-  { label: 'Dice' },
-  { label: 'Limbo' },
-  { label: 'Keno' },
-]
-
 const FALLBACK_ABOUT_LINKS: FooterLink[] = [
-  { label: 'VIP Program', to: '/vip', requireAuth: false },
+  { label: 'VIP Program', to: '/vip', requireAuth: true },
   { label: 'Affiliate' },
   { label: 'My Bonuses', to: '/bonuses', requireAuth: true },
   { label: 'Terms of Service', to: '/terms' },
@@ -70,9 +65,6 @@ const FALLBACK_SOCIAL: SocialLink[] = [
   { label: 'Twitter / X' },
   { label: 'Instagram' },
 ]
-
-const FALLBACK_DISCLAIMER =
-  "vybebet, crypto's best casino for real money slots, is a demonstration brand for Crypto Casino. Demo wallet uses USDT minor units."
 
 function renderLinkList(links: FooterLink[]) {
   return (
@@ -103,31 +95,32 @@ function renderLinkList(links: FooterLink[]) {
 const SiteFooter: FC = () => {
   const [seoOpen, setSeoOpen] = useState(false)
   const { getContent } = useSiteContent()
+  const footerLogoPrimary = usePlayerBrandLogoSrc()
+  const siteLabel = (getContent<string>('branding.site_name', '') ?? '').trim() || 'vybebet'
+  const [footerLogoSrc, setFooterLogoSrc] = useState(footerLogoPrimary)
+  useEffect(() => setFooterLogoSrc(footerLogoPrimary), [footerLogoPrimary])
 
   const seoTitle = getContent<string>('footer.seo_title', FALLBACK_SEO_TITLE)
   const seoBlocks = getContent('footer.seo_blocks', FALLBACK_SEO_BLOCKS)
   const copyright = getContent<string>('footer.copyright', '18+ · Play responsibly.')
-  const disclaimer = getContent<string>('footer.disclaimer', FALLBACK_DISCLAIMER)
 
   const gamesLinks = getContent<FooterLink[]>('links.games', FALLBACK_GAMES_LINKS)
-  const originalsLinks = getContent<FooterLink[]>('links.originals', FALLBACK_ORIGINALS_LINKS)
   const aboutLinks = getContent<FooterLink[]>('links.about', FALLBACK_ABOUT_LINKS)
 
   const socials = getContent<SocialLink[]>('social.links', FALLBACK_SOCIAL)
 
-  const currencyLabels = getContent<string[]>('footer.currencies', [
-    'Solana', 'Bitcoin', 'Ethereum', 'Litecoin', 'Tether', 'USDC', 'Dogecoin',
-  ])
-
   return (
-    <footer id="help" className="mt-auto border-t border-casino-border bg-casino-bg px-4 pb-8 pt-10 sm:px-5 md:px-6 lg:px-8">
+    <footer id="help" className="relative isolate casino-shell-page-pad border-t border-casino-border bg-casino-bg pb-8 pt-8 md:pt-10">
       <div
         id="blog"
-        className="relative mx-auto max-w-[min(100%,90rem)] scroll-mt-24 rounded-casino-md bg-casino-surface p-6"
+        className="relative mx-auto max-w-[min(100%,90rem)] scroll-mt-24 rounded-casino-md bg-casino-surface p-5 md:p-6 min-[1280px]:p-8"
       >
         <h2 className="mb-4 text-sm font-extrabold text-casino-foreground">{seoTitle}</h2>
         <div
-          className={`grid gap-8 text-[11px] leading-relaxed text-casino-muted md:grid-cols-2 ${seoOpen ? '' : 'max-h-[220px] overflow-hidden'}`}
+          id="footer-seo-panel"
+          className={`grid gap-8 text-[11px] leading-relaxed text-casino-muted motion-safe:transition-[max-height] motion-safe:duration-300 motion-safe:ease-out md:grid-cols-2 ${
+            seoOpen ? 'max-h-[9999px]' : 'max-h-[220px] overflow-hidden md:max-h-[260px]'
+          }`}
         >
           {(seoBlocks as SeoBlock[]).map((block, idx) => (
             <div key={idx}>
@@ -149,50 +142,65 @@ const SiteFooter: FC = () => {
           ))}
         </div>
         {!seoOpen ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-[90px] items-end justify-center rounded-b-casino-md bg-gradient-to-t from-casino-surface from-70% to-transparent pb-4">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-[88px] items-end justify-center rounded-b-casino-md bg-gradient-to-t from-casino-surface from-65% via-casino-surface/85 to-transparent pb-4 pt-10">
             <button
               type="button"
-              className="pointer-events-auto rounded-[4px] bg-casino-primary px-5 py-2 text-[11px] font-bold leading-tight text-white hover:brightness-110"
+              className="pointer-events-auto rounded-[4px] bg-casino-primary px-5 py-2 text-[11px] font-bold leading-tight text-white shadow-[0_4px_14px_rgba(123,97,255,0.35)] hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40"
+              aria-expanded={false}
+              aria-controls="footer-seo-panel"
               onClick={() => setSeoOpen(true)}
             >
-              See more
+              Show more
             </button>
           </div>
-        ) : null}
+        ) : (
+          <div className="mt-4 flex justify-center border-t border-white/[0.06] pt-4">
+            <button
+              type="button"
+              className="rounded-[4px] bg-casino-chip px-5 py-2 text-[11px] font-bold leading-tight text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-white/[0.08] hover:bg-white/[0.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50"
+              aria-expanded={true}
+              aria-controls="footer-seo-panel"
+              onClick={() => setSeoOpen(false)}
+            >
+              Show less
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="mx-auto mt-10 flex max-w-[min(100%,90rem)] flex-col gap-7">
-        <div className="flex flex-col gap-6 sm:gap-5 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
+      <div className="mx-auto mt-8 flex max-w-[min(100%,90rem)] flex-col gap-6 md:mt-10 md:gap-7 min-[1280px]:gap-8">
+        <div className="flex flex-col gap-6 md:gap-5 min-[1280px]:flex-row min-[1280px]:items-start min-[1280px]:justify-between min-[1280px]:gap-8">
           <Link
             to="/casino/games"
-            className="mx-auto flex shrink-0 items-center rounded-casino-md outline-none ring-casino-primary/0 transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-casino-primary lg:mx-0 lg:pt-0.5"
+            className="mx-auto flex shrink-0 items-center rounded-casino-md outline-none ring-casino-primary/0 transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-casino-primary min-[1280px]:mx-0 min-[1280px]:pt-0.5"
           >
             <img
-              src="/vybebet-logo.svg"
-              alt="vybebet"
-              width={200}
-              height={46}
-              className="h-[46px] w-[200px] max-w-full shrink-0 object-contain object-left"
+              src={footerLogoSrc}
+              alt={siteLabel}
+              className="block h-auto max-h-14 w-auto max-w-[min(260px,100%)] shrink-0 object-contain object-left md:max-h-16 min-[1280px]:max-h-[4.5rem]"
               decoding="async"
+              onError={() => {
+                setFooterLogoSrc((prev) => {
+                  if (prev === DEFAULT_PLAYER_LOGO_SVG) return prev
+                  if (prev === DEFAULT_PLAYER_LOGO_PNG) return DEFAULT_PLAYER_LOGO_SVG
+                  return DEFAULT_PLAYER_LOGO_PNG
+                })
+              }}
             />
           </Link>
           <nav
-            className="grid w-full min-w-0 grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 sm:gap-x-5 lg:flex lg:min-w-0 lg:flex-1 lg:flex-row lg:flex-wrap lg:items-start lg:justify-end lg:gap-x-5 lg:gap-y-4 xl:gap-x-6"
+            className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-5 sm:gap-x-4 md:grid-cols-3 md:gap-x-5 min-[1280px]:flex min-[1280px]:min-w-0 min-[1280px]:flex-1 min-[1280px]:flex-row min-[1280px]:flex-wrap min-[1280px]:items-start min-[1280px]:justify-end min-[1280px]:gap-x-5 min-[1280px]:gap-y-4 min-[1536px]:gap-x-6"
             aria-label="Footer"
           >
-            <div className="flex flex-col lg:shrink-0">
+            <div className="flex flex-col min-[1280px]:shrink-0">
               <div className={colTitle}>Games</div>
               {renderLinkList(gamesLinks)}
             </div>
-            <div className="flex flex-col lg:shrink-0">
-              <div className={colTitle}>Originals</div>
-              {renderLinkList(originalsLinks)}
-            </div>
-            <div className="flex flex-col lg:shrink-0">
+            <div className="flex flex-col min-[1280px]:shrink-0">
               <div className={colTitle}>About Us</div>
               {renderLinkList(aboutLinks)}
             </div>
-            <div className="flex flex-col lg:shrink-0">
+            <div className="flex flex-col min-[1280px]:shrink-0">
               <div className={colTitle}>Communities</div>
               <ul className="flex flex-col gap-1">
                 {socials.map((s) => (
@@ -208,22 +216,12 @@ const SiteFooter: FC = () => {
                 ))}
               </ul>
             </div>
-            <div className="flex flex-col lg:shrink-0">
-              <div className={colTitle}>Currencies</div>
-              <ul className="flex flex-col gap-1">
-                {currencyLabels.map((c) => (
-                  <li key={c}>
-                    <span className={linkMuted}>{c}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
           </nav>
         </div>
 
         <AcceptedCurrenciesStrip />
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {['Licensed', 'Provably Fair', 'Responsible Gaming'].map((label) => (
             <div
               key={label}
@@ -235,8 +233,7 @@ const SiteFooter: FC = () => {
         </div>
 
         <div className="text-center text-[10px] leading-relaxed text-casino-muted">
-          <p>{disclaimer}</p>
-          <p className="mt-3">{copyright}</p>
+          <p>{copyright}</p>
         </div>
       </div>
     </footer>

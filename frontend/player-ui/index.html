@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vybebet-favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#000000" />
+    <!-- Safari/iOS: reduce automatic link styling on random numeric strings; keeps layout predictable. -->
+    <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
+    <!-- Instant canvas before CSS loads; avoids UA default white during viewport thrash / resize. -->
+    <style>
+      html,
+      body {
+        background-color: #000000;
+        color-scheme: dark;
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

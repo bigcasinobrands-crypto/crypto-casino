@@ -1,5 +1,7 @@
 import { useEffect, useId } from 'react'
+import { createPortal } from 'react-dom'
 import { useAuthModal, type AuthPanel } from '../authModalContext'
+import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { usePlayerAuth } from '../playerAuth'
 import BrandLogo from './BrandLogo'
 import { ForgotPasswordForm, LoginForm, RegisterForm } from './AuthForms'
@@ -57,14 +59,14 @@ export function AuthModal() {
 
   const copy = panelCopy[panel]
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5"
+      className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-center justify-center p-2.5 sm:p-5`}
       role="presentation"
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/85 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         aria-label="Close"
         onClick={closeAuth}
       />
@@ -73,40 +75,44 @@ export function AuthModal() {
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={copy.subtitle ? descId : undefined}
-        className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[400px] flex-col gap-3 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth rounded-casino-lg border border-casino-border/30 bg-casino-surface p-5 text-casino-foreground shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:max-w-[420px] scrollbar-casino"
+        className="relative flex max-h-[calc(100dvh-1rem)] w-full max-w-[min(100%,380px)] flex-col gap-2 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth rounded-casino-lg border border-casino-border/30 bg-casino-surface p-4 text-casino-foreground shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:max-h-[calc(100dvh-1.5rem)] sm:max-w-[420px] sm:gap-3 sm:p-5 scrollbar-casino"
       >
         <button
           type="button"
-          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-casino-md text-base text-casino-muted transition hover:bg-casino-elevated hover:text-casino-foreground"
+          className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-casino-md text-sm text-casino-muted transition hover:bg-casino-elevated hover:text-casino-foreground sm:right-3 sm:top-3 sm:h-8 sm:w-8 sm:text-base"
           onClick={closeAuth}
           aria-label="Close"
         >
           ×
         </button>
 
-        <div className="flex justify-center pr-7 pt-0.5">
-          <BrandLogo compact onNavigate={closeAuth} />
+        <div className="flex justify-center pr-6 pt-0 sm:pr-7">
+          <BrandLogo compact micro onNavigate={closeAuth} />
         </div>
 
-        <div className="flex flex-col items-center gap-1 pr-7 text-center">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-casino-elevated px-2 py-1 text-[10px] font-semibold text-casino-muted">
-            <IconShieldCheck size={12} className="text-casino-primary" aria-hidden />
+        <div className="flex flex-col items-center gap-0.5 pr-6 text-center sm:gap-1 sm:pr-7">
+          <div className="inline-flex items-center gap-1 rounded-full bg-casino-elevated px-1.5 py-0.5 text-[9px] font-semibold text-casino-muted sm:gap-1.5 sm:px-2 sm:py-1 sm:text-[10px]">
+            <IconShieldCheck size={11} className="text-casino-primary" aria-hidden />
             <span>{copy.kicker}</span>
           </div>
-          <h2 id={titleId} className="text-xl font-bold leading-tight tracking-tight text-casino-foreground sm:text-2xl">
+          <h2
+            id={titleId}
+            className="text-lg font-bold leading-tight tracking-tight text-casino-foreground sm:text-2xl"
+          >
             {copy.title}
           </h2>
-          <p id={descId} className="max-w-[300px] text-xs leading-normal text-casino-muted">
+          <p id={descId} className="max-w-[280px] text-[11px] leading-snug text-casino-muted sm:max-w-[300px] sm:text-xs sm:leading-normal">
             {copy.subtitle}
           </p>
         </div>
 
-        <div className="flex min-h-0 flex-col gap-2">
+        <div className="flex min-h-0 flex-col gap-1.5 sm:gap-2">
           {panel === 'login' && <LoginForm rememberStorageKey={REMEMBER_KEY} />}
           {panel === 'register' && <RegisterForm />}
           {panel === 'forgot' && <ForgotPasswordForm onBack={() => setPanel('login')} />}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

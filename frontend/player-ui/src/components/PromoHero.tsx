@@ -56,13 +56,7 @@ const tagClass =
   'inline-flex rounded-[4px] bg-casino-accent px-[7px] py-0.5 text-[9px] font-extrabold uppercase leading-tight text-white'
 
 const promoTileClass =
-  'relative z-0 flex min-h-[112px] items-center justify-between overflow-hidden rounded-casino-md bg-casino-surface px-3 py-3 transition-[transform,box-shadow] duration-300 ease-out hover:z-10 hover:scale-[1.025] hover:shadow-[0_12px_40px_rgba(0,0,0,0.35)] motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:hover:shadow-none sm:min-h-[126px] sm:px-4 sm:py-3.5'
-
-function gridCols(count: number) {
-  if (count === 1) return 'grid-cols-1'
-  if (count === 2) return 'grid-cols-1 md:grid-cols-2'
-  return 'grid-cols-1 md:grid-cols-3'
-}
+  'casino-promo-card relative z-0 flex items-center justify-between overflow-hidden rounded-casino-md bg-casino-surface px-3 py-3 transition-[transform,box-shadow] duration-300 ease-out hover:z-10 hover:scale-[1.025] hover:shadow-[0_12px_40px_rgba(0,0,0,0.35)] motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:hover:shadow-none sm:px-4 sm:py-3.5'
 
 const RaffleTicketWidget: FC = () => {
   const [tickets, setTickets] = useState(0)
@@ -145,7 +139,7 @@ const PromoHero: FC = () => {
   if (slides.length === 0) return null
 
   return (
-    <div className={`mb-4 grid gap-4 ${gridCols(slides.length)}`}>
+    <div className="casino-promo-banners mb-3">
       {slides.map((slide, i) => (
         <SlideCard key={slide.title ?? i} slide={slide} />
       ))}

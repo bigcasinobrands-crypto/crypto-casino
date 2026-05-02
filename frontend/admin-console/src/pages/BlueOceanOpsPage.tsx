@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { toast } from 'sonner'
 import { readApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
+import { useBlueOceanCatalogSync } from '../context/BlueOceanCatalogSyncContext'
 import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
@@ -35,7 +35,9 @@ function pickNum(m: Record<string, unknown>, k: string): number | undefined {
 
 export default function BlueOceanOpsPage() {
   const { apiFetch } = useAdminAuth()
-  const { reportApiFailure, reportNetworkFailure } = useAdminActivityLog()
+  const { reportApiFailure } = useAdminActivityLog()
+  const { phase, lastMessage, lastFinishedAt, startCatalogSync, clearCatalogSyncMessage } =
+    useBlueOceanCatalogSync()
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
   const activeTab: Tab = tabParam === 'events' ? 'events' : 'status'
@@ -46,9 +48,8 @@ export default function BlueOceanOpsPage() {
 
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
   const [flags, setFlags] = useState<Record<string, unknown> | null>(null)
-  const [syncMsg, setSyncMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
-  const [busy, setBusy] = useState(false)
   const [loadedAt, setLoadedAt] = useState<string | null>(null)
+  const busy = phase === 'syncing'
 
   const load = useCallback(async () => {
     const pathS = '/v1/admin/integrations/blueocean/status'
@@ -73,40 +74,10 @@ export default function BlueOceanOpsPage() {
     void load()
   }, [load])
 
-  const sync = async () => {
-    setBusy(true)
-    setSyncMsg(null)
-    const syncPath = '/v1/admin/integrations/blueocean/sync-catalog'
-    try {
-      const res = await apiFetch(syncPath, {
-        method: 'POST',
-      })
-      if (!res.ok) {
-        const parsed = await readApiError(res)
-        reportApiFailure({ res, parsed, method: 'POST', path: syncPath })
-        const msg = `Sync failed (HTTP ${res.status}).`
-        setSyncMsg({ kind: 'err', text: msg })
-        toast.error(msg)
-        return
-      }
-      const j = (await res.json().catch(() => ({}))) as Record<string, unknown>
-      const okText = `Catalog sync OK — upserted ${String(j.upserted ?? '?')} game(s).`
-      setSyncMsg({ kind: 'ok', text: okText })
-      toast.success('Catalog sync completed')
-    } catch {
-      reportNetworkFailure({
-        message: 'Network error during sync.',
-        method: 'POST',
-        path: syncPath,
-      })
-      const msg = 'Network error during sync.'
-      setSyncMsg({ kind: 'err', text: msg })
-      toast.error(msg)
-    } finally {
-      setBusy(false)
-      void load()
-    }
-  }
+  useEffect(() => {
+    if (lastFinishedAt === 0) return
+    void load()
+  }, [lastFinishedAt, load])
 
   const connected = status ? pickBool(status, 'bog_configured') : undefined
   const lastErr = status ? pickStr(status, 'last_sync_error') : undefined
@@ -262,7 +233,12 @@ export default function BlueOceanOpsPage() {
                 Pulls the remote game list and upserts into the local catalog. Requires API credentials on the core
                 service.
               </p>
-              <button type="button" disabled={busy} onClick={() => void sync()} className="btn btn-primary btn-sm">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => startCatalogSync()}
+                className="btn btn-primary btn-sm"
+              >
                 {busy ? (
                   <>
                     <span className="spinner-border spinner-border-sm me-2" aria-hidden />
@@ -275,11 +251,18 @@ export default function BlueOceanOpsPage() {
                   </>
                 )}
               </button>
-              {syncMsg ? (
-                <div
-                  className={`alert small py-2 mt-3 mb-0 ${syncMsg.kind === 'ok' ? 'alert-success' : 'alert-danger'}`}
-                >
-                  {syncMsg.text}
+              {lastMessage && (phase === 'success' || phase === 'error') ? (
+                <div className="d-flex flex-wrap align-items-start gap-2 mt-3 mb-0">
+                  <div
+                    className={`alert small py-2 mb-0 flex-grow-1 ${
+                      phase === 'success' ? 'alert-success' : 'alert-danger'
+                    }`}
+                  >
+                    {lastMessage}
+                  </div>
+                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={clearCatalogSyncMessage}>
+                    Dismiss
+                  </button>
                 </div>
               ) : null}
             </ComponentCard>

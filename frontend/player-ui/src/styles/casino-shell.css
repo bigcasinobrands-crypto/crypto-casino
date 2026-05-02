@@ -1,0 +1,381 @@
+/**
+ * Crypto casino shell — exactly two breakpoints (768px tablet, 1280px desktop).
+ * Mobile-first: base = phone; @media (min-width:768px) tablet; @media (min-width:1280px) desktop.
+ * Visibility is display:none / flex — no opacity hiding.
+ *
+ * Tailwind: use `md:` (768px) and `min-[1280px]:` for chrome that must track these headers —
+ * do not use `sm:` (640px) for shell/header/footer alignment (avoids jumps between 640–767px).
+ */
+
+:root {
+  --casino-bp-tablet: 768px;
+  --casino-bp-desktop: 1280px;
+  --casino-header-h-mobile: 64px;
+  --casino-header-h-tablet: 56px;
+  --casino-header-h-desktop: 60px;
+  --casino-gutter-x-mobile: 1rem;
+  --casino-gutter-x-tablet: 1.25rem;
+  --casino-gutter-x-desktop: 1.5rem;
+}
+
+/* Narrow tablet / small laptop: slightly shorter fixed header so chrome matches scaled-down wallet row */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --casino-header-h-tablet: 52px;
+  }
+}
+
+/** Horizontal padding aligned to shell tiers (footer + full-bleed sections). */
+.casino-shell-page-pad {
+  padding-left: max(var(--casino-gutter-x-mobile), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--casino-gutter-x-mobile), env(safe-area-inset-right, 0px));
+}
+
+@media (min-width: 768px) {
+  .casino-shell-page-pad {
+    padding-left: max(var(--casino-gutter-x-tablet), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--casino-gutter-x-tablet), env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1280px) {
+  .casino-shell-page-pad {
+    padding-left: max(var(--casino-gutter-x-desktop), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--casino-gutter-x-desktop), env(safe-area-inset-right, 0px));
+  }
+}
+
+/* ----- Mobile bottom nav (< 768px only) ----- */
+.casino-shell-mobile-nav {
+  display: flex;
+}
+
+@media (min-width: 768px) {
+  .casino-shell-mobile-nav {
+    display: none !important;
+  }
+}
+
+/* ----- Mobile top header (< 768px only) — hamburger, logo, wallet, actions ----- */
+.casino-shell-mobile-header {
+  display: none;
+  box-sizing: border-box;
+}
+
+@media (max-width: 767px) {
+  .casino-shell-mobile-header {
+    display: flex;
+    align-items: stretch;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 211;
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    min-height: calc(var(--casino-header-h-mobile) + env(safe-area-inset-top, 0px));
+  }
+}
+
+@media (min-width: 768px) {
+  .casino-shell-mobile-header {
+    display: none !important;
+  }
+}
+
+/* ----- Tablet top header (768px – 1279px only) ----- */
+.casino-shell-tablet-header {
+  display: none;
+  box-sizing: border-box;
+}
+
+@media (min-width: 768px) and (max-width: 1279px) {
+  .casino-shell-tablet-header {
+    display: flex;
+    align-items: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--casino-header-h-tablet);
+    z-index: 210;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+@media (min-width: 1280px) {
+  .casino-shell-tablet-header {
+    display: none !important;
+  }
+}
+
+/* ----- Desktop sidebar + header (≥ 1280px only) ----- */
+.casino-shell-desktop-sidebar {
+  display: none;
+}
+
+.casino-shell-desktop-header {
+  display: none;
+}
+
+@media (min-width: 1280px) {
+  .casino-shell-desktop-sidebar {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 200px;
+    /* Above main scroll shell (App `z-[200]`) so fixed chrome stays clickable. */
+    z-index: 205;
+    overflow: hidden;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .casino-shell-desktop-header {
+    display: flex;
+    align-items: center;
+    position: fixed;
+    left: 200px;
+    top: 0;
+    right: 0;
+    height: var(--casino-header-h-desktop);
+    /* Match mobile header tier (~211); must sit above main shell `z-[200]` or taps hit the scroll layer. */
+    z-index: 211;
+    box-sizing: border-box;
+    padding-left: 12px;
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* ----- Main scroll region padding (no vw on tiles — chrome only) ----- */
+.casino-shell-scroll {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  /* Mobile: offset for fixed top header + notch */
+  padding-top: calc(var(--casino-header-h-mobile) + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 767px) {
+  /* Momentum scrolling + pull-to-refresh companion behavior on iOS Safari */
+  .casino-shell-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .casino-shell-scroll--no-bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+@media (min-width: 768px) {
+  .casino-shell-scroll {
+    padding-bottom: 0;
+    padding-top: calc(var(--casino-header-h-tablet) + env(safe-area-inset-top, 0px));
+    /* iPad / tablet Safari: momentum scrolling on the main column (phone rule above). */
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (min-width: 1280px) {
+  /*
+   * Sidebar is position:fixed — without shrinking width, margin-left + width:100%
+   * overflows the viewport (~200px horizontal bleed).
+   */
+  .casino-shell-scroll {
+    padding-top: calc(var(--casino-header-h-desktop) + env(safe-area-inset-top, 0px));
+    margin-left: 200px;
+    width: calc(100% - 200px);
+    max-width: calc(100vw - 200px);
+    box-sizing: border-box;
+  }
+}
+
+/* ----- Home / catalog game grids (fixed column counts) ----- */
+.casino-game-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .casino-game-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .casino-game-grid {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+  }
+}
+
+.casino-game-grid > * {
+  min-width: 0;
+}
+
+/* ----- Lobby home category rows (strict layout tiers; tile counts enforced in JS) -----
+ * Phone (<768): 3 columns × 2 rows (6 tiles).
+ * iPad / tablet (768–1279): 6 cols × 2 rows (768–1023) or 7 cols × 2 rows (1024–1279).
+ * Desktop (≥1280): single horizontal row, scroll-x only (160px tiles).
+ */
+.casino-home-section-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+  padding-bottom: 0;
+  touch-action: manipulation;
+}
+
+.casino-home-section-strip > * {
+  min-width: 0;
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .casino-home-section-strip {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .casino-home-section-strip {
+    grid-template-columns: repeat(7, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .casino-home-section-strip {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    grid-template-columns: none;
+    gap: 12px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    touch-action: pan-x pan-y;
+  }
+
+  .casino-home-section-strip::-webkit-scrollbar {
+    display: none;
+    height: 0;
+  }
+
+  .casino-home-section-strip > * {
+    flex: 0 0 160px !important;
+    width: 160px !important;
+    max-width: 160px !important;
+    min-width: 0 !important;
+  }
+}
+
+.casino-game-tile-frame {
+  aspect-ratio: 3 / 4;
+  width: 100%;
+  overflow: hidden;
+}
+
+.casino-game-tile-frame img {
+  object-fit: cover;
+}
+
+/* ----- Promo / hero banners -----
+ * Phone: single column stack.
+ * Tablet / iPad (768–1279) + desktop: one row, three equal columns.
+ */
+.casino-promo-banners {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.casino-promo-banners > * {
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .casino-promo-banners {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .casino-promo-banners {
+    gap: 12px;
+  }
+}
+
+.casino-promo-card {
+  min-height: 160px;
+}
+
+@media (min-width: 768px) {
+  .casino-promo-card {
+    min-height: 180px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .casino-promo-card {
+    min-height: 200px;
+  }
+}
+
+/* ----- Catalog filter pills: single horizontal row + overflow scroll (all breakpoints) ----- */
+.casino-catalog-pills-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  min-width: 0;
+}
+
+.casino-catalog-pills-row::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+@media (min-width: 768px) {
+  .casino-catalog-pills-row {
+    gap: 10px;
+  }
+}
+
+/* Bottom nav labels: always visible (inactive = muted); active chrome from component */
+
+/*
+ * Tablet (768–1279) uses the same left drawer as phone (`MobileCasinoMenuOverlay`).
+ * Desktop (≥1280) relies on fixed `CasinoSidebar`; the overlay root uses Tailwind
+ * `min-[1280px]:hidden` so we must NOT hide `.mobile-menu-overlay-root` at 768px —
+ * that broke the hamburger on iPad / small laptop widths.
+ */

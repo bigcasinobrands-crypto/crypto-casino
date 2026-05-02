@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@repo/design-tokens/theme.css";
+@import "./styles/casino-shell.css";
 
 /* Player UI — vybebet source-of-truth: #000 canvas, #1a1a1a chrome, #7b61ff purple CTAs */
 @theme {
@@ -31,31 +32,62 @@
 }
 
 @layer base {
+  /**
+   * Cross-browser responsive shell (Chrome, Brave, Safari, Firefox, Edge, iOS WebView):
+   * - dvh + -webkit-fill-available: address-bar / PWA height changes
+   * - text-size-adjust: iOS orientation / font inflation
+   * - tap-highlight: WebKit touch feedback without overriding :focus-visible rings
+   */
   html {
     font-family: 'Inter', system-ui, sans-serif;
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Solid black first so resize / dvh updates never reveal UA default white */
+    background-color: #000000;
     background-color: var(--color-casino-bg);
     width: 100%;
     max-width: 100%;
-    overflow-x: clip;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-height: -webkit-fill-available;
+    /* `hidden` avoids horizontal pan / “black void” drag on iOS better than `clip` alone */
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    /* Avoid bright default scrollbar track when layout reflows on resize (Firefox). */
+    scrollbar-color: rgba(255, 255, 255, 0.12) #000000;
   }
 }
 
 body {
+  color-scheme: dark;
+  background-color: #000000;
   background-color: var(--color-casino-bg);
   color: var(--color-casino-foreground);
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-x: clip;
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  /* WebKit (Safari, Chrome iOS, Brave iOS, in-app browsers): subtle tap flash; does not replace :focus-visible rings */
+  -webkit-tap-highlight-color: rgba(123, 97, 255, 0.22);
 }
 
 /* Prevent flash of wrong tone behind the app shell */
 #root {
-  min-height: 100%;
+  min-height: 100vh;
   min-height: 100dvh;
+  min-height: -webkit-fill-available;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  isolation: isolate;
+  background-color: #000000;
   background-color: var(--color-casino-bg);
 }
 
@@ -74,6 +106,11 @@ body {
   /* Reduces scroll chaining into the browser chrome on macOS/iOS. */
   .overscroll-y-contain {
     overscroll-behavior-y: contain;
+  }
+
+  /** Main scroll region: block sideways rubber-band / drag that exposes empty canvas (mobile Safari). */
+  .overscroll-x-none {
+    overscroll-behavior-x: none;
   }
 
   /* Infinite horizontal marquee (content duplicated; -50% width = one seamless loop). */
@@ -98,6 +135,28 @@ body {
     .infinite-marquee-track {
       animation: none;
       transform: none;
+    }
+  }
+
+  @keyframes vybebet-brand-pulse {
+    0%,
+    100% {
+      opacity: 0.72;
+      transform: scale(0.97);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .animate-vybebet-brand-pulse {
+    animation: vybebet-brand-pulse 1.35s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-vybebet-brand-pulse {
+      animation: none;
     }
   }
 
@@ -151,11 +210,21 @@ body {
 
 @layer components {
   /**
+   * Brand logo: opacity hover only on devices with real hover (mouse / trackpad).
+   * Avoids sticky :hover + opacity stacking bugs on iOS/Safari next to the wallet chip.
+   */
+  @media (hover: hover) and (pointer: fine) {
+    .brand-logo-link:hover {
+      opacity: 0.95;
+    }
+  }
+
+  /**
    * Centered main column (~1440px) so casino/home grids stay dense on ultrawide
    * (reference: compact thumbnail rows on large desktop).
    */
   .player-casino-max {
-    @apply mx-auto w-full min-w-0 max-w-[min(100%,90rem)];
+    @apply mx-auto w-full min-w-0 max-w-[min(100%,90rem)] overflow-x-hidden;
   }
 
   /* Game tiles: soft violet glow on hover around the thumbnail frame. */
@@ -174,6 +243,59 @@ body {
   .game-thumb-link:focus-visible {
     outline: 2px solid var(--color-casino-primary);
     outline-offset: 2px;
+  }
+
+  /**
+   * Header wallet chip — rotating purple perimeter + pulse when overall balance is $0.
+   * Beam sits behind `.wallet-chip-zero-ring > .wallet-chip-zero-ring__beam`; inner chip covers center.
+   */
+  .wallet-chip-zero-ring {
+    isolation: isolate;
+  }
+
+  .wallet-chip-zero-ring__beam {
+    position: absolute;
+    inset: -48%;
+    z-index: 0;
+    border-radius: inherit;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg 228deg,
+      rgba(123, 97, 255, 0.12) 248deg,
+      rgba(155, 108, 255, 1) 274deg,
+      rgba(199, 181, 255, 0.95) 292deg,
+      rgba(123, 97, 255, 0.35) 312deg,
+      transparent 328deg,
+      transparent 360deg
+    );
+    animation:
+      wallet-zero-perimeter-spin 2.65s linear infinite,
+      wallet-zero-perimeter-pulse 1.35s ease-in-out infinite;
+  }
+
+  @keyframes wallet-zero-perimeter-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes wallet-zero-perimeter-pulse {
+    0%,
+    100% {
+      opacity: 0.62;
+      filter: brightness(0.92);
+    }
+    50% {
+      opacity: 1;
+      filter: brightness(1.15);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wallet-chip-zero-ring__beam {
+      animation: none;
+      opacity: 0.85;
+    }
   }
 
 }

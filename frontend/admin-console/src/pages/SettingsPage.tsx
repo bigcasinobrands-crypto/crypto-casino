@@ -11,6 +11,7 @@ import { Toggle } from '../components/common/Toggle'
 import { CountryPicker } from '../components/admin-ui/CountryPicker'
 import type { CountryRegion } from '../lib/countryIsoList'
 import { COUNTRY_OPTIONS, flagEmoji } from '../lib/countryIsoList'
+import { PLAYER_BRANDING_DEFAULT_LOGO_PREVIEW } from '../lib/playerBrandLogo'
 
 // ---------------------------------------------------------------------------
 // Shared styles
@@ -1136,10 +1137,21 @@ function BrandingSection({
         </div>
         <div>
           <label className={labelCls}>Logo URL</label>
-          <input className={inputCls} value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} disabled={!isSuper} />
-          {logoUrl && (
-            <img src={logoUrl} alt="Logo preview" className="mt-2 h-10 rounded object-contain bg-gray-100 dark:bg-gray-800 px-2" />
-          )}
+          <input
+            className={inputCls}
+            value={logoUrl}
+            onChange={(e) => setLogoUrl(e.target.value)}
+            disabled={!isSuper}
+            placeholder="Leave blank for built-in vybebet logo"
+          />
+          <p className="mt-1 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+            When empty, players see the default casino logo (<code className="rounded bg-gray-100 px-1 dark:bg-gray-800">/vybebet-logo.png</code>). Paste a URL or upload — preview keeps aspect ratio.
+          </p>
+          <img
+            src={logoUrl.trim() || PLAYER_BRANDING_DEFAULT_LOGO_PREVIEW}
+            alt="Logo preview"
+            className="mt-2 h-auto max-h-32 w-auto max-w-full rounded object-contain object-left bg-gray-100 px-2 py-1 dark:bg-gray-800"
+          />
         </div>
         <div>
           <label className={labelCls}>Favicon URL</label>

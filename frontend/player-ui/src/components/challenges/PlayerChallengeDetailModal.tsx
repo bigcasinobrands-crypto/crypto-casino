@@ -4,6 +4,7 @@ import { useAuthModal } from '../../authModalContext'
 import { readApiError } from '../../api/errors'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../../notifications/playerToast'
 import { usePlayerAuth } from '../../playerAuth'
+import { PLAYER_MODAL_OVERLAY_Z } from '../../lib/playerChromeLayers'
 import type { VipProgramTier } from '../../lib/vipPresentation'
 import { PrizeRailLogoMark } from './PayoutChainLogoMark'
 import type { PlayerChallengeListItem } from './playerChallengeTypes'
@@ -218,7 +219,7 @@ export function PlayerChallengeDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-4 backdrop-blur-[6px] sm:items-center"
+      className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-end justify-center bg-black/60 p-4 backdrop-blur-[6px] sm:items-center`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="challenge-modal-title"

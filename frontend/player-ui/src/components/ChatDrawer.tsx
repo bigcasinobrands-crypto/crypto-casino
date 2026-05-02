@@ -266,7 +266,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
       <button
         type="button"
         aria-label="Close chat"
-        className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] transition-opacity lg:hidden ${
+        className={`fixed inset-0 z-[235] bg-black/60 backdrop-blur-[2px] transition-opacity lg:hidden ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
         onClick={onClose}
@@ -274,11 +274,13 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
 
       <aside
         className={`
-          fixed right-0 top-16 bottom-0 z-40 flex shrink-0 flex-col overflow-hidden
+          fixed right-0 bottom-0 z-[236] flex shrink-0 flex-col overflow-hidden
           border-l border-white/[0.04] bg-casino-sidebar
           transition-[width] duration-200 ease-out
-          lg:static lg:z-0 lg:h-full lg:max-h-full lg:min-h-0
-          ${open ? 'w-[240px]' : 'w-0'}
+          top-[calc(env(safe-area-inset-top)+64px)]
+          min-[768px]:top-[calc(env(safe-area-inset-top)+56px)]
+          min-[1280px]:top-[calc(env(safe-area-inset-top)+60px)]
+          ${open ? 'w-[min(78vw,280px)] sm:w-[280px] min-[1280px]:w-[240px]' : 'w-0'}
         `}
       >
         {/* Header */}
@@ -350,7 +352,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
 
           {/* Scroll-to-bottom pill */}
           {newMsgCount > 0 && (
-            <div className="absolute bottom-[60px] left-1/2 z-10 -translate-x-1/2">
+            <div className="absolute bottom-[72px] left-1/2 z-10 -translate-x-1/2 max-[767px]:bottom-[calc(env(safe-area-inset-bottom,0px)+4rem)] lg:bottom-24">
               <button
                 type="button"
                 onClick={scrollToBottom}

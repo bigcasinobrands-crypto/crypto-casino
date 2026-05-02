@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminAuthProvider } from './authContext'
 import { AppToaster } from './components/AppToaster'
 import { ReportingErrorBoundary } from './components/ReportingErrorBoundary'
+import { BlueOceanCatalogSyncProvider } from './context/BlueOceanCatalogSyncContext'
 import { AdminActivityLogProvider } from './notifications/AdminActivityLogContext'
 import AdminLayout from './pages/AdminLayout'
 
@@ -52,9 +53,10 @@ export default function App() {
   return (
     <AdminAuthProvider>
       <AdminActivityLogProvider>
-        <AppToaster />
-        <ReportingErrorBoundary>
-          <Routes>
+        <BlueOceanCatalogSyncProvider>
+          <AppToaster />
+          <ReportingErrorBoundary>
+            <Routes>
             <Route
               path="/login"
               element={
@@ -173,8 +175,9 @@ export default function App() {
               <Route path="/system/security-keys" element={<WebAuthnSecurityPage />} />
               <Route path="/system/staff-users" element={<StaffUsersPage />} />
             </Route>
-          </Routes>
-        </ReportingErrorBoundary>
+            </Routes>
+          </ReportingErrorBoundary>
+        </BlueOceanCatalogSyncProvider>
       </AdminActivityLogProvider>
     </AdminAuthProvider>
   )

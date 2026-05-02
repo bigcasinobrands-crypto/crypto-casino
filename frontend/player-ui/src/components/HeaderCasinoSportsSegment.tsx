@@ -18,11 +18,11 @@ export default function HeaderCasinoSportsSegment({
   const casinoActive = pathname.startsWith('/casino') && !sportsActive
 
   const inner =
-    'flex min-h-[34px] min-w-0 flex-1 items-center justify-center rounded-[10px] px-2.5 py-1.5 text-center text-[12px] font-bold leading-none transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-toggle-active sm:px-3 sm:text-[13px]'
+    'flex min-h-[34px] min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-[10px] px-1.5 py-1.5 text-center text-[11px] font-bold leading-tight transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-toggle-active sm:px-3 sm:text-[12px] md:text-[13px]'
 
   return (
     <div
-      className={`flex max-w-[min(100%,13.5rem)] min-w-[10.5rem] shrink-0 rounded-xl bg-casino-segment-track p-[3px] shadow-[inset_0_2px_6px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.07] ${className}`}
+      className={`flex min-w-0 max-w-full shrink rounded-xl bg-casino-segment-track p-[3px] shadow-[inset_0_2px_6px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.07] ${className}`}
       role="group"
       aria-label="Casino or Sports"
     >

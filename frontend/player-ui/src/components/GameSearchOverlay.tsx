@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type FC } from 'react'
 import { IconSearch, IconX } from './icons'
+import { GameCardSkeleton } from './GameCardSkeleton'
 import { PortraitGameThumb } from './PortraitGameThumb'
 import { RequireAuthLink } from './RequireAuthLink'
 import { playerApiUrl } from '../lib/playerApiUrl'
@@ -138,16 +139,20 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
 
   if (!open) return null
 
+  /**
+   * z-[240]: above fixed shell headers (z~211) so dim/blur covers the top bar; was trapped inside App `z-[200]` before.
+   * Below mobile menu drawer (z-[260]) so menu stays on top if both were open.
+   */
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col"
+      className="fixed inset-x-0 top-0 bottom-0 z-[240] flex flex-col max-[767px]:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))]"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
     >
       <button
         type="button"
-        className="absolute inset-0 z-0 bg-white/[0.04] backdrop-blur-sm"
+        className="absolute inset-x-0 top-0 bottom-0 z-0 bg-black/55 backdrop-blur-sm"
         aria-label="Close search"
         onClick={onClose}
       />
@@ -210,7 +215,13 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
             role="presentation"
           >
             {debounced && loading && games.length === 0 && !err ? (
-              <p className="py-6 text-center text-sm text-casino-muted/95">Searching…</p>
+              <div className="grid grid-cols-3 gap-1.5 py-2 sm:grid-cols-3 sm:gap-2 md:grid-cols-5 md:gap-2 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 min-[1700px]:grid-cols-9 min-[1920px]:grid-cols-10">
+                {Array.from({ length: 18 }, (_, i) => (
+                  <div key={`search-sk-${i}`} className="pointer-events-none">
+                    <GameCardSkeleton />
+                  </div>
+                ))}
+              </div>
             ) : null}
             {err ? <p className="py-6 text-center text-sm text-red-400">{err}</p> : null}
             {debounced && !loading && !err && games.length === 0 ? (
