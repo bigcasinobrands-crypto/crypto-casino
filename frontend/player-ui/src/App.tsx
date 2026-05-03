@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
 import {
+  PLAYER_CHROME_CLOSE_CHAT_EVENT,
   PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT,
   PLAYER_CHROME_CLOSE_REWARDS_EVENT,
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
@@ -22,6 +23,7 @@ import HeaderWalletBar from './components/HeaderWalletBar'
 import { IconMenu, IconMessageSquare, IconSearch, IconUser } from './components/icons'
 import NotificationBell from './components/NotificationBell'
 import RewardsHeaderDropdown from './components/RewardsHeaderDropdown'
+import PlayerHeaderLogo from './components/PlayerHeaderLogo'
 import WalletFlowModal, { type WalletMainTab } from './components/WalletFlowModal'
 import MainScrollRestoration from './components/MainScrollRestoration'
 import OperationalBanner from './components/OperationalBanner'
@@ -190,6 +192,12 @@ function AppShell() {
     return () => window.removeEventListener(PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT, closeMenu)
   }, [])
 
+  useEffect(() => {
+    const closeChat = () => setChatOpen(false)
+    window.addEventListener(PLAYER_CHROME_CLOSE_CHAT_EVENT, closeChat)
+    return () => window.removeEventListener(PLAYER_CHROME_CLOSE_CHAT_EVENT, closeChat)
+  }, [])
+
   const openMobileMenu = useCallback(() => {
     dismissAllChrome()
     setSidebarCollapsed(false)
@@ -268,8 +276,8 @@ function AppShell() {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams, closeHeaderDropdowns])
 
-  const showBottomNav =
-    !pathname.startsWith('/casino/game-lobby/') && !pathname.startsWith('/embed/')
+  /** Embed routes stay chromeless; game lobby uses the same bottom nav + scroll inset as the catalog on phones. */
+  const showBottomNav = !pathname.startsWith('/embed/')
 
   const mainScrollRef = useRef<HTMLDivElement>(null)
   const pullToRefreshEnabled = !pathname.startsWith('/embed/')
@@ -289,6 +297,7 @@ function AppShell() {
           <header className="casino-shell-mobile-header border-b border-white/[0.06] bg-casino-topbar shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
             {/* Mobile: wallet centered in header (`absolute`); actions on the right. */}
             <div className="relative isolate flex h-16 min-h-[4rem] w-full min-w-0 items-center justify-between gap-x-1 px-2">
+              <PlayerHeaderLogo className="relative z-[2] max-w-[38vw] truncate sm:max-w-[10rem]" />
               {isAuthenticated ? (
                 <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-10 sm:px-12">
                   <div className="pointer-events-auto flex min-h-[36px] min-w-0 max-w-[min(28rem,calc(100vw-7.5rem))] items-center justify-center overflow-hidden px-0.5">
@@ -346,7 +355,7 @@ function AppShell() {
                 Tablet / small laptop (768–1279): wallet is viewport-centered (absolute) so it sits in the middle
                 of the header between menu/logo and action icons. Desktop (≥1280) uses `casino-shell-desktop-header`.
               */}
-              <div className="relative z-[2] flex min-w-0 shrink-0 items-center gap-1">
+              <div className="relative z-[2] flex min-w-0 shrink-0 items-center gap-2 md:gap-3">
                 <button
                   type="button"
                   className={`${iconBtnTablet} shrink-0 ${sidebarOpen ? iconBtnActive : ''}`}
@@ -356,10 +365,11 @@ function AppShell() {
                 >
                   <IconMenu size={18} aria-hidden />
                 </button>
+                <PlayerHeaderLogo className="max-w-[9rem] truncate" />
               </div>
               {isAuthenticated ? (
                 <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-10 sm:px-12 md:px-14">
-                  <div className="pointer-events-auto flex min-h-[34px] min-w-0 max-w-[min(100%,calc(100vw-9rem))] items-center justify-center max-[1023px]:min-h-[32px] min-[1024px]:min-h-[38px]">
+                  <div className="pointer-events-auto flex min-h-[34px] min-w-0 max-w-[min(28rem,100%)] items-center justify-center max-[1023px]:min-h-[32px] min-[1024px]:min-h-[38px]">
                     <HeaderWalletBar
                       onOpenWallet={openWallet}
                       depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
@@ -405,9 +415,8 @@ function AppShell() {
           </header>
 
           <header className="casino-shell-desktop-header border-b border-white/[0.06] bg-casino-topbar shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
-            <div
-              className={`isolate mx-auto flex h-full min-h-0 w-full min-w-0 max-w-full items-center gap-2 pl-2 pr-3 md:gap-3 md:px-5 min-[1280px]:px-6 ${isAuthenticated ? '' : 'justify-between'}`}
-            >
+            <div className="isolate mx-auto flex h-full min-h-0 w-full min-w-0 max-w-full items-center gap-2 pl-2 pr-3 md:gap-3 md:px-5 min-[1280px]:px-6">
+              <PlayerHeaderLogo className="relative z-[2]" />
               {isAuthenticated ? (
                 <div className="relative z-[1] flex min-h-[40px] min-w-0 flex-1 basis-0 items-center justify-center overflow-hidden px-0 md:px-1">
                   <HeaderWalletBar
@@ -415,8 +424,10 @@ function AppShell() {
                     depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
                   />
                 </div>
-              ) : null}
-              <div className="relative z-[2] ml-auto flex shrink-0 items-center justify-end gap-0.5 md:gap-2 min-[1280px]:gap-3">
+              ) : (
+                <div className="min-w-0 flex-1" aria-hidden />
+              )}
+              <div className="relative z-[2] flex shrink-0 items-center justify-end gap-0.5 md:gap-2 min-[1280px]:gap-3">
                 {showCasinoSearch ? (
                   <button
                     type="button"
@@ -469,7 +480,7 @@ function AppShell() {
             initialTab={walletTab}
           />
 
-          <div className="relative z-[200] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="casino-shell-main relative z-[200] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <PullToRefreshOverlay scrollRef={mainScrollRef} enabled={pullToRefreshEnabled} />
             <div
               ref={mainScrollRef}
@@ -543,7 +554,13 @@ function AppShell() {
             ) : null}
           </div>
 
-          <MobileCasinoMenuOverlay open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          <MobileCasinoMenuOverlay
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+            onOpenChat={isAuthenticated ? toggleChat : undefined}
+            chatOpen={chatOpen}
+            chatUnreadCount={chat.unreadCount}
+          />
           <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} chat={chat} />
         </div>
       </PersistentMiniPlayerProvider>

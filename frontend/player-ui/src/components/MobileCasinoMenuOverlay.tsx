@@ -20,6 +20,7 @@ import {
   IconFileText,
   IconGlobe,
   IconHeadphones,
+  IconMessageSquare,
   IconTrophy,
   IconX,
 } from './icons'
@@ -27,6 +28,10 @@ import {
 type Props = {
   open: boolean
   onClose: () => void
+  /** Opens in-app live chat (same as desktop sidebar). Omitted when logged out. */
+  onOpenChat?: () => void
+  chatOpen?: boolean
+  chatUnreadCount?: number
 }
 
 const row =
@@ -35,7 +40,13 @@ const row =
 const casinoHeaderBtn =
   'flex w-full items-center justify-between rounded-2xl bg-casino-primary px-3.5 py-3 text-left text-[13px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
 
-export default function MobileCasinoMenuOverlay({ open, onClose }: Props) {
+export default function MobileCasinoMenuOverlay({
+  open,
+  onClose,
+  onOpenChat,
+  chatOpen = false,
+  chatUnreadCount = 0,
+}: Props) {
   const [casinoOpen, setCasinoOpen] = useState(true)
   const { getContent } = useSiteContent()
 
@@ -82,7 +93,7 @@ export default function MobileCasinoMenuOverlay({ open, onClose }: Props) {
         </div>
 
         <nav
-          className="scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 pb-10 pt-3"
+          className="scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain px-3 pt-3 max-md:pb-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] md:pb-8"
           onClick={() => onClose()}
         >
           <button
@@ -143,6 +154,26 @@ export default function MobileCasinoMenuOverlay({ open, onClose }: Props) {
             Language
             <IconChevronDown size={15} className="ml-auto opacity-70" aria-hidden />
           </button>
+          {onOpenChat ? (
+            <button
+              type="button"
+              className={`${row} relative ${chatOpen ? 'bg-casino-primary/22 text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary' : ''}`}
+              aria-label="Live chat"
+              aria-pressed={chatOpen}
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenChat()
+              }}
+            >
+              <IconMessageSquare size={17} className="shrink-0 opacity-90" aria-hidden />
+              Live chat
+              {chatUnreadCount > 0 && !chatOpen ? (
+                <span className="ml-auto rounded-full bg-casino-segment px-1.5 py-0.5 text-[10px] font-bold text-casino-bg">
+                  {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
           <NavLink to="/casino/games#help" className={row}>
             <IconHeadphones size={17} aria-hidden />
             Live Support

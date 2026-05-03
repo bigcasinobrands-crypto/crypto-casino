@@ -3,10 +3,7 @@ import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-r
 import { readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
 import type { OperationalHealth } from '../hooks/useOperationalHealth'
-import CasinoCatalogSearchStrip, {
-  CasinoCatalogNavPills,
-  CasinoCatalogSearchField,
-} from '../components/CasinoCatalogSearchStrip'
+import CasinoCatalogSearchStrip from '../components/CasinoCatalogSearchStrip'
 import { RequireAuthLink } from '../components/RequireAuthLink'
 import { usePlayerAuth } from '../playerAuth'
 import {
@@ -476,7 +473,6 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   return (
     <div className="player-casino-max min-w-0 px-4 pb-12 pt-5 sm:px-5 md:px-6 lg:px-8">
-      <CasinoCatalogNavPills pathname={pathname} lobbyDashboardHome={false} />
       {loadErr ? <p className="mb-3 text-sm text-red-400">{loadErr}</p> : null}
 
       <h1 className="mb-4 text-xl font-semibold tracking-tight text-casino-foreground md:text-2xl">
@@ -489,7 +485,8 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
           {showLoadMore ? ' · more available' : ''}
         </p>
       ) : null}
-      <CasinoCatalogSearchField matchHomeStripColumnWidth />
+
+      <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={false} />
       {sec === 'games' ? (
         <div className="mb-4 flex flex-wrap gap-2 text-sm">
           {[

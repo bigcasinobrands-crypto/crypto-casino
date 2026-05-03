@@ -40,6 +40,8 @@ type GameMeta = {
   live?: boolean
   /** When false, only real-money launch is offered for this title. */
   play_for_fun_supported?: boolean
+  /** From catalog metadata when the sync stored description/summary/long_description. */
+  description?: string
 }
 
 type LaunchPlayMode = 'demo' | 'real'
@@ -163,7 +165,8 @@ function StatsKeyValueTable({
 const relatedGameCardShell =
   'group flex h-full flex-col overflow-hidden rounded-casino-md border border-white/[0.08] bg-casino-surface transition hover:border-casino-primary/35 hover:bg-casino-elevated'
 
-const lobbyRailInner = 'mx-auto w-full max-w-[min(100%,90rem)] px-3 sm:px-4 lg:px-6'
+/** Match `LobbyPage` / `player-casino-max` gutters so the lobby reads at the same scale as the catalog on phones. */
+const lobbyRailInner = 'mx-auto w-full max-w-[min(100%,90rem)] px-4 sm:px-5 md:px-6 lg:px-8'
 
 /**
  * Full-page game lobby: catalog links here; provider iframe loads in a top-aligned “theater”
@@ -581,6 +584,12 @@ export default function GameLobbyPage() {
       !launchErr,
   )
   const showTheater = !metaErr
+  /** Single iframe mount while playing in-page (not mini). Shown at all breakpoints; layout chrome differs by `xl`. */
+  const showInlinePlayer = Boolean(isAuthenticated && iframeUrl && !thisGameInMini)
+  const gameDescription = meta?.description?.trim() ?? ''
+  const showMobilePlayButtons = Boolean(
+    isAuthenticated && meta && !metaErr && !iframeUrl && !thisGameInMini && !launchPending,
+  )
 
   const openSignIn = () => openAuth('login', { navigateTo: postAuthTarget })
   const openRegister = () => openAuth('register', { navigateTo: postAuthTarget })
@@ -612,7 +621,364 @@ export default function GameLobbyPage() {
 
       {showTheater ? (
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
-          <div className="mx-auto w-full max-w-[min(100%,90rem)] shrink-0 px-3 pt-2 sm:px-4 sm:pt-3 lg:px-6">
+          {showInlinePlayer ? (
+            <div className="mx-auto w-full max-w-[min(100%,90rem)] shrink-0 px-4 pt-2 sm:px-5 sm:pt-3 md:px-6 lg:px-8">
+              <div
+                ref={stageRef}
+                className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
+              >
+                <div className="hidden items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3 xl:flex">
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+                    <button
+                      type="button"
+                      aria-label="Back to games"
+                      className="inline-flex shrink-0 items-center gap-0.5 rounded-[4px] px-1.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10 hover:text-white sm:gap-1 sm:px-2 sm:py-1.5 sm:text-xs"
+                      onClick={goBackToCatalog}
+                    >
+                      <IconChevronLeft size={14} aria-hidden />
+                      <span className="hidden sm:inline">Games</span>
+                    </button>
+                    <span className="rounded bg-white/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-white/85 sm:px-2 sm:py-0.5 sm:text-[10px]">
+                      {edgeLabel}
+                    </span>
+                  </div>
+                  <div className="relative z-20 flex shrink-0 items-center gap-px sm:gap-0.5">
+                    <button
+                      type="button"
+                      className={`${chromeIconBtn} ${thisGameInMini ? 'bg-white/10 text-white' : ''}`}
+                      title={popOutButtonTitle}
+                      aria-pressed={thisGameInMini}
+                      disabled={!iframeUrl?.trim()}
+                      onClick={() => toggleGamePopOut()}
+                    >
+                      <IconExternalLink size={15} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      className={chromeIconBtn}
+                      title={
+                        isAuthenticated
+                          ? 'Game statistics (Blue Ocean)'
+                          : 'Sign in to view game statistics'
+                      }
+                      disabled={!gameId}
+                      onClick={() => {
+                        if (!isAuthenticated) {
+                          openAuth('login', { navigateTo: postAuthTarget })
+                          return
+                        }
+                        setStatsOpen(true)
+                      }}
+                    >
+                      <IconBarChart3 size={15} aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      className={chromeIconBtn}
+                      title={
+                        thisGameInMini
+                          ? 'Return the game to the theater to use full screen'
+                          : isFullscreen
+                            ? 'Exit full screen'
+                            : 'Full screen'
+                      }
+                      disabled={thisGameInMini}
+                      onClick={() => toggleFullscreen()}
+                    >
+                      {isFullscreen ? <IconMinimize2 size={15} aria-hidden /> : <IconMaximize2 size={15} aria-hidden />}
+                    </button>
+                  </div>
+                </div>
+                <div
+                  className="relative aspect-video w-full bg-black"
+                  aria-busy={iframeBootPending}
+                >
+                  <img
+                    src={theaterPosterSrc}
+                    alt=""
+                    className={`absolute inset-0 z-0 h-full w-full object-cover transition-opacity duration-300 ${
+                      iframeStageReady ? 'opacity-0' : 'opacity-40'
+                    }`}
+                    aria-hidden
+                  />
+                  <div
+                    className={`absolute inset-0 z-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30 ${
+                      iframeStageReady ? 'pointer-events-none opacity-0' : ''
+                    }`}
+                    aria-hidden
+                  />
+                  <iframe
+                    key={`${iframeUrl}\u0000${launchRetryNonce}`}
+                    title={title}
+                    src={iframeUrl ?? ''}
+                    className="absolute inset-0 z-10 h-full w-full border-0 bg-black"
+                    allow={GAME_IFRAME_ALLOW}
+                    allowFullScreen
+                    onLoad={() => setIframeStageReady(true)}
+                  />
+                  {iframeBootPending ? (
+                    <div
+                      className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/65 p-3 text-center backdrop-blur-[2px] sm:gap-3 sm:p-5"
+                      role="status"
+                      aria-live="polite"
+                      aria-label="Game window loading"
+                    >
+                      <div
+                        className="size-9 animate-spin rounded-full border-2 border-white/20 border-t-casino-primary sm:size-10"
+                        aria-hidden
+                      />
+                      <p className="text-xs font-semibold text-white sm:text-sm">Opening game…</p>
+                      <p className="max-w-sm px-1 text-[11px] text-white/55 sm:text-xs">
+                        The provider window can stay dark for a few seconds while the game boots.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex items-center justify-between gap-2 border-t border-white/[0.07] px-2.5 py-1.5 sm:px-3 sm:py-2">
+                  <div className="min-w-0 flex-1">
+                    <h1
+                      className={`truncate text-xs font-bold text-white sm:text-sm ${metaLoading ? 'animate-pulse' : ''}`}
+                    >
+                      {title}
+                    </h1>
+                    <p className="truncate text-[11px] text-white/45 sm:text-xs">{providerLabel}</p>
+                  </div>
+                  {meta ? (
+                    <button
+                      type="button"
+                      title={
+                        !isAuthenticated
+                          ? 'Sign in to save favourites'
+                          : isFavourite(meta.id)
+                            ? 'Remove favourite'
+                            : 'Favourite'
+                      }
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-base text-amber-400/90 transition hover:bg-white/10 sm:h-9 sm:w-9 sm:text-lg"
+                      onClick={onFavouriteClick}
+                    >
+                      {isFavourite(meta.id) ? '★' : '☆'}
+                    </button>
+                  ) : metaLoading ? (
+                    <div className="h-8 w-8 shrink-0 rounded-[4px] bg-white/10 sm:h-9 sm:w-9" aria-hidden />
+                  ) : null}
+                </div>
+              </div>
+              <div className={`${lobbyRailInner} shrink-0`}>
+                <p className="py-1 text-center text-[11px] text-casino-muted sm:text-xs">
+                  Having trouble?{' '}
+                  <button
+                    type="button"
+                    className="font-medium text-casino-primary underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setIframeUrl(null)
+                      setLaunchErr(null)
+                      setLaunchModeChoice(null)
+                    }}
+                  >
+                    Reload player
+                  </button>
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {!showInlinePlayer ? (
+            <>
+          <div className="xl:hidden">
+            <div className={`${lobbyRailInner} shrink-0 pb-2 pt-2 sm:pt-3`}>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label="Back to games"
+                    className="inline-flex shrink-0 items-center gap-0.5 rounded-[4px] px-1.5 py-1 text-[11px] font-semibold text-casino-foreground/90 transition hover:bg-white/10 sm:gap-1 sm:px-2 sm:py-1.5 sm:text-xs"
+                    onClick={goBackToCatalog}
+                  >
+                    <IconChevronLeft size={14} aria-hidden />
+                  </button>
+                  <span className="rounded bg-white/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-casino-foreground/90 sm:px-2 sm:py-0.5 sm:text-[10px]">
+                    {edgeLabel}
+                  </span>
+                </div>
+                {meta ? (
+                  <button
+                    type="button"
+                    title={
+                      !isAuthenticated
+                        ? 'Sign in to save favourites'
+                        : isFavourite(meta.id)
+                          ? 'Remove favourite'
+                          : 'Favourite'
+                    }
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[4px] text-lg text-amber-400/90 transition hover:bg-white/10"
+                    onClick={onFavouriteClick}
+                  >
+                    {isFavourite(meta.id) ? '★' : '☆'}
+                  </button>
+                ) : metaLoading ? (
+                  <div className="h-9 w-9 shrink-0 rounded-[4px] bg-white/10" aria-hidden />
+                ) : null}
+              </div>
+
+              <div className="overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
+                <div
+                  className="relative aspect-[5/6] w-full max-h-[min(72vh,26rem)] min-h-[200px] bg-black sm:max-h-[min(68vh,30rem)]"
+                  aria-busy={launchPending}
+                >
+                  <PortraitGameThumb
+                    url={meta?.thumbnail_url}
+                    title={title}
+                    fallbackKey={gameId}
+                    thumbRev={meta?.thumb_rev}
+                  />
+                  {isAuthenticated && iframeUrl && thisGameInMini ? (
+                    <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/75 p-4 text-center backdrop-blur-sm">
+                      <p className="text-sm font-semibold text-white">Playing in mini player</p>
+                      <p className="max-w-[18rem] text-[11px] leading-relaxed text-white/55">
+                        The game is in the floating window. Close it or expand to bring it back here.
+                      </p>
+                      <button
+                        type="button"
+                        className="mt-0.5 rounded-casino-sm bg-white/12 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/20 transition hover:bg-white/18"
+                        onClick={() => closeMini()}
+                      >
+                        Return to theater
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {!isAuthenticated ? (
+                    <div className="absolute inset-0 z-[8] flex flex-col items-center justify-center gap-3 p-4 text-center">
+                      <div className="max-w-sm rounded-casino-md border border-white/15 bg-black/75 px-4 py-4 shadow-xl backdrop-blur-md">
+                        <p className="text-sm font-semibold text-white">Play this game</p>
+                        <p className="mt-1.5 text-xs text-white/65">
+                          Sign in or create an account. After you continue, you can launch from here.
+                        </p>
+                        <div className="mt-4 flex flex-col gap-2">
+                          <button
+                            type="button"
+                            className="rounded-casino-sm bg-casino-primary px-4 py-2 text-xs font-semibold text-white hover:brightness-110"
+                            onClick={openSignIn}
+                          >
+                            Sign in
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-casino-sm border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
+                            onClick={openRegister}
+                          >
+                            Register
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className="mt-3 inline-block text-xs font-medium text-casino-primary underline-offset-2 hover:underline"
+                          onClick={goBackToCatalog}
+                        >
+                          Back to games
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {isAuthenticated && !iframeUrl && launchPending ? (
+                    <div className="absolute inset-0 z-[14] flex flex-col items-center justify-center gap-2 bg-black/65 p-3 text-center backdrop-blur-[2px]">
+                      <div
+                        className="size-10 animate-spin rounded-full border-2 border-white/25 border-t-casino-primary"
+                        aria-hidden
+                      />
+                      <p className="text-xs font-semibold text-white">
+                        {launchModeChoice === 'demo' ? 'Starting free play…' : 'Connecting for real play…'}
+                      </p>
+                      <p className="text-[11px] text-white/55">Contacting provider…</p>
+                    </div>
+                  ) : null}
+
+                  {isAuthenticated && !iframeUrl && launchErr ? (
+                    <div className="absolute inset-0 z-[15] flex flex-col items-center justify-center bg-black/60 p-3 backdrop-blur-[2px]">
+                      <div className="relative w-full max-w-[min(100%,17.5rem)] rounded-casino-md border border-white/12 bg-black/90 px-3 py-2.5 shadow-xl">
+                        <p className="text-xs font-semibold text-white">Could not load the game</p>
+                        <p className="mt-1.5 break-words text-[11px] leading-snug text-red-300/95">{launchErr}</p>
+                        <p className="mt-2 text-[10px] leading-relaxed text-white/45">
+                          This is common in staging when the provider sandbox is down or IP-blocked.
+                        </p>
+                        <div className="mt-3 flex flex-col gap-2">
+                          <button
+                            type="button"
+                            className="rounded-casino-sm bg-white px-3 py-1.5 text-xs font-semibold text-zinc-900 transition hover:bg-white/90"
+                            onClick={() => {
+                              setLaunchErr(null)
+                              setLaunchRetryNonce((n) => n + 1)
+                            }}
+                          >
+                            Try again
+                          </button>
+                          {launchModeChoice === 'demo' &&
+                          realAllowed &&
+                          launchErr &&
+                          providerRefusedFreePlay(launchErr) ? (
+                            <button
+                              type="button"
+                              className="rounded-casino-sm border border-casino-primary/55 bg-casino-primary/20 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-casino-primary/30"
+                              onClick={() => {
+                                setLaunchErr(null)
+                                setLaunchModeChoice('real')
+                              }}
+                            >
+                              Try real money play
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="text-center text-xs font-medium text-casino-primary underline"
+                            onClick={goBackToCatalog}
+                          >
+                            Back to games
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-1">
+                <h1 className={`text-lg font-bold text-casino-foreground ${metaLoading ? 'animate-pulse' : ''}`}>
+                  {title}
+                </h1>
+                <p className="text-sm text-casino-muted">{providerLabel}</p>
+              </div>
+
+              {showMobilePlayButtons ? (
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:gap-3">
+                  <button
+                    type="button"
+                    disabled={!realAllowed}
+                    title={!realAllowed ? 'This title only supports free play.' : undefined}
+                    className="flex-1 rounded-casino-md bg-casino-primary px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
+                    onClick={() => setLaunchModeChoice('real')}
+                  >
+                    Real play
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!demoAllowed}
+                    title={!demoAllowed ? 'Free play is not available for this game.' : undefined}
+                    className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-4 py-3 text-sm font-semibold text-casino-foreground transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40"
+                    onClick={() => setLaunchModeChoice('demo')}
+                  >
+                    Demo play
+                  </button>
+                </div>
+              ) : null}
+
+              {gameDescription ? (
+                <p className="mt-4 text-sm leading-relaxed text-casino-muted">{gameDescription}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mx-auto hidden w-full max-w-[min(100%,90rem)] shrink-0 px-4 pt-2 sm:px-5 sm:pt-3 md:px-6 lg:px-8 xl:block">
             <div
               ref={stageRef}
               className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
@@ -680,24 +1046,15 @@ export default function GameLobbyPage() {
               </div>
             </div>
 
-            <div
-              className="relative aspect-video w-full bg-black"
-              aria-busy={launchPending || iframeBootPending}
-            >
+            <div className="relative aspect-video w-full bg-black" aria-busy={launchPending}>
               <img
                 src={theaterPosterSrc}
                 alt=""
-                className={`absolute inset-0 z-0 h-full w-full object-cover transition-opacity duration-300 ${
-                  isAuthenticated && iframeUrl && !thisGameInMini && iframeStageReady ? 'opacity-0' : 'opacity-40'
-                }`}
+                className="absolute inset-0 z-0 h-full w-full object-cover opacity-40 transition-opacity duration-300"
                 aria-hidden
               />
               <div
-                className={`absolute inset-0 z-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30 ${
-                  isAuthenticated && iframeUrl && !thisGameInMini && iframeStageReady
-                    ? 'pointer-events-none opacity-0'
-                    : ''
-                }`}
+                className="absolute inset-0 z-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30"
                 aria-hidden
               />
 
@@ -714,36 +1071,6 @@ export default function GameLobbyPage() {
                   >
                     Return to theater
                   </button>
-                </div>
-              ) : null}
-
-              {isAuthenticated && iframeUrl && !thisGameInMini ? (
-                <iframe
-                  key={`${iframeUrl}\u0000${launchRetryNonce}`}
-                  title={title}
-                  src={iframeUrl}
-                  className="absolute inset-0 z-10 h-full w-full border-0 bg-black"
-                  allow={GAME_IFRAME_ALLOW}
-                  allowFullScreen
-                  onLoad={() => setIframeStageReady(true)}
-                />
-              ) : null}
-
-              {iframeBootPending ? (
-                <div
-                  className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/65 p-3 text-center backdrop-blur-[2px] sm:gap-3 sm:p-5"
-                  role="status"
-                  aria-live="polite"
-                  aria-label="Game window loading"
-                >
-                  <div
-                    className="size-9 animate-spin rounded-full border-2 border-white/20 border-t-casino-primary sm:size-10"
-                    aria-hidden
-                  />
-                  <p className="text-xs font-semibold text-white sm:text-sm">Opening game…</p>
-                  <p className="max-w-sm px-1 text-[11px] text-white/55 sm:text-xs">
-                    The provider window can stay dark for a few seconds while the game boots.
-                  </p>
                 </div>
               ) : null}
 
@@ -940,8 +1267,10 @@ export default function GameLobbyPage() {
             </div>
             </div>
           </div>
+            </>
+          ) : null}
 
-          {isAuthenticated && iframeUrl ? (
+          {isAuthenticated && iframeUrl && !showInlinePlayer ? (
             <div className={`${lobbyRailInner} shrink-0`}>
               <p className="py-1 text-center text-[11px] text-casino-muted sm:text-xs">
                 Having trouble?{' '}
@@ -966,14 +1295,22 @@ export default function GameLobbyPage() {
             </div>
           ) : null}
 
+          {/* Eat leftover column height so Recommended sits toward the bottom when the theater + rails are short. */}
           {isAuthenticated && relatedGames.length > 0 && meta ? (
-            <section className="border-t border-casino-border bg-casino-surface/30" aria-label="Recommended games">
+            <div className="min-h-4 flex-1 shrink-0" aria-hidden />
+          ) : null}
+
+          {isAuthenticated && relatedGames.length > 0 && meta ? (
+            <section
+              className="mt-auto shrink-0 border-t border-casino-border bg-casino-surface/30 pb-3 sm:pb-4"
+              aria-label="Recommended games"
+            >
               <div className={`${lobbyRailInner} py-2 sm:py-3`}>
                 <h2 className="mb-2 text-xs font-bold text-casino-foreground sm:mb-2.5 sm:text-sm">Recommended</h2>
-                <div className="flex gap-1.5 sm:gap-2">
+                <div className="flex gap-0 xl:gap-2">
                   <button
                     type="button"
-                    className="inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-casino-sm border border-white/10 bg-white/[0.04] text-casino-muted shadow-sm transition-colors duration-200 hover:border-casino-primary/45 hover:bg-casino-primary-dim hover:text-white hover:shadow-[0_0_0_1px_rgba(167,139,250,0.2)] active:brightness-95 disabled:pointer-events-none disabled:opacity-25 disabled:hover:border-white/10 disabled:hover:bg-white/[0.04] disabled:hover:text-casino-muted disabled:hover:shadow-none sm:w-9"
+                    className="hidden w-8 shrink-0 items-center justify-center self-stretch rounded-casino-sm border border-white/10 bg-white/[0.04] text-casino-muted shadow-sm transition-colors duration-200 hover:border-casino-primary/45 hover:bg-casino-primary-dim hover:text-white hover:shadow-[0_0_0_1px_rgba(167,139,250,0.2)] active:brightness-95 disabled:pointer-events-none disabled:opacity-25 disabled:hover:border-white/10 disabled:hover:bg-white/[0.04] disabled:hover:text-casino-muted disabled:hover:shadow-none xl:inline-flex xl:w-9"
                     aria-label="Scroll games left"
                     disabled={!relatedScrollEdges.canLeft}
                     onClick={() => scrollRelatedRail(-1)}
@@ -982,7 +1319,7 @@ export default function GameLobbyPage() {
                   </button>
                   <div
                     ref={relatedRailRef}
-                    className="scrollbar-none flex min-h-0 min-w-0 flex-1 snap-x snap-mandatory gap-2.5 overflow-x-auto overflow-y-hidden pb-0.5 sm:gap-3"
+                    className="scrollbar-none flex min-h-0 min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-0.5 max-xl:snap-none xl:gap-3"
                   >
                     {relatedGames
                       .filter((g) => g.id?.trim())
@@ -992,7 +1329,8 @@ export default function GameLobbyPage() {
                           <RequireAuthLink
                             key={g.id}
                             to={lobbyTo}
-                            className={`${relatedGameCardShell} w-[min(9.25rem,calc(100vw-6.5rem))] shrink-0 snap-start text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-casino-primary focus-visible:ring-offset-2 focus-visible:ring-offset-casino-surface sm:w-[min(8.75rem,calc(100vw-7rem))] lg:w-[min(8.25rem,calc(100vw-8rem))]`}
+                            aria-label={g.title}
+                            className={`${relatedGameCardShell} max-xl:flex-[0_0_calc((100%-1rem)/3)] max-xl:min-w-0 xl:w-[min(8.25rem,calc(100vw-8rem))] shrink-0 snap-start text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-casino-primary focus-visible:ring-offset-2 focus-visible:ring-offset-casino-surface`}
                             style={{ touchAction: 'manipulation' }}
                             onClick={(e) => {
                               if (e.defaultPrevented) return
@@ -1005,23 +1343,13 @@ export default function GameLobbyPage() {
                             <div className="relative aspect-[5/6] w-full shrink-0 overflow-hidden bg-black">
                               <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
                             </div>
-                            <div className="flex min-h-0 flex-1 flex-col gap-0.5 px-2 pb-2 pt-1.5">
-                              <p className="line-clamp-2 text-[11px] font-extrabold leading-tight text-casino-foreground sm:text-xs">
-                                {g.title}
-                              </p>
-                              {(g.provider_system?.trim() || g.provider?.trim()) ? (
-                                <p className="line-clamp-1 text-[9px] font-medium text-casino-muted sm:text-[10px]">
-                                  {g.provider_system?.trim() || g.provider}
-                                </p>
-                              ) : null}
-                            </div>
                           </RequireAuthLink>
                         )
                       })}
                   </div>
                   <button
                     type="button"
-                    className="inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-casino-sm border border-white/10 bg-white/[0.04] text-casino-muted shadow-sm transition-colors duration-200 hover:border-casino-primary/45 hover:bg-casino-primary-dim hover:text-white hover:shadow-[0_0_0_1px_rgba(167,139,250,0.2)] active:brightness-95 disabled:pointer-events-none disabled:opacity-25 disabled:hover:border-white/10 disabled:hover:bg-white/[0.04] disabled:hover:text-casino-muted disabled:hover:shadow-none sm:w-9"
+                    className="hidden w-8 shrink-0 items-center justify-center self-stretch rounded-casino-sm border border-white/10 bg-white/[0.04] text-casino-muted shadow-sm transition-colors duration-200 hover:border-casino-primary/45 hover:bg-casino-primary-dim hover:text-white hover:shadow-[0_0_0_1px_rgba(167,139,250,0.2)] active:brightness-95 disabled:pointer-events-none disabled:opacity-25 disabled:hover:border-white/10 disabled:hover:bg-white/[0.04] disabled:hover:text-casino-muted disabled:hover:shadow-none xl:inline-flex xl:w-9"
                     aria-label="Scroll games right"
                     disabled={!relatedScrollEdges.canRight}
                     onClick={() => scrollRelatedRail(1)}

@@ -34,6 +34,8 @@ type listRow struct {
 	PlayForFunSupported bool   `json:"play_for_fun_supported"`
 	Mobile              bool   `json:"mobile"`
 	Live                bool   `json:"live"`
+	/** Human copy from games.metadata (description, summary, or long_description) when set in catalog sync. */
+	Description string `json:"description,omitempty"`
 }
 
 // ListHandler returns games with optional filters.
@@ -177,7 +179,13 @@ func (s *Server) ListHandler() http.HandlerFunc {
 				COALESCE(game_type,''), COALESCE(provider_system,''),
 				COALESCE(is_new,false), COALESCE(featurebuy_supported,false), COALESCE(play_for_fun_supported,false),
 				(COALESCE(metadata->>'mobile','') IN ('true','1')),
-				COALESCE(EXTRACT(EPOCH FROM updated_at)::bigint, 0)
+				COALESCE(EXTRACT(EPOCH FROM updated_at)::bigint, 0),
+				NULLIF(TRIM(COALESCE(
+					metadata->>'description',
+					metadata->>'summary',
+					metadata->>'long_description',
+					''
+				)), '')
 			FROM games
 			WHERE ` + strings.Join(where, " AND ") + `
 			ORDER BY ` + order
@@ -198,7 +206,7 @@ func (s *Server) ListHandler() http.HandlerFunc {
 		for rows.Next() {
 			var g listRow
 			if err := rows.Scan(&g.ID, &g.IDHash, &g.Title, &g.Provider, &g.Category, &g.ThumbnailURL,
-				&g.GameType, &g.ProviderSystem, &g.IsNew, &g.FeatureBuySupported, &g.PlayForFunSupported, &g.Mobile, &g.ThumbRev); err != nil {
+				&g.GameType, &g.ProviderSystem, &g.IsNew, &g.FeatureBuySupported, &g.PlayForFunSupported, &g.Mobile, &g.ThumbRev, &g.Description); err != nil {
 				log.Printf("games list: skip row scan: %v", err)
 				continue
 			}

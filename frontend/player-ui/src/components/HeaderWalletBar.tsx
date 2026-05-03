@@ -248,9 +248,6 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
   const chipInnerClosed =
     'relative z-[1] inline-flex min-h-8 w-max max-w-full shrink-0 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 md:min-h-[36px] md:rounded-none md:border-0 md:bg-transparent md:py-0 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-[34px] max-[1279px]:md:pl-1 min-[1280px]:md:min-h-[40px] min-[1280px]:md:pl-0'
 
-  /** Same as closed chip but opaque on md+ so the $0 perimeter beam stays in the 2px gutter, not over text. */
-  const chipInnerClosedZeroRing = chipInnerClosed.replace('md:bg-transparent', 'md:bg-[#1A1A1A]')
-
   const chipInnerFloating =
     'relative z-[1] inline-flex min-h-8 w-max max-w-full shrink-0 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ring-1 ring-black/25 md:min-h-[36px] md:rounded-none md:border-0 md:bg-[#1A1A1A] md:py-0 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-[34px] max-[1279px]:md:pl-1 min-[1280px]:md:min-h-[40px] min-[1280px]:md:pl-0'
 
@@ -306,31 +303,44 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
     </button>
   )
 
+  const walletDivider = (
+    <div
+      className="hidden h-7 w-px shrink-0 bg-white/[0.12] max-[1279px]:md:h-6 min-[1280px]:md:h-8 md:block"
+      aria-hidden
+    />
+  )
+
+  const walletDepositWrap = (
+    <div className="hidden w-full shrink-0 md:flex md:w-auto md:items-center md:justify-start">{depositButton}</div>
+  )
+
+  /** Full pill shell (balance tray + divider + deposit) — same chrome as the non-zero outer `md:` frame. */
+  const walletPillInnerSurface =
+    'relative z-[1] flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-center md:justify-start md:gap-0 md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:p-0.5 md:pl-2 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] max-[1279px]:md:w-max max-[1279px]:md:p-0.5 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,100%)] min-[1280px]:justify-start min-[1280px]:p-1 min-[1280px]:pl-3'
+
   return (
-    <div className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(100%,calc(100vw-15.5rem))] md:flex-row md:items-center md:justify-start md:gap-0 md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:p-0.5 md:pl-2 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] max-[1279px]:md:w-max max-[1279px]:md:p-0.5 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,calc(100vw-15rem))] min-[1280px]:justify-start min-[1280px]:p-1 min-[1280px]:pl-3">
+    <>
       {showZeroBalanceAlert ? (
         <div
           ref={barRef}
-          className="relative inline-flex shrink-0 overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring"
+          className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:rounded-full max-[1279px]:md:w-max min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,100%)]"
         >
           <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
-          <div className={chipInnerClosedZeroRing}>{walletBarCore}</div>
+          <div className={walletPillInnerSurface}>
+            <div className={chipInnerClosed}>{walletBarCore}</div>
+            {walletDivider}
+            {walletDepositWrap}
+          </div>
         </div>
       ) : (
-        <div ref={barRef} className={chipInnerClosed}>
-          {walletBarCore}
+        <div className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-center md:justify-start md:gap-0 md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:p-0.5 md:pl-2 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] max-[1279px]:md:w-max max-[1279px]:md:p-0.5 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,100%)] min-[1280px]:justify-start min-[1280px]:p-1 min-[1280px]:pl-3">
+          <div ref={barRef} className={chipInnerClosed}>
+            {walletBarCore}
+          </div>
+          {walletDivider}
+          {walletDepositWrap}
         </div>
       )}
-
-      <div
-        className="hidden h-7 w-px shrink-0 bg-white/[0.12] max-[1279px]:md:h-6 min-[1280px]:md:h-8 md:block"
-        aria-hidden
-      />
-
-      {/* Deposit: bottom nav below `md`; header shows Deposit from tablet / iPad landscape up. */}
-      <div className="hidden w-full shrink-0 md:flex md:w-auto md:items-center md:justify-start">
-        {depositButton}
-      </div>
 
       {open && panelPos && createPortal(
         <>
@@ -345,20 +355,24 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
             aria-hidden
           />
 
-          {/* Floating wallet chip — matches barRef (balance + picker only); above header chrome (z-[210]) */}
+          {/* Floating clone — geometry matches `barRef` (full pill when $0 alert includes Deposit). */}
           {barRect && (
             <div
               style={{ position: 'fixed', top: barRect.top, left: barRect.left, width: barRect.width, height: barRect.height, zIndex: 218 }}
               className={
                 showZeroBalanceAlert
-                  ? 'relative inline-flex shrink-0 overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring'
+                  ? 'relative box-border inline-flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring md:rounded-full'
                   : chipInnerFloating
               }
             >
               {showZeroBalanceAlert ? (
                 <>
                   <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
-                  <div className={chipInnerFloating}>{walletBarCore}</div>
+                  <div className={`${walletPillInnerSurface} min-h-0 flex-1`}>
+                    <div className={chipInnerClosed}>{walletBarCore}</div>
+                    {walletDivider}
+                    {walletDepositWrap}
+                  </div>
                 </>
               ) : (
                 walletBarCore
@@ -526,7 +540,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
         </>,
         document.body,
       )}
-    </div>
+    </>
   )
 }
 

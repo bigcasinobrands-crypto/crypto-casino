@@ -272,19 +272,18 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
         onClick={onClose}
       />
 
+      {/* Bottom inset matches main scroll column so the composer sits above the fixed mobile nav. */}
       <aside
         className={`
-          fixed right-0 bottom-0 z-[236] flex shrink-0 flex-col overflow-hidden
+          chat-drawer-aside fixed right-0 bottom-0 z-[236] flex shrink-0 flex-col overflow-hidden
           border-l border-white/[0.04] bg-casino-sidebar
           transition-[width] duration-200 ease-out
-          top-[calc(env(safe-area-inset-top)+64px)]
-          min-[768px]:top-[calc(env(safe-area-inset-top)+56px)]
-          min-[1280px]:top-[calc(env(safe-area-inset-top)+60px)]
-          ${open ? 'w-[min(78vw,280px)] sm:w-[280px] min-[1280px]:w-[240px]' : 'w-0'}
+          max-md:box-border max-md:pb-[calc(64px+env(safe-area-inset-bottom,0px))]
+          ${open ? 'min-w-0 w-[var(--shell-chat-panel-w)]' : 'w-0'}
         `}
       >
         {/* Header */}
-        <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-white/[0.04] px-4">
+        <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-white/[0.04] px-4 max-md:box-border max-md:h-auto max-md:min-h-[calc(60px+env(safe-area-inset-top,0px))] max-md:pt-[env(safe-area-inset-top,0px)]">
           <div className="flex items-center gap-2.5">
             <span className="h-2 w-2 shrink-0 rounded-full bg-casino-success shadow-[0_0_6px_theme(colors.casino-success)]" />
             <span className="text-[14px] font-extrabold text-casino-foreground">Global Chat</span>
@@ -312,7 +311,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
           </div>
         </div>
 
-        {/* Body wrapper — relative so the scroll pill positions within this container */}
+        {/* Body wrapper — grid below keeps the composer row from collapsing on mobile Safari (flex + overflow quirks). */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Connection status */}
           {!connected && open && (
@@ -329,119 +328,135 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
             </div>
           )}
 
-          {/* Messages */}
-          <div
-            ref={scrollContainerRef}
-            onScroll={handleScroll}
-            className="scrollbar-chat flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"
-          >
-            {filteredMessages.length === 0 && (
-              <p className="py-10 text-center text-[13px] text-casino-muted">No messages yet. Say hello!</p>
-            )}
-            {filteredMessages.map(msg => (
-              <ChatMessageRow
-                key={msg.id || msg.created_at}
-                msg={msg}
-                isOwn={!!myParticipantId && msg.participant_id === myParticipantId}
-                currentUsername={me?.username}
-                isMuted={!!msg.participant_id && mutedUsers.has(msg.participant_id)}
-                onMuteUser={toggleMuteUser}
-              />
-            ))}
-          </div>
-
-          {/* Scroll-to-bottom pill */}
-          {newMsgCount > 0 && (
-            <div className="absolute bottom-[72px] left-1/2 z-10 -translate-x-1/2 max-[767px]:bottom-[calc(env(safe-area-inset-bottom,0px)+4rem)] lg:bottom-24">
-              <button
-                type="button"
-                onClick={scrollToBottom}
-                className="flex items-center gap-1.5 rounded-full bg-casino-primary px-3 py-1.5 text-[11px] font-bold text-white shadow-lg transition hover:brightness-110"
-              >
-                <IconArrowDownToLine size={12} />
-                {newMsgCount} new {newMsgCount === 1 ? 'message' : 'messages'}
-              </button>
-            </div>
-          )}
-
-          {/* Input area */}
-          <div className="relative shrink-0 border-t border-white/[0.03] bg-black/15 px-4 py-3">
-            {/* Emoji picker */}
-            {showEmoji && (
-              <div className="absolute bottom-full left-4 right-4 mb-2 grid grid-cols-8 gap-0.5 rounded-casino-md border border-white/[0.06] bg-casino-elevated p-1.5 shadow-xl">
-                {EMOJI_SET.map(emoji => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    className="flex h-6 w-6 items-center justify-center rounded-sm text-[14px] transition hover:bg-white/[0.08]"
-                    onClick={() => insertEmoji(emoji)}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Mention autocomplete */}
-            {mentionQuery !== null && mentionResults.length > 0 && (
-              <div className="absolute bottom-full left-4 right-4 mb-2 flex flex-col rounded-casino-md bg-casino-elevated shadow-xl">
-                {mentionResults.map((u, i) => (
-                  <button
-                    key={u}
-                    type="button"
-                    className={`flex items-center gap-2 px-3 py-2 text-left text-[13px] font-semibold transition ${
-                      i === mentionIdx ? 'bg-casino-primary-dim text-casino-foreground' : 'text-casino-muted hover:bg-white/[0.04]'
-                    }`}
-                    onMouseDown={(e) => { e.preventDefault(); insertMention(u) }}
-                  >
-                    <span className="flex h-5 w-5 items-center justify-center rounded-sm text-[10px] font-bold text-white" style={{ background: getAvatarColor(u) }}>
-                      {getInitials(u)}
-                    </span>
-                    @{u}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 rounded-casino-md bg-white/[0.06] py-1.5 pl-3.5 pr-1.5">
-              {!isAuthenticated ? (
-                <button
-                  type="button"
-                  className="flex-1 text-left text-[13px] font-medium text-white/30"
-                  onClick={() => openAuth('login')}
-                >
-                  Sign in to chat
-                </button>
-              ) : (
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={inputVal}
-                  onChange={handleInputChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type a message..."
-                  maxLength={500}
-                  className="min-w-0 flex-1 bg-transparent text-[13px] font-medium text-white placeholder:text-white/30 outline-none"
-                />
+          <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
+            {/* Messages */}
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="scrollbar-chat flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-y-contain px-4 py-4"
+            >
+              {filteredMessages.length === 0 && (
+                <p className="py-10 text-center text-[13px] text-casino-muted">No messages yet. Say hello!</p>
               )}
-              <div className="flex items-center gap-1.5">
+              {filteredMessages.map(msg => (
+                <ChatMessageRow
+                  key={msg.id || msg.created_at}
+                  msg={msg}
+                  isOwn={!!myParticipantId && msg.participant_id === myParticipantId}
+                  currentUsername={me?.username}
+                  isMuted={!!msg.participant_id && mutedUsers.has(msg.participant_id)}
+                  onMuteUser={toggleMuteUser}
+                />
+              ))}
+            </div>
+
+            {/* Scroll-to-bottom pill */}
+            {newMsgCount > 0 && (
+              <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 max-md:bottom-[calc(8.5rem+env(safe-area-inset-bottom,0px))] md:max-lg:bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] lg:bottom-24">
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-casino-sm bg-white/[0.04] text-casino-muted transition hover:text-casino-foreground"
-                  onClick={() => setShowEmoji(e => !e)}
-                  aria-label="Emoji"
+                  onClick={scrollToBottom}
+                  className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-casino-primary px-3 py-1.5 text-[11px] font-bold text-white shadow-lg transition hover:brightness-110"
                 >
-                  <IconSmile size={16} />
+                  <IconArrowDownToLine size={12} />
+                  {newMsgCount} new {newMsgCount === 1 ? 'message' : 'messages'}
                 </button>
-                <button
-                  type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-casino-sm bg-casino-primary text-white transition hover:brightness-110 disabled:opacity-40"
-                  onClick={handleSend}
-                  disabled={!isAuthenticated || !inputVal.trim()}
-                  aria-label="Send message"
-                >
-                  <IconSend size={15} />
-                </button>
+              </div>
+            )}
+
+            {/* Input area — second grid row: always reserves space for typing on phones */}
+            <div className="relative z-[1] border-t border-white/[0.08] bg-casino-bg/95 px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.35)] max-md:px-3 max-md:py-1.5">
+              {/* Emoji picker */}
+              {showEmoji && (
+                <div className="absolute bottom-full left-4 right-4 mb-2 grid grid-cols-8 gap-0.5 rounded-casino-md border border-white/[0.06] bg-casino-elevated p-1.5 shadow-xl">
+                  {EMOJI_SET.map(emoji => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      className="flex h-6 w-6 items-center justify-center rounded-sm text-[14px] transition hover:bg-white/[0.08]"
+                      onClick={() => insertEmoji(emoji)}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Mention autocomplete */}
+              {mentionQuery !== null && mentionResults.length > 0 && (
+                <div className="absolute bottom-full left-4 right-4 mb-2 flex flex-col rounded-casino-md bg-casino-elevated shadow-xl">
+                  {mentionResults.map((u, i) => (
+                    <button
+                      key={u}
+                      type="button"
+                      className={`flex items-center gap-2 px-3 py-2 text-left text-[13px] font-semibold transition ${
+                        i === mentionIdx ? 'bg-casino-primary-dim text-casino-foreground' : 'text-casino-muted hover:bg-white/[0.04]'
+                      }`}
+                      onMouseDown={(e) => { e.preventDefault(); insertMention(u) }}
+                    >
+                      <span className="flex h-5 w-5 items-center justify-center rounded-sm text-[10px] font-bold text-white" style={{ background: getAvatarColor(u) }}>
+                        {getInitials(u)}
+                      </span>
+                      @{u}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex w-full min-w-0 flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
+                {/* Row 1: field + emoji (mobile); tablet/desktop adds inline Send */}
+                <div className="flex min-h-0 min-w-0 flex-1 items-center gap-2 rounded-casino-md bg-white/[0.06] py-1.5 pl-3.5 pr-2 max-md:py-1 max-md:pl-2.5">
+                  {!isAuthenticated ? (
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 py-0.5 text-left text-[13px] font-medium text-white/30 max-md:text-[12px]"
+                      onClick={() => openAuth('login')}
+                    >
+                      Sign in to chat
+                    </button>
+                  ) : (
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={inputVal}
+                      onChange={handleInputChange}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Type a message..."
+                      maxLength={500}
+                      className="min-h-0 min-w-0 flex-1 bg-transparent py-1 text-[13px] font-medium leading-tight text-white placeholder:text-white/30 outline-none max-md:py-0.5 max-md:text-[12px]"
+                      enterKeyHint="send"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-casino-sm bg-white/[0.04] text-casino-muted transition hover:text-casino-foreground max-md:h-7 max-md:w-7"
+                    onClick={() => setShowEmoji(e => !e)}
+                    aria-label="Emoji"
+                  >
+                    <IconSmile size={14} aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-casino-sm bg-casino-primary text-white transition hover:brightness-110 disabled:opacity-40 md:inline-flex"
+                    onClick={handleSend}
+                    disabled={!isAuthenticated || !inputVal.trim()}
+                    aria-label="Send message"
+                  >
+                    <IconSend size={14} aria-hidden />
+                  </button>
+                </div>
+                {/* Row 2 (mobile only): full-width Send — keeps icon row compact and action visible */}
+                {isAuthenticated ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-casino-md bg-casino-primary px-3 text-[13px] font-bold text-white transition hover:brightness-110 disabled:opacity-40 md:hidden"
+                    onClick={handleSend}
+                    disabled={!inputVal.trim()}
+                  >
+                    <IconSend size={15} aria-hidden />
+                    Send
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>

@@ -1,7 +1,8 @@
 import { createContext, useContext, type ReactNode } from 'react'
 
 /**
- * Reference width at ≥1280px. Shell layout also uses 280px for 640–1279 (see `ChatDrawer` + `shell-chat-open` in casino-shell.css).
+ * Fixed chat column width at ≥1280px (see `--shell-chat-panel-w` in casino-shell.css). Main column also
+ * reserves `--shell-chat-gap` beside the drawer — mini-player docking uses panel width only as an approximation.
  */
 export const CHAT_DRAWER_WIDTH_PX = 240
 

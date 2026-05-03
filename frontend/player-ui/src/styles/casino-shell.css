@@ -20,26 +20,56 @@
 
 /**
  * App root (`player-app-shell` in App.tsx) sets `--shell-sidebar-w` from collapse state.
- * When chat is open, `shell-chat-open` mirrors ChatDrawer widths so header + scroll reserve space
- * instead of painting under the fixed panel (tablet + desktop).
+ * When chat is open, `shell-chat-open` reserves the drawer width (`--shell-chat-panel-w`) for the main column.
+ * `--shell-chat-gap` is an optional extra margin (usually 0 on tablet/desktop) so horizontal padding inside
+ * the route (`player-casino-max` / `lg:px-8`) is the only gutter beside chat — matching the sidebar side.
+ * `--shell-chat-inset` = panel + gap — reserved for `.casino-shell-main`; ChatDrawer uses panel width only.
  */
 .player-app-shell {
+  --shell-chat-panel-w: 0px;
+  --shell-chat-gap: 0px;
   --shell-chat-inset: 0px;
 }
 
 .shell-chat-open {
-  --shell-chat-inset: min(78vw, 280px);
+  /* Narrow phones: small outer gap so the drawer doesn’t touch the screen edge */
+  --shell-chat-gap: var(--casino-gutter-x-mobile);
+  --shell-chat-panel-w: min(78vw, 280px);
+  --shell-chat-inset: calc(var(--shell-chat-panel-w) + var(--shell-chat-gap));
 }
 
 @media (min-width: 640px) {
   .shell-chat-open {
-    --shell-chat-inset: 280px;
+    --shell-chat-panel-w: 280px;
+    --shell-chat-gap: 0px;
   }
 }
 
 @media (min-width: 1280px) {
   .shell-chat-open {
-    --shell-chat-inset: 240px;
+    --shell-chat-panel-w: 240px;
+    --shell-chat-gap: 0px;
+  }
+}
+
+/* ----- Lobby hero when Global Chat is open (narrower main column) ----- */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .shell-chat-open .casino-promo-banners {
+    gap: 8px;
+  }
+
+  .shell-chat-open .casino-promo-card {
+    min-height: 168px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .shell-chat-open .casino-promo-banners {
+    gap: 10px;
+  }
+
+  .shell-chat-open .casino-promo-card {
+    min-height: 176px;
   }
 }
 
@@ -47,6 +77,27 @@
 @media (min-width: 768px) and (max-width: 1023px) {
   :root {
     --casino-header-h-tablet: 52px;
+  }
+}
+
+/*
+ * Global Chat fixed aside — phone: full-bleed (top:0) over the main header; ChatDrawer header row uses safe-area pt.
+ * Tablet/desktop: `top` must match `.casino-shell-scroll` padding-top so the strip lines up with page content
+ * (same formula as main column — avoids a visible seam / “floating” panel beside the header).
+ */
+.chat-drawer-aside {
+  top: 0;
+}
+
+@media (min-width: 768px) and (max-width: 1279px) {
+  .chat-drawer-aside {
+    top: calc(var(--casino-header-h-tablet) + env(safe-area-inset-top, 0px));
+  }
+}
+
+@media (min-width: 1280px) {
+  .chat-drawer-aside {
+    top: calc(var(--casino-header-h-desktop) + env(safe-area-inset-top, 0px));
   }
 }
 
@@ -122,18 +173,18 @@
     position: fixed;
     top: 0;
     left: 0;
-    right: var(--shell-chat-inset, 0px);
+    right: 0;
     height: var(--casino-header-h-tablet);
     z-index: 210;
     padding-left: max(12px, env(safe-area-inset-left));
     padding-right: max(12px, env(safe-area-inset-right));
     padding-top: env(safe-area-inset-top);
-    transition: right 200ms ease-out;
   }
 
   /* Reserve width so lobby/game grids stay visible beside Global Chat (matches ChatDrawer). */
-  .shell-chat-open .casino-shell-scroll {
+  .shell-chat-open .casino-shell-main {
     padding-right: var(--shell-chat-inset, 0px);
+    box-sizing: border-box;
     transition: padding-right 200ms ease-out;
   }
 }
@@ -176,7 +227,8 @@
     position: fixed;
     left: var(--shell-sidebar-w, 200px);
     top: 0;
-    right: var(--shell-chat-inset, 0px);
+    /* Full width to viewport right; Global Chat sits below this bar (ChatDrawer `top`). */
+    right: 0;
     height: var(--casino-header-h-desktop);
     /* Match mobile header tier (~211); must sit above main shell `z-[200]` or taps hit the scroll layer. */
     z-index: 211;
@@ -184,10 +236,16 @@
     padding-left: 12px;
     padding-right: max(12px, env(safe-area-inset-right));
     padding-top: env(safe-area-inset-top);
-    transition:
-      left 200ms ease-out,
-      right 200ms ease-out;
+    transition: left 200ms ease-out;
   }
+}
+
+/*
+ * Main column between fixed chrome: tablet gets chat padding on this wrapper; desktop uses horizontal
+ * margins so flex children cannot stretch full viewport and paint under the chat strip.
+ */
+.casino-shell-main {
+  box-sizing: border-box;
 }
 
 /* ----- Main scroll region padding (no vw on tiles — chrome only) ----- */
@@ -226,19 +284,26 @@
 
 @media (min-width: 1280px) {
   /*
-   * Sidebar + optional chat strip (fixed right). `--shell-sidebar-w` / `--shell-chat-inset` come from
-   * `.player-app-shell` (see App.tsx) so collapse + chat track CasinoSidebar / ChatDrawer widths.
+   * Sidebar (fixed left) + chat strip (fixed right): bound the main column with margins so the scroll
+   * region fills only the gap — avoids flex `flex:1` + width fighting and content bleeding under chat.
    */
-  .casino-shell-scroll {
-    padding-top: calc(var(--casino-header-h-desktop) + env(safe-area-inset-top, 0px));
+  .casino-shell-main {
     margin-left: var(--shell-sidebar-w, 200px);
-    width: calc(100% - var(--shell-sidebar-w, 200px) - var(--shell-chat-inset, 0px));
-    max-width: calc(100vw - var(--shell-sidebar-w, 200px) - var(--shell-chat-inset, 0px));
-    box-sizing: border-box;
+    margin-right: var(--shell-chat-inset, 0px);
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    max-width: none;
     transition:
       margin-left 200ms ease-out,
-      width 200ms ease-out,
-      max-width 200ms ease-out;
+      margin-right 200ms ease-out;
+  }
+
+  .casino-shell-scroll {
+    padding-top: calc(var(--casino-header-h-desktop) + env(safe-area-inset-top, 0px));
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
   }
 }
 
@@ -251,16 +316,16 @@
   min-width: 0;
 }
 
+/* Tablet + small laptop: same 6-across density as desktop (was 4 — user requested more tiles per row). */
 @media (min-width: 768px) {
   .casino-game-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 10px;
   }
 }
 
 @media (min-width: 1280px) {
   .casino-game-grid {
-    grid-template-columns: repeat(6, 1fr);
     gap: 12px;
   }
 }
@@ -438,6 +503,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
   min-width: 0;
 }

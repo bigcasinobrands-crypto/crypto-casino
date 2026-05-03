@@ -238,10 +238,9 @@ body {
   }
 
   /**
-   * Header wallet chip — rotating purple perimeter + pulse when overall balance is $0.
-   * Beam sits behind `.wallet-chip-zero-ring > .wallet-chip-zero-ring__beam`; inner chip uses an opaque
-   * md+ fill (`chipInnerClosedZeroRing`) so the glow stays in the 2px gutter — same idea as mobile.
-   * Keep one inset across breakpoints so the arc rides the outside of the pill, not over the label.
+   * Header wallet — $0 balance: animated beam in the 2px gutter of `.wallet-chip-zero-ring`.
+   * The ring wraps the full header pill (balance + divider + Deposit) on md+; opaque inner surface keeps
+   * the arc on the outside edge only. Mobile: same ring around the balance tray when Deposit is in bottom nav.
    */
   .wallet-chip-zero-ring {
     isolation: isolate;
