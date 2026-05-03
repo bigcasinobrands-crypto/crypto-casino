@@ -18,6 +18,31 @@
   --casino-gutter-x-desktop: 1.5rem;
 }
 
+/**
+ * App root (`player-app-shell` in App.tsx) sets `--shell-sidebar-w` from collapse state.
+ * When chat is open, `shell-chat-open` mirrors ChatDrawer widths so header + scroll reserve space
+ * instead of painting under the fixed panel (tablet + desktop).
+ */
+.player-app-shell {
+  --shell-chat-inset: 0px;
+}
+
+.shell-chat-open {
+  --shell-chat-inset: min(78vw, 280px);
+}
+
+@media (min-width: 640px) {
+  .shell-chat-open {
+    --shell-chat-inset: 280px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .shell-chat-open {
+    --shell-chat-inset: 240px;
+  }
+}
+
 /* Narrow tablet / small laptop: slightly shorter fixed header so chrome matches scaled-down wallet row */
 @media (min-width: 768px) and (max-width: 1023px) {
   :root {
@@ -97,12 +122,19 @@
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
+    right: var(--shell-chat-inset, 0px);
     height: var(--casino-header-h-tablet);
     z-index: 210;
     padding-left: max(12px, env(safe-area-inset-left));
     padding-right: max(12px, env(safe-area-inset-right));
     padding-top: env(safe-area-inset-top);
+    transition: right 200ms ease-out;
+  }
+
+  /* Reserve width so lobby/game grids stay visible beside Global Chat (matches ChatDrawer). */
+  .shell-chat-open .casino-shell-scroll {
+    padding-right: var(--shell-chat-inset, 0px);
+    transition: padding-right 200ms ease-out;
   }
 }
 
@@ -129,21 +161,22 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: 200px;
+    width: var(--shell-sidebar-w, 200px);
     /* Above main scroll shell (App `z-[200]`) so fixed chrome stays clickable. */
     z-index: 205;
     overflow: hidden;
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top);
+    transition: width 200ms ease-out;
   }
 
   .casino-shell-desktop-header {
     display: flex;
     align-items: center;
     position: fixed;
-    left: 200px;
+    left: var(--shell-sidebar-w, 200px);
     top: 0;
-    right: 0;
+    right: var(--shell-chat-inset, 0px);
     height: var(--casino-header-h-desktop);
     /* Match mobile header tier (~211); must sit above main shell `z-[200]` or taps hit the scroll layer. */
     z-index: 211;
@@ -151,6 +184,9 @@
     padding-left: 12px;
     padding-right: max(12px, env(safe-area-inset-right));
     padding-top: env(safe-area-inset-top);
+    transition:
+      left 200ms ease-out,
+      right 200ms ease-out;
   }
 }
 
@@ -190,15 +226,19 @@
 
 @media (min-width: 1280px) {
   /*
-   * Sidebar is position:fixed — without shrinking width, margin-left + width:100%
-   * overflows the viewport (~200px horizontal bleed).
+   * Sidebar + optional chat strip (fixed right). `--shell-sidebar-w` / `--shell-chat-inset` come from
+   * `.player-app-shell` (see App.tsx) so collapse + chat track CasinoSidebar / ChatDrawer widths.
    */
   .casino-shell-scroll {
     padding-top: calc(var(--casino-header-h-desktop) + env(safe-area-inset-top, 0px));
-    margin-left: 200px;
-    width: calc(100% - 200px);
-    max-width: calc(100vw - 200px);
+    margin-left: var(--shell-sidebar-w, 200px);
+    width: calc(100% - var(--shell-sidebar-w, 200px) - var(--shell-chat-inset, 0px));
+    max-width: calc(100vw - var(--shell-sidebar-w, 200px) - var(--shell-chat-inset, 0px));
     box-sizing: border-box;
+    transition:
+      margin-left 200ms ease-out,
+      width 200ms ease-out,
+      max-width 200ms ease-out;
   }
 }
 

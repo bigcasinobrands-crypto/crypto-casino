@@ -278,7 +278,14 @@ function AppShell() {
     <PlayerLayoutProvider chatOpen={chatOpen}>
       <PersistentMiniPlayerProvider>
         <BootNonLobbyRoutes />
-        <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased">
+        <div
+          className={`player-app-shell flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased ${chatOpen ? 'shell-chat-open' : ''}`}
+          style={
+            {
+              ['--shell-sidebar-w']: sidebarCollapsed ? '52px' : '200px',
+            } as React.CSSProperties
+          }
+        >
           <header className="casino-shell-mobile-header border-b border-white/[0.06] bg-casino-topbar shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
             {/* Mobile: wallet centered in header (`absolute`); actions on the right. */}
             <div className="relative isolate flex h-16 min-h-[4rem] w-full min-w-0 items-center justify-between gap-x-1 px-2">
