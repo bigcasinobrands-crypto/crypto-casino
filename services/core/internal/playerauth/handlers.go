@@ -33,14 +33,21 @@ func sessionPersistUserMsg(err error, refresh bool) string {
 	l := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(l, "does not exist") && strings.Contains(l, "column"),
-		strings.Contains(l, "undefined column"):
+		strings.Contains(l, "undefined column"),
+		strings.Contains(l, "42703"): // undefined_column
 		return intro + "The database is missing player_sessions columns — apply migration 00063 to the same DB as your API. Options: (1) From repo root with DATABASE_URL set: npm run migrate:core (2) Paste services/core/scripts/supabase-player-sessions-fix.sql into Supabase SQL Editor. Deploy logs have the exact error."
+	case strings.Contains(l, "does not exist") && strings.Contains(l, "relation"):
+		return intro + "Expected table missing — DATABASE_URL may point at the wrong database/schema. Confirm Render DATABASE_URL matches Supabase Settings → Database → URI (same project as production). See deploy logs."
 	case strings.Contains(l, "row-level security"), strings.Contains(l, "violates row-level"):
 		return intro + "Row-level security blocked the insert. On Supabase, set Core DATABASE_URL to the direct Postgres host (db.<project>.supabase.co:5432 with sslmode=require), not only the transaction pooler. See deploy logs."
 	case strings.Contains(l, "permission denied"):
 		return intro + "Database permission denied — check DATABASE_URL user/password matches Supabase and migrations applied. See deploy logs."
+	case strings.Contains(l, "jwt") || strings.Contains(l, "private key") || strings.Contains(l, "sign player") || strings.Contains(l, "jwtrsakeyfile"):
+		return intro + "JWT token signing failed — check JWT_RSA_PRIVATE_KEY_FILE / player signing config on Render. See deploy logs."
+	case strings.Contains(l, "connection refused") || strings.Contains(l, "no such host") || strings.Contains(l, "timeout") && strings.Contains(l, "dial") || strings.Contains(l, "tls") || strings.Contains(l, "ssl") && strings.Contains(l, "handshake"):
+		return intro + "Database connection failed — verify DATABASE_URL host/port, `?sslmode=require` for Supabase, and that Render can reach the DB (not blocked). See deploy logs."
 	default:
-		return intro + "Ensure production DATABASE_URL points at your Supabase DB, migrations have run (00063+), and SKIP_DB_MIGRATIONS_ON_START is not set on Render if you rely on startup migrations. See deploy logs."
+		return intro + "Check Render Core logs for the line `playerauth: login session persist:` (full Postgres/JWT error). Usual fixes: run supabase-player-sessions-fix.sql in Supabase; set DATABASE_URL to `db.*.supabase.co:5432/...?sslmode=require`; unset SKIP_DB_MIGRATIONS_ON_START; ensure a player `users` row exists (use Register if needed)."
 	}
 }
 
