@@ -64,9 +64,10 @@ type CryptoTickers struct {
 	client *http.Client
 	ttl    time.Duration
 
-	mu       sync.Mutex
-	cached   []CryptoTicker
-	cachedAt time.Time
+	mu              sync.Mutex
+	cached          []CryptoTicker
+	cachedAt        time.Time
+	refreshInFlight bool
 }
 
 // NewCryptoTickers builds a handler. apiKey should come from env (server-side only); empty key serves a graceful JSON payload.
@@ -112,14 +113,28 @@ func (h *CryptoTickers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.mu.Lock()
-	if len(h.cached) > 0 && time.Since(h.cachedAt) < h.ttl {
+	fresh := len(h.cached) > 0 && time.Since(h.cachedAt) < h.ttl
+	if fresh {
 		out := CryptoTickersResponse{Currencies: h.cached, Cached: true, Source: "coinmarketcap"}
 		h.mu.Unlock()
+		w.Header().Set("Cache-Control", "public, max-age=15, stale-while-revalidate=45")
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
 	stale := append([]CryptoTicker(nil), h.cached...)
 	h.mu.Unlock()
+
+	// Stale-while-revalidate: return last good snapshot immediately, refresh CoinMarketCap in the background.
+	if len(stale) > 0 {
+		w.Header().Set("Cache-Control", "public, max-age=15, stale-while-revalidate=45")
+		_ = json.NewEncoder(w).Encode(CryptoTickersResponse{
+			Currencies: stale,
+			Cached:     true,
+			Source:     "coinmarketcap",
+		})
+		h.scheduleBackgroundRefresh()
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
@@ -129,15 +144,6 @@ func (h *CryptoTickers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer h.mu.Unlock()
 
 	if err != nil {
-		if len(stale) > 0 {
-			_ = json.NewEncoder(w).Encode(CryptoTickersResponse{
-				Currencies: stale,
-				Cached:     true,
-				Source:     "coinmarketcap",
-				Error:      "upstream_error",
-			})
-			return
-		}
 		w.WriteHeader(http.StatusBadGateway)
 		_ = json.NewEncoder(w).Encode(CryptoTickersResponse{Error: err.Error()})
 		return
@@ -145,11 +151,40 @@ func (h *CryptoTickers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.cached = list
 	h.cachedAt = time.Now()
+	w.Header().Set("Cache-Control", "public, max-age=15, stale-while-revalidate=45")
 	_ = json.NewEncoder(w).Encode(CryptoTickersResponse{
 		Currencies: list,
 		Cached:     false,
 		Source:     "coinmarketcap",
 	})
+}
+
+func (h *CryptoTickers) scheduleBackgroundRefresh() {
+	h.mu.Lock()
+	if h.refreshInFlight || h.apiKey == "" {
+		h.mu.Unlock()
+		return
+	}
+	h.refreshInFlight = true
+	h.mu.Unlock()
+
+	go func() {
+		defer func() {
+			h.mu.Lock()
+			h.refreshInFlight = false
+			h.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		list, err := h.fetchMerged(ctx)
+		if err != nil {
+			return
+		}
+		h.mu.Lock()
+		h.cached = list
+		h.cachedAt = time.Now()
+		h.mu.Unlock()
+	}()
 }
 
 func (h *CryptoTickers) fetchMerged(ctx context.Context) ([]CryptoTicker, error) {

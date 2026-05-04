@@ -54,8 +54,9 @@ const FALLBACK_ABOUT_LINKS: FooterLink[] = [
   { label: 'Affiliate' },
   { label: 'My Bonuses', to: '/bonuses', requireAuth: true },
   { label: 'Terms of Service', to: '/terms' },
+  { label: 'Responsible Gaming', to: '/responsible-gambling' },
   { label: 'Privacy Policy', to: '/privacy' },
-  { label: 'Fairness', to: '/fairness' },
+  { label: 'AML Policy', to: '/aml' },
 ]
 
 const FALLBACK_SOCIAL: SocialLink[] = [
@@ -97,7 +98,11 @@ const SiteFooter: FC = () => {
 
   const seoTitle = getContent<string>('footer.seo_title', FALLBACK_SEO_TITLE)
   const seoBlocks = getContent('footer.seo_blocks', FALLBACK_SEO_BLOCKS)
-  const copyright = getContent<string>('footer.copyright', '18+ · Play responsibly.')
+  const copyrightBrand =
+    (getContent<string>('branding.copyright_brand', '') ?? '').trim() ||
+    (siteLabel.toLowerCase() === 'vybebet' ? 'Vybe Bet' : siteLabel || 'Vybe Bet')
+  const defaultCopyright = `© ${new Date().getFullYear()} ${copyrightBrand}. All rights reserved.`
+  const copyright = getContent<string>('footer.copyright', defaultCopyright)
 
   const gamesLinks = getContent<FooterLink[]>('links.games', FALLBACK_GAMES_LINKS)
   const aboutLinks = getContent<FooterLink[]>('links.about', FALLBACK_ABOUT_LINKS)
@@ -105,7 +110,10 @@ const SiteFooter: FC = () => {
   const socials = getContent<SocialLink[]>('social.links', FALLBACK_SOCIAL)
 
   return (
-    <footer id="help" className="relative isolate casino-shell-page-pad border-t border-casino-border bg-casino-bg pb-8 pt-8 md:pt-10">
+    <footer
+      id="help"
+      className="relative isolate casino-shell-page-pad border-t border-casino-border bg-casino-bg pb-10 pt-8 max-md:pb-16 md:pt-10"
+    >
       <div
         id="blog"
         className="relative mx-auto max-w-[min(100%,90rem)] scroll-mt-24 rounded-casino-md bg-casino-surface p-5 md:p-6 min-[1280px]:p-8"
@@ -167,7 +175,7 @@ const SiteFooter: FC = () => {
         <div className="flex flex-col gap-6 md:gap-5 min-[1280px]:flex-row min-[1280px]:items-start min-[1280px]:justify-between min-[1280px]:gap-8">
           <Link
             to="/casino/games"
-            className="mx-auto flex shrink-0 items-center rounded-casino-md text-[15px] font-black tracking-tight text-casino-foreground outline-none ring-casino-primary/0 transition hover:text-white focus-visible:ring-2 focus-visible:ring-casino-primary min-[1280px]:mx-0 min-[1280px]:pt-0.5 min-[1280px]:text-lg"
+            className="mb-4 flex shrink-0 items-center self-start rounded-casino-md text-[15px] font-black tracking-tight text-casino-foreground outline-none ring-casino-primary/0 transition hover:text-white focus-visible:ring-2 focus-visible:ring-casino-primary min-[1280px]:mb-0 min-[1280px]:pt-0.5 min-[1280px]:text-lg"
           >
             {siteLabel}
           </Link>
@@ -204,19 +212,15 @@ const SiteFooter: FC = () => {
 
         <AcceptedCurrenciesStrip />
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          {['Licensed', 'Provably Fair', 'Responsible Gaming'].map((label) => (
-            <div
-              key={label}
-              className="flex items-center justify-center rounded-[4px] bg-casino-surface px-4 py-4 text-center"
-            >
-              <span className="text-[11px] font-bold text-casino-foreground">{label}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="text-center text-[10px] leading-relaxed text-casino-muted">
-          <p>{copyright}</p>
+        <div className="flex flex-col items-center border-t border-white/[0.06] px-2 pt-6">
+          <div
+            className="inline-flex min-h-[3.25rem] min-w-[3.25rem] shrink-0 items-center justify-center rounded-[4px] bg-casino-surface px-4 py-3"
+            role="img"
+            aria-label="18+ only"
+          >
+            <span className="text-[11px] font-bold tabular-nums tracking-tight text-casino-foreground">18+</span>
+          </div>
+          <p className="mt-4 max-w-md text-center text-[10px] leading-relaxed text-casino-muted">{copyright}</p>
         </div>
       </div>
     </footer>

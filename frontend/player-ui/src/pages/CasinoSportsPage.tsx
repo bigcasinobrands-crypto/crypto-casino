@@ -1,3 +1,5 @@
+import { useLayoutEffect } from 'react'
+import { useCompleteInitialLoad } from '../context/InitialAppLoadContext'
 import { oddinIframeEnabled } from '../lib/oddin/oddin.config'
 import EsportsComingSoonPage from './EsportsComingSoonPage'
 import OddinSportsbookPage from './OddinSportsbookPage'
@@ -7,6 +9,11 @@ import OddinSportsbookPage from './OddinSportsbookPage'
  * Sidebar + Casino/Sports toggle always link here so E-Sports opens in the main shell.
  */
 export default function CasinoSportsPage() {
+  const completeInitialLoad = useCompleteInitialLoad()
+  useLayoutEffect(() => {
+    completeInitialLoad()
+  }, [completeInitialLoad])
+
   if (oddinIframeEnabled()) {
     return <OddinSportsbookPage />
   }

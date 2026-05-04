@@ -23,7 +23,11 @@ func appendBlueOceanLaunchHints(msg string, cfg *config.Config) string {
 	if strings.TrimSpace(cfg.BlueOceanCatalogSnapshotPath) != "" {
 		parts = append(parts, "catalog may be from BLUEOCEAN_CATALOG_SNAPSHOT_PATH — that bypasses live getGameList; fix XAPI then run a live sync to confirm credentials + IP")
 	}
-	parts = append(parts, "confirm Api Access password (not Backoffice)", "try BLUEOCEAN_USERID_NO_HYPHENS=true", "check BO IP allowlist for this server’s egress")
+	parts = append(parts, "confirm Api Access password (not Backoffice)")
+	if !cfg.BlueOceanUserIDNoHyphens {
+		parts = append(parts, "try BLUEOCEAN_USERID_NO_HYPHENS=true (or unset env — default is compact UUIDs)")
+	}
+	parts = append(parts, "check BO IP allowlist for this server’s egress")
 	return msg + " — " + strings.Join(parts, "; ") + "."
 }
 

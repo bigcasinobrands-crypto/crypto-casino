@@ -9,6 +9,7 @@ import {
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
 } from './lib/playerChromeEvents'
 import { playerApiUrl } from './lib/playerApiUrl'
+import { prefetchCryptoTickersOnce } from './lib/prefetchCryptoTickers'
 import { useTrafficSessionTracker } from './hooks/useTrafficSessionTracker'
 import { useRakebackBoostLiveToast } from './hooks/useRakebackBoostLiveToast'
 import { useRewardsHub } from './hooks/useRewardsHub'
@@ -26,6 +27,7 @@ import RewardsHeaderDropdown from './components/RewardsHeaderDropdown'
 import PlayerHeaderLogo from './components/PlayerHeaderLogo'
 import WalletFlowModal, { type WalletMainTab } from './components/WalletFlowModal'
 import MainScrollRestoration from './components/MainScrollRestoration'
+import MainScrollTopOnRouteChange from './components/MainScrollTopOnRouteChange'
 import OperationalBanner from './components/OperationalBanner'
 import PlayerApiOriginBanner from './components/PlayerApiOriginBanner'
 import SiteFooter from './components/SiteFooter'
@@ -88,11 +90,7 @@ function LegacyWalletWithdrawPathRedirect() {
 
 function CatalogFooter() {
   const { pathname } = useLocation()
-  if (
-    pathname.startsWith('/casino/game-lobby/') ||
-    pathname.startsWith('/casino/sports') ||
-    pathname.startsWith('/embed/')
-  ) {
+  if (pathname.startsWith('/casino/sports') || pathname.startsWith('/embed/')) {
     return null
   }
   return <SiteFooter />
@@ -164,6 +162,10 @@ function AppShell() {
   const { accessToken, isAuthenticated } = usePlayerAuth()
   const rewardsHub = useRewardsHub()
   useRakebackBoostLiveToast(isAuthenticated ? rewardsHub.data : null, isAuthenticated)
+
+  useEffect(() => {
+    prefetchCryptoTickersOnce()
+  }, [])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -535,12 +537,14 @@ function AppShell() {
                     <Route path="/wallet/deposit/submitted" element={<LegacyDepositSubmittedRedirect />} />
                     <Route path="/wallet/withdraw" element={<LegacyWalletWithdrawPathRedirect />} />
                     <Route path="/wallet/withdraw/success" element={<LegacyWalletWithdrawPathRedirect />} />
-                    <Route path="/terms" element={<LegalPage contentKey="legal.terms_of_service" fallbackTitle="Terms of Service" />} />
-                    <Route path="/privacy" element={<LegalPage contentKey="legal.privacy_policy" fallbackTitle="Privacy Policy" />} />
-                    <Route path="/responsible-gambling" element={<LegalPage contentKey="legal.responsible_gambling" fallbackTitle="Responsible Gambling" />} />
-                    <Route path="/fairness" element={<LegalPage contentKey="legal.fairness" fallbackTitle="Fairness" />} />
+                    <Route path="/terms" element={<LegalPage contentKey="legal.terms_of_service" fallbackTitle="Vybe Bet Terms of Service" />} />
+                    <Route path="/privacy" element={<LegalPage contentKey="legal.privacy_policy" fallbackTitle="Vybe Bet Privacy Policy" />} />
+                    <Route path="/responsible-gambling" element={<LegalPage contentKey="legal.responsible_gambling" fallbackTitle="Vybe Bet Responsible Gaming Policy" />} />
+                    <Route path="/aml" element={<LegalPage contentKey="legal.fairness" fallbackTitle="Vybe Bet Anti-Money Laundering Policy" />} />
+                    <Route path="/fairness" element={<Navigate to="/aml" replace />} />
                     <Route path="/embed/demo/:demoId" element={<DemoEmbedPage />} />
                   </Routes>
+                  <MainScrollTopOnRouteChange />
                   <MainScrollRestoration />
                 </div>
                 <div className="relative z-[1] shrink-0 bg-casino-bg">

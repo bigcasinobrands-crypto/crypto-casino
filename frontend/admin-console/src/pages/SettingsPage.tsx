@@ -1529,7 +1529,7 @@ const LEGAL_PAGES = [
   { key: 'terms_of_service', label: 'Terms of Service' },
   { key: 'privacy_policy', label: 'Privacy Policy' },
   { key: 'responsible_gambling', label: 'Responsible Gambling' },
-  { key: 'fairness', label: 'Fairness' },
+  { key: 'fairness', label: 'AML Policy' },
 ] as const
 
 function LegalPagesSection({

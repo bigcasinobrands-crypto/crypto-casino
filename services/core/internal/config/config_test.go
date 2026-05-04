@@ -100,6 +100,45 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 	})
 }
 
+func TestLoad_blueOceanUserIDNoHyphens(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
+	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	t.Setenv("PLAYER_JWT_SECRET", "")
+
+	t.Run("empty_env_defaults_true", func(t *testing.T) {
+		t.Setenv("BLUEOCEAN_USERID_NO_HYPHENS", "")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.BlueOceanUserIDNoHyphens {
+			t.Fatal("expected BlueOceanUserIDNoHyphens true when env empty/unset (default compact UUIDs for XAPI)")
+		}
+	})
+
+	t.Run("explicit_false", func(t *testing.T) {
+		t.Setenv("BLUEOCEAN_USERID_NO_HYPHENS", "false")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.BlueOceanUserIDNoHyphens {
+			t.Fatal("expected BlueOceanUserIDNoHyphens false")
+		}
+	})
+
+	t.Run("explicit_true", func(t *testing.T) {
+		t.Setenv("BLUEOCEAN_USERID_NO_HYPHENS", "true")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.BlueOceanUserIDNoHyphens {
+			t.Fatal("expected BlueOceanUserIDNoHyphens true")
+		}
+	})
+}
+
 func TestValidateProduction_requiresFingerprintSecretWhenMandatory(t *testing.T) {
 	c := &Config{
 		AppEnv:                       "production",

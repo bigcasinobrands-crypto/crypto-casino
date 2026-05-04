@@ -1,6 +1,28 @@
 /** `id` on `<main>` — scroll container for catalog pages (see App.tsx). */
 export const PLAYER_MAIN_SCROLL_ID = 'player-main-scroll'
 
+/**
+ * `/casino/:section` routes rendered by {@link LobbyPage} — scroll restore / reset is handled there only.
+ * Must stay aligned with `SECTION_SET` in `LobbyPage.tsx`.
+ */
+export const LOBBY_CATALOG_SECTION_SET = new Set<string>([
+  'games',
+  'featured',
+  'challenges',
+  'slots',
+  'live',
+  'new',
+  'favourites',
+  'recent',
+  'bonus-buys',
+])
+
+export function isLobbyCatalogPathname(pathname: string): boolean {
+  const m = pathname.match(/^\/casino\/([^/]+)$/)
+  if (!m) return false
+  return LOBBY_CATALOG_SECTION_SET.has(m[1]!)
+}
+
 const STORAGE_KEY = 'vybebet:catalogReturn'
 
 export type CatalogReturnPayload = {

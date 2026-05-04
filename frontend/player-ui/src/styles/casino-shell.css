@@ -259,7 +259,8 @@
   min-height: 0;
   /* Mobile: offset for fixed top header + notch */
   padding-top: calc(var(--casino-header-h-mobile) + env(safe-area-inset-top, 0px));
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  /* Fixed bottom nav (~56px) + chrome + footer breathing room so last content scrolls above the bar */
+  padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
 }
 
 @media (max-width: 767px) {

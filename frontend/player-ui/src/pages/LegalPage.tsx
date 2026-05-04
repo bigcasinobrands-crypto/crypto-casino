@@ -8,14 +8,301 @@ type LegalPageProps = {
 }
 
 const FALLBACK_BODY: Record<string, string> = {
-  'legal.terms_of_service':
-    '<p>Terms of Service content is not yet available. Please check back later or contact support.</p>',
-  'legal.privacy_policy':
-    '<p>Privacy Policy content is not yet available. Please check back later or contact support.</p>',
-  'legal.responsible_gambling':
-    '<p>Responsible Gambling content is not yet available. Please check back later or contact support.</p>',
-  'legal.fairness':
-    '<p>Fairness content is not yet available. Please check back later or contact support.</p>',
+  'legal.terms_of_service': `
+<p><strong>Last updated:</strong> 24 January 2026</p>
+<p>These Terms of Service (&quot;Terms&quot;) govern your access to and use of the Vybe Bet platform.</p>
+<p>Vybe Bet is operated by BowtoyourSensei Ltd, referred to as &quot;Vybe Bet&quot;, &quot;we&quot;, &quot;our&quot;, or &quot;us&quot;. By accessing or using the platform, you agree to be bound by these Terms. If you do not agree, you must not use the service.</p>
+<h2>1. Eligibility</h2>
+<p>You must be at least 18 years old or the legal age for gambling in your jurisdiction, whichever is higher. By using the platform, you confirm that:</p>
+<ul>
+<li>You meet the legal age requirement</li>
+<li>You have full legal capacity to enter into a binding agreement</li>
+<li>You are not prohibited from using online gambling services</li>
+</ul>
+<p>You are solely responsible for ensuring that your use of Vybe Bet is lawful in your jurisdiction.</p>
+<h2>2. Account Registration</h2>
+<p>To access certain features, you may be required to create an account.</p>
+<p>You agree that:</p>
+<ul>
+<li>All information provided is accurate and complete</li>
+<li>You will not create multiple accounts</li>
+<li>You will not use the account on behalf of another person</li>
+</ul>
+<p>We reserve the right to refuse or close accounts at our sole discretion.</p>
+<h2>3. Restricted Jurisdictions</h2>
+<p>You may not use the platform if you are located in or a resident of a jurisdiction where online gambling is restricted or prohibited.</p>
+<p>Restricted jurisdictions include, but are not limited to:</p>
+<p>Afghanistan, Argentina, Austria, Australia, Belgium, Brazil, Cayman Islands, Colombia, Côte d&apos;Ivoire, Cuba, Curaçao, Czech Republic, Cyprus, Democratic Republic of the Congo, Denmark, France, United Arab Emirates, Germany, Greece, Iran, Iraq, Israel, Italy, Liberia, Libya, Lithuania, Malta, Netherlands, North Korea, Ontario, Peru, Poland, Portugal, Serbia, Slovakia, South Africa, South Sudan, Spain, Sudan, Syria, Sweden, Switzerland, United Kingdom, United States, Zimbabwe</p>
+<p>Use of VPNs, proxies, or any method intended to bypass location restrictions is strictly prohibited and may result in account suspension or termination.</p>
+<h2>4. Use of the Platform</h2>
+<p>You agree not to:</p>
+<ul>
+<li>Manipulate or interfere with the platform or its systems</li>
+<li>Exploit bugs, errors, or vulnerabilities</li>
+<li>Use automated systems, bots, or scripts</li>
+<li>Engage in fraudulent or abusive activity</li>
+</ul>
+<p>We reserve the right to monitor activity and take appropriate action where misuse is detected.</p>
+<h2>5. Digital Assets and Risk</h2>
+<p>Vybe Bet operates using cryptocurrency and digital assets.</p>
+<p>You acknowledge that:</p>
+<ul>
+<li>Cryptocurrency is not legal tender in most jurisdictions</li>
+<li>Values are volatile and may change rapidly</li>
+<li>Transactions are irreversible once confirmed on chain</li>
+</ul>
+<p>You accept full responsibility for any financial risk associated with your use of digital assets on the platform.</p>
+<h2>6. Betting Rules</h2>
+<p>Only users with sufficient balance may place bets.</p>
+<ul>
+<li>All bets are final once accepted</li>
+<li>Bets cannot be cancelled or modified</li>
+<li>Winnings are credited after confirmation of results</li>
+</ul>
+<p>We reserve the right to void or adjust bets in cases of:</p>
+<ul>
+<li>Technical errors</li>
+<li>System failures</li>
+<li>Breach of these Terms</li>
+</ul>
+<h2>7. Bonuses and Promotions</h2>
+<p>Promotions are offered at our discretion and may include specific terms such as wagering requirements or withdrawal limits.</p>
+<ul>
+<li>Only one promotion per user, household, or IP unless stated otherwise</li>
+<li>Maximum deposit bonus claim is $60,000</li>
+</ul>
+<p>We may refuse, cancel, or reclaim bonuses and associated winnings where abuse or irregular activity is identified.</p>
+<h2>8. Fees and Payments</h2>
+<p>All transactions on Vybe Bet are processed using cryptocurrency.</p>
+<p>You are responsible for:</p>
+<ul>
+<li>Ensuring correct wallet details</li>
+<li>Any applicable network or transaction fees</li>
+</ul>
+<p>Vybe Bet is not responsible for losses resulting from incorrect transaction details or blockchain network issues.</p>
+<h2>9. Third Party Services</h2>
+<p>Vybe Bet may integrate third party providers, including game providers and payment processors.</p>
+<p>We are not responsible for:</p>
+<ul>
+<li>Service interruptions</li>
+<li>Technical errors</li>
+<li>Outcomes generated by third party systems</li>
+</ul>
+<h2>10. Suspension and Termination</h2>
+<p>We may suspend or terminate your account at any time if:</p>
+<ul>
+<li>You breach these Terms</li>
+<li>Suspicious or fraudulent activity is detected</li>
+<li>Required by law or regulatory obligations</li>
+</ul>
+<p>We may withhold funds, void bets, or restrict access while investigations are carried out. All decisions are final.</p>
+<h2>11. Limitation of Liability</h2>
+<p>The platform is provided on an &quot;as is&quot; basis.</p>
+<p>Vybe Bet makes no guarantees regarding:</p>
+<ul>
+<li>Continuous availability</li>
+<li>Error free operation</li>
+<li>Accuracy of results</li>
+</ul>
+<p>We are not liable for any losses arising from use of the platform. Total liability for any claim shall not exceed €100.</p>
+<h2>12. Force Majeure</h2>
+<p>We are not liable for failure or delay caused by events beyond our control, including technical failures, network disruptions, government actions, or natural events.</p>
+<h2>13. Changes to Terms</h2>
+<p>We may update these Terms at any time. The latest version will be available on the platform. Continued use of the service constitutes acceptance of any changes.</p>
+<h2>14. Related Policies</h2>
+<p>These Terms should be read alongside:</p>
+<ul>
+<li><a href="/privacy">Privacy Policy</a></li>
+<li><a href="/responsible-gambling">Responsible Gaming Policy</a></li>
+<li><a href="/aml">AML Policy</a></li>
+</ul>
+<h2>15. Contact</h2>
+<p>For any legal or compliance enquiries:</p>
+<p>Email: <a href="mailto:compliance@vybebet.com">compliance@vybebet.com</a></p>
+<p>Or via live chat on the platform</p>
+`.trim(),
+  'legal.privacy_policy': `
+<p><strong>Last updated:</strong> 24 January 2026</p>
+<h2>Introduction</h2>
+<p>This Privacy Policy explains how Vybe Bet ("the Company", "we", "our", "us") collects, uses, stores, and protects information related to players who access and use the platform. Vybe Bet is committed to respecting user privacy and only collects data that is necessary for legitimate operational, security, and regulatory purposes. By using the platform or any associated services, users confirm that they have read and understood this policy.</p>
+<h2>Information Handling</h2>
+<p>Vybe Bet may collect limited information when users create an account, interact with the platform, or communicate with support. Additional information may be obtained where required to meet legal obligations, licensing conditions, or internal compliance processes.</p>
+<p>This information may include usernames, wallet addresses, transaction records, and any contact details voluntarily provided by the user. Vybe Bet does not collect excessive or unnecessary personal data and does not track users outside of its own platform environment.</p>
+<p>Collected information is used solely for operational and compliance purposes. This includes maintaining platform functionality, verifying activity when necessary, responding to user enquiries, preventing fraud or misuse, and fulfilling regulatory or audit requirements. Vybe Bet does not sell, rent, or distribute user information to third parties.</p>
+<p>The platform may rely on selected third-party providers, including payment processors and game providers, to deliver certain services. These providers are required to meet strict confidentiality and security standards and are only given access to information that is essential for their role.</p>
+<h2>Data Protection and Retention</h2>
+<p>All collected data is stored securely and accessed only by authorised personnel. Vybe Bet applies appropriate technical and administrative safeguards to protect information from unauthorised access, alteration, or disclosure.</p>
+<p>Information is retained only for as long as necessary to fulfil operational needs or comply with legal obligations. Once data is no longer required, it is securely deleted or anonymised.</p>
+<p>Where data is transferred across jurisdictions, Vybe Bet ensures that appropriate safeguards are in place to maintain a consistent level of data protection in line with applicable standards.</p>
+<h2>Policy Updates</h2>
+<p>This Privacy Policy may be updated from time to time to reflect changes in legal requirements, technology, or operational practices. Any updates will be published on the platform. Continued use of the services following updates indicates acceptance of the revised policy.</p>
+<h2>Contact</h2>
+<p>For any questions or requests regarding this Privacy Policy, please contact:</p>
+<p>Email: <a href="mailto:privacy@vybebet.com">privacy@vybebet.com</a></p>
+`.trim(),
+  'legal.responsible_gambling': `
+<p><strong>Last updated:</strong> 24 January 2026</p>
+<h2>Overview</h2>
+<p>Vybe Bet is committed to promoting responsible gaming and maintaining a safe, fair, and controlled environment for all users. Our approach is designed to help players stay in control of their activity while ensuring access to support and guidance where needed.</p>
+<h2>Core Principles</h2>
+<p>Vybe Bet&apos;s responsible gaming framework is based on the following principles:</p>
+<h3>Player Protection</h3>
+<p>Protecting users from the potential negative effects associated with gambling activity.</p>
+<h3>Transparency and Fairness</h3>
+<p>Ensuring that all games and platform operations are conducted with integrity and clarity.</p>
+<h3>Education and Awareness</h3>
+<p>Encouraging informed decision making and responsible participation through accessible information.</p>
+<h3>Support and Self Management</h3>
+<p>Providing clear tools and processes that allow users to control, limit, or stop their activity when required.</p>
+<h2>Responsible Play Measures</h2>
+<h3>Self Exclusion and Time Out Options</h3>
+<p>Users may request a temporary break or permanent account closure at any time through the responsible gaming section of the platform.</p>
+<p>Requests can be made through:</p>
+<ul>
+<li>Account settings where available</li>
+<li>Live support for immediate assistance</li>
+<li>Email support at <a href="mailto:selfexclusion@vybebet.com">selfexclusion@vybebet.com</a></li>
+</ul>
+<p>During any exclusion period:</p>
+<ul>
+<li>Access to the account will be restricted</li>
+<li>Marketing communications will be disabled</li>
+<li>Participation in games will not be permitted</li>
+</ul>
+<h3>Activity and Spending Controls</h3>
+<p>Vybe Bet provides tools that allow users to manage their gameplay behaviour and spending levels. These controls may include limits on activity or usage and can be configured within account settings or requested through support.</p>
+<h3>Education and Awareness</h3>
+<p>Vybe Bet encourages users to remain aware of their gaming behaviour and to set personal limits where appropriate. Information is made available to help identify patterns that may indicate problematic gambling and to support informed decisions.</p>
+<h3>Third Party Support Organisations</h3>
+<p>Vybe Bet supports user wellbeing by directing individuals to independent support organisations:</p>
+<ul>
+<li><a href="https://www.gamblingtherapy.org" target="_blank" rel="noopener noreferrer">Gambling Therapy</a>, www.gamblingtherapy.org</li>
+<li><a href="https://www.gamblersanonymous.org" target="_blank" rel="noopener noreferrer">Gamblers Anonymous</a>, www.gamblersanonymous.org</li>
+<li><a href="https://www.begambleaware.org" target="_blank" rel="noopener noreferrer">BeGambleAware</a>, www.begambleaware.org</li>
+</ul>
+<p>These organisations provide confidential advice and support for individuals who may require assistance.</p>
+<h3>Monitoring and Oversight</h3>
+<p>Vybe Bet may monitor user activity to identify behaviour that could indicate potential risk. Where appropriate, action may be taken to protect the user, including restrictions or outreach from the support team.</p>
+<p>All monitoring and interactions are handled with discretion and respect for user privacy.</p>
+<h2>Contact</h2>
+<p>Users seeking assistance or wishing to manage their account may contact:</p>
+<p><strong>Live Chat</strong><br />Available directly on the platform</p>
+<p><strong>Support Email</strong><br /><a href="mailto:support@vybebet.com">support@vybebet.com</a></p>
+<p><strong>Self Exclusion Requests</strong><br />Contact live support for immediate action or email <a href="mailto:selfexclusion@vybebet.com">selfexclusion@vybebet.com</a> for processing</p>
+<h2>Commitment</h2>
+<p>Vybe Bet is committed to maintaining a responsible and sustainable gaming environment. Through education, user controls, and proactive support, the platform aims to create a balanced experience where entertainment is supported by accountability and awareness.</p>
+`.trim(),
+  'legal.fairness': `
+<p><strong>Last updated:</strong> 24 January 2026</p>
+<h2>Introduction</h2>
+<p>This Anti-Money Laundering (AML) and Know Your Customer (KYC) Policy outlines the measures implemented by Vybe Bet to prevent the platform from being used for money laundering, fraud, or other unlawful activity.</p>
+<p>Vybe Bet is committed to operating with transparency, maintaining high standards of integrity, and aligning with applicable international AML and counter fraud principles.</p>
+<p>This policy forms part of the platform&apos;s broader governance, risk, and responsible gaming framework and should be read alongside any applicable licensing conditions and regulatory requirements.</p>
+<h2>Verification and Due Diligence</h2>
+<p>Vybe Bet is designed to prioritise user privacy and a frictionless experience. As a result, identity verification is not part of the standard user flow.</p>
+<p>However, in limited and exceptional circumstances, Vybe Bet may request additional information or documentation where required to meet legal, regulatory, or compliance obligations.</p>
+<p>These situations may include:</p>
+<ul>
+<li>Formal requests from competent authorities or regulators</li>
+<li>Specific compliance triggers linked to account or transaction activity</li>
+<li>Legal obligations arising under applicable frameworks</li>
+</ul>
+<p>Where verification is required:</p>
+<ul>
+<li>Requests will be limited to the minimum information necessary</li>
+<li>A clear reason for the request will be provided where permissible</li>
+<li>All information will be handled securely and confidentially</li>
+</ul>
+<p>If a user chooses not to provide requested information, and there is no legal restriction in place, any remaining balance may be returned to the originating wallet or appropriate source in line with internal procedures.</p>
+<h2>Risk Based Approach</h2>
+<p>Vybe Bet applies a risk based approach to monitoring and compliance oversight.</p>
+<p>This means:</p>
+<ul>
+<li>Reviews are not automatic or applied universally</li>
+<li>Assessments are conducted only where reasonably necessary</li>
+<li>Decisions are made based on proportionality and context</li>
+</ul>
+<p>Factors that may be considered include:</p>
+<ul>
+<li>Transaction size and frequency</li>
+<li>Behavioural patterns</li>
+<li>Geographic indicators</li>
+<li>Wallet activity and blockchain signals</li>
+</ul>
+<p>This approach ensures that compliance measures remain targeted, efficient, and aligned with both regulatory expectations and user experience.</p>
+<h2>Account Assurance Measures</h2>
+<p>Vybe Bet maintains internal assurance processes designed to support platform integrity while minimising disruption to users.</p>
+<p>These measures operate in the background and may include:</p>
+<ul>
+<li>Routine reviews of account and transaction activity</li>
+<li>Consistency checks against normal usage patterns</li>
+<li>Monitoring for irregular or high risk behaviour</li>
+</ul>
+<p>In limited cases where activity appears inconsistent:</p>
+<ul>
+<li>Temporary holds or restrictions may be applied</li>
+<li>Clarification may be requested from the user</li>
+</ul>
+<p>These actions are administrative in nature and are intended solely to ensure platform integrity. Once resolved, normal account access will be restored without prejudice.</p>
+<h2>Data Handling and Retention</h2>
+<p>Vybe Bet adopts a minimal and proportionate approach to data collection and retention.</p>
+<ul>
+<li>Data is collected only where necessary for operational, legal, or compliance purposes</li>
+<li>Information is stored in secure, access controlled systems</li>
+<li>Access is limited to authorised personnel</li>
+</ul>
+<p>Data is retained only for as long as required. As a general standard:</p>
+<ul>
+<li>Information may be retained for up to five years following account closure or transaction completion</li>
+<li>Shorter retention periods may apply where appropriate</li>
+</ul>
+<p>Where legally required, information may be shared with authorised authorities through secure and controlled processes.</p>
+<h2>Reporting and Regulatory Interaction</h2>
+<p>Vybe Bet may conduct internal reviews where activity requires further assessment.</p>
+<p>External reporting will only occur where:</p>
+<ul>
+<li>There is a clear legal or regulatory requirement</li>
+<li>A formally substantiated request has been received</li>
+</ul>
+<p>All reporting is:</p>
+<ul>
+<li>Conducted by authorised personnel</li>
+<li>Handled confidentially</li>
+<li>Limited to what is strictly necessary</li>
+</ul>
+<p>Users are not typically notified of such actions where disclosure is restricted by law.</p>
+<h2>Compliance Governance and Oversight</h2>
+<p>This policy is implemented through Vybe Bet&apos;s internal compliance framework.</p>
+<ul>
+<li>Relevant personnel are trained in compliance awareness and procedures</li>
+<li>Oversight is maintained through periodic internal reviews</li>
+<li>Processes are designed to remain efficient, proportionate, and unobtrusive</li>
+</ul>
+<p>This structure ensures that compliance obligations are met without negatively impacting the user experience.</p>
+<h2>Policy Review</h2>
+<p>This policy is reviewed periodically to ensure it remains accurate and aligned with operational, legal, and regulatory standards.</p>
+<p>Updates may occur in response to:</p>
+<ul>
+<li>Changes in regulation</li>
+<li>Technological developments</li>
+<li>Internal process improvements</li>
+</ul>
+<p>All updates are reviewed and approved prior to implementation.</p>
+<h2>Contact</h2>
+<p>For any questions relating to this policy, please contact:</p>
+<p><strong>Compliance Department, Vybe Bet</strong><br />Email: <a href="mailto:compliance@vybebet.com">compliance@vybebet.com</a></p>
+<p>All correspondence is handled with discretion and in accordance with confidentiality standards.</p>
+<h2>Statement of Commitment</h2>
+<p>Vybe Bet is committed to maintaining a secure, transparent, and responsible platform.</p>
+<p>The measures outlined in this policy are designed to:</p>
+<ul>
+<li>Protect the integrity of the platform</li>
+<li>Support compliance with applicable obligations</li>
+<li>Respect user privacy and confidentiality</li>
+</ul>
+<p>Vybe Bet will comply with lawful requests from authorised authorities where required, while continuing to limit data collection and verification to what is strictly necessary.</p>
+<p>Through this balanced approach, Vybe Bet aims to maintain trust, security, and operational clarity across the platform.</p>
+`.trim(),
 }
 
 const LegalPage: FC<LegalPageProps> = ({ contentKey, fallbackTitle }) => {

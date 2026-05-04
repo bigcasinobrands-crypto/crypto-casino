@@ -10,32 +10,18 @@ import {
 import { useLocation } from 'react-router-dom'
 import { PulsingBrandTile } from '../components/PulsingBrandTile'
 
-const STORAGE_KEY = 'player-ui-initial-load-v1'
-
 type Ctx = {
-  /** Marks the first tab-session load as finished; full-screen boot overlay hides. Safe to call multiple times. */
+  /** Hides the full-screen boot overlay once the shell/route is ready. Safe to call multiple times. */
   completeInitialLoad: () => void
 }
 
 const InitialLoadContext = createContext<Ctx | null>(null)
 
-function readShouldShowOverlay(): boolean {
-  try {
-    return !sessionStorage.getItem(STORAGE_KEY)
-  } catch {
-    return true
-  }
-}
-
 export function InitialAppLoadProvider({ children }: { children: ReactNode }) {
-  const [overlayVisible, setOverlayVisible] = useState(readShouldShowOverlay)
+  /** Every full document load (including refresh): show overlay until a route calls `completeInitialLoad`. */
+  const [overlayVisible, setOverlayVisible] = useState(true)
 
   const completeInitialLoad = useCallback(() => {
-    try {
-      sessionStorage.setItem(STORAGE_KEY, '1')
-    } catch {
-      /* ignore quota / private mode */
-    }
     setOverlayVisible(false)
   }, [])
 

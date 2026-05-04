@@ -9,6 +9,7 @@ import { usePlayerAuth } from '../playerAuth'
 import {
   clearCatalogReturn,
   getCatalogReturnForNavigation,
+  LOBBY_CATALOG_SECTION_SET,
   persistCatalogReturnSnapshot,
   PLAYER_MAIN_SCROLL_ID,
   RESTORE_MAIN_SCROLL_STATE_KEY,
@@ -57,17 +58,7 @@ type Section =
   | 'recent'
   | 'bonus-buys'
 
-const SECTION_SET = new Set<string>([
-  'games',
-  'featured',
-  'challenges',
-  'slots',
-  'live',
-  'new',
-  'favourites',
-  'recent',
-  'bonus-buys',
-])
+const SECTION_SET = LOBBY_CATALOG_SECTION_SET
 
 function sortGamesByIdOrder(ids: string[], list: Game[]): Game[] {
   const order = new Map(ids.map((id, i) => [id, i]))

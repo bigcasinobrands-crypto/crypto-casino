@@ -157,7 +157,9 @@ func main() {
 			log.Printf("WARNING: BLUEOCEAN_AGENT_ID is empty — many Blue Ocean sandboxes require agentid/associateid; game launches may fail")
 		}
 		if cfg.BlueOceanUserIDNoHyphens {
-			log.Printf("blueocean: BLUEOCEAN_USERID_NO_HYPHENS=true (UUID userids sent to XAPI without hyphens)")
+			log.Printf("blueocean: XAPI userid format: compact UUID (no hyphens) — unset BLUEOCEAN_USERID_NO_HYPHENS or set true")
+		} else {
+			log.Printf("blueocean: XAPI userid format: canonical UUID with hyphens (BLUEOCEAN_USERID_NO_HYPHENS=false)")
 		}
 	} else if strings.TrimSpace(cfg.BlueOceanAPIBaseURL) != "" || strings.TrimSpace(cfg.BlueOceanAPILogin) != "" {
 		log.Printf("WARNING: Blue Ocean XAPI incomplete — set BLUEOCEAN_API_BASE_URL, BLUEOCEAN_API_LOGIN, and BLUEOCEAN_API_PASSWORD (Api Access password, not Backoffice)")
