@@ -59,6 +59,47 @@ func TestValidateProduction_requiresRSAOrEscape(t *testing.T) {
 	}
 }
 
+func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
+	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	t.Setenv("PLAYER_JWT_SECRET", "")
+	t.Setenv("REQUIRE_FINGERPRINT_PLAYER_AUTH", "")
+
+	t.Run("development_unset_requires_false", func(t *testing.T) {
+		t.Setenv("APP_ENV", "development")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.RequireFingerprintPlayerAuth {
+			t.Fatal("expected RequireFingerprintPlayerAuth false when APP_ENV=development and env unset (local dev without VITE FP)")
+		}
+	})
+
+	t.Run("production_unset_requires_true", func(t *testing.T) {
+		t.Setenv("APP_ENV", "production")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.RequireFingerprintPlayerAuth {
+			t.Fatal("expected RequireFingerprintPlayerAuth true when APP_ENV=production and env unset")
+		}
+	})
+
+	t.Run("production_explicit_false", func(t *testing.T) {
+		t.Setenv("APP_ENV", "production")
+		t.Setenv("REQUIRE_FINGERPRINT_PLAYER_AUTH", "false")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.RequireFingerprintPlayerAuth {
+			t.Fatal("expected RequireFingerprintPlayerAuth false when explicitly false")
+		}
+	})
+}
+
 func TestValidateProduction_requiresFingerprintSecretWhenMandatory(t *testing.T) {
 	c := &Config{
 		AppEnv:                       "production",

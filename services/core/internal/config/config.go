@@ -373,7 +373,10 @@ func Load() (Config, error) {
 	}
 	c.FingerprintSecretAPIKey = strings.TrimSpace(os.Getenv("FINGERPRINT_SECRET_API_KEY"))
 	c.FingerprintAPIBaseURL = normalizeFingerprintBaseURL(os.Getenv("FINGERPRINT_API_BASE_URL"))
-	c.RequireFingerprintPlayerAuth = parseBoolEnvDefaultTrue(os.Getenv("REQUIRE_FINGERPRINT_PLAYER_AUTH"))
+	if c.AppEnv == "" {
+		c.AppEnv = "development"
+	}
+	c.RequireFingerprintPlayerAuth = requireFingerprintPlayerAuthFromEnv(os.Getenv("REQUIRE_FINGERPRINT_PLAYER_AUTH"), c.AppEnv)
 	c.WithdrawRequireFingerprint = parseBoolEnv(os.Getenv("WITHDRAW_REQUIRE_FINGERPRINT"))
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
@@ -386,9 +389,6 @@ func Load() (Config, error) {
 	}
 	if c.PlayerCookieOmitJSONTokens && !c.PlayerCookieAuth {
 		return c, fmt.Errorf("PLAYER_COOKIE_OMIT_JSON_TOKENS requires PLAYER_COOKIE_AUTH")
-	}
-	if c.AppEnv == "" {
-		c.AppEnv = "development"
 	}
 	return c, nil
 }
@@ -510,19 +510,15 @@ func parseBoolEnv(s string) bool {
 	return s == "1" || s == "true" || s == "yes"
 }
 
-// parseBoolEnvDefaultTrue is used for security defaults: empty env → true; explicit false/0/no → false.
-func parseBoolEnvDefaultTrue(s string) bool {
-	s = strings.TrimSpace(strings.ToLower(s))
-	if s == "" {
-		return true
+// requireFingerprintPlayerAuthFromEnv: if REQUIRE_FINGERPRINT_PLAYER_AUTH is unset, default to true only when
+// appEnv is production (so local development without VITE_FINGERPRINT_PUBLIC_KEY does not get 400s on auth).
+// Any non-empty value is parsed with the same rules as parseBoolEnv (true/1/yes vs false/0/no).
+func requireFingerprintPlayerAuthFromEnv(raw string, appEnv string) bool {
+	s := strings.TrimSpace(strings.ToLower(raw))
+	if s != "" {
+		return parseBoolEnv(raw)
 	}
-	if s == "0" || s == "false" || s == "no" {
-		return false
-	}
-	if s == "1" || s == "true" || s == "yes" {
-		return true
-	}
-	return true
+	return strings.TrimSpace(strings.ToLower(appEnv)) == "production"
 }
 
 func parseIntEnv(s string, defaultVal int64) int64 {
