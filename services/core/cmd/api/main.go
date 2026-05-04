@@ -260,6 +260,14 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Timeout(60 * time.Second))
 
+		// Browsers often open the service root; the API has no SPA here — avoid a bare chi 404.
+		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"service": "core-api",
+				"health":  "/health",
+			})
+		})
 		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
