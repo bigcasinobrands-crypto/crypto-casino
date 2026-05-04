@@ -167,5 +167,47 @@ func (h *Handler) GetUserFacts(w http.ResponseWriter, r *http.Request) {
 		out["latest_risk_signal"] = latestSignal
 	}
 
+	sessRows, err := h.Pool.Query(ctx, `
+		SELECT id::text, family_id::text, created_at, expires_at, last_seen_at,
+			client_ip, user_agent, country_iso2, region, city, device_type,
+			fingerprint_visitor_id, geo_source,
+			CASE WHEN fingerprint_request_id = '' THEN false ELSE true END
+		FROM player_sessions
+		WHERE user_id = $1::uuid AND expires_at > now()
+		ORDER BY last_seen_at DESC
+		LIMIT 50
+	`, uid)
+	if err == nil {
+		defer sessRows.Close()
+		var sessions []map[string]any
+		for sessRows.Next() {
+			var id, fam, cip, ua, cc, reg, city, dev, fvid, gsrc string
+			var hasFP bool
+			var created, exp, seen time.Time
+			if err := sessRows.Scan(&id, &fam, &created, &exp, &seen, &cip, &ua, &cc, &reg, &city, &dev, &fvid, &gsrc, &hasFP); err != nil {
+				break
+			}
+			sessions = append(sessions, map[string]any{
+				"id":                    id,
+				"family_id":             fam,
+				"created_at":            created.UTC().Format(time.RFC3339),
+				"expires_at":            exp.UTC().Format(time.RFC3339),
+				"last_seen_at":          seen.UTC().Format(time.RFC3339),
+				"client_ip":             cip,
+				"user_agent":            ua,
+				"country_iso2":          cc,
+				"region":                reg,
+				"city":                  city,
+				"device_type":           dev,
+				"fingerprint_visitor_id": fvid,
+				"geo_source":            gsrc,
+				"has_fingerprint_request": hasFP,
+			})
+		}
+		if err := sessRows.Err(); err == nil {
+			out["active_sessions"] = sessions
+		}
+	}
+
 	writeJSON(w, out)
 }

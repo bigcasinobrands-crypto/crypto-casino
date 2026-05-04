@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/crypto-casino/core/internal/bonus"
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/jobs"
-	"github.com/crypto-casino/core/internal/obs"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/obs"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -106,24 +108,24 @@ func HandleFystackWebhook(pool *pgxpool.Pool, rdb *redis.Client, client *fystack
 				http.Error(w, "store failed", http.StatusInternalServerError)
 				return
 			}
-		settled, err := ProcessFystackWebhookDelivery(r.Context(), pool, deliveryID)
-		if err != nil {
-			log.Printf("fystack webhook: inline processing delivery %d failed: %v", deliveryID, err)
-		}
-		if settled != nil {
-			rawBonus, _ := json.Marshal(settled)
-			if err := jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "bonus_payment_settled", Data: rawBonus}); err != nil {
-				if evErr := bonus.EvaluatePaymentSettled(r.Context(), pool, *settled); evErr != nil {
-					obs.IncBonusEvalError()
-					_, _ = pool.Exec(r.Context(), `
+			settled, err := ProcessFystackWebhookDelivery(r.Context(), pool, deliveryID)
+			if err != nil {
+				log.Printf("fystack webhook: inline processing delivery %d failed: %v", deliveryID, err)
+			}
+			if settled != nil {
+				rawBonus, _ := json.Marshal(settled)
+				if err := jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "bonus_payment_settled", Data: rawBonus}); err != nil {
+					if evErr := bonus.EvaluatePaymentSettled(r.Context(), pool, *settled); evErr != nil {
+						obs.IncBonusEvalError()
+						_, _ = pool.Exec(r.Context(), `
 						INSERT INTO worker_failed_jobs (job_type, payload, error_text, attempts)
 						VALUES ($1, $2::jsonb, $3, 1)
 					`, "bonus_payment_settled", rawBonus, evErr.Error())
+					}
 				}
 			}
-		}
-		rawID, _ := json.Marshal(map[string]int64{"delivery_id": deliveryID})
-		_ = jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "fystack_webhook", Data: rawID})
+			rawID, _ := json.Marshal(map[string]int64{"delivery_id": deliveryID})
+			_ = jobs.Enqueue(r.Context(), rdb, jobs.Job{Type: "fystack_webhook", Data: rawID})
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
@@ -194,17 +196,6 @@ func ProcessFystackWebhookDelivery(ctx context.Context, pool *pgxpool.Pool, deli
 	return settled, nil
 }
 
-func depositSuccessCountTx(ctx context.Context, tx pgx.Tx, userID string) (int64, error) {
-	var n int64
-	err := tx.QueryRow(ctx, `
-		SELECT COUNT(*)::bigint FROM ledger_entries
-		WHERE user_id = $1::uuid
-		  AND entry_type IN ('deposit.credit', 'deposit.checkout')
-		  AND amount_minor > 0
-	`, userID).Scan(&n)
-	return n, err
-}
-
 func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[string]any, resourceID string) (*bonus.PaymentSettled, error) {
 	if inner == nil {
 		log.Printf("fystack deposit: nil inner payload for resource %s", resourceID)
@@ -234,6 +225,9 @@ func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[stri
 		provID = strings.TrimSpace(str(inner["id"]))
 	}
 	meta := map[string]any{"source": "fystack", "wallet_id": walletID, "tx_hash": str(inner["tx_hash"])}
+	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, userID, time.Now().UTC(), meta); err != nil {
+		return nil, err
+	}
 	inserted, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, "deposit.credit", idem, amt, meta)
 	if err != nil {
 		log.Printf("fystack deposit: ledger credit failed for user %s: %v", userID, err)
@@ -243,7 +237,7 @@ func applyFystackDepositConfirmed(ctx context.Context, tx pgx.Tx, inner map[stri
 	if !inserted {
 		return nil, nil
 	}
-	n, err := depositSuccessCountTx(ctx, tx, userID)
+	n, err := ledger.CountSuccessfulDepositCredits(ctx, tx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -286,6 +280,9 @@ func applyFystackPaymentSuccess(ctx context.Context, tx pgx.Tx, inner map[string
 		provID = strings.TrimSpace(str(inner["id"]))
 	}
 	meta := map[string]any{"source": "fystack_checkout", "checkout_id": str(inner["checkout_id"])}
+	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, uid, time.Now().UTC(), meta); err != nil {
+		return nil, err
+	}
 	inserted, err := ledger.ApplyCreditTx(ctx, tx, uid, ccy, "deposit.checkout", idem, amt, meta)
 	if err != nil {
 		return nil, err
@@ -293,7 +290,7 @@ func applyFystackPaymentSuccess(ctx context.Context, tx pgx.Tx, inner map[string
 	if !inserted {
 		return nil, nil
 	}
-	n, err := depositSuccessCountTx(ctx, tx, uid)
+	n, err := ledger.CountSuccessfulDepositCredits(ctx, tx, uid)
 	if err != nil {
 		return nil, err
 	}

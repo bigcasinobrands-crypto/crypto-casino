@@ -2,16 +2,16 @@
 @import "@repo/design-tokens/theme.css";
 @import "./styles/casino-shell.css";
 
-/* Player UI — vybebet source-of-truth: #000 canvas, #1a1a1a chrome, #7b61ff purple CTAs */
+/* Player UI — vybebet source-of-truth: #000 canvas, #1C1C1C cards, #7b61ff purple CTAs */
 @theme {
   --color-casino-primary: #7b61ff;
   --color-casino-primary-dim: #6348ea;
   --color-casino-accent: #9585ff;
   --color-casino-bg: #000000;
-  --color-casino-surface: #1a1a1a;
+  --color-casino-surface: #1c1c1c;
   --color-casino-sidebar: #000000;
   --color-casino-topbar: #000000;
-  --color-casino-elevated: #222222;
+  --color-casino-elevated: #242424;
   --color-casino-border: rgb(255 255 255 / 0.06);
   --color-casino-muted: #94949e;
   --color-casino-foreground: #ffffff;
@@ -20,12 +20,12 @@
   --color-casino-segment-track: #141414;
   /* Deposit / primary actions — same brand purple */
   --color-casino-deposit: #7b61ff;
-  --color-casino-chip: #1a1a1a;
-  --color-casino-chip-hover: #252525;
+  --color-casino-chip: #1c1c1c;
+  --color-casino-chip-hover: #262626;
   --color-casino-success: #00e676;
   --color-casino-warning: #ffaa00;
   --color-casino-destructive: #ff4b4b;
-  --color-casino-card: rgba(255, 255, 255, 0.03);
+  --color-casino-card: #1c1c1c;
   --radius-casino-sm: 4px;
   --radius-casino-md: 6px;
   --radius-casino-lg: 8px;

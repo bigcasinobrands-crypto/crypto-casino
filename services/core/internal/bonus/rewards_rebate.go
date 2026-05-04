@@ -20,17 +20,6 @@ func weekBoundsContaining(day time.Time) (start, end time.Time) {
 	return start, end
 }
 
-func sumCashGameNetForWindow(ctx context.Context, pool *pgxpool.Pool, userID string, start, end time.Time) (int64, error) {
-	var net int64
-	err := pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
-		WHERE user_id = $1::uuid AND pocket = 'cash'
-		  AND entry_type IN ('game.debit', 'game.credit', 'game.rollback')
-		  AND created_at >= $2 AND created_at < $3
-	`, userID, start, end).Scan(&net)
-	return net, err
-}
-
 func effectiveRebatePercent(basePct float64, vipAdd float64) float64 {
 	p := basePct + vipAdd
 	if p > 100 {
@@ -128,7 +117,7 @@ func ProcessRebateGrants(ctx context.Context, pool *pgxpool.Pool, now time.Time,
 			}
 			var base int64
 			if p.Kind == RewardKindCashbackNetLoss {
-				net, err := sumCashGameNetForWindow(ctx, pool, uid, start, end)
+				net, err := ledger.SumCashGameNetForWindow(ctx, pool, uid, start, end)
 				if err != nil {
 					continue
 				}

@@ -21,4 +21,8 @@ async function bootstrap() {
   console.log(`financial-core listening on ${port}`);
 }
 
-bootstrap();
+bootstrap().catch((err: unknown) => {
+  // eslint-disable-next-line no-console
+  console.error('financial-core failed to start', err);
+  process.exit(1);
+});

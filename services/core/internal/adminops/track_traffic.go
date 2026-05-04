@@ -1,12 +1,14 @@
 package adminops
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/google/uuid"
 )
@@ -21,6 +23,9 @@ type trafficSessionIngest struct {
 	UTMCampaign string `json:"utm_campaign,omitempty"`
 	UTMContent  string `json:"utm_content,omitempty"`
 	UTMTerm     string `json:"utm_term,omitempty"`
+	// Fingerprint Pro (browser) — used with Server API to fill geo + device for admin Demographics.
+	FingerprintRequestID string `json:"fingerprint_request_id,omitempty"`
+	FingerprintVisitorID  string `json:"fingerprint_visitor_id,omitempty"`
 }
 
 func truncateRunes(s string, max int) string {
@@ -72,7 +77,8 @@ func normalizeISO2(s string) string {
 }
 
 // IngestTrafficSession records or updates a browser session (public player API).
-// Optional Bearer token ties the row to a user_id. Country may be set from X-Geo-Country by edge/proxy.
+// Optional Bearer token ties the row to a user_id. Country: X-Geo-Country (edge) when set, else
+// Fingerprint Server API from fingerprint_request_id when FINGERPRINT_SECRET_API_KEY is configured.
 func (h *Handler) IngestTrafficSession(w http.ResponseWriter, r *http.Request) {
 	if h.Pool == nil {
 		playerapi.WriteError(w, http.StatusServiceUnavailable, "db_unavailable", "database not configured")
@@ -93,8 +99,11 @@ func (h *Handler) IngestTrafficSession(w http.ResponseWriter, r *http.Request) {
 		path = "/"
 	}
 	refHost := hostFromReferrer(body.Referrer)
-	dev := normalizeDeviceType(body.DeviceType)
-	cc := normalizeISO2(r.Header.Get("X-Geo-Country"))
+	devIn := normalizeDeviceType(body.DeviceType)
+	ccHeader := normalizeISO2(r.Header.Get("X-Geo-Country"))
+
+	fpRid := truncateRunes(body.FingerprintRequestID, 128)
+	fpVid := truncateRunes(body.FingerprintVisitorID, 128)
 
 	var userID *uuid.UUID
 	if s, ok := playerapi.UserIDFromContext(r.Context()); ok {
@@ -110,6 +119,20 @@ func (h *Handler) IngestTrafficSession(w http.ResponseWriter, r *http.Request) {
 	utmT := truncateRunes(body.UTMTerm, 256)
 
 	ctx := r.Context()
+	finalCC := ccHeader
+	geoSrc := ""
+	fpCountry, fpDev := h.enrichFromFingerprint(ctx, fpRid)
+	if finalCC == "" && fpCountry != "" {
+		finalCC = fpCountry
+		geoSrc = "fingerprint"
+	} else if finalCC != "" {
+		geoSrc = "edge"
+	}
+	finalDev := devIn
+	if fpDev != "unknown" {
+		finalDev = fpDev
+	}
+
 	tx, err := h.Pool.Begin(ctx)
 	if err != nil {
 		playerapi.WriteError(w, http.StatusInternalServerError, "db_error", "tx begin failed")
@@ -120,24 +143,30 @@ func (h *Handler) IngestTrafficSession(w http.ResponseWriter, r *http.Request) {
 	const insertSQL = `
 INSERT INTO traffic_sessions (
   session_key, user_id, country_iso2, device_type, referrer_host,
-  landing_path, last_path, utm_source, utm_medium, utm_campaign, utm_content, utm_term, page_views
-) VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11,$12,1)
+  landing_path, last_path, utm_source, utm_medium, utm_campaign, utm_content, utm_term, page_views,
+  fingerprint_visitor_id, fingerprint_request_id, geo_source
+) VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11,$12,1,
+  NULLIF($13,''), NULLIF($14,''), NULLIF($15,''))
 ON CONFLICT (session_key) DO UPDATE SET
   last_at = now(),
   last_path = EXCLUDED.last_path,
   page_views = traffic_sessions.page_views + 1,
   user_id = COALESCE(EXCLUDED.user_id, traffic_sessions.user_id),
-  country_iso2 = CASE
-    WHEN traffic_sessions.country_iso2 IS NULL OR traffic_sessions.country_iso2 = '' THEN NULLIF(EXCLUDED.country_iso2,'')
-    ELSE traffic_sessions.country_iso2
+  country_iso2 = COALESCE(NULLIF(EXCLUDED.country_iso2,''), traffic_sessions.country_iso2),
+  device_type = CASE
+    WHEN NULLIF(EXCLUDED.device_type,'') IS NOT NULL AND EXCLUDED.device_type <> 'unknown' THEN EXCLUDED.device_type
+    ELSE traffic_sessions.device_type
   END,
-  device_type = CASE WHEN EXCLUDED.device_type <> 'unknown' THEN EXCLUDED.device_type ELSE traffic_sessions.device_type END
+  fingerprint_visitor_id = COALESCE(NULLIF(traffic_sessions.fingerprint_visitor_id,''), NULLIF(EXCLUDED.fingerprint_visitor_id,'')),
+  fingerprint_request_id = COALESCE(NULLIF(EXCLUDED.fingerprint_request_id,''), traffic_sessions.fingerprint_request_id),
+  geo_source = COALESCE(NULLIF(EXCLUDED.geo_source,''), traffic_sessions.geo_source)
 `
 
 	_, err = tx.Exec(ctx, insertSQL,
-		sk, userID, cc, dev, refHost,
+		sk, userID, finalCC, finalDev, refHost,
 		path, path,
 		utmS, utmM, utmC, utmCo, utmT,
+		fpVid, fpRid, geoSrc,
 	)
 	if err != nil {
 		playerapi.WriteError(w, http.StatusInternalServerError, "db_error", "upsert failed")
@@ -169,4 +198,20 @@ WHERE session_key = $1
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "ts": time.Now().UTC().Format(time.RFC3339)})
+}
+
+func (h *Handler) enrichFromFingerprint(ctx context.Context, requestID string) (countryISO2, deviceType string) {
+	deviceType = "unknown"
+	if h == nil || h.Fingerprint == nil || h.Cfg == nil || !h.Cfg.FingerprintConfigured() {
+		return "", deviceType
+	}
+	rid := strings.TrimSpace(requestID)
+	if rid == "" {
+		return "", deviceType
+	}
+	ev, err := h.Fingerprint.GetEvent(ctx, rid)
+	if err != nil || ev == nil {
+		return "", deviceType
+	}
+	return fingerprint.TrafficEnrichment(ev)
 }

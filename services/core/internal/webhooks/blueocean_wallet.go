@@ -18,6 +18,7 @@ import (
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/challenges"
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playcheck"
 	"github.com/jackc/pgx/v5"
@@ -238,6 +239,9 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	}
 
 	meta := map[string]any{"remote_id": remote, "txn": txnID, "game_id": gameID}
+	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, userID, time.Now().UTC(), meta); err != nil {
+		return bal, "500", err
+	}
 
 	var notifyWageringProgress bool
 

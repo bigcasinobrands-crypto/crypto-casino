@@ -35,7 +35,14 @@ import { ALL_QUEUES } from './queue.constants';
             },
           };
         } catch {
-          return { connection: { host: '127.0.0.1', port: 6379, maxRetriesPerRequest: null } };
+          return {
+            connection: {
+              host: '127.0.0.1',
+              port: 6379,
+              lazyConnect: true,
+              maxRetriesPerRequest: null,
+            },
+          };
         }
       },
     }),

@@ -28,16 +28,23 @@ type regReq struct {
 	AcceptTerms   bool   `json:"accept_terms"`
 	AcceptPrivacy bool   `json:"accept_privacy"`
 	CaptchaToken  string `json:"captcha_token"`
+	// Fingerprint Pro (optional) — enriches player_sessions for admin + Settings.
+	FingerprintRequestID string `json:"fingerprint_request_id"`
+	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
 }
 
 type loginReq struct {
 	Email        string `json:"email"`
 	Password     string `json:"password"`
 	CaptchaToken string `json:"captcha_token"`
+	FingerprintRequestID string `json:"fingerprint_request_id"`
+	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
 }
 
 type refreshReq struct {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken         string `json:"refresh_token"`
+	FingerprintRequestID string `json:"fingerprint_request_id"`
+	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
 }
 
 type tokenRes struct {
@@ -69,6 +76,16 @@ func requestIP(r *http.Request) string {
 	return ip
 }
 
+func sessionContextFromRequest(r *http.Request, fpReq, fpVid string) *SessionContext {
+	return &SessionContext{
+		IP:                   requestIP(r),
+		UserAgent:            r.UserAgent(),
+		GeoCountryHeader:     r.Header.Get("X-Geo-Country"),
+		FingerprintRequestID: strings.TrimSpace(fpReq),
+		FingerprintVisitorID: strings.TrimSpace(fpVid),
+	}
+}
+
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var body regReq
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -81,7 +98,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.Username, body.AcceptTerms, body.AcceptPrivacy)
+	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
+	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.Username, body.AcceptTerms, body.AcceptPrivacy, sc)
 	if err != nil {
 		if errors.Is(err, ErrTermsNotAccepted) {
 			playerapi.WriteError(w, http.StatusBadRequest, "terms_required", "you must accept the terms and privacy policy")
@@ -125,7 +143,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	access, refresh, exp, err := h.Svc.Login(r.Context(), body.Email, body.Password)
+	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
+	access, refresh, exp, err := h.Svc.Login(r.Context(), body.Email, body.Password, sc)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
 			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
@@ -148,7 +167,8 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if rt == "" && h.CookieCfg != nil && h.CookieCfg.PlayerCookieAuth {
 		rt = playercookies.RefreshFromCookie(r)
 	}
-	access, refresh, exp, err := h.Svc.Refresh(r.Context(), rt)
+	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
+	access, refresh, exp, err := h.Svc.Refresh(r.Context(), rt, sc)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
 			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_refresh", "invalid or expired refresh token")
@@ -227,6 +247,25 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		out["vip_tier"] = *p.VIPTierName
 	}
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	list, err := h.Svc.ListSessions(r.Context(), id)
+	if err != nil {
+		log.Printf("playerauth: list sessions: %v", err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not load sessions")
+		return
+	}
+	if list == nil {
+		list = []map[string]any{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"sessions": list})
 }
 
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {

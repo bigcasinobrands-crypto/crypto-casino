@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/jtiredis"
 	"github.com/crypto-casino/core/internal/jwtissuer"
 	"github.com/crypto-casino/core/internal/mail"
@@ -49,6 +51,9 @@ type Service struct {
 	DataDir         string
 	// EmailLookupSecret — when non-empty, writes users.email_hmac on register and backfills on login (PII_EMAIL_LOOKUP_SECRET).
 	EmailLookupSecret string
+	// Fingerprint + app config for enriching player_sessions (optional).
+	Fingerprint *fingerprint.Client
+	Cfg         *config.Config
 }
 
 func (s *Service) rejectIfPwnedPassword(ctx context.Context, password string) error {
@@ -65,7 +70,7 @@ func (s *Service) rejectIfPwnedPassword(ctx context.Context, password string) er
 	return nil
 }
 
-func (s *Service) Register(ctx context.Context, email, password, username string, acceptTerms, acceptPrivacy bool) (accessToken, refreshToken string, exp int64, err error) {
+func (s *Service) Register(ctx context.Context, email, password, username string, acceptTerms, acceptPrivacy bool, sc *SessionContext) (accessToken, refreshToken string, exp int64, err error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	username = strings.TrimSpace(username)
 	if email == "" {
@@ -129,7 +134,7 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 		VALUES ($1::uuid, NULL, 0, 0, now())
 		ON CONFLICT (user_id) DO NOTHING
 	`, id)
-	accessToken, refreshToken, exp, err = s.issueSession(ctx, id)
+	accessToken, refreshToken, exp, err = s.issueSession(ctx, id, sc)
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -150,7 +155,7 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 	return accessToken, refreshToken, exp, nil
 }
 
-func (s *Service) Login(ctx context.Context, emailOrUsername, password string) (accessToken, refreshToken string, exp int64, err error) {
+func (s *Service) Login(ctx context.Context, emailOrUsername, password string, sc *SessionContext) (accessToken, refreshToken string, exp int64, err error) {
 	identifier := strings.TrimSpace(emailOrUsername)
 	if identifier == "" {
 		return "", "", 0, ErrInvalidCredentials
@@ -187,10 +192,10 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string) (
 			_ = s.Fystack.Provision(pctx, uid)
 		}(id)
 	}
-	return s.issueSession(ctx, id)
+	return s.issueSession(ctx, id, sc)
 }
 
-func (s *Service) issueSession(ctx context.Context, userID string) (access, refresh string, exp int64, err error) {
+func (s *Service) issueSession(ctx context.Context, userID string, sc *SessionContext) (access, refresh string, exp int64, err error) {
 	if s.Issuer == nil {
 		return "", "", 0, fmt.Errorf("jwt issuer not configured")
 	}
@@ -199,10 +204,17 @@ func (s *Service) issueSession(ctx context.Context, userID string) (access, refr
 		return "", "", 0, err
 	}
 	expT := time.Now().UTC().Add(refreshTTL)
+	cip, ua, fvid, frid, cc, reg, city, dev, gsrc := s.sessionFields(ctx, sc)
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO player_sessions (user_id, refresh_token_hash, expires_at, family_id)
-		VALUES ($1::uuid, $2, $3, gen_random_uuid())
-	`, userID, hashHex, expT)
+		INSERT INTO player_sessions (
+			user_id, refresh_token_hash, expires_at, family_id,
+			client_ip, user_agent, fingerprint_visitor_id, fingerprint_request_id,
+			country_iso2, region, city, device_type, geo_source, last_seen_at
+		)
+		VALUES ($1::uuid, $2, $3, gen_random_uuid(),
+			NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''),
+			NULLIF($8,''), NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), NULLIF($12,''), now())
+	`, userID, hashHex, expT, cip, ua, fvid, frid, cc, reg, city, dev, gsrc)
 	if err != nil {
 		if strings.Contains(err.Error(), "family_id") {
 			log.Printf("playerauth: player_sessions insert failed — run DB migrations through 00054_session_refresh_family (family_id column): %v", err)
@@ -216,7 +228,7 @@ func (s *Service) issueSession(ctx context.Context, userID string) (access, refr
 	return access, plain, exp, nil
 }
 
-func (s *Service) Refresh(ctx context.Context, refreshPlain string) (access, refresh string, exp int64, err error) {
+func (s *Service) Refresh(ctx context.Context, refreshPlain string, sc *SessionContext) (access, refresh string, exp int64, err error) {
 	refreshPlain = strings.TrimSpace(refreshPlain)
 	if refreshPlain == "" {
 		return "", "", 0, ErrInvalidCredentials
@@ -245,10 +257,17 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string) (access, ref
 	if err != nil {
 		return "", "", 0, err
 	}
+	cip, ua, fvid, frid, cc, reg, city, dev, gsrc := s.sessionFields(ctx, sc)
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO player_sessions (user_id, refresh_token_hash, expires_at, family_id)
-		VALUES ($1::uuid, $2, $3, $4::uuid)
-	`, uid, nh, time.Now().UTC().Add(refreshTTL), fam)
+		INSERT INTO player_sessions (
+			user_id, refresh_token_hash, expires_at, family_id,
+			client_ip, user_agent, fingerprint_visitor_id, fingerprint_request_id,
+			country_iso2, region, city, device_type, geo_source, last_seen_at
+		)
+		VALUES ($1::uuid, $2, $3, $4::uuid,
+			NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''),
+			NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), NULLIF($12,''), NULLIF($13,''), now())
+	`, uid, nh, time.Now().UTC().Add(refreshTTL), fam, cip, ua, fvid, frid, cc, reg, city, dev, gsrc)
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -300,6 +319,50 @@ func (s *Service) Logout(ctx context.Context, refreshPlain string) error {
 	return nil
 }
 
+// ListSessions returns non-expired refresh-token rows with device/geo metadata for the account owner UI and admin.
+func (s *Service) ListSessions(ctx context.Context, userID string) ([]map[string]any, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id::text, family_id::text, created_at, expires_at, last_seen_at,
+			client_ip, user_agent, country_iso2, region, city, device_type,
+			fingerprint_visitor_id, geo_source,
+			CASE WHEN fingerprint_request_id = '' THEN false ELSE true END AS has_fingerprint_request
+		FROM player_sessions
+		WHERE user_id = $1::uuid AND expires_at > now()
+		ORDER BY last_seen_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, fam, cip, ua, cc, reg, city, dev, fvid, gsrc string
+		var hasFP bool
+		var created, exp, seen time.Time
+		if err := rows.Scan(&id, &fam, &created, &exp, &seen, &cip, &ua, &cc, &reg, &city, &dev, &fvid, &gsrc, &hasFP); err != nil {
+			return nil, err
+		}
+		m := map[string]any{
+			"id":                      id,
+			"family_id":               fam,
+			"created_at":              created.UTC().Format(time.RFC3339),
+			"expires_at":              exp.UTC().Format(time.RFC3339),
+			"last_seen_at":            seen.UTC().Format(time.RFC3339),
+			"client_ip":               cip,
+			"user_agent":              ua,
+			"country_iso2":            cc,
+			"region":                  reg,
+			"city":                    city,
+			"device_type":             dev,
+			"fingerprint_visitor_id":  fvid,
+			"geo_source":              gsrc,
+			"has_fingerprint_request":   hasFP,
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (s *Service) assertUserPlayAllowed(ctx context.Context, userID string) error {
 	var closed *time.Time
 	var until *time.Time
@@ -316,6 +379,49 @@ func (s *Service) assertUserPlayAllowed(ctx context.Context, userID string) erro
 		return ErrInvalidCredentials
 	}
 	return nil
+}
+
+// sessionFields merges edge geo, client hints, and optional Fingerprint Server API enrichment.
+func (s *Service) sessionFields(ctx context.Context, sc *SessionContext) (
+	clientIP, userAgent, fpVid, fpRid, country, region, city, device, geoSource string,
+) {
+	device = "unknown"
+	if sc == nil {
+		return "", "", "", "", "", "", "", device, ""
+	}
+	clientIP = truncateStr(sc.IP, 64)
+	userAgent = truncateStr(sc.UserAgent, 1024)
+	fpVid = truncateStr(sc.FingerprintVisitorID, 128)
+	fpRid = truncateStr(sc.FingerprintRequestID, 128)
+	country = fingerprint.NormalizeCountryISO2(sc.GeoCountryHeader)
+	if country != "" {
+		geoSource = "edge"
+	}
+	if s != nil && s.Fingerprint != nil && s.Cfg != nil && s.Cfg.FingerprintConfigured() && fpRid != "" {
+		if ev, err := s.Fingerprint.GetEvent(ctx, fpRid); err == nil && ev != nil {
+			fpCC, fpDev := fingerprint.TrafficEnrichment(ev)
+			if country == "" && fpCC != "" {
+				country = fpCC
+				geoSource = "fingerprint"
+			}
+			if fpDev != "unknown" {
+				device = fpDev
+			}
+			m := fingerprint.LedgerMetaFromEvent(ev)
+			if v, ok := m["geo_region"].(string); ok {
+				region = truncateStr(v, 128)
+			}
+			if v, ok := m["geo_city"].(string); ok {
+				city = truncateStr(v, 128)
+			}
+			if clientIP == "" {
+				if v, ok := m["ip_address"].(string); ok && strings.TrimSpace(v) != "" {
+					clientIP = truncateStr(v, 64)
+				}
+			}
+		}
+	}
+	return clientIP, userAgent, fpVid, fpRid, country, region, city, device, geoSource
 }
 
 func newRefreshToken() (plain string, hashHex string, err error) {

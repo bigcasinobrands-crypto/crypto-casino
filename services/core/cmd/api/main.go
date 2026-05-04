@@ -24,6 +24,7 @@ import (
 	"github.com/crypto-casino/core/internal/chat"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/games"
 	"github.com/crypto-casino/core/internal/jtiredis"
@@ -166,6 +167,13 @@ func main() {
 	} else {
 		log.Printf("WARNING: Fystack not configured — deposit addresses, wallet provisioning, and withdrawals are disabled. Set FYSTACK_BASE_URL, FYSTACK_API_KEY, FYSTACK_API_SECRET, and FYSTACK_WORKSPACE_ID in .env")
 	}
+	var fpClient *fingerprint.Client
+	if cfg.FingerprintConfigured() {
+		fpClient = fingerprint.NewClient(cfg.FingerprintAPIBaseURL, cfg.FingerprintSecretAPIKey)
+		log.Printf("fingerprint: Server API configured (base=%s)", cfg.FingerprintAPIBaseURL)
+	} else {
+		log.Printf("fingerprint: FINGERPRINT_SECRET_API_KEY not set — withdrawal ledger metadata will omit Server API enrichment")
+	}
 	if cfg.FystackDepositAssetID == "" && len(cfg.FystackDepositAssets) == 0 {
 		log.Printf("WARNING: No deposit assets configured — set FYSTACK_DEPOSIT_ASSET_ID or FYSTACK_DEPOSIT_ASSETS_JSON in .env")
 	}
@@ -173,7 +181,7 @@ func main() {
 	chatHub := chat.NewHub(pool)
 	go chatHub.Run()
 
-	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient, ChatHub: chatHub}
+	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient, Fingerprint: fpClient, ChatHub: chatHub}
 	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH, WA: wa}
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
@@ -193,6 +201,8 @@ func main() {
 		PrivacyVersion:    cfg.PrivacyVersion,
 		DataDir:           dataDir,
 		EmailLookupSecret: cfg.PIIEmailLookupSecret,
+		Fingerprint:       fpClient,
+		Cfg:               &cfg,
 	}
 	if fsClient != nil {
 		playerSvc.Fystack = &fystack.WalletProvisioner{Pool: pool, Client: fsClient}
@@ -334,6 +344,7 @@ func main() {
 					r.Patch("/profile/preferences", playerH.UpdatePreferences)
 					r.Post("/profile/redeem-promo", playerH.RedeemPromo)
 					r.Post("/verify-email/resend", playerH.ResendVerification)
+					r.Get("/sessions", playerH.ListSessions)
 				})
 			})
 			r.Group(func(r chi.Router) {
@@ -369,7 +380,7 @@ func main() {
 				r.Get("/wallet/game-history", wallet.GameHistoryHandler(pool))
 				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
 				r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
-				r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient, cmcTickers))
+				r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient, cmcTickers, fpClient))
 				r.Group(func(r chi.Router) {
 					r.Use(httprate.LimitByIP(60, time.Minute))
 					r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg, fsClient))

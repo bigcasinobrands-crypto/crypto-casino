@@ -25,6 +25,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
     subItems: [
       { name: 'Overview', path: '/finance' },
       { name: 'Crypto performance', path: '/finance/crypto-performance', new: true },
+      { name: 'By country (ledger)', path: '/finance/by-country', new: true },
       { name: 'Fystack webhooks', path: '/finance/fystack-webhooks', new: true },
       { name: 'Deposits', path: '/deposits' },
       { name: 'Withdrawals', path: '/withdrawals' },

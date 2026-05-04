@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { getFingerprintForAction } from '../lib/fingerprintClient'
 import { playerFetch } from '../lib/playerFetch'
 
 const STORAGE_KEY = 'crypto_traffic_session_key'
@@ -34,6 +35,7 @@ function utmFromSearch(search: string) {
 
 /**
  * Records lobby navigation for admin Demographics & Traffic (POST /v1/analytics/session).
+ * Sends Fingerprint visitorId + requestId when available so the API can enrich geo/device via Server API.
  */
 export function useTrafficSessionTracker(
   pathname: string,
@@ -49,24 +51,34 @@ export function useTrafficSessionTracker(
     lastSent.current = pathWithSearch
 
     const utm = utmFromSearch(search)
-    const body = {
-      session_key: browserSessionKey(),
-      path: pathWithSearch,
-      referrer: typeof document !== 'undefined' ? document.referrer : '',
-      device_type: inferDevice(),
-      ...utm,
-    }
-
     const headers: HeadersInit = { 'Content-Type': 'application/json' }
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
-    void playerFetch('/v1/analytics/session', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      keepalive: true,
-    }).catch(() => {
-      /* non-blocking */
-    })
+    void (async () => {
+      const fp = await Promise.race([
+        getFingerprintForAction(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+      ])
+      const body: Record<string, unknown> = {
+        session_key: browserSessionKey(),
+        path: pathWithSearch,
+        referrer: typeof document !== 'undefined' ? document.referrer : '',
+        device_type: inferDevice(),
+        ...utm,
+      }
+      if (fp?.requestId) body.fingerprint_request_id = fp.requestId
+      if (fp?.visitorId) body.fingerprint_visitor_id = fp.visitorId
+
+      try {
+        await playerFetch('/v1/analytics/session', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          keepalive: true,
+        })
+      } catch {
+        /* non-blocking */
+      }
+    })()
   }, [pathname, search, accessToken, isAuthenticated])
 }

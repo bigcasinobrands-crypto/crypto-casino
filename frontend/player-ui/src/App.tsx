@@ -599,8 +599,12 @@ function HeaderAccount() {
 
 function HeaderProfileIcon() {
   const { isAuthenticated, me } = usePlayerAuth()
-  if (!isAuthenticated) return null
+  const [avatarBroken, setAvatarBroken] = useState(false)
   const avatarSrc = me?.avatar_url ? playerApiUrl(me.avatar_url) : null
+  useEffect(() => {
+    setAvatarBroken(false)
+  }, [me?.avatar_url])
+  if (!isAuthenticated) return null
   const label = me?.username ?? me?.email ?? 'Profile'
   const vip = me?.vip_tier?.trim()
   return (
@@ -611,11 +615,12 @@ function HeaderProfileIcon() {
       title={vip ? `${label} · VIP ${vip}` : label}
     >
       <div className="relative shrink-0">
-        {avatarSrc ? (
+        {avatarSrc && !avatarBroken ? (
           <img
             src={avatarSrc}
             alt=""
             className="size-8 rounded-full object-cover ring-2 ring-casino-primary/35"
+            onError={() => setAvatarBroken(true)}
           />
         ) : (
           <div className="flex size-8 items-center justify-center rounded-full bg-casino-chip ring-2 ring-casino-primary/35">

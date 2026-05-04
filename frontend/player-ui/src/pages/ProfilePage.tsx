@@ -35,9 +35,11 @@ import {
   IconUsers,
   IconWallet,
 } from '../components/icons'
+import { getFingerprintForAction } from '../lib/fingerprintClient'
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { useVipStatus } from '../hooks/useVipStatus'
 import { useVipProgram } from '../hooks/useVipProgram'
+import { cachePlayerAvatarUrl } from '../lib/avatarCache'
 import { mergeTierPresentation } from '../lib/vipPresentation'
 
 const supportUrl = import.meta.env.VITE_SUPPORT_URL as string | undefined
@@ -714,6 +716,7 @@ export default function ProfilePage() {
       <div className="flex flex-col gap-6 rounded-casino-lg bg-casino-card p-5 sm:p-7 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-5 sm:gap-6">
           <AvatarUpload
+            userId={me?.id}
             avatarUrl={me?.avatar_url}
             onUploaded={() => void refreshProfile()}
           />
@@ -884,9 +887,11 @@ export default function ProfilePage() {
 /* ------------------------------------------------------------------ */
 
 function AvatarUpload({
+  userId,
   avatarUrl,
   onUploaded,
 }: {
+  userId?: string
   avatarUrl?: string
   onUploaded: () => void
 }) {
@@ -895,8 +900,13 @@ function AvatarUpload({
   const [uploading, setUploading] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [imgFail, setImgFail] = useState(false)
 
   const resolvedAvatar = previewUrl ?? (avatarUrl ? playerApiUrl(avatarUrl) : null)
+
+  useEffect(() => {
+    setImgFail(false)
+  }, [resolvedAvatar])
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -919,7 +929,10 @@ function AvatarUpload({
           body: form,
         })
         if (res.ok) {
-          await res.json().catch(() => null)
+          const j = (await res.json().catch(() => null)) as { avatar_url?: string } | null
+          if (j?.avatar_url?.trim() && userId) {
+            cachePlayerAvatarUrl(userId, j.avatar_url.trim())
+          }
           if (preview.startsWith('blob:')) {
             URL.revokeObjectURL(preview)
           }
@@ -948,18 +961,19 @@ function AvatarUpload({
         setUploading(false)
       }
     },
-    [apiFetch, onUploaded],
+    [apiFetch, onUploaded, userId],
   )
 
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div className="group relative">
         <div className="flex size-[72px] shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-casino-primary/40 bg-casino-bg sm:size-[88px]">
-          {resolvedAvatar ? (
+          {resolvedAvatar && !imgFail ? (
             <img
               src={resolvedAvatar}
               alt="Profile"
               className="size-full object-cover"
+              onError={() => setImgFail(true)}
             />
           ) : (
             <div className="flex size-full items-center justify-center bg-casino-elevated">
@@ -2292,26 +2306,136 @@ function SettingsPreference() {
 
 /* ---- Sessions ---- */
 
+type AuthSessionRow = {
+  id: string
+  created_at: string
+  expires_at: string
+  last_seen_at: string
+  client_ip: string
+  user_agent: string
+  country_iso2: string
+  region: string
+  city: string
+  device_type: string
+  fingerprint_visitor_id: string
+  geo_source: string
+  has_fingerprint_request: boolean
+}
+
+function formatSessionLocation(s: AuthSessionRow): string {
+  const parts = [s.city, s.region, s.country_iso2].map((x) => String(x || '').trim()).filter(Boolean)
+  return parts.length ? parts.join(' · ') : '—'
+}
+
+function shortenUserAgent(ua: string): string {
+  const u = String(ua || '').trim()
+  if (!u) return '—'
+  if (u.length <= 72) return u
+  return `${u.slice(0, 69)}…`
+}
+
 function SettingsSessions() {
+  const { apiFetch } = usePlayerAuth()
+  const [sessions, setSessions] = useState<AuthSessionRow[] | null>(null)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [currentVisitorId, setCurrentVisitorId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoadErr(null)
+    const [res, fp] = await Promise.all([
+      apiFetch('/v1/auth/sessions'),
+      getFingerprintForAction().catch(() => null),
+    ])
+    if (fp?.visitorId) setCurrentVisitorId(fp.visitorId)
+    else setCurrentVisitorId(null)
+    if (!res.ok) {
+      setSessions([])
+      setLoadErr('Could not load sessions.')
+      return
+    }
+    const j = (await res.json()) as { sessions?: AuthSessionRow[] }
+    setSessions(Array.isArray(j.sessions) ? j.sessions : [])
+  }, [apiFetch])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
   return (
     <>
       <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">Active Sessions</h3>
+      {loadErr ? <p className="mb-3 text-sm text-casino-destructive">{loadErr}</p> : null}
+      {!loadErr && sessions === null ? (
+        <p className="text-sm text-casino-muted">Loading…</p>
+      ) : null}
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between rounded-casino-md border border-casino-primary/20 bg-casino-primary/[0.04] px-4 py-3.5">
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-full bg-casino-primary/10">
-              <IconGlobe size={16} className="text-casino-primary" />
+        {(sessions ?? []).map((s) => {
+          const isThisDevice =
+            !!currentVisitorId &&
+            String(s.fingerprint_visitor_id || '').trim() !== '' &&
+            s.fingerprint_visitor_id === currentVisitorId
+          return (
+            <div
+              key={s.id}
+              className={`flex flex-col gap-2 rounded-casino-md border px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between ${
+                isThisDevice
+                  ? 'border-casino-primary/20 bg-casino-primary/[0.04]'
+                  : 'border-casino-border bg-white/[0.02]'
+              }`}
+            >
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-casino-primary/10">
+                  <IconGlobe size={16} className="text-casino-primary" />
+                </div>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold text-casino-foreground">
+                      {isThisDevice ? 'This device' : 'Signed-in session'}
+                    </span>
+                    <span className="rounded-full bg-casino-success/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-casino-success">
+                      Active
+                    </span>
+                  </div>
+                  <div className="text-xs text-casino-muted space-y-0.5">
+                    <p>
+                      <span className="font-semibold text-casino-foreground/90">IP:</span>{' '}
+                      {s.client_ip?.trim() || '—'}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-casino-foreground/90">Location:</span>{' '}
+                      {formatSessionLocation(s)}
+                      {s.geo_source ? (
+                        <span className="text-casino-muted/80"> ({s.geo_source})</span>
+                      ) : null}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-casino-foreground/90">Device:</span>{' '}
+                      {s.device_type?.trim() || '—'}
+                    </p>
+                    <p className="break-all" title={s.user_agent || undefined}>
+                      <span className="font-semibold text-casino-foreground/90">Browser:</span>{' '}
+                      {shortenUserAgent(s.user_agent)}
+                    </p>
+                    {s.fingerprint_visitor_id ? (
+                      <p className="break-all font-mono text-[11px] opacity-90">
+                        <span className="font-sans font-semibold text-casino-foreground/90">Visitor:</span>{' '}
+                        {s.fingerprint_visitor_id}
+                      </p>
+                    ) : null}
+                    <p>
+                      <span className="font-semibold text-casino-foreground/90">Last seen:</span>{' '}
+                      {s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : '—'}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-bold text-casino-foreground">Current Session</span>
-              <span className="text-xs text-casino-muted">This device</span>
-            </div>
-          </div>
-          <span className="rounded-full bg-casino-success/15 px-3 py-1 text-[11px] font-extrabold text-casino-success">
-            Active
-          </span>
-        </div>
+          )
+        })}
       </div>
+      {sessions && sessions.length === 0 && !loadErr ? (
+        <p className="mt-2 text-sm text-casino-muted">No active sessions found.</p>
+      ) : null}
       <p className="mt-6 text-sm text-casino-muted">
         If you notice any unfamiliar sessions, change your password immediately.
       </p>

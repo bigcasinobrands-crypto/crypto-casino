@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/obs"
 	"github.com/jackc/pgx/v5"
@@ -182,6 +184,9 @@ func GrantFromPromotionVersion(ctx context.Context, pool *pgxpool.Pool, a GrantA
 	}
 
 	meta := map[string]any{"promotion_version_id": a.PromotionVersionID, "bonus_instance_id": instID}
+	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, a.UserID, time.Now().UTC(), meta); err != nil {
+		return false, err
+	}
 	ins, err := ledger.ApplyCreditTxWithPocket(ctx, tx, a.UserID, a.Currency, "promo.grant",
 		"promo.grant:"+a.IdempotencyKey, a.GrantAmountMinor, ledger.PocketBonusLocked, meta)
 	if err != nil {

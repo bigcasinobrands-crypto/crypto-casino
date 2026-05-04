@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -8,14 +9,18 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/crypto-casino/core/internal/playerapi"
+	"github.com/crypto-casino/core/internal/reconcile"
+	"github.com/crypto-casino/core/internal/riskassessment"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,10 +29,12 @@ type withdrawReq struct {
 	Currency    string `json:"currency"`
 	Network     string `json:"network"`
 	Destination string `json:"destination"`
+	// FingerprintRequestID from the browser agent (GET /events enrichment on the API).
+	FingerprintRequestID string `json:"fingerprint_request_id"`
 }
 
 // WithdrawHandler debits the ledger and sends from the user's own Fystack wallet.
-func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client, tickers *market.CryptoTickers) http.HandlerFunc {
+func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client, tickers *market.CryptoTickers, fp *fingerprint.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
 		if !ok {
@@ -46,6 +53,10 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client,
 		}
 		if body.AmountMinor < 1 || strings.TrimSpace(body.Destination) == "" {
 			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "amount and destination required")
+			return
+		}
+		if cfg != nil && cfg.WithdrawRequireFingerprint && strings.TrimSpace(body.FingerprintRequestID) == "" {
+			playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "identification is required for this withdrawal")
 			return
 		}
 		ccy := strings.ToUpper(strings.TrimSpace(body.Currency))
@@ -133,7 +144,17 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client,
 		}
 
 		debitKey := "fystack:wdr:" + wid
-		_, err = ledger.ApplyDebitTx(r.Context(), tx, uid, ccy, "withdrawal.debit", debitKey, body.AmountMinor, map[string]any{"destination": body.Destination})
+		meta := map[string]any{
+			"destination":   body.Destination,
+			"withdrawal_id": wid,
+			"action_type":   "withdrawal_request",
+		}
+		rawFP := mergeWithdrawFingerprintMeta(r.Context(), meta, cfg, fp, strings.TrimSpace(body.FingerprintRequestID))
+		if err := fingerprint.MergeTrafficAttributionTx(r.Context(), tx, uid, time.Now().UTC(), meta); err != nil {
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "attribution merge failed")
+			return
+		}
+		_, err = ledger.ApplyDebitTx(r.Context(), tx, uid, ccy, "withdrawal.debit", debitKey, body.AmountMinor, meta)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "ledger debit failed")
 			return
@@ -151,6 +172,17 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client,
 		if err := tx.Commit(r.Context()); err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "commit failed")
 			return
+		}
+
+		if rawFP != nil {
+			vid, _ := meta["visitor_id"].(string)
+			if err := riskassessment.InsertFromEvent(r.Context(), pool, uid, "withdrawal_request",
+				strings.TrimSpace(body.FingerprintRequestID), strings.TrimSpace(vid), rawFP, meta); err != nil {
+				log.Printf("risk_assessments insert: %v", err)
+			}
+		}
+		if err := reconcile.MaybeInsertGeoTrafficMismatch(r.Context(), pool, uid, "withdrawal", wid, meta); err != nil {
+			log.Printf("reconciliation_alerts insert: %v", err)
 		}
 
 		providerWid := ""
@@ -219,6 +251,34 @@ func resolveWithdrawAssetID(cfg *config.Config, symbol, network string) string {
 		return id
 	}
 	return ""
+}
+
+// mergeWithdrawFingerprintMeta enriches ledger metadata from Fingerprint Server API.
+// Returns the raw Get Event JSON when the Server API call succeeds (for risk_assessments audit rows).
+func mergeWithdrawFingerprintMeta(ctx context.Context, meta map[string]any, cfg *config.Config, fp *fingerprint.Client, fpReq string) map[string]any {
+	if fpReq != "" {
+		meta["fingerprint_request_id"] = fpReq
+	}
+	if fpReq == "" {
+		meta["fingerprint_missing"] = true
+		return nil
+	}
+	if cfg == nil || !cfg.FingerprintConfigured() || fp == nil || !fp.Configured() {
+		meta["fingerprint_server_unconfigured"] = true
+		return nil
+	}
+	raw, err := fp.GetEvent(ctx, fpReq)
+	if err != nil {
+		log.Printf("fingerprint: withdraw GetEvent failed request_id=%s: %v", fpReq, err)
+		meta["fingerprint_fetch_error"] = true
+		meta["fingerprint_fetch_error_detail"] = err.Error()
+		return nil
+	}
+	for k, v := range fingerprint.LedgerMetaFromEvent(raw) {
+		meta[k] = v
+	}
+	meta["risk_decision"] = "PROCEED"
+	return raw
 }
 
 func extractProviderMessage(resp map[string]any) string {

@@ -13,6 +13,7 @@ const DemographicsOverviewPage = lazy(() => import('./pages/DemographicsOverview
 const TrafficSourcesPage = lazy(() => import('./pages/TrafficSourcesPage'))
 const PaymentOpsPage = lazy(() => import('./pages/PaymentOpsPage'))
 const FinanceCryptoPerformancePage = lazy(() => import('./pages/FinanceCryptoPerformancePage'))
+const FinanceGeoByCountryPage = lazy(() => import('./pages/FinanceGeoByCountryPage'))
 const FystackWebhookInboxPage = lazy(() => import('./pages/FystackWebhookInboxPage'))
 const DataTablePage = lazy(() => import('./pages/DataTablePage'))
 const WithdrawalApprovalPage = lazy(() => import('./pages/WithdrawalApprovalPage'))
@@ -83,6 +84,7 @@ export default function App() {
               <Route path="/finance" element={<PaymentOpsPage />} />
               <Route path="/finance/casino-analytics" element={<Navigate to="/finance" replace />} />
               <Route path="/finance/crypto-performance" element={<FinanceCryptoPerformancePage />} />
+              <Route path="/finance/by-country" element={<FinanceGeoByCountryPage />} />
               <Route path="/finance/fystack-webhooks" element={<FystackWebhookInboxPage />} />
               <Route path="/payments-ops" element={<Navigate to="/finance" replace />} />
               <Route

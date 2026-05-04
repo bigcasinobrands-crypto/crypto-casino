@@ -10,6 +10,7 @@ import {
 } from './DepositFlowShared'
 import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
 import { transactionExplorerUrl } from '../lib/walletExplorer'
+import { getFingerprintForAction } from '../lib/fingerprintClient'
 import { usePlayerAuth } from '../playerAuth'
 
 export type WithdrawPanelNetwork = 'ERC20' | 'TRC20'
@@ -61,18 +62,23 @@ export function WithdrawFormPanel({
     }
     setBusy(true)
     try {
+      const fp = await getFingerprintForAction()
+      const payload: Record<string, unknown> = {
+        amount_minor: amt,
+        currency: symbol,
+        network,
+        destination: destination.trim(),
+      }
+      if (fp?.requestId) {
+        payload.fingerprint_request_id = fp.requestId
+      }
       const res = await apiFetch('/v1/wallet/withdraw', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': crypto.randomUUID(),
         },
-        body: JSON.stringify({
-          amount_minor: amt,
-          currency: symbol,
-          network,
-          destination: destination.trim(),
-        }),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const parsed = await readApiError(res)

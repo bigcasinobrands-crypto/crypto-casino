@@ -10,6 +10,8 @@ import {
 } from 'react'
 
 import { apiErrFromResponse, type ApiErr } from './api/errors'
+import { cachePlayerAvatarUrl, readCachedPlayerAvatarUrl } from './lib/avatarCache'
+import { getAuthFingerprintPayload } from './lib/authFingerprint'
 import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './lib/playerFetch'
 import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
 
@@ -137,10 +139,12 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       clearSession()
       return false
     }
+    const fpExtra = await getAuthFingerprintPayload()
+    const base = rt ? { refresh_token: rt } : {}
     const res = await playerFetch('/v1/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(rt ? { refresh_token: rt } : {}),
+      body: JSON.stringify({ ...base, ...fpExtra }),
     })
     if (!res.ok) {
       clearSession()
@@ -203,8 +207,27 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     if (!t && !playerCredentialsMode) return
     const m = await apiFetch('/v1/auth/me')
     if (m.ok) {
-      setMe((await m.json()) as MeResponse)
-    } else {
+      const j = (await m.json()) as MeResponse
+      setMe((prev) => {
+        const sameUser = prev?.id === j.id
+        let avatar = typeof j.avatar_url === 'string' ? j.avatar_url.trim() : ''
+        if (!avatar) {
+          avatar = sameUser && prev?.avatar_url ? prev.avatar_url.trim() : ''
+        }
+        if (!avatar) {
+          const cached = readCachedPlayerAvatarUrl(j.id)
+          if (cached) avatar = cached
+        }
+        const merged: MeResponse = {
+          ...j,
+          ...(avatar ? { avatar_url: avatar } : {}),
+        }
+        if (merged.avatar_url) {
+          cachePlayerAvatarUrl(merged.id, merged.avatar_url)
+        }
+        return merged
+      })
+    } else if (m.status === 401) {
       setMe(null)
     }
     const bal = await apiFetch('/v1/wallet/balance')
@@ -241,6 +264,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     ): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
       let res: Response
       try {
+        const fpExtra = await getAuthFingerprintPayload()
         res = await playerFetch('/v1/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -248,6 +272,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             email,
             password,
             ...(captchaToken ? { captcha_token: captchaToken } : {}),
+            ...fpExtra,
           }),
         })
       } catch {
@@ -321,6 +346,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     }): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
       let res: Response
       try {
+        const fpExtra = await getAuthFingerprintPayload()
         res = await playerFetch('/v1/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -331,6 +357,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             accept_terms: input.acceptTerms,
             accept_privacy: input.acceptPrivacy,
             ...(input.captchaToken ? { captcha_token: input.captchaToken } : {}),
+            ...fpExtra,
           }),
         })
       } catch {

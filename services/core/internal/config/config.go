@@ -135,6 +135,11 @@ type Config struct {
 	WebAuthnRPID          string
 	WebAuthnRPDisplayName string
 	WebAuthnRPOrigins     []string
+	// Fingerprint Pro Server API (https://docs.fingerprint.com/reference/server-api-get-event) — Auth-API-Key; never exposed to clients.
+	FingerprintSecretAPIKey string
+	FingerprintAPIBaseURL   string
+	// WithdrawRequireFingerprint — when true, POST /v1/wallet/withdraw must include fingerprint_request_id (enforced before ledger).
+	WithdrawRequireFingerprint bool
 }
 
 // FystackDepositAssetCanonicalKeys are the standard on-chain deposit combinations we surface in admin UI.
@@ -364,6 +369,12 @@ func Load() (Config, error) {
 			}
 		}
 	}
+	c.FingerprintSecretAPIKey = strings.TrimSpace(os.Getenv("FINGERPRINT_SECRET_API_KEY"))
+	c.FingerprintAPIBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("FINGERPRINT_API_BASE_URL")), "/")
+	if c.FingerprintAPIBaseURL == "" {
+		c.FingerprintAPIBaseURL = "https://api.fpjs.io"
+	}
+	c.WithdrawRequireFingerprint = parseBoolEnv(os.Getenv("WITHDRAW_REQUIRE_FINGERPRINT"))
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
 	}
@@ -441,6 +452,14 @@ func (c *Config) FystackConfigured() bool {
 		return false
 	}
 	return c.FystackBaseURL != "" && c.FystackAPIKey != "" && c.FystackAPISecret != "" && c.FystackWorkspaceID != ""
+}
+
+// FingerprintConfigured is true when Server API secret is set (GET /events/{request_id} enrichment).
+func (c *Config) FingerprintConfigured() bool {
+	if c == nil {
+		return false
+	}
+	return strings.TrimSpace(c.FingerprintSecretAPIKey) != ""
 }
 
 // FystackWithdrawConfigured is true when treasury + asset are set for on-chain payouts.

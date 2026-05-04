@@ -11,6 +11,7 @@ import { formatCurrency } from '../lib/format'
 import { ApiResultSummary } from '../components/admin/ApiResultSummary'
 import { DefinitionTable, definitionValueBoolean, type DefinitionRow } from '../components/ops'
 import { humanFieldLabel } from '../lib/adminFormatting'
+import { flagEmoji } from '../lib/countryIsoList'
 
 type EconomicTimelineBalances = {
   cash_minor?: number
@@ -97,6 +98,37 @@ function objectToDefinitionRows(obj: unknown): DefinitionRow[] {
       value: formatFactsCell(v, k),
       mono: true,
     }))
+}
+
+type ActiveSessionFact = {
+  id?: string
+  last_seen_at?: string
+  client_ip?: string
+  country_iso2?: string
+  region?: string
+  city?: string
+  device_type?: string
+  user_agent?: string
+  fingerprint_visitor_id?: string
+  geo_source?: string
+  has_fingerprint_request?: boolean
+}
+
+function parseActiveSessions(facts: Record<string, unknown>): ActiveSessionFact[] {
+  const raw = facts.active_sessions
+  if (!Array.isArray(raw)) return []
+  return raw.filter((x) => x && typeof x === 'object') as ActiveSessionFact[]
+}
+
+function sessionLocationLine(s: ActiveSessionFact): string {
+  const parts = [s.city, s.region, s.country_iso2].map((x) => String(x ?? '').trim()).filter(Boolean)
+  return parts.length ? parts.join(' · ') : '—'
+}
+
+function shortUserAgent(ua: string | undefined): string {
+  const u = String(ua ?? '').trim()
+  if (!u) return '—'
+  return u.length > 64 ? `${u.slice(0, 61)}…` : u
 }
 
 function accountFactRows(facts: Record<string, unknown>): DefinitionRow[] {
@@ -466,6 +498,69 @@ export default function PlayerDetailPage() {
               <p className="text-secondary text-uppercase small fw-semibold mb-2">Risk summary</p>
               <DefinitionTable rows={objectToDefinitionRows(facts.risk_summary)} flush />
             </div>
+            {parseActiveSessions(facts as Record<string, unknown>).length > 0 ? (
+              <div>
+                <p className="text-secondary text-uppercase small fw-semibold mb-2">
+                  Active sessions (IP &amp; device mapping)
+                </p>
+                <p className="small text-secondary mb-2">
+                  From refresh-token sessions with edge geo and optional Fingerprint enrichment. Use alongside fraud tools for
+                  player ↔ location verification.
+                </p>
+                <div className={tableWrapClass}>
+                  <table className="table table-sm table-striped align-middle mb-0 text-nowrap">
+                    <thead>
+                      <tr>
+                        <th>Last seen</th>
+                        <th>IP</th>
+                        <th>Location</th>
+                        <th>Device</th>
+                        <th>FP visitor</th>
+                        <th>UA hint</th>
+                        <th>Geo src</th>
+                        <th>FP req</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parseActiveSessions(facts as Record<string, unknown>).map((s, i) => {
+                        const cc = String(s.country_iso2 ?? '').trim().toUpperCase()
+                        const loc = sessionLocationLine(s)
+                        const uaFull = s.user_agent ? String(s.user_agent) : ''
+                        return (
+                          <tr key={s.id ? String(s.id) : `sess-${i}`}>
+                            <td className="small">{s.last_seen_at ? String(s.last_seen_at) : '—'}</td>
+                            <td className="small font-monospace">{s.client_ip ? String(s.client_ip) : '—'}</td>
+                            <td className="small">
+                              {cc ? (
+                                <span title={loc}>
+                                  {flagEmoji(cc)} {loc}
+                                </span>
+                              ) : (
+                                loc
+                              )}
+                            </td>
+                            <td className="small text-wrap" style={{ maxWidth: 200 }}>
+                              {s.device_type ? String(s.device_type) : '—'}
+                            </td>
+                            <td className="small font-monospace text-wrap" style={{ maxWidth: 220 }}>
+                              {s.fingerprint_visitor_id ? String(s.fingerprint_visitor_id) : '—'}
+                            </td>
+                            <td className="small text-wrap" style={{ maxWidth: 280 }} title={uaFull || undefined}>
+                              {shortUserAgent(s.user_agent)}
+                            </td>
+                            <td className="small">{s.geo_source ? String(s.geo_source) : '—'}</td>
+                            <td className="small">{s.has_fingerprint_request ? 'yes' : '—'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="small text-secondary mt-2 mb-0">
+                  User-agent detail: expand compliance export or correlate with traffic_sessions when investigating.
+                </p>
+              </div>
+            ) : null}
             {accountFactRows(facts as Record<string, unknown>).length > 0 ? (
               <div>
                 <p className="text-secondary text-uppercase small fw-semibold mb-2">Account</p>

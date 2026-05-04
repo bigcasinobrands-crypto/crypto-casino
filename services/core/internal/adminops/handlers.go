@@ -11,6 +11,7 @@ import (
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/chat"
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -19,12 +20,13 @@ import (
 )
 
 type Handler struct {
-	Pool    *pgxpool.Pool
-	BOG     *blueocean.Client
-	Cfg     *config.Config
-	Redis   *redis.Client
-	Fystack *fystack.Client
-	ChatHub *chat.Hub
+	Pool        *pgxpool.Pool
+	BOG         *blueocean.Client
+	Cfg         *config.Config
+	Redis       *redis.Client
+	Fystack     *fystack.Client
+	Fingerprint *fingerprint.Client
+	ChatHub     *chat.Hub
 }
 
 func (h *Handler) Mount(r chi.Router) {
@@ -64,6 +66,8 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Post("/integrations/blueocean/sync-catalog", h.SyncBlueOceanCatalog)
 	r.Get("/integrations/blueocean/status", h.BlueOceanStatus)
 	r.Get("/system/operational-flags", h.OperationalFlags)
+	r.Get("/ops/risk-assessments", h.ListRiskAssessments)
+	r.Get("/ops/reconciliation-alerts", h.ListReconciliationAlerts)
 	r.Get("/ops/summary", h.OpsSummary)
 	r.Get("/ops/fystack-webhook-deliveries", h.ListFystackWebhookDeliveries)
 	r.Get("/ops/payment-flags", h.GetPaymentFlags)
@@ -86,6 +90,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/dashboard/casino-analytics", h.DashboardCasinoAnalytics)
 	r.Get("/dashboard/crypto-chain-summary", h.DashboardCryptoChainSummary)
 	r.Get("/analytics/traffic", h.TrafficAnalytics)
+	r.Get("/analytics/finance-geo", h.FinanceGeoAnalytics)
 	r.Get("/games/{id}/rtp-stats", h.GameRTPStats)
 	r.Get("/audit-log", h.AuditLog)
 	r.Get("/search", h.SearchAdmin)

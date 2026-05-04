@@ -171,25 +171,28 @@ func buildTrafficAnalyticsFromDB(ctx context.Context, pool *pgxpool.Pool, start,
 		Referrers:       []ReferrerRow{},
 		UTMCampaigns:    []UTMCampaignRow{},
 		LandingPages:    []LandingPageRow{},
-		Notes:           "Figures are derived from player-site sessions recorded via POST /v1/analytics/session.",
+		Notes:           "Sessions from POST /v1/analytics/session. Country uses X-Geo-Country when present; otherwise Fingerprint IP geolocation when the player sends fingerprint_request_id and the API has FINGERPRINT_SECRET_API_KEY. Unique visitors dedupe by fingerprint_visitor_id when set.",
 	}
 
 	var sessionsTotal int64
 	var anonSessions int64
+	var uniqueVisitors int64
 	var avgSec *float64
 	err := pool.QueryRow(ctx, `
+WITH ts AS (
+  SELECT * FROM traffic_sessions WHERE started_at >= $1 AND started_at < $2
+)
 SELECT
-  COUNT(*)::bigint,
-  COUNT(*) FILTER (WHERE user_id IS NULL)::bigint,
-  AVG(GREATEST(EXTRACT(EPOCH FROM (last_at - started_at)), 0))::float8
-FROM traffic_sessions
-WHERE started_at >= $1 AND started_at < $2
-`, start, end).Scan(&sessionsTotal, &anonSessions, &avgSec)
+  (SELECT COUNT(*)::bigint FROM ts),
+  (SELECT COUNT(*) FILTER (WHERE user_id IS NULL)::bigint FROM ts),
+  (SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(fingerprint_visitor_id), ''), session_key::text))::bigint FROM ts),
+  (SELECT AVG(GREATEST(EXTRACT(EPOCH FROM (last_at - started_at)), 0))::float8 FROM ts)
+`, start, end).Scan(&sessionsTotal, &anonSessions, &uniqueVisitors, &avgSec)
 	if err != nil {
 		return out, err
 	}
 	out.SessionsTotal = sessionsTotal
-	out.UniqueVisitors = sessionsTotal
+	out.UniqueVisitors = uniqueVisitors
 	if sessionsTotal > 0 {
 		out.NewVisitorsPct = 100 * float64(anonSessions) / float64(sessionsTotal)
 	}
