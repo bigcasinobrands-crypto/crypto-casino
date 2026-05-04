@@ -429,11 +429,9 @@ function ProviderSection({ providers, showSkeletons }: { providers: ProviderAgg[
 type LobbyHomeSectionsProps = {
   /** When operational `/health/operational` reports a new catalog sync time, refetch tiles (new thumb_rev / URLs). */
   catalogSyncAt?: string | null
-  /** First dashboard-home bundle finished loading — dismisses full-screen initial loader (once per tab session). */
-  onHomeContentReady?: () => void
 }
 
-const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt, onHomeContentReady }) => {
+const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
   const location = useLocation()
   const lastVisFetchAt = useRef(0)
 
@@ -447,9 +445,8 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt, onHomeCo
   const [providers, setProviders] = useState<ProviderAgg[]>([])
   const [visRefresh, setVisRefresh] = useState(0)
   const [homeRowsReady, setHomeRowsReady] = useState(false)
-  const bootReadySent = useRef(false)
-  const onReadyRef = useRef(onHomeContentReady)
-  onReadyRef.current = onHomeContentReady
+  /** Studio strip aggregates from a heavier `limit=200` fetch — tracked separately so game rows can resolve first. */
+  const [providersReady, setProvidersReady] = useState(false)
 
   useEffect(() => {
     const onVis = () => {
@@ -465,17 +462,18 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt, onHomeCo
 
   useEffect(() => {
     let cancel = false
+    setHomeRowsReady(false)
+    setProvidersReady(false)
     void (async () => {
       const lim = String(HOME_FETCH_LIMIT)
-      const [f, s, n, l, b, bulk] = await Promise.all([
+      const [f, s, n, l, b, hotBack] = await Promise.all([
         fetchGames(`integration=blueocean&featured=1&limit=${lim}`),
         fetchGames(`integration=blueocean&category=slots&limit=${lim}`),
         fetchGames(`integration=blueocean&category=new&limit=${lim}`),
         fetchGames(`integration=blueocean&category=live&limit=${lim}`),
         fetchGames(`integration=blueocean&category=bonus-buys&limit=${lim}`),
-        fetchGames('integration=blueocean&limit=200&sort=provider'),
+        fetchGames(`integration=blueocean&limit=${lim}&sort=new`),
       ])
-      const hotBack = await fetchGames(`integration=blueocean&limit=${lim}&sort=new`)
       if (cancel) return
       setFeatured(dedupeGamesById(f))
       setHotFallback(dedupeGamesById(hotBack))
@@ -483,13 +481,12 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt, onHomeCo
       setNewRel(dedupeGamesById(n))
       setLive(dedupeGamesById(l))
       setBonus(dedupeGamesById(b))
-      setProviders(aggregateProviders(dedupeGamesById(bulk)))
       setHomeRowsReady(true)
-      const cb = onReadyRef.current
-      if (cb && !bootReadySent.current) {
-        bootReadySent.current = true
-        cb()
-      }
+
+      const bulk = await fetchGames('integration=blueocean&limit=200&sort=provider')
+      if (cancel) return
+      setProviders(aggregateProviders(dedupeGamesById(bulk)))
+      setProvidersReady(true)
     })()
     return () => {
       cancel = true
@@ -508,7 +505,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt, onHomeCo
         showSkeletons={showSkeletons}
       />
       <GameSection title="Slots" viewAllTo="/casino/slots" games={slots} showSkeletons={showSkeletons} />
-      <ProviderSection providers={providers} showSkeletons={showSkeletons} />
+      <ProviderSection providers={providers} showSkeletons={!providersReady} />
       <GameSection title="New releases" viewAllTo="/casino/new" games={newRel} showSkeletons={showSkeletons} />
       <GameSection title="Live casino" viewAllTo="/casino/live" games={live} showSkeletons={showSkeletons} />
       <GameSection title="Bonus buys" viewAllTo="/casino/bonus-buys" games={bonus} showSkeletons={showSkeletons} />

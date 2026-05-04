@@ -295,6 +295,11 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     if (!isDashboardHome) completeInitialLoad()
   }, [isDashboardHome, completeInitialLoad])
 
+  /** Dashboard home: hide boot overlay as soon as shell lays out — rows keep skeletons until LobbyHomeSections fetch completes. */
+  useLayoutEffect(() => {
+    if (isDashboardHome) completeInitialLoad()
+  }, [isDashboardHome, completeInitialLoad])
+
   useEffect(() => {
     if (!sectionValid) return
     if (sec === 'challenges') {
@@ -455,10 +460,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
       <div className="player-casino-max min-w-0 shrink-0 px-4 pb-12 pt-3 sm:px-5 sm:pt-4 md:px-6 lg:px-8">
         <PromoHero />
         <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
-        <LobbyHomeSections
-          catalogSyncAt={operationalData?.last_catalog_sync_at}
-          onHomeContentReady={completeInitialLoad}
-        />
+        <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
       </div>
     )
   }

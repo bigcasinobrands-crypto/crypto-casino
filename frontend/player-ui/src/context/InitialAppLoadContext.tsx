@@ -67,8 +67,8 @@ export function useCompleteInitialLoad(): () => void {
 }
 
 /**
- * Casino catalog lives under `/casino/:section` (LobbyPage). Those routes own boot completion.
- * Everywhere else, finish the initial full-screen load as soon as the shell renders that route.
+ * Casino dashboard home (`/casino/games`) clears the overlay in LobbyPage once the shell lays out;
+ * non-catalog routes clear via BootNonLobbyRoutes.
  */
 export function BootNonLobbyRoutes(): null {
   const { pathname } = useLocation()
