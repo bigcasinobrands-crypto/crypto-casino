@@ -24,6 +24,8 @@ func sessionPersistFromPg(err error) string {
 		return "Postgres: permission denied (42501). The DB user cannot INSERT into player_sessions — use the Supabase direct connection URI role (often postgres + db.*.supabase.co:5432), not a restricted pooler role."
 	case "23505": // unique_violation
 		return "Postgres: unique constraint violation (23505) on session insert — retry sign-in. If it persists, check deploy logs."
+	case "23502": // not_null_violation (often NULL passed where NOT NULL '' expected)
+		return "Postgres: NOT NULL violation (23502). Usually fixed by deploying latest Core — empty fingerprint/geo fields must insert '' not NULL."
 	default:
 		if msg != "" {
 			return fmt.Sprintf("Postgres error %s: %s", pe.Code, msg)

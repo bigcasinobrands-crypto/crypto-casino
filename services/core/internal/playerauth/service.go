@@ -207,6 +207,8 @@ func (s *Service) issueSession(ctx context.Context, userID string, sc *SessionCo
 	}
 	expT := time.Now().UTC().Add(refreshTTL)
 	cip, ua, fvid, frid, cc, reg, city, dev, gsrc := s.sessionFields(ctx, sc)
+	// Do not use NULLIF($n,'') for these columns: in Postgres NULLIF('','') is NULL, but migration 00063
+	// defines fingerprint_* and geo columns as NOT NULL DEFAULT '' — inserting NULL violates 23502.
 	_, err = s.Pool.Exec(ctx, `
 		INSERT INTO player_sessions (
 			user_id, refresh_token_hash, expires_at, family_id,
@@ -214,8 +216,7 @@ func (s *Service) issueSession(ctx context.Context, userID string, sc *SessionCo
 			country_iso2, region, city, device_type, geo_source, last_seen_at
 		)
 		VALUES ($1::uuid, $2, $3, gen_random_uuid(),
-			NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''),
-			NULLIF($8,''), NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), NULLIF($12,''), now())
+			$4, $5, $6, $7, $8, $9, $10, $11, $12, now())
 	`, userID, hashHex, expT, cip, ua, fvid, frid, cc, reg, city, dev, gsrc)
 	if err != nil {
 		log.Printf("playerauth: player_sessions insert failed: %v", err)
@@ -271,8 +272,7 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string, sc *SessionC
 			country_iso2, region, city, device_type, geo_source, last_seen_at
 		)
 		VALUES ($1::uuid, $2, $3, $4::uuid,
-			NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''),
-			NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), NULLIF($12,''), NULLIF($13,''), now())
+			$5, $6, $7, $8, $9, $10, $11, $12, $13, now())
 	`, uid, nh, time.Now().UTC().Add(refreshTTL), fam, cip, ua, fvid, frid, cc, reg, city, dev, gsrc)
 	if err != nil {
 		log.Printf("playerauth: player_sessions refresh insert failed: %v", err)
