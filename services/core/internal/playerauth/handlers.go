@@ -30,6 +30,9 @@ func sessionPersistUserMsg(err error, refresh bool) string {
 	if err == nil {
 		return intro + "See deploy logs."
 	}
+	if pg := sessionPersistFromPg(err); pg != "" {
+		return intro + pg
+	}
 	l := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(l, "does not exist") && strings.Contains(l, "column"),
@@ -47,7 +50,7 @@ func sessionPersistUserMsg(err error, refresh bool) string {
 	case strings.Contains(l, "connection refused") || strings.Contains(l, "no such host") || strings.Contains(l, "timeout") && strings.Contains(l, "dial") || strings.Contains(l, "tls") || strings.Contains(l, "ssl") && strings.Contains(l, "handshake"):
 		return intro + "Database connection failed — verify DATABASE_URL host/port, `?sslmode=require` for Supabase, and that Render can reach the DB (not blocked). See deploy logs."
 	default:
-		return intro + "Check Render Core logs for the line `playerauth: login session persist:` (full Postgres/JWT error). Usual fixes: run supabase-player-sessions-fix.sql in Supabase; set DATABASE_URL to `db.*.supabase.co:5432/...?sslmode=require`; unset SKIP_DB_MIGRATIONS_ON_START; ensure a player `users` row exists (use Register if needed)."
+		return intro + "See Render logs for `playerauth: login session persist:` — usual causes: migrations not on production DB, wrong DATABASE_URL, JWT RSA keys missing for prod, or sign-in with an admin-only email (use Register to create a player account)."
 	}
 }
 
