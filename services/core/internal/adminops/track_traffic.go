@@ -105,6 +105,11 @@ func (h *Handler) IngestTrafficSession(w http.ResponseWriter, r *http.Request) {
 	fpRid := truncateRunes(body.FingerprintRequestID, 128)
 	fpVid := truncateRunes(body.FingerprintVisitorID, 128)
 
+	if h.Cfg != nil && h.Cfg.RequireFingerprintPlayerAuth && strings.TrimSpace(fpRid) == "" {
+		playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "fingerprint_request_id required for traffic analytics")
+		return
+	}
+
 	var userID *uuid.UUID
 	if s, ok := playerapi.UserIDFromContext(r.Context()); ok {
 		if u, err := uuid.Parse(s); err == nil {

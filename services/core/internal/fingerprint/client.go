@@ -40,7 +40,8 @@ func (c *Client) Configured() bool {
 	return c != nil && strings.TrimSpace(c.Secret) != ""
 }
 
-// GetEvent returns the raw JSON event for requestID (path parameter).
+// GetEvent returns the raw JSON event for requestID (URL path segment).
+// The browser agent exposes this value as requestId (v3 SDK) or event_id (v4 agent); Server API accepts the same identifier.
 func (c *Client) GetEvent(ctx context.Context, requestID string) (map[string]any, error) {
 	if !c.Configured() {
 		return nil, fmt.Errorf("fingerprint: client not configured")

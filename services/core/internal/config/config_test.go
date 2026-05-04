@@ -58,3 +58,21 @@ func TestValidateProduction_requiresRSAOrEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidateProduction_requiresFingerprintSecretWhenMandatory(t *testing.T) {
+	c := &Config{
+		AppEnv:                       "production",
+		JWTSecret:                    strings.Repeat("y", 32),
+		RedisURL:                     "redis://localhost:6379",
+		JWTRSAKeyFile:                "/path/to/key.pem",
+		RequireFingerprintPlayerAuth: true,
+		FingerprintSecretAPIKey:       "",
+	}
+	if err := c.ValidateProduction(); err == nil {
+		t.Fatal("expected error when mandatory fingerprint lacks FINGERPRINT_SECRET_API_KEY")
+	}
+	c.FingerprintSecretAPIKey = "fp_secret"
+	if err := c.ValidateProduction(); err != nil {
+		t.Fatal(err)
+	}
+}

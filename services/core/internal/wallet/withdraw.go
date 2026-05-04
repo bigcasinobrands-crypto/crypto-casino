@@ -55,8 +55,8 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, fs *fystack.Client,
 			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "amount and destination required")
 			return
 		}
-		if cfg != nil && cfg.WithdrawRequireFingerprint && strings.TrimSpace(body.FingerprintRequestID) == "" {
-			playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "identification is required for this withdrawal")
+		if cfg != nil && (cfg.WithdrawRequireFingerprint || cfg.RequireFingerprintPlayerAuth) && strings.TrimSpace(body.FingerprintRequestID) == "" {
+			playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "fingerprint_request_id required for withdrawals")
 			return
 		}
 		ccy := strings.ToUpper(strings.TrimSpace(body.Currency))

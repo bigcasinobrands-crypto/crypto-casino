@@ -139,12 +139,16 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       clearSession()
       return false
     }
-    const fpExtra = await getAuthFingerprintPayload()
+    const fpRes = await getAuthFingerprintPayload()
+    if (!fpRes.ok) {
+      clearSession()
+      return false
+    }
     const base = rt ? { refresh_token: rt } : {}
     const res = await playerFetch('/v1/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...base, ...fpExtra }),
+      body: JSON.stringify({ ...base, ...fpRes.extra }),
     })
     if (!res.ok) {
       clearSession()
@@ -264,7 +268,17 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     ): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
       let res: Response
       try {
-        const fpExtra = await getAuthFingerprintPayload()
+        const fpRes = await getAuthFingerprintPayload()
+        if (!fpRes.ok) {
+          return {
+            ok: false,
+            error: {
+              code: 'fingerprint_required',
+              status: 400,
+              message: fpRes.message,
+            },
+          }
+        }
         res = await playerFetch('/v1/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -272,7 +286,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             email,
             password,
             ...(captchaToken ? { captcha_token: captchaToken } : {}),
-            ...fpExtra,
+            ...fpRes.extra,
           }),
         })
       } catch {
@@ -346,7 +360,17 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     }): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
       let res: Response
       try {
-        const fpExtra = await getAuthFingerprintPayload()
+        const fpRes = await getAuthFingerprintPayload()
+        if (!fpRes.ok) {
+          return {
+            ok: false,
+            error: {
+              code: 'fingerprint_required',
+              status: 400,
+              message: fpRes.message,
+            },
+          }
+        }
         res = await playerFetch('/v1/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -357,7 +381,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             accept_terms: input.acceptTerms,
             accept_privacy: input.acceptPrivacy,
             ...(input.captchaToken ? { captcha_token: input.captchaToken } : {}),
-            ...fpExtra,
+            ...fpRes.extra,
           }),
         })
       } catch {

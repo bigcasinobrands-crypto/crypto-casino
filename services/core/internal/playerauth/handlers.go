@@ -61,7 +61,7 @@ type regReq struct {
 	AcceptTerms   bool   `json:"accept_terms"`
 	AcceptPrivacy bool   `json:"accept_privacy"`
 	CaptchaToken  string `json:"captcha_token"`
-	// Fingerprint Pro (optional) — enriches player_sessions for admin + Settings.
+	// Fingerprint Pro — required when RequireFingerprintPlayerAuth (default).
 	FingerprintRequestID string `json:"fingerprint_request_id"`
 	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
 }
@@ -119,10 +119,25 @@ func sessionContextFromRequest(r *http.Request, fpReq, fpVid string) *SessionCon
 	}
 }
 
+// rejectIfFingerprintMissing writes 400 fingerprint_required and returns true when the request must be stopped.
+func (h *Handler) rejectIfFingerprintMissing(w http.ResponseWriter, fpReqID string) bool {
+	if h.CookieCfg == nil || !h.CookieCfg.RequireFingerprintPlayerAuth {
+		return false
+	}
+	if strings.TrimSpace(fpReqID) != "" {
+		return false
+	}
+	playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "fingerprint_request_id is required. Use the player app with Fingerprint Pro (VITE_FINGERPRINT_PUBLIC_KEY) and allow identification to complete before sign-in.")
+	return true
+}
+
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var body regReq
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	if h.rejectIfFingerprintMissing(w, body.FingerprintRequestID) {
 		return
 	}
 	if h.Captcha != nil && h.Captcha.Required() {
@@ -175,6 +190,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
 		return
 	}
+	if h.rejectIfFingerprintMissing(w, body.FingerprintRequestID) {
+		return
+	}
 	if h.Captcha != nil && h.Captcha.Required() {
 		if err := h.Captcha.Verify(r.Context(), body.CaptchaToken, requestIP(r)); err != nil {
 			playerapi.WriteError(w, http.StatusBadRequest, "captcha_failed", "captcha verification failed")
@@ -209,6 +227,9 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	rt := strings.TrimSpace(body.RefreshToken)
 	if rt == "" && h.CookieCfg != nil && h.CookieCfg.PlayerCookieAuth {
 		rt = playercookies.RefreshFromCookie(r)
+	}
+	if h.rejectIfFingerprintMissing(w, body.FingerprintRequestID) {
+		return
 	}
 	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
 	access, refresh, exp, err := h.Svc.Refresh(r.Context(), rt, sc)

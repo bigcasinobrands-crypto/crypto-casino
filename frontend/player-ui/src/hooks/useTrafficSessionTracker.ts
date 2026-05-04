@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import {
   FINGERPRINT_TRAFFIC_TIMEOUT_MS,
   getIdentificationWithTimeout,
+  isFingerprintEnabled,
 } from '../lib/fingerprintClient'
 import { playerFetch } from '../lib/playerFetch'
 
@@ -60,6 +61,8 @@ export function useTrafficSessionTracker(
 
     void (async () => {
       const fp = await getIdentificationWithTimeout(FINGERPRINT_TRAFFIC_TIMEOUT_MS)
+      // Production API requires fingerprint_request_id when REQUIRE_FINGERPRINT_PLAYER_AUTH — skip beacon until identification succeeds (next navigation retries).
+      if (isFingerprintEnabled() && !fp?.requestId) return
       const body: Record<string, unknown> = {
         session_key: browserSessionKey(),
         path: pathWithSearch,

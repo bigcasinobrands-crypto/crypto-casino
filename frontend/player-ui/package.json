@@ -21,7 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@fingerprintjs/fingerprintjs-pro": "^3.12.9",
+    "@fingerprint/react": "^3.0.0",
     "@repo/cross-app": "*",
     "@repo/design-tokens": "*",
     "dompurify": "^3.4.2",

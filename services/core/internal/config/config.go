@@ -138,6 +138,8 @@ type Config struct {
 	// Fingerprint Pro Server API (https://docs.fingerprint.com/reference/server-api-get-event) — Auth-API-Key; never exposed to clients.
 	FingerprintSecretAPIKey string
 	FingerprintAPIBaseURL   string
+	// RequireFingerprintPlayerAuth — when true (default), login/register/refresh and traffic ingest require fingerprint_request_id; production also requires FINGERPRINT_SECRET_API_KEY.
+	RequireFingerprintPlayerAuth bool
 	// WithdrawRequireFingerprint — when true, POST /v1/wallet/withdraw must include fingerprint_request_id (enforced before ledger).
 	WithdrawRequireFingerprint bool
 }
@@ -371,6 +373,7 @@ func Load() (Config, error) {
 	}
 	c.FingerprintSecretAPIKey = strings.TrimSpace(os.Getenv("FINGERPRINT_SECRET_API_KEY"))
 	c.FingerprintAPIBaseURL = normalizeFingerprintBaseURL(os.Getenv("FINGERPRINT_API_BASE_URL"))
+	c.RequireFingerprintPlayerAuth = parseBoolEnvDefaultTrue(os.Getenv("REQUIRE_FINGERPRINT_PLAYER_AUTH"))
 	c.WithdrawRequireFingerprint = parseBoolEnv(os.Getenv("WITHDRAW_REQUIRE_FINGERPRINT"))
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
@@ -418,6 +421,9 @@ func (c *Config) ValidateProduction() error {
 	}
 	if strings.TrimSpace(c.JWTRSAKeyFile) == "" && !c.AllowJWTHS256InProduction {
 		return fmt.Errorf("APP_ENV=production: JWT_RSA_PRIVATE_KEY_FILE is required (HS256-only production is blocked; set ALLOW_JWT_HS256_IN_PRODUCTION=true only as a temporary migration escape hatch)")
+	}
+	if c.RequireFingerprintPlayerAuth && !c.FingerprintConfigured() {
+		return fmt.Errorf("APP_ENV=production: REQUIRE_FINGERPRINT_PLAYER_AUTH needs FINGERPRINT_SECRET_API_KEY (Fingerprint Server API) for identification enrichment and risk signals")
 	}
 	return nil
 }
@@ -502,6 +508,21 @@ func (c *Config) FystackCheckoutAssetList() []string {
 func parseBoolEnv(s string) bool {
 	s = strings.TrimSpace(strings.ToLower(s))
 	return s == "1" || s == "true" || s == "yes"
+}
+
+// parseBoolEnvDefaultTrue is used for security defaults: empty env → true; explicit false/0/no → false.
+func parseBoolEnvDefaultTrue(s string) bool {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return true
+	}
+	if s == "0" || s == "false" || s == "no" {
+		return false
+	}
+	if s == "1" || s == "true" || s == "yes" {
+		return true
+	}
+	return true
 }
 
 func parseIntEnv(s string, defaultVal int64) int64 {

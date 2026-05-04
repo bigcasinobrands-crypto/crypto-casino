@@ -35,6 +35,32 @@ func TestTrafficEnrichment_geoAndDevice(t *testing.T) {
 	}
 }
 
+func TestTrafficEnrichment_v4FlatShape(t *testing.T) {
+	root := map[string]any{
+		"event_id": "e1",
+		"browser_details": map[string]any{
+			"device": "tablet",
+		},
+		"identification": map[string]any{
+			"visitor_id": "v1",
+		},
+		"ip_info": map[string]any{
+			"v4": map[string]any{
+				"geolocation": map[string]any{
+					"country_code": "CA",
+				},
+			},
+		},
+	}
+	cc, dev := TrafficEnrichment(root)
+	if cc != "CA" {
+		t.Fatalf("country: %q", cc)
+	}
+	if dev != "tablet" {
+		t.Fatalf("device: %q", dev)
+	}
+}
+
 func TestDeviceTypeFromEvent_desktopOther(t *testing.T) {
 	root := map[string]any{
 		"products": map[string]any{
