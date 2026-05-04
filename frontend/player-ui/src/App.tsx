@@ -1,5 +1,5 @@
 import { installPlayerCrossAppBridge } from '@repo/cross-app'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
 import {
@@ -608,12 +608,19 @@ function HeaderAccount() {
 }
 
 function HeaderProfileIcon() {
-  const { isAuthenticated, me } = usePlayerAuth()
+  const { isAuthenticated, me, avatarUrlRevision } = usePlayerAuth()
   const [avatarBroken, setAvatarBroken] = useState(false)
-  const avatarSrc = me?.avatar_url ? playerApiUrl(me.avatar_url) : null
+  const avatarSrc = useMemo(() => {
+    const raw = me?.avatar_url?.trim()
+    if (!raw) return null
+    const base = playerApiUrl(raw)
+    if (avatarUrlRevision <= 0) return base
+    const sep = base.includes('?') ? '&' : '?'
+    return `${base}${sep}v=${avatarUrlRevision}`
+  }, [me?.avatar_url, avatarUrlRevision])
   useEffect(() => {
     setAvatarBroken(false)
-  }, [me?.avatar_url])
+  }, [me?.avatar_url, avatarUrlRevision])
   if (!isAuthenticated) return null
   const label = me?.username ?? me?.email ?? 'Profile'
   const vip = me?.vip_tier?.trim()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { toast } from 'sonner'
@@ -39,11 +39,24 @@ import { getFingerprintForAction } from '../lib/fingerprintClient'
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { useVipStatus } from '../hooks/useVipStatus'
 import { useVipProgram } from '../hooks/useVipProgram'
-import { cachePlayerAvatarUrl } from '../lib/avatarCache'
+import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { mergeTierPresentation } from '../lib/vipPresentation'
 
 const supportUrl = import.meta.env.VITE_SUPPORT_URL as string | undefined
 const rgUrl = import.meta.env.VITE_RG_URL as string | undefined
+
+/** Absolute avatar URL for `<img src>`; optional revision avoids stale cache after upload. */
+function playerAvatarDisplaySrc(
+  avatarPath: string | undefined | null,
+  revision: number,
+): string | null {
+  const p = typeof avatarPath === 'string' ? avatarPath.trim() : ''
+  if (!p) return null
+  const base = playerApiUrl(p)
+  if (revision <= 0) return base
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}v=${revision}`
+}
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -311,9 +324,9 @@ function usePlayerStats(): { stats: PlayerStats; loading: boolean } {
     }
 
     let cancelled = false
+    setLoading(true)
 
     const load = async () => {
-      setLoading(true)
       try {
         const res = await apiFetch('/v1/wallet/stats')
         if (!res.ok) {
@@ -712,44 +725,48 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto w-full max-w-[1160px] space-y-6 px-5 py-6 sm:px-6 md:px-8 md:py-8">
-      {/* Profile Header */}
-      <div className="flex flex-col gap-6 rounded-casino-lg bg-casino-card p-5 sm:p-7 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-5 sm:gap-6">
-          <AvatarUpload userId={me?.id} avatarUrl={me?.avatar_url} onUploaded={refreshProfile} />
-          <div className="flex flex-col gap-1.5">
-            <h1 className="text-xl font-black leading-none text-casino-foreground sm:text-2xl">
-              {displayName}
-            </h1>
-            {joinDate && (
-              <span className="text-sm font-semibold text-casino-muted">Joined {joinDate}</span>
-            )}
-            <div className="mt-1.5 flex flex-wrap gap-2">
-              {me?.email_verified ? (
-                <span className="rounded-casino-sm bg-casino-success/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-success">
-                  Verified
-                </span>
-              ) : (
-                <span className="rounded-casino-sm bg-casino-warning/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-warning">
-                  Unverified
-                </span>
+      {/* Profile Header — avatar + name grouped left; VIP panel right (md+) / below on narrow */}
+      <div className="rounded-casino-lg bg-casino-card p-5 sm:p-7">
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between md:gap-6 lg:gap-10">
+          <div className="flex min-w-0 flex-1 flex-row items-start gap-3 sm:gap-5">
+            <div className="shrink-0">
+              <AvatarUpload userId={me?.id} avatarUrl={me?.avatar_url} onUploaded={refreshProfile} />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <h1 className="text-xl font-black leading-none text-casino-foreground sm:text-2xl">
+                {displayName}
+              </h1>
+              {joinDate && (
+                <span className="text-sm font-semibold text-casino-muted">Joined {joinDate}</span>
               )}
-              {me?.vip_tier ? (
-                <Link
-                  to="/vip"
-                  className="inline-flex items-center gap-1 rounded-casino-sm bg-casino-primary/20 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-primary ring-1 ring-casino-primary/35 transition hover:bg-casino-primary/30"
-                >
-                  {currentVipTierImage ? (
-                    <img src={currentVipTierImage} alt={me.vip_tier} className="h-4 w-4 rounded-full object-cover" />
-                  ) : (
-                    <IconCrown size={12} aria-hidden />
-                  )}
-                  VIP · {me.vip_tier}
-                </Link>
-              ) : null}
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {me?.email_verified ? (
+                  <span className="rounded-casino-sm bg-casino-success/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-success">
+                    Verified
+                  </span>
+                ) : (
+                  <span className="rounded-casino-sm bg-casino-warning/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-warning">
+                    Unverified
+                  </span>
+                )}
+                {me?.vip_tier ? (
+                  <Link
+                    to="/vip"
+                    className="inline-flex items-center gap-1 rounded-casino-sm bg-casino-primary/20 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-primary ring-1 ring-casino-primary/35 transition hover:bg-casino-primary/30"
+                  >
+                    {currentVipTierImage ? (
+                      <img src={currentVipTierImage} alt={me.vip_tier} className="h-4 w-4 rounded-full object-cover" />
+                    ) : (
+                      <IconCrown size={12} aria-hidden />
+                    )}
+                    VIP · {me.vip_tier}
+                  </Link>
+                ) : null}
+              </div>
             </div>
           </div>
+          <VipProgressPanel className="w-full shrink-0 md:w-[min(280px,36vw)] md:max-w-sm lg:w-72" />
         </div>
-        <VipProgressPanel />
       </div>
 
       {/* Stats Grid */}
@@ -889,120 +906,224 @@ function AvatarUpload({
 }: {
   userId?: string
   avatarUrl?: string
-  onUploaded: () => void
+  onUploaded: () => void | Promise<void>
 }) {
-  const { apiFetch } = usePlayerAuth()
+  const { apiFetch, setAvatarUrl, avatarUrlRevision } = usePlayerAuth()
+  const modalTitleId = useId()
   const fileRef = useRef<HTMLInputElement>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [pendingPreview, setPendingPreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [imgFail, setImgFail] = useState(false)
 
-  const resolvedAvatar = previewUrl ?? (avatarUrl ? playerApiUrl(avatarUrl) : null)
+  const headerAvatarSrc = playerAvatarDisplaySrc(avatarUrl, avatarUrlRevision)
+  const modalPreviewSrc =
+    pendingPreview ?? playerAvatarDisplaySrc(avatarUrl, avatarUrlRevision)
 
   useEffect(() => {
     setImgFail(false)
-  }, [resolvedAvatar])
+  }, [headerAvatarSrc])
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  const revokePendingPreview = useCallback(() => {
+    setPendingPreview((prev) => {
+      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+      return null
+    })
+    setPendingFile(null)
+  }, [])
+
+  const closeModal = useCallback(() => {
+    revokePendingPreview()
+    setError(null)
+    setModalOpen(false)
+  }, [revokePendingPreview])
+
+  useEffect(() => {
+    if (!modalOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeModal()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [modalOpen, closeModal])
+
+  const pickFile = useCallback(
+    (file: File) => {
       const maxSize = 2 * 1024 * 1024
       if (file.size > maxSize) {
         setError('File must be under 2 MB')
         return
       }
       setError(null)
-
+      revokePendingPreview()
       const preview = URL.createObjectURL(file)
-      setPreviewUrl(preview)
-      setUploading(true)
-
-      try {
-        const form = new FormData()
-        form.append('avatar', file)
-        const res = await apiFetch('/v1/auth/profile/avatar', {
-          method: 'POST',
-          body: form,
-        })
-        if (res.ok) {
-          const j = (await res.json().catch(() => null)) as { avatar_url?: string } | null
-          if (j?.avatar_url?.trim() && userId) {
-            cachePlayerAvatarUrl(userId, j.avatar_url.trim())
-          }
-          if (preview.startsWith('blob:')) {
-            URL.revokeObjectURL(preview)
-          }
-          setPreviewUrl(null)
-          onUploaded()
-          toast.success('Profile picture saved', {
-            description: playerApiOriginConfigured()
-              ? 'Your new photo is stored on your account.'
-              : 'Your new photo is stored. If the image does not show, set VITE_PLAYER_API_ORIGIN (or meta player-api-origin) to your API URL and redeploy.',
-          })
-        } else {
-          const j = (await res.json().catch(() => null)) as { message?: string } | null
-          setError(j?.message ?? 'Upload failed')
-          if (preview.startsWith('blob:')) {
-            URL.revokeObjectURL(preview)
-          }
-          setPreviewUrl(null)
-        }
-      } catch {
-        setError('Network error')
-        if (preview.startsWith('blob:')) {
-          URL.revokeObjectURL(preview)
-        }
-        setPreviewUrl(null)
-      } finally {
-        setUploading(false)
-      }
+      setPendingFile(file)
+      setPendingPreview(preview)
     },
-    [apiFetch, onUploaded, userId],
+    [revokePendingPreview],
   )
+
+  const saveAvatar = useCallback(async () => {
+    if (!pendingFile || !userId) {
+      setError('Choose an image first.')
+      return
+    }
+    setError(null)
+    setUploading(true)
+    const file = pendingFile
+    try {
+      const form = new FormData()
+      form.append('avatar', file)
+      const res = await apiFetch('/v1/auth/profile/avatar', {
+        method: 'POST',
+        body: form,
+      })
+      if (res.ok) {
+        const j = (await res.json().catch(() => null)) as { avatar_url?: string } | null
+        const path = j?.avatar_url?.trim()
+        if (path) {
+          setAvatarUrl(path)
+        }
+        closeModal()
+        await onUploaded()
+        toast.success('Profile picture saved', {
+          description: playerApiOriginConfigured()
+            ? 'Your new photo is stored on your account.'
+            : 'Your new photo is stored. If the image does not show, set VITE_PLAYER_API_ORIGIN (or meta player-api-origin) to your API URL and redeploy.',
+        })
+      } else {
+        const j2 = (await res.json().catch(() => null)) as { message?: string } | null
+        setError(j2?.message ?? 'Upload failed')
+      }
+    } catch {
+      setError('Network error')
+    } finally {
+      setUploading(false)
+    }
+  }, [apiFetch, closeModal, onUploaded, pendingFile, revokePendingPreview, setAvatarUrl, userId])
 
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div className="group relative">
-        <div className="flex size-[72px] shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-casino-primary/40 bg-casino-bg sm:size-[88px]">
-          {resolvedAvatar && !imgFail ? (
-            <img
-              src={resolvedAvatar}
-              alt="Profile"
-              className="size-full object-cover"
-              onError={() => setImgFail(true)}
-            />
-          ) : (
-            <div className="flex size-full items-center justify-center bg-casino-elevated">
-              <IconUser size={32} className="text-casino-muted" />
-            </div>
-          )}
-        </div>
         <button
           type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition group-hover:opacity-100"
-          aria-label="Upload profile picture"
-        >
-          {uploading ? (
-            <div className="size-5 animate-spin rounded-full border-2 border-white/50 border-t-white" />
-          ) : (
-            <IconCamera size={20} className="text-white" />
-          )}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) void handleFile(f)
-            e.target.value = ''
+          onClick={() => {
+            setError(null)
+            setModalOpen(true)
           }}
-        />
+          className="relative block rounded-full ring-offset-2 ring-offset-casino-bg transition hover:ring-2 hover:ring-casino-primary/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-casino-primary"
+          aria-label="Change profile picture"
+        >
+          <div className="flex size-[72px] shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-casino-primary/40 bg-casino-bg sm:size-[88px]">
+            {headerAvatarSrc && !imgFail ? (
+              <img
+                src={headerAvatarSrc}
+                alt="Profile"
+                className="size-full object-cover"
+                onError={() => setImgFail(true)}
+              />
+            ) : (
+              <div className="flex size-full items-center justify-center bg-casino-elevated">
+                <IconUser size={32} className="text-casino-muted" />
+              </div>
+            )}
+          </div>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition group-hover:opacity-100">
+            {uploading ? (
+              <span className="size-5 animate-spin rounded-full border-2 border-white/50 border-t-white" />
+            ) : (
+              <IconCamera size={20} className="text-white" />
+            )}
+          </span>
+        </button>
       </div>
-      {error && <span className="text-[10px] font-semibold text-casino-destructive">{error}</span>}
+
+      {modalOpen ? (
+        <div
+          className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-end justify-center sm:items-center sm:p-4`}
+          role="presentation"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            aria-label="Close"
+            onClick={() => !uploading && closeModal()}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={modalTitleId}
+            className="relative flex w-full max-w-md flex-col overflow-hidden rounded-t-xl border border-casino-border bg-casino-surface shadow-2xl sm:rounded-xl"
+          >
+            <div className="flex items-center justify-between border-b border-casino-border px-4 py-3">
+              <h2 id={modalTitleId} className="text-base font-black text-casino-foreground">
+                Profile photo
+              </h2>
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center text-xl text-casino-muted transition hover:text-casino-foreground disabled:opacity-40"
+                onClick={() => !uploading && closeModal()}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex flex-col gap-4 p-4 sm:p-5">
+              <div className="mx-auto flex size-36 shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-casino-primary/40 bg-casino-bg">
+                {modalPreviewSrc ? (
+                  <img src={modalPreviewSrc} alt="" className="size-full object-cover" />
+                ) : (
+                  <IconUser size={48} className="text-casino-muted" />
+                )}
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) pickFile(f)
+                  e.target.value = ''
+                }}
+              />
+              <button
+                type="button"
+                className="rounded-casino-md border border-casino-border bg-casino-elevated py-2.5 text-sm font-bold text-casino-foreground transition hover:bg-white/[0.06]"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+              >
+                Choose image…
+              </button>
+              {error ? (
+                <p className="text-center text-xs font-semibold text-casino-destructive" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-casino-md border border-casino-border py-2.5 text-sm font-bold text-casino-muted transition hover:bg-white/[0.04]"
+                  onClick={() => !uploading && closeModal()}
+                  disabled={uploading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded-casino-md bg-casino-primary py-2.5 text-sm font-black text-white shadow-inner transition hover:brightness-110 disabled:opacity-50"
+                  onClick={() => void saveAvatar()}
+                  disabled={uploading || !pendingFile}
+                >
+                  {uploading ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1011,7 +1132,7 @@ function AvatarUpload({
 /*  VIP Progress                                                      */
 /* ------------------------------------------------------------------ */
 
-function VipProgressPanel() {
+function VipProgressPanel({ className = '' }: { className?: string }) {
   const { data, loading, err } = useVipStatus()
   const nextMin = data?.progress?.next_tier_min_wager_minor
   const life = data?.progress?.lifetime_wager_minor ?? 0
@@ -1020,7 +1141,9 @@ function VipProgressPanel() {
   const remain = data?.progress?.remaining_wager_minor
 
   return (
-    <div className="flex w-full max-w-sm flex-col gap-3 rounded-casino-md bg-white/[0.02] p-4 sm:p-5">
+    <div
+      className={`flex w-full flex-col gap-3 rounded-casino-md border-2 border-casino-primary/45 bg-white/[0.02] p-4 shadow-[inset_0_0_0_1px_rgba(167,139,250,0.12)] ring-1 ring-casino-primary/50 sm:p-5 ${className}`.trim()}
+    >
       <div className="flex items-center justify-between text-[13px] font-bold">
         <div className="flex items-center gap-2 text-casino-foreground">
           <IconCrown size={16} className="text-casino-primary" />
@@ -1079,7 +1202,7 @@ function StatCard({
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-[12px] font-semibold text-casino-muted sm:text-[13px]">{label}</span>
         <span
-          className={`text-base font-extrabold leading-none sm:text-lg ${
+          className={`text-base font-extrabold tabular-nums leading-none sm:text-lg ${
             isProfit ? 'text-casino-success' : 'text-casino-foreground'
           }`}
         >

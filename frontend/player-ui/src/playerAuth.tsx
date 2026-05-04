@@ -60,9 +60,13 @@ type P = {
   /** True when JWT is in memory/localStorage or cookie session is established (`me` loaded under credentialed API). */
   isAuthenticated: boolean
   me: MeResponse | null
+  /** Incremented when the profile photo URL changes so `<img src>` can bypass stale CDN/browser caches. */
+  avatarUrlRevision: number
   balanceMinor: number | null
   balanceBreakdown: BalanceBreakdown | null
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>
+  /** Apply a new avatar path immediately after upload (before `/me` poll). Updates cache and revision for display URLs. */
+  setAvatarUrl: (avatarPath: string) => void
   login: (
     email: string,
     password: string,
@@ -86,6 +90,7 @@ const Ctx = createContext<P | null>(null)
 export function PlayerAuthProvider({ children }: { children: ReactNode }) {
   const [accessToken, setAccess] = useState<string | null>(() => readInitialAccessToken())
   const [me, setMe] = useState<MeResponse | null>(null)
+  const [avatarUrlRevision, setAvatarUrlRevision] = useState(0)
   const [balanceMinor, setBal] = useState<number | null>(null)
   const [balanceBreakdown, setBalanceBreakdown] = useState<BalanceBreakdown | null>(null)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -105,9 +110,21 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(EXPIRES)
     setAccess(null)
     setMe(null)
+    setAvatarUrlRevision(0)
     setBal(null)
     setBalanceBreakdown(null)
   }, [clearRefreshTimer])
+
+  const setAvatarUrl = useCallback((avatarPath: string) => {
+    const u = avatarPath.trim()
+    if (!u) return
+    setMe((prev) => {
+      if (!prev) return prev
+      cachePlayerAvatarUrl(prev.id, u)
+      return { ...prev, avatar_url: u }
+    })
+    setAvatarUrlRevision((n) => n + 1)
+  }, [])
 
   /** After login / register / refresh: store JWTs locally (default) or rely on httpOnly cookies only (credentials mode). */
   const applySessionTokens = useCallback(
@@ -541,9 +558,11 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       accessToken,
       isAuthenticated,
       me,
+      avatarUrlRevision,
       balanceMinor,
       balanceBreakdown,
       apiFetch,
+      setAvatarUrl,
       login,
       register,
       logout,
@@ -554,9 +573,11 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       accessToken,
       isAuthenticated,
       me,
+      avatarUrlRevision,
       balanceMinor,
       balanceBreakdown,
       apiFetch,
+      setAvatarUrl,
       login,
       register,
       logout,
