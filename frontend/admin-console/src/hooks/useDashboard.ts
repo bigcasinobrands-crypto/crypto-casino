@@ -23,6 +23,10 @@ interface KPIs {
   ggr_7d: number
   ggr_30d: number
   ggr_all: number
+  total_wagered_24h?: number
+  total_wagered_7d?: number
+  total_wagered_30d?: number
+  total_wagered_all?: number
   deposits_24h: number
   deposits_7d: number
   deposits_30d: number
@@ -45,12 +49,19 @@ interface KPIs {
   bonus_cost_24h: number
   bonus_cost_7d: number
   bonus_cost_30d: number
+  reward_expense_24h?: number
+  reward_expense_7d?: number
+  reward_expense_30d?: number
+  ngr_24h?: number
+  ngr_7d?: number
   ngr_30d: number
   arpu_7d: number
   avg_deposit_size_30d: number
   deposit_conversion_rate: number
   pending_withdrawals_value: number
   pending_withdrawals_count: number
+  /** Server-side map of how each KPI is derived (ledger vs operational). */
+  metrics_derivation?: Record<string, string>
 }
 
 interface DayPoint {

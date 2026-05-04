@@ -3,14 +3,15 @@
  *
  * - `VITE_ADMIN_DUMMY_DASHBOARD=true` / `1` — force demo (e.g. production preview).
  * - `VITE_ADMIN_DUMMY_DASHBOARD=false` / `0` — force live `/v1` dashboard calls.
- * - Unset — while running `vite` dev (`import.meta.env.DEV`), demo is on by default so a
- *   missing or erroring API does not blank the dashboard.
+ * - Unset — **production (`import.meta.env.PROD`)**: never dummy (financial KPIs must be live).
+ * - Unset — **development**: demo on by default so a missing API does not blank the dashboard.
  */
 
 export function isDashboardDummyMode(): boolean {
   const v = import.meta.env.VITE_ADMIN_DUMMY_DASHBOARD
   if (v === 'false' || v === '0') return false
   if (v === 'true' || v === '1') return true
+  if (import.meta.env.PROD) return false
   return import.meta.env.DEV === true
 }
 
@@ -86,6 +87,10 @@ export function dummyKPIs() {
     ggr_7d: 1_240_000_00,
     ggr_30d: 4_850_000_00,
     ggr_all: 42_000_000_00,
+    total_wagered_24h: 2_100_000_00,
+    total_wagered_7d: 14_200_000_00,
+    total_wagered_30d: 58_000_000_00,
+    total_wagered_all: 520_000_000_00,
     deposits_24h: 620_000_00,
     deposits_7d: 4_100_000_00,
     deposits_30d: 16_200_000_00,
@@ -108,7 +113,12 @@ export function dummyKPIs() {
     bonus_cost_24h: 45_000_00,
     bonus_cost_7d: 310_000_00,
     bonus_cost_30d: 1_180_000_00,
-    ngr_30d: 3_670_000_00,
+    reward_expense_24h: 8_000_00,
+    reward_expense_7d: 55_000_00,
+    reward_expense_30d: 210_000_00,
+    ngr_24h: 132_000_00,
+    ngr_7d: 875_000_00,
+    ngr_30d: 3_460_000_00,
     arpu_7d: 568_92,
     avg_deposit_size_30d: 1_372_881,
     deposit_conversion_rate: 34.5,

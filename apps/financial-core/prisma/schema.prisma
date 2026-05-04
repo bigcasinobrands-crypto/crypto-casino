@@ -1,0 +1,369 @@
+// Unified financial core — PostgreSQL is the system of record for all balances (derived from ledger entries).
+// Fystack / BlueOcean are adapters; they never own balances.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("FINANCIAL_CORE_DATABASE_URL")
+}
+
+// ----- Identity (minimal; extend with KYC, sessions in auth module) -----
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ledgerAccounts LedgerAccount[]
+  withdrawals    WithdrawalRequest[]
+  bonusInstances BonusInstance[]
+  deposits       Deposit[]
+
+  @@map("fc_users")
+}
+
+// ----- Deposits (operational); CREDITED only after ledger posts — truth is ledger + this row cross-check -----
+
+enum DepositStatus {
+  DETECTED
+  AWAITING_CONFIRMATIONS
+  READY_TO_CREDIT
+  CREDITED
+  REJECTED
+  SUPERSEDED_BY_REORG
+}
+
+model Deposit {
+  id                     String         @id @default(uuid()) @db.Uuid
+  userId                 String         @map("user_id") @db.Uuid
+  currency               String         @db.VarChar(16)
+  chainId                String         @map("chain_id") @db.VarChar(64)
+  txHash                 String         @map("tx_hash") @db.VarChar(128)
+  logIndex               Int            @default(0) @map("log_index")
+  amountMinor            BigInt         @map("amount_minor")
+  confirmationsRequired  Int            @map("confirmations_required")
+  confirmationsObserved  Int            @default(0) @map("confirmations_observed")
+  status                 DepositStatus
+  rejectionReason        String?        @map("rejection_reason")
+  /// Must match ledger transaction idempotency for deposit credit
+  ledgerIdempotencyKey   String         @unique @map("ledger_idempotency_key")
+  creditedTransactionId  String?      @map("credited_transaction_id") @db.Uuid
+  metadata               Json           @default("{}")
+  createdAt              DateTime       @default(now()) @map("created_at")
+  updatedAt              DateTime       @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+  creditedTransaction LedgerTransaction? @relation("DepositCredited", fields: [creditedTransactionId], references: [id], onDelete: SetNull)
+
+  @@unique([chainId, txHash, logIndex], name: "deposit_chain_tx_log")
+  @@index([userId, status])
+  @@map("fc_deposits")
+}
+
+// ----- Chart of accounts -----
+
+enum LedgerAccountType {
+  USER_CASH
+  USER_BONUS
+  USER_LOCKED
+  USER_CASHBACK
+  USER_RAKEBACK
+  USER_PENDING_WITHDRAWAL
+  /// System clearing account: stake moves here until win/loss settlement (per currency).
+  PENDING_SETTLEMENT
+  TREASURY_ASSET
+  CASINO_REVENUE
+  SPORTSBOOK_REVENUE
+  BONUS_EXPENSE
+  VIP_EXPENSE
+  CASHBACK_EXPENSE
+  RAKEBACK_EXPENSE
+  AFFILIATE_LIABILITY
+  JACKPOT_POOL
+  CHALLENGE_LIABILITY
+}
+
+/// One row per logical account; balances are NEVER stored — only computed from ledger_entry lines.
+/// scope_key is globally unique: e.g. `user:{uuid}:USER_CASH:USDT`, `system:CASINO_REVENUE:USDT`.
+model LedgerAccount {
+  id        String            @id @default(uuid()) @db.Uuid
+  type      LedgerAccountType
+  /// User scope for player pockets; null for pure system accounts (scope_key still disambiguates).
+  userId    String?           @map("user_id") @db.Uuid
+  currency  String            @db.VarChar(16)
+  scopeKey  String            @unique @map("scope_key") @db.VarChar(256)
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  entries LedgerEntry[]
+
+  @@index([userId])
+  @@index([type, currency])
+  @@map("fc_ledger_accounts")
+}
+
+enum LedgerEntryLineType {
+  DEPOSIT
+  WITHDRAWAL
+  BET_DEBIT
+  WIN_CREDIT
+  /// Cash-first stake routed to PENDING_SETTLEMENT
+  STAKE_HOLD
+  /// Release pending stake on settlement / rollback
+  SETTLEMENT_RELEASE
+  BONUS_CREDIT
+  BONUS_CONVERSION
+  BONUS_EXPIRY
+  CASHBACK_ISSUANCE
+  RAKEBACK_ISSUANCE
+  VIP_REWARD
+  CHALLENGE_REWARD
+  MANUAL_ADJUSTMENT
+  SWEEP
+  TREASURY_MOVEMENT
+  SPORTSBOOK_BET_DEBIT
+  SPORTSBOOK_WIN_CREDIT
+  SPORTSBOOK_VOID
+  SPORTSBOOK_CASHOUT
+}
+
+enum LedgerSide {
+  DEBIT
+  CREDIT
+}
+
+/// Header: one business posting. Idempotent by idempotency_key (replay returns same transaction).
+model LedgerTransaction {
+  id             String   @id @default(uuid()) @db.Uuid
+  idempotencyKey String   @unique @map("idempotency_key")
+  correlationId  String?  @map("correlation_id") @db.Uuid
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  /// Service user / job name for audit
+  createdBy      String?  @map("created_by")
+
+  entries LedgerEntry[]
+
+  depositsCreditedAs Deposit[] @relation("DepositCredited")
+
+  @@index([createdAt])
+  @@map("fc_ledger_transactions")
+}
+
+/// Immutable posting line. sum(DEBIT amounts) must equal sum(CREDIT amounts) per transaction_id.
+model LedgerEntry {
+  id            String              @id @default(uuid()) @db.Uuid
+  transactionId String              @map("transaction_id") @db.Uuid
+  accountId     String              @map("account_id") @db.Uuid
+  amount        Decimal             @db.Decimal(38, 18)
+  side          LedgerSide
+  lineType      LedgerEntryLineType @map("line_type")
+  referenceId   String?             @map("reference_id") @db.Uuid
+  referenceType String?             @map("reference_type") @db.VarChar(64)
+  metadata      Json                @default("{}")
+  lineNumber    Int                 @map("line_number")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  transaction LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  account     LedgerAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt(sort: Desc)])
+  @@index([transactionId])
+  @@map("fc_ledger_entries")
+}
+
+/// Optional snapshot cache — NOT source of truth; rebuilt by replay from entries.
+model BalanceSnapshot {
+  id            String   @id @default(uuid()) @db.Uuid
+  accountId     String   @map("account_id") @db.Uuid
+  balance       Decimal  @db.Decimal(38, 18)
+  snapshotAt    DateTime @map("snapshot_at")
+  entryIdCursor String?  @map("entry_id_cursor") @db.Uuid
+
+  @@index([accountId, snapshotAt(sort: Desc)])
+  @@map("fc_balance_snapshots")
+}
+
+// ----- Immutable domain events (for replay / projections) -----
+
+model DomainEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  eventType      String   @map("event_type") @db.VarChar(128)
+  aggregateType  String   @map("aggregate_type") @db.VarChar(64)
+  aggregateId    String   @map("aggregate_id") @db.Uuid
+  payload        Json
+  schemaVersion  Int      @default(1) @map("schema_version")
+  idempotencyKey String?  @unique @map("idempotency_key")
+  occurredAt     DateTime @default(now()) @map("occurred_at")
+  causationId    String?  @map("causation_id") @db.Uuid
+  correlationId  String?  @map("correlation_id") @db.Uuid
+
+  @@index([aggregateType, aggregateId, occurredAt])
+  @@index([eventType, occurredAt])
+  @@map("fc_domain_events")
+}
+
+// ----- Webhook / callback deduplication -----
+
+model ProcessedCallback {
+  id               String   @id @default(uuid()) @db.Uuid
+  provider         String   @db.VarChar(32)
+  idempotencyKey   String   @unique @map("idempotency_key")
+  requestHash      String?  @map("request_hash") @db.VarChar(128)
+  responseBody     Json?    @map("response_body")
+  httpStatus       Int?     @map("http_status")
+  processedAt      DateTime @default(now()) @map("processed_at")
+  expiresAt        DateTime? @map("expires_at")
+
+  @@index([provider, processedAt])
+  @@map("fc_processed_callbacks")
+}
+
+// ----- Risk -----
+
+enum RiskDecision {
+  ALLOW
+  BLOCK
+  REVIEW
+}
+
+model RiskEvent {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @map("user_id") @db.Uuid
+  actionType  String       @map("action_type") @db.VarChar(64)
+  decision    RiskDecision
+  score       Decimal      @db.Decimal(10, 4)
+  reasons     String[]
+  context     Json         @default("{}")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("fc_risk_events")
+}
+
+// ----- Withdrawals -----
+
+enum WithdrawalStatus {
+  REQUESTED
+  RISK_REVIEW
+  MANUAL_REVIEW
+  APPROVED
+  LEDGER_LOCKED
+  QUEUED
+  SIGNING
+  BROADCAST
+  CONFIRMED
+  FINALIZED
+  REJECTED
+  FAILED
+  CANCELLED
+  STUCK
+}
+
+model WithdrawalRequest {
+  id              String             @id @default(uuid()) @db.Uuid
+  userId          String             @map("user_id") @db.Uuid
+  amountMinor     BigInt             @map("amount_minor")
+  currency        String             @db.VarChar(16)
+  destination     String
+  status          WithdrawalStatus
+  idempotencyKey  String             @unique @map("idempotency_key")
+  providerTxHash  String?            @map("provider_tx_hash")
+  failureReason   String?            @map("failure_reason")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  user   User              @relation(fields: [userId], references: [id])
+  events WithdrawalEvent[]
+
+  @@index([userId, status])
+  @@map("fc_withdrawal_requests")
+}
+
+/// Append-only state transitions for withdrawals.
+model WithdrawalEvent {
+  id             String             @id @default(uuid()) @db.Uuid
+  withdrawalId   String             @map("withdrawal_id") @db.Uuid
+  fromStatus     WithdrawalStatus?  @map("from_status")
+  toStatus       WithdrawalStatus   @map("to_status")
+  metadata       Json               @default("{}")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  withdrawal WithdrawalRequest @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+
+  @@index([withdrawalId, createdAt])
+  @@map("fc_withdrawal_events")
+}
+
+// ----- Bonus (simplified; extend rules engine separately) -----
+
+enum BonusStatus {
+  CREATED
+  ACTIVE
+  LOCKED
+  WAGERING
+  COMPLETED
+  CONVERTED
+  EXPIRED
+  FORFEITED
+}
+
+model BonusInstance {
+  id                       String      @id @default(uuid()) @db.Uuid
+  userId                   String      @map("user_id") @db.Uuid
+  status                   BonusStatus
+  originalAmount           Decimal     @map("original_amount") @db.Decimal(38, 18)
+  remainingAmount          Decimal     @map("remaining_amount") @db.Decimal(38, 18)
+  wageringMultiplier       Decimal     @map("wagering_multiplier") @db.Decimal(10, 4)
+  wageredTowardRequirement Decimal     @default(0) @map("wagered_toward_requirement") @db.Decimal(38, 18)
+  gameWeights              Json        @default("{}") @map("game_weights")
+  sportsbookRules          Json        @default("{}") @map("sportsbook_contribution_rules")
+  eligibleProviderTypes    String[]    @default([]) @map("eligible_provider_types")
+  expiresAt                DateTime?   @map("expires_at")
+  createdAt                DateTime    @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@map("fc_bonus_instances")
+}
+
+// ----- Admin audit (immutable) -----
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  adminUserId String?  @map("admin_user_id") @db.Uuid
+  action      String   @db.VarChar(128)
+  payload     Json
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([action, createdAt])
+  @@map("fc_audit_log")
+}
+
+// ----- Reconciliation alerts -----
+
+enum ReconciliationSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model ReconciliationAlert {
+  id         String                 @id @default(uuid()) @db.Uuid
+  alertType  String                 @map("alert_type") @db.VarChar(64)
+  severity   ReconciliationSeverity
+  delta      Json
+  details    Json                   @default("{}")
+  resolvedAt DateTime?              @map("resolved_at")
+  createdAt  DateTime               @default(now()) @map("created_at")
+
+  @@index([severity, resolvedAt, createdAt])
+  @@map("fc_reconciliation_alerts")
+}

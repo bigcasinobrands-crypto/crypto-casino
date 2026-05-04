@@ -27,6 +27,7 @@ import PlayerHeaderLogo from './components/PlayerHeaderLogo'
 import WalletFlowModal, { type WalletMainTab } from './components/WalletFlowModal'
 import MainScrollRestoration from './components/MainScrollRestoration'
 import OperationalBanner from './components/OperationalBanner'
+import PlayerApiOriginBanner from './components/PlayerApiOriginBanner'
 import SiteFooter from './components/SiteFooter'
 import PlayerMobileBottomNav from './components/PlayerMobileBottomNav'
 import MobileCasinoMenuOverlay from './components/MobileCasinoMenuOverlay'
@@ -490,6 +491,7 @@ function AppShell() {
               }`}
             >
               <div className="relative z-[210] shrink-0">
+                <PlayerApiOriginBanner />
                 <OperationalBanner data={op.data} />
               </div>
               {/*

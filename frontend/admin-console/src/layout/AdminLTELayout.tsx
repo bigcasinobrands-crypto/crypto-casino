@@ -8,6 +8,7 @@ import { useAdminLTEInit } from '../hooks/useAdminLTEInit'
 import { useAdminLTEPushMenu } from '../hooks/useAdminLTEPushMenu'
 import AdminLTEHeader from './AdminLTEHeader'
 import AdminLTESidebar from './AdminLTESidebar'
+import AdminProductionConfigBanner from '../components/admin/AdminProductionConfigBanner'
 
 /**
  * [AdminLTE v4](https://github.com/ColorlibHQ/AdminLTE) application shell.
@@ -27,6 +28,7 @@ const AdminLTELayout: FC = () => {
         <main className="app-main min-w-0">
           <div className="app-content min-w-0">
             <div className="container-fluid px-2 px-sm-3 py-3">
+              <AdminProductionConfigBanner />
               <Suspense fallback={<RouteFallback />}>
                 <Outlet />
               </Suspense>

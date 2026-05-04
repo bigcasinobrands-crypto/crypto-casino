@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { readApiError } from '../api/errors'
+import { toast } from 'sonner'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { BonusForfeitConfirmModal } from '../components/rewards/BonusForfeitConfirmModal'
 import { BonusInstanceDetailsPanel } from '../components/rewards/BonusInstanceDetailsPanel'
@@ -34,7 +35,7 @@ import {
   IconUsers,
   IconWallet,
 } from '../components/icons'
-import { playerApiUrl } from '../lib/playerApiUrl'
+import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { useVipStatus } from '../hooks/useVipStatus'
 import { useVipProgram } from '../hooks/useVipProgram'
 import { mergeTierPresentation } from '../lib/vipPresentation'
@@ -918,14 +919,30 @@ function AvatarUpload({
           body: form,
         })
         if (res.ok) {
+          await res.json().catch(() => null)
+          if (preview.startsWith('blob:')) {
+            URL.revokeObjectURL(preview)
+          }
+          setPreviewUrl(null)
           onUploaded()
+          toast.success('Profile picture saved', {
+            description: playerApiOriginConfigured()
+              ? 'Your new photo is stored on your account.'
+              : 'Your new photo is stored. If the image does not show, set VITE_PLAYER_API_ORIGIN (or meta player-api-origin) to your API URL and redeploy.',
+          })
         } else {
           const j = (await res.json().catch(() => null)) as { message?: string } | null
           setError(j?.message ?? 'Upload failed')
+          if (preview.startsWith('blob:')) {
+            URL.revokeObjectURL(preview)
+          }
           setPreviewUrl(null)
         }
       } catch {
         setError('Network error')
+        if (preview.startsWith('blob:')) {
+          URL.revokeObjectURL(preview)
+        }
         setPreviewUrl(null)
       } finally {
         setUploading(false)

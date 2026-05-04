@@ -7,13 +7,20 @@
  */
 /** True when `VITE_ADMIN_API_ORIGIN` is set (build-time) so `/v1/...` calls go to the core API, not the static host. */
 export function adminApiOriginConfigured(): boolean {
-  const raw = import.meta.env.VITE_ADMIN_API_ORIGIN as string | undefined
-  return Boolean(raw?.trim())
+  if ((import.meta.env.VITE_ADMIN_API_ORIGIN as string | undefined)?.trim()) return true
+  if (typeof document !== 'undefined') {
+    return Boolean(document.querySelector('meta[name="admin-api-origin"]')?.getAttribute('content')?.trim())
+  }
+  return false
 }
 
 export function adminApiUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const base = (import.meta.env.VITE_ADMIN_API_ORIGIN as string | undefined)?.trim().replace(/\/$/, '') ?? ''
+  let base = (import.meta.env.VITE_ADMIN_API_ORIGIN as string | undefined)?.trim().replace(/\/$/, '') ?? ''
+  if (!base && typeof document !== 'undefined') {
+    const meta = document.querySelector('meta[name="admin-api-origin"]')?.getAttribute('content')?.trim()
+    if (meta) base = meta.replace(/\/$/, '')
+  }
   const p = path.startsWith('/') ? path : `/${path}`
   if (!base) return p
   const baseEndsV1 = /\/v1$/i.test(base)

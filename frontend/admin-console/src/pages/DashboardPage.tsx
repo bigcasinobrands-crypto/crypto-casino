@@ -179,7 +179,21 @@ export default function DashboardPage() {
   const selectedRegistrations = regSeries?.values.reduce((sum, value) => sum + value, 0) ?? 0
   const selectedActivePlayers =
     chartPeriod === '7d' ? (kpis?.active_players_7d ?? 0) : (kpis?.active_players_30d ?? 0)
-  const selectedArpu = selectedActivePlayers > 0 ? selectedGGR / selectedActivePlayers : 0
+  /** NGR / wagering users — matches backend ARPU (ledger-backed), not chart-sliced GGR. */
+  const selectedArpu =
+    chartPeriod === '7d'
+      ? selectedActivePlayers > 0
+        ? (kpis?.ngr_7d ?? 0) / selectedActivePlayers
+        : 0
+      : selectedActivePlayers > 0
+        ? (kpis?.ngr_30d ?? 0) / selectedActivePlayers
+        : 0
+  const selectedTotalWagered = useMemo(() => {
+    if (!kpis) return 0
+    if (chartPeriod === '7d') return kpis.total_wagered_7d ?? 0
+    if (chartPeriod === 'all') return kpis.total_wagered_all ?? 0
+    return kpis.total_wagered_30d ?? 0
+  }, [chartPeriod, kpis])
   const selectedAvgDeposit = selectedDepositCount > 0 ? selectedDeposits / selectedDepositCount : 0
 
   const [challengesSummary, setChallengesSummary] = useState<ChallengesSummaryJSON | null>(null)
@@ -362,22 +376,30 @@ export default function DashboardPage() {
       {/* Secondary KPI strip — revenue quality & pipeline (top of dashboard) */}
       <div className="row g-3 mb-3 dashboard-kpi-grid">
         {kpisLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="col-lg-3 col-md-6 col-12">
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="col-lg col-md-6 col-12">
               <StatSkeleton />
             </div>
           ))
         ) : (
           <>
-            <div className="col-lg-3 col-md-6 col-12">
+            <div className="col-lg col-md-6 col-12">
               <StatCard
-                label={`ARPU (${periodLabel === '7d' ? '7d' : '30d'})`}
+                label={`Total wagered (${periodLabel === '7d' ? '7d' : periodLabel === 'all' ? 'all' : '30d roll-up'})`}
+                value={formatCurrency(selectedTotalWagered)}
+                iconClass="bi-dice-5"
+                variant="secondary"
+              />
+            </div>
+            <div className="col-lg col-md-6 col-12">
+              <StatCard
+                label={`ARPU / wagering user (${periodLabel === '7d' ? '7d' : '30d'})`}
                 value={formatCurrency(selectedArpu)}
                 iconClass="bi-currency-dollar"
                 variant="secondary"
               />
             </div>
-            <div className="col-lg-3 col-md-6 col-12">
+            <div className="col-lg col-md-6 col-12">
               <StatCard
                 label={`Avg deposit (${periodLabel})`}
                 value={formatCurrency(selectedAvgDeposit)}
@@ -385,7 +407,7 @@ export default function DashboardPage() {
                 variant="info"
               />
             </div>
-            <div className="col-lg-3 col-md-6 col-12">
+            <div className="col-lg col-md-6 col-12">
               <StatCard
                 label={`Deposit conversion (${periodLabel})`}
                 value={formatPct(casinoAnalytics?.kpis?.reg_to_ftd_conversion_rate ?? 0)}
@@ -393,7 +415,7 @@ export default function DashboardPage() {
                 variant="primary"
               />
             </div>
-            <div className="col-lg-3 col-md-6 col-12">
+            <div className="col-lg col-md-6 col-12">
               <StatCard
                 label="Pending withdrawals (value)"
                 value={formatCurrency(kpis?.pending_withdrawals_value ?? 0)}

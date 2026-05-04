@@ -52,6 +52,8 @@ export type CasinoAnalyticsResponse = {
     ggr_minor: number
     ngr_proxy_minor: number
     bonus_cost_minor: number
+    /** Cash rewards (rakeback, VIP level-up, daily hunt) from ledger, same window as NGR proxy. */
+    reward_expense_minor?: number
   }
   timeseries: Array<{
     date: string

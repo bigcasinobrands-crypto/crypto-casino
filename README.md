@@ -2,6 +2,8 @@
 
 Phase 1 baseline: **two separate SPAs** (admin vs player), shared design tokens, **Go** API + **Postgres** + optional **Redis** queue, **staff** and **player** auth, **BlueOcean/Fystack webhook** stubs, **ledger** idempotency, **`cmd/worker`**.
 
+**Enterprise financial core (reference NestJS stack):** [`apps/financial-core`](apps/financial-core/) — double-entry ledger, Prisma schema, BullMQ registration. Full design: [`docs/enterprise-financial-operating-system.md`](docs/enterprise-financial-operating-system.md).
+
 **Admin vs player:** [`docs/separate-admin-and-player.md`](docs/separate-admin-and-player.md).
 
 ## Prereqs

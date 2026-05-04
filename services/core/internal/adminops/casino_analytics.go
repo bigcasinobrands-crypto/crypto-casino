@@ -88,7 +88,7 @@ func (h *Handler) DashboardCasinoAnalytics(w http.ResponseWriter, r *http.Reques
 		ftdCount, redepositD7, redepositD30              int64
 		avgFirstDepositMinor                             int64
 		medianTTFDHours                                  float64
-		ggrMinor, bonusCostMinor                         int64
+		ggrMinor, bonusCostMinor, rewardCostMinor        int64
 	)
 
 	windowClause := "created_at >= $1 AND created_at <= $2"
@@ -109,16 +109,15 @@ checkouts_window AS (
 	FROM fystack_checkouts c
 	WHERE ` + windowClause + `
 ),
-settled_payments AS (
-	SELECT p.user_id, p.created_at, COALESCE(c.amount_minor,0) AS amount_minor
-	FROM fystack_payments p
-	LEFT JOIN fystack_checkouts c ON c.id = p.checkout_id
-	WHERE p.status='settled'
+ledger_credits AS (
+	SELECT le.user_id, le.created_at, le.amount_minor
+	FROM ledger_entries le
+	WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0
 ),
 first_deposit AS (
-	SELECT DISTINCT ON (sp.user_id) sp.user_id, sp.created_at AS first_at, sp.amount_minor
-	FROM settled_payments sp
-	ORDER BY sp.user_id, sp.created_at ASC
+	SELECT DISTINCT ON (lc.user_id) lc.user_id, lc.created_at AS first_at, lc.amount_minor
+	FROM ledger_credits lc
+	ORDER BY lc.user_id, lc.created_at ASC
 ),
 first_in_window AS (
 	SELECT fd.user_id, fd.first_at, fd.amount_minor, u.created_at AS reg_at
@@ -129,15 +128,15 @@ first_in_window AS (
 ),
 repeat_stats AS (
 	SELECT
-		COUNT(DISTINCT CASE WHEN sp.created_at > fiw.first_at AND sp.created_at <= fiw.first_at + interval '7 days' THEN sp.user_id END) AS rep_d7,
-		COUNT(DISTINCT CASE WHEN sp.created_at > fiw.first_at AND sp.created_at <= fiw.first_at + interval '30 days' THEN sp.user_id END) AS rep_d30
+		COUNT(DISTINCT CASE WHEN lc.created_at > fiw.first_at AND lc.created_at <= fiw.first_at + interval '7 days' THEN lc.user_id END) AS rep_d7,
+		COUNT(DISTINCT CASE WHEN lc.created_at > fiw.first_at AND lc.created_at <= fiw.first_at + interval '30 days' THEN lc.user_id END) AS rep_d30
 	FROM first_in_window fiw
-	LEFT JOIN settled_payments sp ON sp.user_id = fiw.user_id
+	LEFT JOIN ledger_credits lc ON lc.user_id = fiw.user_id
 )
 SELECT
 	(SELECT COUNT(*) FROM user_window),
 	(SELECT COUNT(*) FROM checkouts_window),
-	(SELECT COUNT(*) FROM settled_payments sp WHERE ` + clauseWithAlias(all, "sp", start, end) + `),
+	(SELECT COUNT(*) FROM ledger_credits sp WHERE ` + clauseWithAlias(all, "sp", start, end) + `),
 	(SELECT COUNT(*) FROM first_in_window),
 	COALESCE((SELECT AVG(fiw.amount_minor)::bigint FROM first_in_window fiw), 0),
 	COALESCE((SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (fiw.first_at - fiw.reg_at))/3600.0) FROM first_in_window fiw), 0),
@@ -148,13 +147,16 @@ SELECT
 		SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
 		FROM ledger_entries le
 		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND ` + clauseWithAlias(all, "le", start, end) + `), 0),
-	COALESCE((SELECT SUM(COALESCE(granted_amount_minor,0)) FROM user_bonus_instances ubi WHERE ` + clauseWithAlias(all, "ubi", start, end) + `), 0)
+	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries ubi
+		WHERE ubi.entry_type = 'promo.grant' AND ubi.pocket = 'bonus_locked' AND ubi.amount_minor > 0 AND ` + clauseWithAlias(all, "ubi", start, end) + `), 0),
+	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries re
+		WHERE re.entry_type IN ('promo.rakeback','vip.level_up_cash','promo.daily_hunt_cash') AND re.amount_minor > 0 AND re.pocket = 'cash' AND ` + clauseWithAlias(all, "re", start, end) + `), 0)
 `
 
 	if err := h.Pool.QueryRow(ctx, q, args...).Scan(
 		&registrations, &checkoutAttempts, &settledDeposits, &ftdCount,
 		&avgFirstDepositMinor, &medianTTFDHours, &redepositD7, &redepositD30,
-		&ggrMinor, &bonusCostMinor,
+		&ggrMinor, &bonusCostMinor, &rewardCostMinor,
 	); err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "casino analytics query failed")
 		return
@@ -199,8 +201,9 @@ SELECT
 			"repeat_deposit_d7_rate":     repeatD7Rate,
 			"repeat_deposit_d30_rate":    repeatD30Rate,
 			"ggr_minor":                  ggrMinor,
-			"ngr_proxy_minor":            ggrMinor - bonusCostMinor,
+			"ngr_proxy_minor":            ggrMinor - bonusCostMinor - rewardCostMinor,
 			"bonus_cost_minor":           bonusCostMinor,
+			"reward_expense_minor":       rewardCostMinor,
 		},
 		"timeseries": series,
 	})
@@ -218,10 +221,10 @@ WITH daily AS (
 ftd AS (
 	SELECT date_trunc('day', first_at)::date AS d, COUNT(*)::bigint AS ftd_count
 	FROM (
-		SELECT DISTINCT ON (p.user_id) p.user_id, p.created_at AS first_at
-		FROM fystack_payments p
-		WHERE p.status='settled' AND p.created_at <= $2
-		ORDER BY p.user_id, p.created_at ASC
+		SELECT DISTINCT ON (le.user_id) le.user_id, le.created_at AS first_at
+		FROM ledger_entries le
+		WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0 AND le.created_at <= $2
+		ORDER BY le.user_id, le.created_at ASC
 	) x
 	WHERE x.first_at >= $1
 	GROUP BY 1

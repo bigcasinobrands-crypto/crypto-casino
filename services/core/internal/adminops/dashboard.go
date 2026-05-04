@@ -24,6 +24,7 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var (
 		ggr24h, ggr7d, ggr30d, ggrAll  int64
+		totalWagered24h, totalWagered7d, totalWagered30d, totalWageredAll int64
 		dep24h, dep7d, dep30d          int64
 		depCnt24h, depCnt7d, depCnt30d int64
 		wd24h, wd7d, wd30d             int64
@@ -31,6 +32,7 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		active24h, active7d, active30d int64
 		reg24h, reg7d, reg30d          int64
 		bonus24h, bonus7d, bonus30d    int64
+		reward24h, reward7d, reward30d int64
 		pendWdVal, pendWdCnt           int64
 		totalUsers, usersWithDeposit   int64
 		avgDepSize30d                  int64
@@ -53,19 +55,37 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
 				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')), 0),
 
-			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_payments
-				WHERE status='settled' AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_payments
-				WHERE status='settled' AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_payments
-				WHERE status='settled' AND created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
+				WHERE entry_type IN ('game.debit','game.bet')
+				AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
+				WHERE entry_type IN ('game.debit','game.bet')
+				AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
+				WHERE entry_type IN ('game.debit','game.bet')
+				AND created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
+				WHERE entry_type IN ('game.debit','game.bet')), 0),
 
-			COALESCE((SELECT COUNT(*) FROM fystack_payments
-				WHERE status='settled' AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT COUNT(*) FROM fystack_payments
-				WHERE status='settled' AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT COUNT(*) FROM fystack_payments
-				WHERE status='settled' AND created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				AND created_at > now()-interval '30 days'), 0),
+
+			COALESCE((SELECT COUNT(*) FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT COUNT(*) FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT COUNT(*) FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_withdrawals
 				WHERE status='completed' AND created_at > now()-interval '24 hours'), 0),
@@ -81,23 +101,36 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 			COALESCE((SELECT COUNT(*) FROM fystack_withdrawals
 				WHERE status='completed' AND created_at > now()-interval '30 days'), 0),
 
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM game_launches
-				WHERE created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM game_launches
-				WHERE created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM game_launches
-				WHERE created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
+				WHERE entry_type = 'game.debit' AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
+				WHERE entry_type = 'game.debit' AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
+				WHERE entry_type = 'game.debit' AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT COUNT(*) FROM users WHERE created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT COUNT(*) FROM users WHERE created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT COUNT(*) FROM users WHERE created_at > now()-interval '30 days'), 0),
 
-			COALESCE((SELECT SUM(COALESCE(granted_amount_minor,0)) FROM user_bonus_instances
-				WHERE created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT SUM(COALESCE(granted_amount_minor,0)) FROM user_bonus_instances
-				WHERE created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT SUM(COALESCE(granted_amount_minor,0)) FROM user_bonus_instances
-				WHERE created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type = 'promo.grant' AND pocket = 'bonus_locked' AND amount_minor > 0
+				AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type = 'promo.grant' AND pocket = 'bonus_locked' AND amount_minor > 0
+				AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type = 'promo.grant' AND pocket = 'bonus_locked' AND amount_minor > 0
+				AND created_at > now()-interval '30 days'), 0),
+
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type IN ('promo.rakeback','vip.level_up_cash','promo.daily_hunt_cash') AND amount_minor > 0 AND pocket = 'cash'
+				AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type IN ('promo.rakeback','vip.level_up_cash','promo.daily_hunt_cash') AND amount_minor > 0 AND pocket = 'cash'
+				AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
+				WHERE entry_type IN ('promo.rakeback','vip.level_up_cash','promo.daily_hunt_cash') AND amount_minor > 0 AND pocket = 'cash'
+				AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_withdrawals
 				WHERE status IN ('pending','submitted','pending_approval','executed')), 0),
@@ -105,12 +138,15 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 				WHERE status IN ('pending','submitted','pending_approval','executed')), 0),
 
 			COALESCE((SELECT COUNT(*) FROM users), 0),
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM fystack_payments WHERE status='settled'), 0),
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0), 0),
 
-			COALESCE((SELECT AVG(COALESCE(amount_minor,0))::bigint FROM fystack_payments
-				WHERE status='settled' AND created_at > now()-interval '30 days'), 0)
+			COALESCE((SELECT AVG(amount_minor)::bigint FROM ledger_entries
+				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				AND created_at > now()-interval '30 days'), 0)
 	`).Scan(
 		&ggr24h, &ggr7d, &ggr30d, &ggrAll,
+		&totalWagered24h, &totalWagered7d, &totalWagered30d, &totalWageredAll,
 		&dep24h, &dep7d, &dep30d,
 		&depCnt24h, &depCnt7d, &depCnt30d,
 		&wd24h, &wd7d, &wd30d,
@@ -118,6 +154,7 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		&active24h, &active7d, &active30d,
 		&reg24h, &reg7d, &reg30d,
 		&bonus24h, &bonus7d, &bonus30d,
+		&reward24h, &reward7d, &reward30d,
 		&pendWdVal, &pendWdCnt,
 		&totalUsers, &usersWithDeposit,
 		&avgDepSize30d,
@@ -127,9 +164,13 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ngr24h := ggr24h - bonus24h - reward24h
+	ngr7d := ggr7d - bonus7d - reward7d
+	ngr30d := ggr30d - bonus30d - reward30d
+
 	var arpu7d float64
 	if active7d > 0 {
-		arpu7d = float64(ggr7d) / float64(active7d)
+		arpu7d = float64(ngr7d) / float64(active7d)
 	}
 	var depositConvRate float64
 	if totalUsers > 0 {
@@ -138,6 +179,8 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, map[string]any{
 		"ggr_24h": ggr24h, "ggr_7d": ggr7d, "ggr_30d": ggr30d, "ggr_all": ggrAll,
+		"total_wagered_24h": totalWagered24h, "total_wagered_7d": totalWagered7d,
+		"total_wagered_30d": totalWagered30d, "total_wagered_all": totalWageredAll,
 		"deposits_24h": dep24h, "deposits_7d": dep7d, "deposits_30d": dep30d,
 		"deposits_count_24h": depCnt24h, "deposits_count_7d": depCnt7d, "deposits_count_30d": depCnt30d,
 		"withdrawals_24h": wd24h, "withdrawals_7d": wd7d, "withdrawals_30d": wd30d,
@@ -146,12 +189,23 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		"active_players_24h": active24h, "active_players_7d": active7d, "active_players_30d": active30d,
 		"new_registrations_24h": reg24h, "new_registrations_7d": reg7d, "new_registrations_30d": reg30d,
 		"bonus_cost_24h": bonus24h, "bonus_cost_7d": bonus7d, "bonus_cost_30d": bonus30d,
-		"ngr_30d":                   ggr30d - bonus30d,
+		"reward_expense_24h": reward24h, "reward_expense_7d": reward7d, "reward_expense_30d": reward30d,
+		"ngr_24h": ngr24h, "ngr_7d": ngr7d, "ngr_30d": ngr30d,
 		"arpu_7d":                   arpu7d,
 		"avg_deposit_size_30d":      avgDepSize30d,
 		"deposit_conversion_rate":   depositConvRate,
 		"pending_withdrawals_value": pendWdVal,
 		"pending_withdrawals_count": pendWdCnt,
+		"metrics_derivation": map[string]string{
+			"deposits":       "ledger_entries: deposit.credit, deposit.checkout (amount_minor > 0)",
+			"ggr":            "ledger_entries: game.debit/bet/credit/win/rollback",
+			"total_wagered":  "ledger_entries: sum ABS(stake) on game.debit + game.bet (includes cash+bonus stake lines)",
+			"bonus_cost":     "ledger_entries: promo.grant to bonus_locked pocket",
+			"reward_expense": "ledger_entries: promo.rakeback, vip.level_up_cash, promo.daily_hunt_cash (cash pocket)",
+			"ngr":            "GGR - bonus grant expense - cash reward expense (period); affiliate/provider fees in phase 2",
+			"active_players": "distinct user_id with game.debit in window (ledger-backed wagering)",
+			"pending_wd":     "fystack_withdrawals operational statuses (until ledger lock liability wired)",
+		},
 	})
 }
 

@@ -2,6 +2,7 @@
   "name": "crypto-casino",
   "private": true,
   "workspaces": [
+    "apps/*",
     "frontend/*",
     "packages/*"
   ],
@@ -36,6 +37,7 @@
     "dev:api": "node scripts/go-dev.mjs ./cmd/api",
     "migrate:core": "node scripts/go-dev.mjs ./cmd/migrate",
     "dev:worker": "node scripts/go-dev.mjs ./cmd/worker",
+    "dev:financial-core": "npm run start:dev -w @repo/financial-core",
     "ngrok:api": "ngrok http 9090",
     "ngrok:print": "node scripts/print-ngrok-callback.mjs",
     "ngrok:print:wait": "node scripts/print-ngrok-callback.mjs --wait 60000"

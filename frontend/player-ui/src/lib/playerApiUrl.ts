@@ -1,7 +1,10 @@
 /** True when `VITE_PLAYER_API_ORIGIN` is set at build time so `/v1/...` hits the Go API, not the static host. */
 export function playerApiOriginConfigured(): boolean {
-  const raw = import.meta.env.VITE_PLAYER_API_ORIGIN as string | undefined
-  return Boolean(raw?.trim())
+  if ((import.meta.env.VITE_PLAYER_API_ORIGIN as string | undefined)?.trim()) return true
+  if (typeof document !== 'undefined') {
+    return Boolean(document.querySelector('meta[name="player-api-origin"]')?.getAttribute('content')?.trim())
+  }
+  return false
 }
 
 /**
@@ -10,7 +13,11 @@ export function playerApiOriginConfigured(): boolean {
  */
 export function playerApiUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) return path
-  const base = (import.meta.env.VITE_PLAYER_API_ORIGIN as string | undefined)?.trim().replace(/\/$/, '') ?? ''
+  let base = (import.meta.env.VITE_PLAYER_API_ORIGIN as string | undefined)?.trim().replace(/\/$/, '') ?? ''
+  if (!base && typeof document !== 'undefined') {
+    const meta = document.querySelector('meta[name="player-api-origin"]')?.getAttribute('content')?.trim()
+    if (meta) base = meta.replace(/\/$/, '')
+  }
   const p = path.startsWith('/') ? path : `/${path}`
   return base ? `${base}${p}` : p
 }
