@@ -12,6 +12,8 @@ interface ImportMetaEnv {
   readonly VITE_PLAYER_CREDENTIALS?: string
   /** Fingerprint Pro public key (Dashboard → API keys → Public) — never the server secret. */
   readonly VITE_FINGERPRINT_PUBLIC_KEY?: string
+  /** Fingerprint region: `eu`, `us`, or `ap` — must match dashboard workspace (required for EU). */
+  readonly VITE_FINGERPRINT_REGION?: string
 }
 
 interface ImportMeta {

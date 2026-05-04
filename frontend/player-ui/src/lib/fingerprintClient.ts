@@ -4,6 +4,15 @@ type FingerprintAgent = Awaited<
 
 let agent: FingerprintAgent | null = null
 
+/** Must match the workspace region in the Fingerprint dashboard (eu / us / ap). Defaults to us when unset — EU workspaces need `eu` or events never reach the dashboard. */
+function regionOption(): 'us' | 'eu' | 'ap' | undefined {
+  const r = import.meta.env.VITE_FINGERPRINT_REGION
+  if (typeof r !== 'string') return undefined
+  const x = r.trim().toLowerCase()
+  if (x === 'eu' || x === 'us' || x === 'ap') return x
+  return undefined
+}
+
 function publicKey(): string | undefined {
   const k = import.meta.env.VITE_FINGERPRINT_PUBLIC_KEY
   return typeof k === 'string' && k.trim() !== '' ? k.trim() : undefined
@@ -19,7 +28,8 @@ async function getAgent(): Promise<FingerprintAgent | null> {
   if (!key) return null
   if (!agent) {
     const { default: FingerprintJS } = await import('@fingerprintjs/fingerprintjs-pro')
-    agent = await FingerprintJS.load({ apiKey: key })
+    const region = regionOption()
+    agent = await FingerprintJS.load(region ? { apiKey: key, region } : { apiKey: key })
   }
   return agent
 }
