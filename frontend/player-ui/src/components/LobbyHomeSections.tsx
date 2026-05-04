@@ -57,9 +57,6 @@ function dedupeGamesById(games: Game[]): Game[] {
   return out
 }
 
-/** Min interval between “tab visible” refetches (navigation refetches always run). */
-const VISIBILITY_REFETCH_MS = 45_000
-
 /** Desktop horizontal row: max tiles fetched into each home section strip. */
 const HOME_SECTION_PREVIEW_CAP = 24
 
@@ -309,15 +306,17 @@ function GameSection({
 }
 
 type LobbyHomeSectionsProps = {
-  /** When operational `/health/operational` reports a new catalog sync time, refetch tiles (new thumb_rev / URLs). */
+  /** Reserved for future soft refresh; home rows only refetch on route change to avoid skeleton/thumb flicker. */
   catalogSyncAt?: string | null
 }
 
-const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
+const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalogSyncAt }) => {
+  void _catalogSyncAt
   const location = useLocation()
-  const lastVisFetchAt = useRef(0)
   /** Reset skeleton flags only when route identity changes — not on visibility/catalog soft refetch. */
   const prevRouteKeyRef = useRef<string | null>(null)
+  /** Invalidates in-flight fetches when the route effect re-runs (strict mode / overlap). */
+  const fetchGeneration = useRef(0)
 
   const [featured, setFeatured] = useState<Game[]>([])
   /** Used when `/v1/games?featured=1` returns zero rows — must differ from alphabetical slots strip. */
@@ -333,24 +332,11 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
   const [liveLoaded, setLiveLoaded] = useState(false)
   const [bonus, setBonus] = useState<Game[]>([])
   const [bonusLoaded, setBonusLoaded] = useState(false)
-  const [visRefresh, setVisRefresh] = useState(0)
-
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState !== 'visible') return
-      const now = Date.now()
-      if (now - lastVisFetchAt.current < VISIBILITY_REFETCH_MS) return
-      lastVisFetchAt.current = now
-      setVisRefresh((n) => n + 1)
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [])
-
   const routeKey = `${location.pathname}\u0000${location.key}`
 
+  /** Only `routeKey` — periodic catalog sync / visibility must not clear rows or cancel requests (causes skeleton + thumb flash). */
   useEffect(() => {
-    let cancel = false
+    const gen = ++fetchGeneration.current
     const lim = String(HOME_FETCH_LIMIT)
     const routeChanged = prevRouteKeyRef.current !== routeKey
     if (routeChanged) {
@@ -370,7 +356,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
     }
 
     const apply = (games: Game[], setList: (g: Game[]) => void, setDone: (v: boolean) => void) => {
-      if (cancel) return
+      if (gen !== fetchGeneration.current) return
       setList(dedupeGamesById(games))
       setDone(true)
     }
@@ -383,11 +369,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
     void fetchGames(`integration=blueocean&category=new&limit=${lim}`).then((n) => apply(n, setNewRel, setNewLoaded))
     void fetchGames(`integration=blueocean&category=live&limit=${lim}`).then((l) => apply(l, setLive, setLiveLoaded))
     void fetchGames(`integration=blueocean&category=bonus-buys&limit=${lim}`).then((b) => apply(b, setBonus, setBonusLoaded))
-
-    return () => {
-      cancel = true
-    }
-  }, [routeKey, catalogSyncAt, visRefresh])
+  }, [routeKey])
 
   const logoRowGames = featured.length > 0 ? featured : hotFallback
   /** Hot row: wait for featured unless empty — then wait for fallback sorted-by-new list. */

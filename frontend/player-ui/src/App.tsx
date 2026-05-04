@@ -53,6 +53,7 @@ import VipPage from './pages/VipPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import WalletDepositPage from './pages/WalletDepositPage'
+import StudiosPage from './pages/StudiosPage'
 
 function LegacyCasinoRedirect() {
   const loc = useLocation()
@@ -514,6 +515,7 @@ function AppShell() {
                     <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPage />} />
                     <Route path="/casino/sports" element={<CasinoSportsPage />} />
+                    <Route path="/casino/studios" element={<StudiosPage />} />
                     <Route path="/sportsbook" element={<Navigate to="/casino/sports" replace />} />
                     <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
                     <Route path="/casino/:section" element={<LobbyPage operationalData={op.data} />} />

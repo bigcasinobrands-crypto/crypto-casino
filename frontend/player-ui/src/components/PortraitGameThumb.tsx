@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type FC } from 'react'
 import { resolveGameThumbnailUrl } from '../lib/gameThumbnailFallback'
-import { PulsingBrandTile } from './PulsingBrandTile'
 
 /** Portrait game tile image with Pigmo-style CDN fallback when `thumbnail_url` is empty (shared by lobby grids and game lobby). */
 export const PortraitGameThumb: FC<{
@@ -11,14 +10,17 @@ export const PortraitGameThumb: FC<{
   thumbRev?: number
 }> = ({ url, title, fallbackKey, thumbRev }) => {
   const [bad, setBad] = useState(false)
-  const [imgLoaded, setImgLoaded] = useState(false)
+  /** Last `src` that successfully fired `onLoad` — avoids vybebet skeleton flicker when URL/cache-buster bumps without a game-id change. */
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
   const key = fallbackKey?.trim() || title
   const src = useMemo(() => resolveGameThumbnailUrl(url, key, thumbRev), [url, key, thumbRev])
 
   useEffect(() => {
-    setImgLoaded(false)
     setBad(false)
   }, [src])
+
+  const ready = !bad && loadedSrc === src
+  const showShimmer = !bad && !ready
 
   const frame = 'relative h-full min-h-0 w-full overflow-hidden rounded-casino-md'
 
@@ -33,20 +35,23 @@ export const PortraitGameThumb: FC<{
   }
   return (
     <div className={frame}>
-      {!imgLoaded ? (
-        <PulsingBrandTile className="absolute inset-0 bg-casino-elevated" size="card" />
+      {showShimmer ? (
+        <div className="absolute inset-0 animate-pulse bg-casino-elevated" aria-hidden />
       ) : null}
       <img
-        key={`${key}:${thumbRev ?? 0}`}
+        key={src}
         src={src}
         alt=""
         draggable={false}
         className={`h-full w-full object-cover object-center transition-[opacity,transform] duration-300 ease-out group-hover:scale-[1.04] ${
-          imgLoaded ? 'opacity-100' : 'opacity-0'
+          ready ? 'opacity-100' : 'opacity-0'
         }`}
         loading="lazy"
-        onLoad={() => setImgLoaded(true)}
-        onError={() => setBad(true)}
+        onLoad={() => setLoadedSrc(src)}
+        onError={() => {
+          setBad(true)
+          setLoadedSrc(null)
+        }}
       />
     </div>
   )

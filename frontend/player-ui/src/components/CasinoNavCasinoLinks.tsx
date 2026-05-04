@@ -66,8 +66,7 @@ export default function CasinoNavCasinoLinks({ items, variant, iconSize }: Props
   const vc = variantClasses[variant]
 
   const hotNowActive = pathname === '/casino/games' && hash === ''
-  const providersActive =
-    pathname === '/casino/games' && (hash === '#studios' || hash === '#providers')
+  const providersActive = pathname === '/casino/studios'
 
   return (
     <>

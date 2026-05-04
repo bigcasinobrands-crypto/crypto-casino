@@ -1,3 +1,5 @@
+import { publicAsset } from './publicAsset'
+
 /**
  * Static studio logos for the home marquee (`/public/studios/*.png`).
  * `forceWhiteFilter`: colored / black-matte assets → CSS white via brightness+invert; leave false for already-white marks.
@@ -16,63 +18,63 @@ export const STUDIO_MARQUEE_LOGOS: readonly StudioMarqueeLogo[] = [
     id: 'bgaming',
     label: 'BGaming',
     providerQuery: 'bgaming',
-    src: '/studios/bgaming.png',
+    src: publicAsset('studios/bgaming.png'),
     forceWhiteFilter: true,
   },
   {
     id: 'pragmatic-play',
     label: 'Pragmatic Play',
     providerQuery: 'pragmaticplay',
-    src: '/studios/pragmatic-play.png',
+    src: publicAsset('studios/pragmatic-play.png'),
     forceWhiteFilter: false,
   },
   {
     id: 'habanero',
     label: 'Habanero',
     providerQuery: 'habanero',
-    src: '/studios/habanero.png',
+    src: publicAsset('studios/habanero.png'),
     forceWhiteFilter: false,
   },
   {
     id: 'slotmill',
     label: 'Slotmill',
     providerQuery: 'slotmill',
-    src: '/studios/slotmill.png',
+    src: publicAsset('studios/slotmill.png'),
     forceWhiteFilter: true,
   },
   {
     id: 'hacksaw',
     label: 'Hacksaw Gaming',
     providerQuery: 'hacksaw',
-    src: '/studios/hacksaw.png',
+    src: publicAsset('studios/hacksaw.png'),
     forceWhiteFilter: true,
   },
   {
     id: 'thunderkick',
     label: 'Thunderkick',
     providerQuery: 'thunderkick',
-    src: '/studios/thunderkick.png',
+    src: publicAsset('studios/thunderkick.png'),
     forceWhiteFilter: false,
   },
   {
     id: 'nolimit-city',
     label: 'Nolimit City',
     providerQuery: 'nolimitcity',
-    src: '/studios/nolimit-city.png',
+    src: publicAsset('studios/nolimit-city.png'),
     forceWhiteFilter: true,
   },
   {
     id: 'playtech',
     label: 'Playtech',
     providerQuery: 'playtech',
-    src: '/studios/playtech.png',
+    src: publicAsset('studios/playtech.png'),
     forceWhiteFilter: true,
   },
   {
     id: 'avatar-ux',
     label: 'Avatar UX',
     providerQuery: 'avatarux',
-    src: '/studios/avatar-ux.png',
+    src: publicAsset('studios/avatar-ux.png'),
     forceWhiteFilter: true,
   },
 ]

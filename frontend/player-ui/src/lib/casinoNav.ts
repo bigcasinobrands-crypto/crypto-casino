@@ -20,7 +20,7 @@ export const CASINO_NAV_ROUTE_MAP: Record<string, string> = {
   challenges: '/casino/challenges',
   favourites: '/casino/favourites',
   recently_played: '/casino/recent',
-  providers: '/casino/games#studios',
+  providers: '/casino/studios',
   sports: '/casino/sports',
   rewards: '/bonuses',
   affiliate: '',

@@ -45,7 +45,7 @@ const FALLBACK_GAMES_LINKS: FooterLink[] = [
   { label: 'Bonus Buys', to: '/casino/bonus-buys', requireAuth: true },
   { label: 'Challenges', to: '/casino/challenges', requireAuth: true },
   { label: 'Favourites', to: '/casino/favourites', requireAuth: true },
-  { label: 'Studios', to: '/casino/games#studios', requireAuth: true },
+  { label: 'Studios', to: '/casino/studios', requireAuth: true },
   { label: 'Live Casino', to: '/casino/live', requireAuth: true },
 ]
 

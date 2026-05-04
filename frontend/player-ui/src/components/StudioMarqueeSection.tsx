@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { STUDIO_MARQUEE_LOGOS } from '../lib/studioMarqueeLogos'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
@@ -17,20 +18,33 @@ function StudioMarqueeCard({
   providerQuery: string
   forceWhiteFilter: boolean
 }) {
+  const [imgFailed, setImgFailed] = useState(false)
+
+  useEffect(() => {
+    setImgFailed(false)
+  }, [src])
+
   return (
     <Link
       to={`/casino/games?provider=${encodeURIComponent(providerQuery)}`}
       title={`${label} · filter catalog`}
       className="flex h-[52px] w-[148px] shrink-0 flex-col items-center justify-center rounded-[10px] border border-white/[0.09] bg-casino-surface px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-casino-primary/40 sm:h-[58px] sm:w-[164px]"
     >
-      <img
-        src={src}
-        alt={label}
-        draggable={false}
-        className={`max-h-[26px] w-auto max-w-[140px] object-contain opacity-[0.94] sm:max-h-[28px] ${forceWhiteFilter ? 'brightness-0 invert' : ''}`}
-        loading="lazy"
-        decoding="async"
-      />
+      {imgFailed ? (
+        <span className="max-w-full truncate px-1 text-[10px] font-extrabold uppercase tracking-[0.06em] text-white/80">
+          {label}
+        </span>
+      ) : (
+        <img
+          src={src}
+          alt={label}
+          draggable={false}
+          className={`max-h-[26px] w-auto max-w-[140px] object-contain opacity-[0.94] sm:max-h-[28px] ${forceWhiteFilter ? 'brightness-0 invert' : ''}`}
+          loading="lazy"
+          decoding="async"
+          onError={() => setImgFailed(true)}
+        />
+      )}
     </Link>
   )
 }
@@ -46,7 +60,7 @@ export default function StudioMarqueeSection() {
     <section className="mb-5" id="studios">
       <div className="mb-2 flex flex-nowrap items-center justify-between gap-2 sm:gap-2.5">
         <Link
-          to="/casino/games#studios"
+          to="/casino/studios"
           className="group/prov flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-bold leading-tight tracking-tight text-white transition-colors duration-150 hover:text-white/95 sm:text-sm sm:font-extrabold"
         >
           <IconBuilding2 size={17} className="shrink-0 text-white/50 transition-colors group-hover/prov:text-casino-primary" aria-hidden />
@@ -57,7 +71,7 @@ export default function StudioMarqueeSection() {
             aria-hidden
           />
         </Link>
-        <Link to="/casino/games#studios" className={`${outlinedViewAllClass} shrink-0`}>
+        <Link to="/casino/studios" className={`${outlinedViewAllClass} shrink-0`}>
           VIEW ALL
         </Link>
       </div>
