@@ -180,12 +180,12 @@ func (s *Server) ListHandler() http.HandlerFunc {
 				COALESCE(is_new,false), COALESCE(featurebuy_supported,false), COALESCE(play_for_fun_supported,false),
 				(COALESCE(metadata->>'mobile','') IN ('true','1')),
 				COALESCE(EXTRACT(EPOCH FROM updated_at)::bigint, 0),
-				NULLIF(TRIM(COALESCE(
+				COALESCE(NULLIF(TRIM(COALESCE(
 					metadata->>'description',
 					metadata->>'summary',
 					metadata->>'long_description',
 					''
-				)), '')
+				)), ''), '')
 			FROM games
 			WHERE ` + strings.Join(where, " AND ") + `
 			ORDER BY ` + order
