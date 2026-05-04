@@ -4,7 +4,9 @@ import { bindFingerprintGetVisitorData } from './fingerprintClient'
 
 /**
  * Official @fingerprint/react setup: register the provider agent for imperative helpers +
- * {@link useVisitorData} with `immediate: true` so the dashboard “Verify installation” receives an event on load.
+ * {@link useVisitorData} with `immediate: true` so an identification runs on load (required for
+ * the dashboard “Check installation” flow and consistent event_id). Catalog `/v1/games` uses
+ * plain `fetch` and does not wait on Fingerprint.
  */
 export function FingerprintReactIntegration() {
   const ctx = useContext(FingerprintContext)

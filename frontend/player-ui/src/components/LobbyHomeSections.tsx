@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'reac
 import { Link, useLocation } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import { PortraitGameThumb } from './PortraitGameThumb'
-import { playerApiUrl } from '../lib/playerApiUrl'
+import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { resolveProviderLogoCandidates } from '../lib/providerLogoUrl'
 import { GameCardSkeleton } from './GameCardSkeleton'
@@ -23,12 +23,27 @@ type Game = {
 type ProviderAgg = { code: string; count: number }
 
 async function fetchGames(query: string): Promise<Game[]> {
+  const path = `/v1/games?${query}`
+  const url = playerApiUrl(path)
   try {
-    const res = await fetch(playerApiUrl(`/v1/games?${query}`))
-    if (!res.ok) return []
+    const res = await fetch(url)
+    if (!res.ok) {
+      if (import.meta.env.DEV) {
+        const hint = !playerApiOriginConfigured()
+          ? ' Hint: set VITE_PLAYER_API_ORIGIN so /v1 hits the API, not the static host.'
+          : ''
+        // eslint-disable-next-line no-console
+        console.warn(`[catalog] GET ${path} → ${res.status}${hint}`, url)
+      }
+      return []
+    }
     const j = (await res.json()) as { games?: Game[] }
     return j.games ?? []
-  } catch {
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.warn('[catalog] GET games failed (network)', url, e)
+    }
     return []
   }
 }

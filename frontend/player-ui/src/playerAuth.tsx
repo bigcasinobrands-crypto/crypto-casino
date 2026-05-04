@@ -13,6 +13,7 @@ import { apiErrFromResponse, type ApiErr } from './api/errors'
 import { cachePlayerAvatarUrl, readCachedPlayerAvatarUrl } from './lib/avatarCache'
 import { getAuthFingerprintPayload } from './lib/authFingerprint'
 import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './lib/playerFetch'
+import { messageCannotReachApi } from './lib/playerNetworkCopy'
 import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
 
 const ACCESS = 'player_access_token'
@@ -295,10 +296,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
           error: {
             code: 'network',
             status: 0,
-            message:
-              import.meta.env.PROD && !playerApiOriginConfigured()
-                ? 'Cannot reach API. Set VITE_PLAYER_API_ORIGIN in Vercel to your public core API URL and redeploy.'
-                : 'Cannot reach API. Run the core service (e.g. npm run dev:api) and check DEV_API_PROXY / network.',
+            message: messageCannotReachApi(),
           },
         }
       }
@@ -390,10 +388,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
           error: {
             code: 'network',
             status: 0,
-            message:
-              import.meta.env.PROD && !playerApiOriginConfigured()
-                ? 'Cannot reach API. Set VITE_PLAYER_API_ORIGIN in Vercel to your public core API URL and redeploy.'
-                : 'Cannot reach API. Run the core service and check your network.',
+            message: messageCannotReachApi(),
           },
         }
       }

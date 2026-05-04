@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { FingerprintProvider } from '@fingerprint/react'
 import './index.css'
 import App from './App.tsx'
+import { FingerprintIntegrationBoundary } from './lib/fingerprintIntegrationBoundary'
 import { FingerprintReactIntegration } from './lib/fingerprintReactIntegration'
 
 function fingerprintLoaderOptions(): { apiKey: string; region?: 'us' | 'eu' | 'ap' } | null {
@@ -16,10 +17,10 @@ function fingerprintLoaderOptions(): { apiKey: string; region?: 'us' | 'eu' | 'a
 
 const fpOpts = fingerprintLoaderOptions()
 
-if (import.meta.env.DEV && fpOpts && fpOpts.region === undefined) {
+if (fpOpts && fpOpts.region === undefined) {
   // eslint-disable-next-line no-console
   console.warn(
-    '[fingerprint] VITE_FINGERPRINT_REGION is not set. If the workspace in the Fingerprint dashboard is EU, set VITE_FINGERPRINT_REGION=eu and restart Vite, or events go to the wrong region and "Check installation" / the EU app show no data.',
+    '[fingerprint] VITE_FINGERPRINT_REGION is not set. EU workspaces must use VITE_FINGERPRINT_REGION=eu (redeploy on Vercel) or events hit the wrong region and "Check installation" shows Event not found.',
   )
 }
 
@@ -33,7 +34,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {fpOpts ? (
       <FingerprintProvider apiKey={fpOpts.apiKey} region={fpOpts.region}>
-        <FingerprintReactIntegration />
+        <FingerprintIntegrationBoundary>
+          <FingerprintReactIntegration />
+        </FingerprintIntegrationBoundary>
         {appTree}
       </FingerprintProvider>
     ) : (

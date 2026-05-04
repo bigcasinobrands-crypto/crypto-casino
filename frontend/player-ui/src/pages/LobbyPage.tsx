@@ -15,6 +15,7 @@ import {
   saveCatalogReturnBeforeGameOpen,
   type RestoreScrollLocationState,
 } from '../lib/catalogReturn'
+import { messageGamesListUpstream, messageLobbyCatalogNetwork } from '../lib/playerNetworkCopy'
 import { playerFetch } from '../lib/playerFetch'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import {
@@ -67,16 +68,6 @@ const SECTION_SET = new Set<string>([
   'recent',
   'bonus-buys',
 ])
-
-const NETWORK_ERR =
-  'Network error — is the core API running? Set DEV_API_PROXY in frontend/player-ui/.env.development to match services/core PORT (e.g. http://127.0.0.1:9090), then restart Vite.'
-
-function apiListErrorMessage(status: number): string {
-  if (status === 502 || status === 503 || status === 504) {
-    return 'Could not reach the API (bad gateway). Start Postgres (npm run compose:up) and the core API (npm run dev:api on port 8080).'
-  }
-  return 'Could not load games.'
-}
 
 function sortGamesByIdOrder(ids: string[], list: Game[]): Game[] {
   const order = new Map(ids.map((id, i) => [id, i]))
@@ -336,7 +327,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
             const parsed = await readApiError(res)
             const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
             toastPlayerApiError(parsed, res.status, `GET ${listPath}`, rid)
-            setLoadErr(apiListErrorMessage(res.status))
+            setLoadErr(messageGamesListUpstream(res.status))
             setListLoading(false)
             return
           }
@@ -354,7 +345,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
           const parsed = await readApiError(res)
           const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
           toastPlayerApiError(parsed, res.status, `GET ${listUrl}`, rid)
-          setLoadErr(apiListErrorMessage(res.status))
+          setLoadErr(messageGamesListUpstream(res.status))
           setListLoading(false)
           return
         }
@@ -368,8 +359,8 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         setListLoading(false)
       } catch {
         if (!cancelled) {
-          toastPlayerNetworkError(NETWORK_ERR, 'GET /v1/games (lobby)')
-          setLoadErr(NETWORK_ERR)
+          toastPlayerNetworkError(messageLobbyCatalogNetwork(), 'GET /v1/games (lobby)')
+          setLoadErr(messageLobbyCatalogNetwork())
         }
         setListLoading(false)
       }
@@ -404,7 +395,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
         const parsed = await readApiError(res)
         const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
         toastPlayerApiError(parsed, res.status, `GET ${moreUrl}`, rid)
-        setLoadErr(apiListErrorMessage(res.status))
+        setLoadErr(messageGamesListUpstream(res.status))
         return
       }
       const j = (await res.json()) as { games: Game[] }
@@ -413,8 +404,8 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
       setGames((prev) => dedupeGamesById([...prev, ...batch]))
       setHasMore(raw.length === PAGE_SIZE)
     } catch {
-      toastPlayerNetworkError(NETWORK_ERR, 'GET /v1/games (load more)')
-      setLoadErr(NETWORK_ERR)
+      toastPlayerNetworkError(messageLobbyCatalogNetwork(), 'GET /v1/games (load more)')
+      setLoadErr(messageLobbyCatalogNetwork())
     } finally {
       setLoadingMore(false)
     }
