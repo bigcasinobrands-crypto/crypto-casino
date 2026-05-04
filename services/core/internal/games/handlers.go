@@ -202,7 +202,7 @@ func (s *Server) ListHandler() http.HandlerFunc {
 			return
 		}
 		defer rows.Close()
-		var out []listRow
+		out := make([]listRow, 0)
 		for rows.Next() {
 			var g listRow
 			if err := rows.Scan(&g.ID, &g.IDHash, &g.Title, &g.Provider, &g.Category, &g.ThumbnailURL,
