@@ -26,6 +26,8 @@ const refreshTTL = 7 * 24 * time.Hour
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrTermsNotAccepted = errors.New("terms not accepted")
+// ErrSessionPersist is returned when DB insert or token signing fails after the user is authenticated (e.g. missing player_sessions columns).
+var ErrSessionPersist = errors.New("session persist failed")
 
 // FystackWalletProvisioner creates a custodial wallet after signup (optional).
 type FystackWalletProvisioner interface {
@@ -197,11 +199,11 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string, s
 
 func (s *Service) issueSession(ctx context.Context, userID string, sc *SessionContext) (access, refresh string, exp int64, err error) {
 	if s.Issuer == nil {
-		return "", "", 0, fmt.Errorf("jwt issuer not configured")
+		return "", "", 0, fmt.Errorf("%w: jwt issuer not configured", ErrSessionPersist)
 	}
 	plain, hashHex, err := newRefreshToken()
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
 	}
 	expT := time.Now().UTC().Add(refreshTTL)
 	cip, ua, fvid, frid, cc, reg, city, dev, gsrc := s.sessionFields(ctx, sc)
@@ -223,11 +225,11 @@ func (s *Service) issueSession(ctx context.Context, userID string, sc *SessionCo
 		if strings.Contains(strings.ToLower(err.Error()), "column") {
 			log.Printf("playerauth: hint — run DB migrations through 00063_player_sessions_client_meta if client_ip / fingerprint columns are missing")
 		}
-		return "", "", 0, fmt.Errorf("session: %w", err)
+		return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
 	}
 	access, _, exp, err = s.Issuer.SignPlayer(userID)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
 	}
 	return access, plain, exp, nil
 }
@@ -238,7 +240,7 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string, sc *SessionC
 		return "", "", 0, ErrInvalidCredentials
 	}
 	if s.Issuer == nil {
-		return "", "", 0, fmt.Errorf("jwt issuer not configured")
+		return "", "", 0, fmt.Errorf("%w: jwt issuer not configured", ErrSessionPersist)
 	}
 	h := hashRefresh(refreshPlain)
 	var sid, uid, fam string
@@ -259,7 +261,7 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string, sc *SessionC
 	_, _ = s.Pool.Exec(ctx, `DELETE FROM player_sessions WHERE id = $1::uuid`, sid)
 	plain, nh, err := newRefreshToken()
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
 	}
 	cip, ua, fvid, frid, cc, reg, city, dev, gsrc := s.sessionFields(ctx, sc)
 	_, err = s.Pool.Exec(ctx, `
@@ -273,10 +275,14 @@ func (s *Service) Refresh(ctx context.Context, refreshPlain string, sc *SessionC
 			NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), NULLIF($12,''), NULLIF($13,''), now())
 	`, uid, nh, time.Now().UTC().Add(refreshTTL), fam, cip, ua, fvid, frid, cc, reg, city, dev, gsrc)
 	if err != nil {
-		return "", "", 0, err
+		log.Printf("playerauth: player_sessions refresh insert failed: %v", err)
+		return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
 	}
 	access, _, exp, err = s.Issuer.SignPlayer(uid)
-	return access, plain, exp, err
+	if err != nil {
+		return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
+	}
+	return access, plain, exp, nil
 }
 
 // RevokeAccessJTI invalidates the access token in Authorization header (best-effort).

@@ -125,6 +125,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			playerapi.WriteError(w, http.StatusConflict, "register_failed", "email may already be in use")
 			return
 		}
+		if errors.Is(err, ErrSessionPersist) {
+			log.Printf("playerauth: register session persist: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", "Could not start your session. The database may need the latest API migrations (player_sessions). See deploy logs for details.")
+			return
+		}
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "register failed")
 		return
 	}
@@ -150,6 +155,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 			return
 		}
+		if errors.Is(err, ErrSessionPersist) {
+			log.Printf("playerauth: login session persist: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", "Could not start your session. The database may need the latest API migrations (player_sessions). See deploy logs for details.")
+			return
+		}
 		log.Printf("playerauth: login failed: %v", err)
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "login failed")
 		return
@@ -172,6 +182,11 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
 			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_refresh", "invalid or expired refresh token")
+			return
+		}
+		if errors.Is(err, ErrSessionPersist) {
+			log.Printf("playerauth: refresh session persist: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", "Could not refresh your session. The database may need the latest API migrations (player_sessions).")
 			return
 		}
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "refresh failed")
