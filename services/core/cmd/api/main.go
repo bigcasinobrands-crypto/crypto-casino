@@ -274,6 +274,8 @@ func main() {
 	// All other routes get a 60s context deadline.
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Timeout(60 * time.Second))
+		// Player SPA calls GET /health/operational cross-origin; without this, only /v1/* had CORS and the browser shows CORS errors while /v1/games succeeds.
+		r.Use(playerCORS.Handler)
 
 		// Browsers often open the service root; the API has no SPA here — avoid a bare chi 404.
 		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {

@@ -1,4 +1,4 @@
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, useLayoutEffect } from 'react'
 import { FingerprintContext, useVisitorData } from '@fingerprint/react'
 import { bindFingerprintGetVisitorData } from './fingerprintClient'
 
@@ -8,18 +8,19 @@ import { bindFingerprintGetVisitorData } from './fingerprintClient'
  * the dashboard “Check installation” flow and consistent event_id). Catalog `/v1/games` uses
  * plain `fetch` and does not wait on Fingerprint.
  *
- * We bind `getVisitorData` synchronously during render so it is available before sibling
- * `BrowserRouter`/`App` render — otherwise login could run before `useLayoutEffect` and miss `requestId`.
+ * Binding runs in `useLayoutEffect` with `[ctx.getVisitorData]` so module state never keeps a stale
+ * `getVisitorData` when the provider updates, and we avoid side effects during render.
+ * `waitForFingerprintVisitorBinding` in `fingerprintClient` covers the short window before the first
+ * layout commit for login/sign-in.
  */
 export function FingerprintReactIntegration() {
   const ctx = useContext(FingerprintContext)
-  bindFingerprintGetVisitorData(ctx.getVisitorData)
-
   const { error, isFetched, data } = useVisitorData({ immediate: true })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    bindFingerprintGetVisitorData(ctx.getVisitorData)
     return () => bindFingerprintGetVisitorData(null)
-  }, [])
+  }, [ctx.getVisitorData])
 
   useEffect(() => {
     if (error) {
