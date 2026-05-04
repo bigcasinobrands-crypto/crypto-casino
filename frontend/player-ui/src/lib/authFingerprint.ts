@@ -5,9 +5,10 @@ export async function getAuthFingerprintPayload(): Promise<{
   fingerprint_request_id?: string
   fingerprint_visitor_id?: string
 }> {
+  // Keep this short so login/register are not delayed when the agent is blocked or slow.
   const fp = await Promise.race([
     getFingerprintForAction(),
-    new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    new Promise<null>((r) => setTimeout(() => r(null), 2500)),
   ])
   if (!fp?.requestId) return {}
   const out: { fingerprint_request_id?: string; fingerprint_visitor_id?: string } = {

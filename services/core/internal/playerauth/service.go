@@ -216,8 +216,12 @@ func (s *Service) issueSession(ctx context.Context, userID string, sc *SessionCo
 			NULLIF($8,''), NULLIF($9,''), NULLIF($10,''), NULLIF($11,''), NULLIF($12,''), now())
 	`, userID, hashHex, expT, cip, ua, fvid, frid, cc, reg, city, dev, gsrc)
 	if err != nil {
+		log.Printf("playerauth: player_sessions insert failed: %v", err)
 		if strings.Contains(err.Error(), "family_id") {
-			log.Printf("playerauth: player_sessions insert failed — run DB migrations through 00054_session_refresh_family (family_id column): %v", err)
+			log.Printf("playerauth: hint — run DB migrations through 00054_session_refresh_family (family_id column)")
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "column") {
+			log.Printf("playerauth: hint — run DB migrations through 00063_player_sessions_client_meta if client_ip / fingerprint columns are missing")
 		}
 		return "", "", 0, fmt.Errorf("session: %w", err)
 	}
@@ -398,7 +402,11 @@ func (s *Service) sessionFields(ctx context.Context, sc *SessionContext) (
 		geoSource = "edge"
 	}
 	if s != nil && s.Fingerprint != nil && s.Cfg != nil && s.Cfg.FingerprintConfigured() && fpRid != "" {
-		if ev, err := s.Fingerprint.GetEvent(ctx, fpRid); err == nil && ev != nil {
+		// Never block login/session on slow or broken Fingerprint Server API (timeout < client transport timeout).
+		ctxFP, cancel := context.WithTimeout(ctx, 3*time.Second)
+		ev, err := s.Fingerprint.GetEvent(ctxFP, fpRid)
+		cancel()
+		if err == nil && ev != nil {
 			fpCC, fpDev := fingerprint.TrafficEnrichment(ev)
 			if country == "" && fpCC != "" {
 				country = fpCC

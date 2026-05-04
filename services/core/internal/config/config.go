@@ -370,10 +370,7 @@ func Load() (Config, error) {
 		}
 	}
 	c.FingerprintSecretAPIKey = strings.TrimSpace(os.Getenv("FINGERPRINT_SECRET_API_KEY"))
-	c.FingerprintAPIBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("FINGERPRINT_API_BASE_URL")), "/")
-	if c.FingerprintAPIBaseURL == "" {
-		c.FingerprintAPIBaseURL = "https://api.fpjs.io"
-	}
+	c.FingerprintAPIBaseURL = normalizeFingerprintBaseURL(os.Getenv("FINGERPRINT_API_BASE_URL"))
 	c.WithdrawRequireFingerprint = parseBoolEnv(os.Getenv("WITHDRAW_REQUIRE_FINGERPRINT"))
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
@@ -452,6 +449,19 @@ func (c *Config) FystackConfigured() bool {
 		return false
 	}
 	return c.FystackBaseURL != "" && c.FystackAPIKey != "" && c.FystackAPISecret != "" && c.FystackWorkspaceID != ""
+}
+
+// normalizeFingerprintBaseURL defaults to the US Server API and prepends https:// when the scheme is omitted
+// (e.g. plain eu.api.fpjs.io from a dashboard copy-paste), so GET /events requests hit a valid URL.
+func normalizeFingerprintBaseURL(raw string) string {
+	s := strings.TrimSuffix(strings.TrimSpace(raw), "/")
+	if s == "" {
+		return "https://api.fpjs.io"
+	}
+	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
+		return s
+	}
+	return "https://" + s
 }
 
 // FingerprintConfigured is true when Server API secret is set (GET /events/{request_id} enrichment).
