@@ -43,10 +43,11 @@ export function useTrafficSessionTracker(
   accessToken: string | null,
   isAuthenticated: boolean,
 ) {
+  // Include auth in the key so we re-run identification after login on the same path (and don’t skip FP when only session state changes).
   const lastSent = useRef<string>('')
 
   useEffect(() => {
-    const pathWithSearch = `${pathname}${search}`
+    const pathWithSearch = `${pathname}${search}|${accessToken ?? ''}|${isAuthenticated}`
     if (pathWithSearch === lastSent.current) return
     lastSent.current = pathWithSearch
 
@@ -57,7 +58,7 @@ export function useTrafficSessionTracker(
     void (async () => {
       const fp = await Promise.race([
         getFingerprintForAction(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
       ])
       const body: Record<string, unknown> = {
         session_key: browserSessionKey(),

@@ -9,6 +9,7 @@ import {
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
 } from './lib/playerChromeEvents'
 import { playerApiUrl } from './lib/playerApiUrl'
+import { bootstrapFingerprintIdentification } from './lib/fingerprintClient'
 import { useTrafficSessionTracker } from './hooks/useTrafficSessionTracker'
 import { useRakebackBoostLiveToast } from './hooks/useRakebackBoostLiveToast'
 import { useRewardsHub } from './hooks/useRewardsHub'
@@ -166,6 +167,10 @@ function AppShell() {
     const id = window.setInterval(() => void rewardsHub.reload(), 90_000)
     return () => window.clearInterval(id)
   }, [isAuthenticated, rewardsHub.reload])
+
+  useEffect(() => {
+    bootstrapFingerprintIdentification()
+  }, [])
 
   useTrafficSessionTracker(pathname, location.search, accessToken, isAuthenticated)
   const chat = useChat(accessToken, isAuthenticated, chatOpen)

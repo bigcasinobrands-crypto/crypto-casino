@@ -50,7 +50,22 @@ export async function getFingerprintForAction(): Promise<{
     const visitorId = typeof r.visitorId === 'string' ? r.visitorId : ''
     if (!requestId) return null
     return { visitorId, requestId }
-  } catch {
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.warn('[fingerprint] get() failed — check VITE_FINGERPRINT_PUBLIC_KEY, VITE_FINGERPRINT_REGION, ad blockers, and Fingerprint dashboard allowed domains', e)
+    }
     return null
   }
+}
+
+/**
+ * Run one identification on app load so Fingerprint’s “Verify installation” and EU latency see an event
+ * even if the traffic analytics effect dedupes or runs late.
+ */
+export function bootstrapFingerprintIdentification(): void {
+  if (!isFingerprintEnabled()) return
+  void getFingerprintForAction().catch(() => {
+    /* errors logged in getFingerprintForAction in DEV */
+  })
 }
