@@ -21,6 +21,29 @@ type Handler struct {
 	CookieCfg *config.Config // When PlayerCookieAuth, sets httpOnly cookies; nil skips cookies.
 }
 
+// sessionPersistUserMsg explains session_failed from wrapped Postgres errors (migrations, RLS, pooler).
+func sessionPersistUserMsg(err error, refresh bool) string {
+	intro := "Could not start your session. "
+	if refresh {
+		intro = "Could not refresh your session. "
+	}
+	if err == nil {
+		return intro + "See deploy logs."
+	}
+	l := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(l, "does not exist") && strings.Contains(l, "column"),
+		strings.Contains(l, "undefined column"):
+		return intro + "The database is missing player_sessions columns — apply migration 00063 to the same DB as your API. Options: (1) From repo root with DATABASE_URL set: npm run migrate:core (2) Paste services/core/scripts/supabase-player-sessions-fix.sql into Supabase SQL Editor. Deploy logs have the exact error."
+	case strings.Contains(l, "row-level security"), strings.Contains(l, "violates row-level"):
+		return intro + "Row-level security blocked the insert. On Supabase, set Core DATABASE_URL to the direct Postgres host (db.<project>.supabase.co:5432 with sslmode=require), not only the transaction pooler. See deploy logs."
+	case strings.Contains(l, "permission denied"):
+		return intro + "Database permission denied — check DATABASE_URL user/password matches Supabase and migrations applied. See deploy logs."
+	default:
+		return intro + "Ensure production DATABASE_URL points at your Supabase DB, migrations have run (00063+), and SKIP_DB_MIGRATIONS_ON_START is not set on Render if you rely on startup migrations. See deploy logs."
+	}
+}
+
 type regReq struct {
 	Email         string `json:"email"`
 	Password      string `json:"password"`
@@ -127,7 +150,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, ErrSessionPersist) {
 			log.Printf("playerauth: register session persist: %v", err)
-			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", "Could not start your session. The database may need the latest API migrations (player_sessions). See deploy logs for details.")
+			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", sessionPersistUserMsg(err, false))
 			return
 		}
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "register failed")
@@ -157,7 +180,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, ErrSessionPersist) {
 			log.Printf("playerauth: login session persist: %v", err)
-			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", "Could not start your session. The database may need the latest API migrations (player_sessions). See deploy logs for details.")
+			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", sessionPersistUserMsg(err, false))
 			return
 		}
 		log.Printf("playerauth: login failed: %v", err)
@@ -186,7 +209,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, ErrSessionPersist) {
 			log.Printf("playerauth: refresh session persist: %v", err)
-			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", "Could not refresh your session. The database may need the latest API migrations (player_sessions).")
+			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", sessionPersistUserMsg(err, true))
 			return
 		}
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "refresh failed")
