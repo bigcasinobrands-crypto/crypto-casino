@@ -75,7 +75,8 @@ export default function SportsPage() {
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const { openAuth } = useAuthModal()
 
-  const [catalogErr, setCatalogErr] = useState<string | null>(null)
+  /** `network` = fetch failed (API down / wrong proxy). `api` = HTTP error body from core (e.g. sportsbook not configured). */
+  const [catalogLoadErr, setCatalogLoadErr] = useState<null | 'network' | { api: string }>(null)
   const [shell, setShell] = useState<SportsbookContext | null>(null)
   const [iframeUrl, setIframeUrl] = useState<string | null>(null)
   const [launchErr, setLaunchErr] = useState<string | null>(null)
@@ -99,11 +100,11 @@ export default function SportsPage() {
   const realAllowed = true
 
   useEffect(() => {
-    if (isAuthenticated || catalogErr || !shell) return
+    if (isAuthenticated || catalogLoadErr !== null || !shell) return
     if (authPromptedRef.current) return
     authPromptedRef.current = true
     openAuth('login', { navigateTo: postAuthTarget })
-  }, [isAuthenticated, catalogErr, shell, openAuth])
+  }, [isAuthenticated, catalogLoadErr, shell, openAuth])
 
   useEffect(() => {
     authPromptedRef.current = false
@@ -155,7 +156,7 @@ export default function SportsPage() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      setCatalogErr(null)
+      setCatalogLoadErr(null)
       setShell(null)
       try {
         const res = await playerFetch(CONTEXT_PATH)
@@ -164,9 +165,12 @@ export default function SportsPage() {
           const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
           toastPlayerApiError(parsed, res.status, `GET ${CONTEXT_PATH}`, rid)
           if (!cancelled) {
-            setCatalogErr(
-              formatApiError(parsed, 'Sportsbook is not configured. Set BLUEOCEAN_SPORTSBOOK_BOG_GAME_ID or BLUEOCEAN_SPORTSBOOK_GAME_ID on the API.'),
-            )
+            setCatalogLoadErr({
+              api: formatApiError(
+                parsed,
+                'Sportsbook is not configured. Set BLUEOCEAN_SPORTSBOOK_BOG_GAME_ID or BLUEOCEAN_SPORTSBOOK_GAME_ID on the API.',
+              ),
+            })
           }
           return
         }
@@ -174,7 +178,7 @@ export default function SportsPage() {
         if (!cancelled) setShell(j)
       } catch {
         toastPlayerNetworkError('Network error.', 'GET /v1/sportsbook/context')
-        if (!cancelled) setCatalogErr('Network error loading sportsbook.')
+        if (!cancelled) setCatalogLoadErr('network')
       }
     })()
     return () => {
@@ -230,11 +234,12 @@ export default function SportsPage() {
   }, [isAuthenticated, apiFetch, shell, launchModeChoice, launchRetryNonce, recentKey])
 
   const showLaunchModeModal = Boolean(
-    isAuthenticated && shell && !catalogErr && launchModeChoice === null && !iframeUrl && !launchErr,
+    isAuthenticated && shell && catalogLoadErr === null && launchModeChoice === null && !iframeUrl && !launchErr,
   )
 
   useEffect(() => {
-    if (!isAuthenticated || !shell || catalogErr || iframeUrl || launchErr || launchModeChoice !== null) return
+    if (!isAuthenticated || !shell || catalogLoadErr !== null || iframeUrl || launchErr || launchModeChoice !== null)
+      return
     if (demoAllowed && !realAllowed) {
       setLaunchModeChoice('demo')
       return
@@ -242,7 +247,7 @@ export default function SportsPage() {
     if (!demoAllowed && realAllowed) {
       setLaunchModeChoice('real')
     }
-  }, [isAuthenticated, shell, catalogErr, iframeUrl, launchErr, launchModeChoice, demoAllowed, realAllowed])
+  }, [isAuthenticated, shell, catalogLoadErr, iframeUrl, launchErr, launchModeChoice, demoAllowed, realAllowed])
 
   useEffect(() => {
     if (!showLaunchModeModal) return
@@ -261,17 +266,38 @@ export default function SportsPage() {
   const title = shell?.title?.trim() || 'Sportsbook'
   const providerLabel = 'Blue Ocean'
   const launchPending = Boolean(
-    isAuthenticated && launchModeChoice !== null && !catalogErr && !iframeUrl && !launchErr,
+    isAuthenticated && launchModeChoice !== null && catalogLoadErr === null && !iframeUrl && !launchErr,
   )
-  const metaLoading = !catalogErr && !shell
+  const metaLoading = catalogLoadErr === null && !shell
 
-  if (catalogErr) {
+  if (catalogLoadErr !== null) {
+    if (catalogLoadErr === 'network') {
+      return (
+        <div className="mx-auto max-w-md px-4 py-7 text-center text-sm">
+          <p className="text-red-400">Could not reach the game API.</p>
+          <p className="mt-2 text-xs leading-relaxed text-casino-muted">
+            The browser never got a response from <span className="font-mono text-[11px]">/v1/sportsbook/context</span>{' '}
+            (often HTTP 0). From the repo root: start Postgres and Redis{' '}
+            <span className="font-mono text-[11px]">npm run compose:up</span>, then the core API{' '}
+            <span className="font-mono text-[11px]">npm run dev:api</span> (or{' '}
+            <span className="font-mono text-[11px]">npm run dev:casino:stack</span> for DB + API + player). Keep{' '}
+            <span className="font-mono text-[11px]">DEV_API_PROXY</span> pointing at the API (see{' '}
+            <span className="font-mono text-[11px]">frontend/player-ui/.env.example</span>).
+          </p>
+          <button type="button" className="mt-3 inline-block text-casino-primary underline" onClick={goBack}>
+            Back to games
+          </button>
+        </div>
+      )
+    }
     return (
       <div className="mx-auto max-w-md px-4 py-7 text-center text-sm">
-        <p className="text-red-400">{catalogErr}</p>
+        <p className="text-red-400">{catalogLoadErr.api}</p>
         <p className="mt-2 text-xs text-casino-muted">
-          Configure BLUEOCEAN_SPORTSBOOK_BOG_GAME_ID or BLUEOCEAN_SPORTSBOOK_GAME_ID on the core API (see .env.example), or
-          ensure a sportsbook row exists in the synced catalog.
+          Configure BLUEOCEAN_SPORTSBOOK_BOG_GAME_ID or BLUEOCEAN_SPORTSBOOK_GAME_ID on the core API (see{' '}
+          <span className="font-mono text-[11px]">services/core/.env.example</span>), or ensure a sportsbook row exists in
+          the synced catalog (migration <span className="font-mono text-[11px]">00023_sportsbook_system_game.sql</span>
+          ).
         </p>
         <button type="button" className="mt-3 inline-block text-casino-primary underline" onClick={goBack}>
           Back to games

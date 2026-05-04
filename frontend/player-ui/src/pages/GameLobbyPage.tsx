@@ -46,6 +46,34 @@ type GameMeta = {
 
 type LaunchPlayMode = 'demo' | 'real'
 
+/** Best-effort fullscreen for the game surface (standard + legacy WebKit). */
+function requestGameFullscreen(el: HTMLElement): Promise<void> {
+  const anyEl = el as HTMLElement & {
+    webkitRequestFullscreen?: () => void
+    mozRequestFullScreen?: () => void
+  }
+  if (typeof anyEl.requestFullscreen === 'function') {
+    return anyEl.requestFullscreen().catch(() => undefined)
+  }
+  if (typeof anyEl.webkitRequestFullscreen === 'function') {
+    try {
+      anyEl.webkitRequestFullscreen()
+      return Promise.resolve()
+    } catch {
+      return Promise.reject(new Error('webkit fullscreen failed'))
+    }
+  }
+  if (typeof anyEl.mozRequestFullScreen === 'function') {
+    try {
+      anyEl.mozRequestFullScreen()
+      return Promise.resolve()
+    } catch {
+      return Promise.reject(new Error('moz fullscreen failed'))
+    }
+  }
+  return Promise.reject(new Error('fullscreen not supported'))
+}
+
 function launchErrorMessage(code: string | undefined, fallback: string) {
   switch (code) {
     case 'maintenance':
@@ -187,6 +215,8 @@ export default function GameLobbyPage() {
   const [launchErr, setLaunchErr] = useState<string | null>(null)
   const [launchRetryNonce, setLaunchRetryNonce] = useState(0)
   const [launchModeChoice, setLaunchModeChoice] = useState<LaunchPlayMode | null>(null)
+  /** After Real/Demo (or auto-start on narrow viewports), enter fullscreen on the iframe shell as soon as the game URL is ready. */
+  const [requestedImmersiveLaunch, setRequestedImmersiveLaunch] = useState(false)
   /** Provider iframe often paints black until its bundle loads — keep a loading shell until `load`. */
   const [iframeStageReady, setIframeStageReady] = useState(false)
   const [, bumpFav] = useState(0)
@@ -270,6 +300,7 @@ export default function GameLobbyPage() {
 
   useEffect(() => {
     setLaunchModeChoice(null)
+    setRequestedImmersiveLaunch(false)
   }, [gameId])
 
   useEffect(() => {
@@ -419,7 +450,10 @@ export default function GameLobbyPage() {
             'POST /v1/games/launch',
             rid,
           )
-          if (!cancelled) setLaunchErr(msg)
+          if (!cancelled) {
+            setRequestedImmersiveLaunch(false)
+            setLaunchErr(msg)
+          }
           return
         }
         const j = (await res.json()) as { url: string }
@@ -432,13 +466,40 @@ export default function GameLobbyPage() {
           'Network error while launching. Check your connection and try again.',
           'POST /v1/games/launch',
         )
-        if (!cancelled) setLaunchErr('Network error while launching. Check your connection and try again.')
+        if (!cancelled) {
+          setRequestedImmersiveLaunch(false)
+          setLaunchErr('Network error while launching. Check your connection and try again.')
+        }
       }
     })()
     return () => {
       cancelled = true
     }
   }, [isAuthenticated, apiFetch, gameId, launchModeChoice, launchRetryNonce])
+
+  useLayoutEffect(() => {
+    if (!iframeUrl?.trim() || !requestedImmersiveLaunch || thisGameInMini) return
+    let cancelled = false
+    const id = window.requestAnimationFrame(() => {
+      if (cancelled) return
+      const el = stageRef.current
+      if (!el || document.fullscreenElement === el) {
+        if (!cancelled) setRequestedImmersiveLaunch(false)
+        return
+      }
+      void requestGameFullscreen(el)
+        .then(() => {
+          if (!cancelled) setRequestedImmersiveLaunch(false)
+        })
+        .catch(() => {
+          if (!cancelled) setRequestedImmersiveLaunch(false)
+        })
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(id)
+    }
+  }, [iframeUrl, requestedImmersiveLaunch, thisGameInMini])
 
   useEffect(() => {
     if (!relatedFetchKey) return
@@ -485,6 +546,10 @@ export default function GameLobbyPage() {
   }, [relatedFetchKey])
 
   const goBackToCatalog = useCallback(() => {
+    setRequestedImmersiveLaunch(false)
+    if (typeof document !== 'undefined' && document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined)
+    }
     const ret = getCatalogReturnForNavigation()
     if (ret) {
       const y = Math.max(0, Math.round(ret.scrollTop))
@@ -508,11 +573,15 @@ export default function GameLobbyPage() {
 
   useEffect(() => {
     if (!isAuthenticated || !meta || metaErr || iframeUrl || launchErr || launchModeChoice !== null) return
+    const narrow =
+      typeof window !== 'undefined' && window.matchMedia('(max-width: 1279px)').matches
     if (demoAllowed && !realAllowed) {
+      if (narrow) setRequestedImmersiveLaunch(true)
       setLaunchModeChoice('demo')
       return
     }
     if (!demoAllowed && realAllowed) {
+      if (narrow) setRequestedImmersiveLaunch(true)
       setLaunchModeChoice('real')
     }
   }, [
@@ -623,10 +692,7 @@ export default function GameLobbyPage() {
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
           {showInlinePlayer ? (
             <div className="mx-auto w-full max-w-[min(100%,90rem)] shrink-0 px-4 pt-2 sm:px-5 sm:pt-3 md:px-6 lg:px-8">
-              <div
-                ref={stageRef}
-                className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
-              >
+              <div className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
                 <div className="hidden items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3 xl:flex">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <button
@@ -690,7 +756,8 @@ export default function GameLobbyPage() {
                   </div>
                 </div>
                 <div
-                  className="relative aspect-video w-full bg-black"
+                  ref={stageRef}
+                  className="relative aspect-video w-full bg-black [&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:z-[250] [&:fullscreen]:m-0 [&:fullscreen]:box-border [&:fullscreen]:h-[100dvh] [&:fullscreen]:min-h-[100dvh] [&:fullscreen]:w-screen [&:fullscreen]:max-w-none [&:fullscreen]:rounded-none [&:fullscreen]:border-0 [&:fullscreen]:bg-black [&:fullscreen]:p-0"
                   aria-busy={iframeBootPending}
                 >
                   <img
@@ -770,6 +837,10 @@ export default function GameLobbyPage() {
                     type="button"
                     className="font-medium text-casino-primary underline-offset-2 hover:underline"
                     onClick={() => {
+                      setRequestedImmersiveLaunch(false)
+                      if (typeof document !== 'undefined' && document.fullscreenElement) {
+                        void document.exitFullscreen().catch(() => undefined)
+                      }
                       setIframeUrl(null)
                       setLaunchErr(null)
                       setLaunchModeChoice(null)
@@ -922,6 +993,7 @@ export default function GameLobbyPage() {
                               className="rounded-casino-sm border border-casino-primary/55 bg-casino-primary/20 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-casino-primary/30"
                               onClick={() => {
                                 setLaunchErr(null)
+                                setRequestedImmersiveLaunch(true)
                                 setLaunchModeChoice('real')
                               }}
                             >
@@ -956,7 +1028,10 @@ export default function GameLobbyPage() {
                     disabled={!realAllowed}
                     title={!realAllowed ? 'This title only supports free play.' : undefined}
                     className="flex-1 rounded-casino-md bg-casino-primary px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
-                    onClick={() => setLaunchModeChoice('real')}
+                    onClick={() => {
+                      setRequestedImmersiveLaunch(true)
+                      setLaunchModeChoice('real')
+                    }}
                   >
                     Real play
                   </button>
@@ -965,7 +1040,10 @@ export default function GameLobbyPage() {
                     disabled={!demoAllowed}
                     title={!demoAllowed ? 'Free play is not available for this game.' : undefined}
                     className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-4 py-3 text-sm font-semibold text-casino-foreground transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40"
-                    onClick={() => setLaunchModeChoice('demo')}
+                    onClick={() => {
+                      setRequestedImmersiveLaunch(true)
+                      setLaunchModeChoice('demo')
+                    }}
                   >
                     Demo play
                   </button>
@@ -1134,7 +1212,10 @@ export default function GameLobbyPage() {
                           disabled={!realAllowed}
                           title={!realAllowed ? 'This title only supports free play.' : undefined}
                           className="flex-1 rounded-casino-md bg-casino-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
-                          onClick={() => setLaunchModeChoice('real')}
+                          onClick={() => {
+                            setRequestedImmersiveLaunch(true)
+                            setLaunchModeChoice('real')
+                          }}
                         >
                           Real money
                         </button>
@@ -1143,7 +1224,10 @@ export default function GameLobbyPage() {
                           disabled={!demoAllowed}
                           title={!demoAllowed ? 'Free play is not available for this game.' : undefined}
                           className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
-                          onClick={() => setLaunchModeChoice('demo')}
+                          onClick={() => {
+                            setRequestedImmersiveLaunch(true)
+                            setLaunchModeChoice('demo')
+                          }}
                         >
                           Free play
                         </button>
@@ -1216,6 +1300,7 @@ export default function GameLobbyPage() {
                             className="rounded-casino-sm border border-casino-primary/55 bg-casino-primary/20 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-casino-primary/30 sm:px-3.5 sm:py-2"
                             onClick={() => {
                               setLaunchErr(null)
+                              setRequestedImmersiveLaunch(true)
                               setLaunchModeChoice('real')
                             }}
                           >
