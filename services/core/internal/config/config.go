@@ -497,6 +497,7 @@ func parseOriginsList(raw string, defaultOrigins []string) []string {
 	var list []string
 	for _, o := range strings.Split(raw, ",") {
 		o = strings.TrimSpace(o)
+		o = strings.TrimSuffix(o, "/")
 		if o != "" {
 			list = append(list, o)
 		}

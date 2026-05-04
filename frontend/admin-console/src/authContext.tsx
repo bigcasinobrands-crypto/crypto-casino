@@ -16,6 +16,17 @@ import type {
 import { apiErrFromBody, readApiError, type ApiErr } from './api/errors'
 import { adminApiOriginConfigured, adminApiUrl } from './lib/adminApiUrl'
 
+/** Shown when fetch() rejects (HTTP 0) — CORS and misconfigured API URL are the usual causes in production. */
+function adminLoginNetworkMessage(): string {
+  if (import.meta.env.DEV) {
+    return 'Cannot reach API. From the repo root run npm run dev:api and keep Postgres up (npm run compose:up).'
+  }
+  if (!adminApiOriginConfigured()) {
+    return 'Cannot reach API. Set VITE_ADMIN_API_ORIGIN on this admin project in Vercel to your core API origin (e.g. https://crypto-casino-1938.onrender.com), save for Production + Preview, then redeploy—old builds ignore new env vars.'
+  }
+  return 'Cannot reach API. If VITE_ADMIN_API_ORIGIN is set, the browser often blocks the request until Render allows this site: set ADMIN_CORS_ORIGINS on the core API to your exact admin URL (same as the address bar, no trailing slash). Include preview URLs if you test on Vercel preview hosts. Redeploy the API after changing env. Free Render can take 50s+ to wake.'
+}
+
 const ACCESS = 'admin_access_token'
 const REFRESH = 'admin_refresh_token'
 const EXPIRES = 'admin_access_expires_at'
@@ -231,8 +242,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           error: {
             code: 'network',
             status: 0,
-            message:
-              'Cannot reach API. From the repo root run npm run dev:api and keep Postgres up (npm run compose:up).',
+            message: adminLoginNetworkMessage(),
           },
         }
       }
