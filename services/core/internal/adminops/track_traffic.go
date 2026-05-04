@@ -26,6 +26,8 @@ type trafficSessionIngest struct {
 	// Fingerprint Pro (browser) — used with Server API to fill geo + device for admin Demographics.
 	FingerprintRequestID string `json:"fingerprint_request_id,omitempty"`
 	FingerprintVisitorID  string `json:"fingerprint_visitor_id,omitempty"`
+	// Locale is typically navigator.language (e.g. en-GB, ro-RO); used as last-resort ISO2 when edge geo + FP are unavailable.
+	Locale string `json:"locale,omitempty"`
 }
 
 func truncateRunes(s string, max int) string {
@@ -74,6 +76,27 @@ func normalizeISO2(s string) string {
 		return ""
 	}
 	return s
+}
+
+// countryFromLocale parses BCP47 tags like en-GB, ro-RO into an ISO 3166-1 alpha-2 code (region subtag).
+func countryFromLocale(locale string) string {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		return ""
+	}
+	locale = strings.ReplaceAll(locale, "_", "-")
+	parts := strings.Split(locale, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	last := strings.ToUpper(strings.TrimSpace(parts[len(parts)-1]))
+	if len(last) != 2 {
+		return ""
+	}
+	if last[0] < 'A' || last[0] > 'Z' || last[1] < 'A' || last[1] > 'Z' {
+		return ""
+	}
+	return last
 }
 
 // IngestTrafficSession records or updates a browser session (public player API).
@@ -132,6 +155,12 @@ func (h *Handler) IngestTrafficSession(w http.ResponseWriter, r *http.Request) {
 		geoSrc = "fingerprint"
 	} else if finalCC != "" {
 		geoSrc = "edge"
+	}
+	if finalCC == "" {
+		if lc := countryFromLocale(truncateRunes(body.Locale, 32)); lc != "" {
+			finalCC = lc
+			geoSrc = "locale"
+		}
 	}
 	finalDev := devIn
 	if fpDev != "unknown" {

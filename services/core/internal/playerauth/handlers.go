@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/crypto-casino/core/internal/captcha"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/playerapi"
@@ -335,6 +337,29 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"sessions": list})
+}
+
+func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	sid := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if sid == "" {
+		playerapi.WriteError(w, http.StatusBadRequest, "bad_request", "missing session id")
+		return
+	}
+	if err := h.Svc.RevokeSession(r.Context(), id, sid); err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			playerapi.WriteError(w, http.StatusNotFound, "not_found", "session not found")
+			return
+		}
+		log.Printf("playerauth: revoke session: %v", err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not revoke session")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {

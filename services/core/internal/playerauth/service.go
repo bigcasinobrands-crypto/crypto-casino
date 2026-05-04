@@ -28,6 +28,8 @@ var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrTermsNotAccepted = errors.New("terms not accepted")
 // ErrSessionPersist is returned when DB insert or token signing fails after the user is authenticated (e.g. missing player_sessions columns).
 var ErrSessionPersist = errors.New("session persist failed")
+// ErrSessionNotFound is returned when revoking a session that does not exist or belongs to another user.
+var ErrSessionNotFound = errors.New("session not found")
 
 // FystackWalletProvisioner creates a custodial wallet after signup (optional).
 type FystackWalletProvisioner interface {
@@ -371,6 +373,25 @@ func (s *Service) ListSessions(ctx context.Context, userID string) ([]map[string
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// RevokeSession removes one refresh-token session row for the account (remote sign-out). Returns ErrSessionNotFound if the id is invalid or not owned by the user.
+func (s *Service) RevokeSession(ctx context.Context, userID, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return ErrSessionNotFound
+	}
+	tag, err := s.Pool.Exec(ctx, `
+		DELETE FROM player_sessions
+		WHERE user_id = $1::uuid AND id = $2::uuid
+	`, userID, sessionID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSessionNotFound
+	}
+	return nil
 }
 
 func (s *Service) assertUserPlayAllowed(ctx context.Context, userID string) error {

@@ -715,11 +715,7 @@ export default function ProfilePage() {
       {/* Profile Header */}
       <div className="flex flex-col gap-6 rounded-casino-lg bg-casino-card p-5 sm:p-7 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-5 sm:gap-6">
-          <AvatarUpload
-            userId={me?.id}
-            avatarUrl={me?.avatar_url}
-            onUploaded={() => void refreshProfile()}
-          />
+          <AvatarUpload userId={me?.id} avatarUrl={me?.avatar_url} onUploaded={refreshProfile} />
           <div className="flex flex-col gap-1.5">
             <h1 className="text-xl font-black leading-none text-casino-foreground sm:text-2xl">
               {displayName}
@@ -2308,6 +2304,7 @@ function SettingsPreference() {
 
 type AuthSessionRow = {
   id: string
+  family_id?: string
   created_at: string
   expires_at: string
   last_seen_at: string
@@ -2322,23 +2319,41 @@ type AuthSessionRow = {
   has_fingerprint_request: boolean
 }
 
-function formatSessionLocation(s: AuthSessionRow): string {
-  const parts = [s.city, s.region, s.country_iso2].map((x) => String(x || '').trim()).filter(Boolean)
-  return parts.length ? parts.join(' · ') : '—'
+const SESSIONS_PAGE_SIZE = 4
+
+/** One row per browser (visitor id) or session family so duplicate DB rows from the same login surface once. */
+function dedupeSessions(rows: AuthSessionRow[]): AuthSessionRow[] {
+  const sorted = [...rows].sort(
+    (a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime(),
+  )
+  const byKey = new Map<string, AuthSessionRow>()
+  for (const s of sorted) {
+    const fp = String(s.fingerprint_visitor_id || '').trim()
+    const fam = String(s.family_id || '').trim()
+    const key = fp !== '' ? `fp:${fp}` : fam !== '' ? `fam:${fam}` : `id:${s.id}`
+    if (!byKey.has(key)) byKey.set(key, s)
+  }
+  return [...byKey.values()].sort(
+    (a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime(),
+  )
 }
 
-function shortenUserAgent(ua: string): string {
-  const u = String(ua || '').trim()
-  if (!u) return '—'
-  if (u.length <= 72) return u
-  return `${u.slice(0, 69)}…`
+function formatSessionRegion(s: AuthSessionRow): string {
+  const reg = String(s.region || '').trim()
+  const cc = String(s.country_iso2 || '').trim().toUpperCase()
+  if (reg && cc) return `${reg} (${cc})`
+  if (reg) return reg
+  if (cc) return cc
+  return '—'
 }
 
 function SettingsSessions() {
-  const { apiFetch } = usePlayerAuth()
+  const { apiFetch, logout } = usePlayerAuth()
   const [sessions, setSessions] = useState<AuthSessionRow[] | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [currentVisitorId, setCurrentVisitorId] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -2361,6 +2376,35 @@ function SettingsSessions() {
     void load()
   }, [load])
 
+  const deduped = useMemo(() => dedupeSessions(sessions ?? []), [sessions])
+  const totalPages = Math.max(1, Math.ceil(deduped.length / SESSIONS_PAGE_SIZE))
+
+  useEffect(() => {
+    setPage((p) => Math.min(p, Math.max(0, totalPages - 1)))
+  }, [totalPages, deduped.length])
+
+  const pageRows = useMemo(() => {
+    const start = page * SESSIONS_PAGE_SIZE
+    return deduped.slice(start, start + SESSIONS_PAGE_SIZE)
+  }, [deduped, page])
+
+  const revokeSession = async (s: AuthSessionRow, isThisDevice: boolean) => {
+    setRevokingId(s.id)
+    try {
+      const res = await apiFetch(`/v1/auth/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await readApiError(res)
+        toast.error(err?.message ?? 'Could not sign out that session.')
+        return
+      }
+      toast.success(isThisDevice ? 'Signed out from this device.' : 'That session was signed out.')
+      if (isThisDevice) await logout()
+      await load()
+    } finally {
+      setRevokingId(null)
+    }
+  }
+
   return (
     <>
       <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">Active Sessions</h3>
@@ -2369,7 +2413,7 @@ function SettingsSessions() {
         <p className="text-sm text-casino-muted">Loading…</p>
       ) : null}
       <div className="flex flex-col gap-3">
-        {(sessions ?? []).map((s) => {
+        {pageRows.map((s) => {
           const isThisDevice =
             !!currentVisitorId &&
             String(s.fingerprint_visitor_id || '').trim() !== '' &&
@@ -2377,13 +2421,13 @@ function SettingsSessions() {
           return (
             <div
               key={s.id}
-              className={`flex flex-col gap-2 rounded-casino-md border px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between ${
+              className={`flex flex-col gap-3 rounded-casino-md border px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between ${
                 isThisDevice
                   ? 'border-casino-primary/20 bg-casino-primary/[0.04]'
                   : 'border-casino-border bg-white/[0.02]'
               }`}
             >
-              <div className="flex items-start gap-3 min-w-0">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
                 <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-casino-primary/10">
                   <IconGlobe size={16} className="text-casino-primary" />
                 </div>
@@ -2402,26 +2446,13 @@ function SettingsSessions() {
                       {s.client_ip?.trim() || '—'}
                     </p>
                     <p>
-                      <span className="font-semibold text-casino-foreground/90">Location:</span>{' '}
-                      {formatSessionLocation(s)}
-                      {s.geo_source ? (
-                        <span className="text-casino-muted/80"> ({s.geo_source})</span>
-                      ) : null}
+                      <span className="font-semibold text-casino-foreground/90">Region:</span>{' '}
+                      {formatSessionRegion(s)}
                     </p>
                     <p>
                       <span className="font-semibold text-casino-foreground/90">Device:</span>{' '}
                       {s.device_type?.trim() || '—'}
                     </p>
-                    <p className="break-all" title={s.user_agent || undefined}>
-                      <span className="font-semibold text-casino-foreground/90">Browser:</span>{' '}
-                      {shortenUserAgent(s.user_agent)}
-                    </p>
-                    {s.fingerprint_visitor_id ? (
-                      <p className="break-all font-mono text-[11px] opacity-90">
-                        <span className="font-sans font-semibold text-casino-foreground/90">Visitor:</span>{' '}
-                        {s.fingerprint_visitor_id}
-                      </p>
-                    ) : null}
                     <p>
                       <span className="font-semibold text-casino-foreground/90">Last seen:</span>{' '}
                       {s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : '—'}
@@ -2429,11 +2460,44 @@ function SettingsSessions() {
                   </div>
                 </div>
               </div>
+              <div className="flex shrink-0 sm:pt-0.5">
+                <button
+                  type="button"
+                  disabled={revokingId !== null}
+                  onClick={() => void revokeSession(s, isThisDevice)}
+                  className="rounded-casino-md border border-casino-border bg-white/[0.04] px-3 py-2 text-xs font-bold text-casino-foreground transition hover:bg-white/[0.08] disabled:opacity-50"
+                >
+                  {revokingId === s.id ? 'Signing out…' : 'Log out'}
+                </button>
+              </div>
             </div>
           )
         })}
       </div>
-      {sessions && sessions.length === 0 && !loadErr ? (
+      {deduped.length > SESSIONS_PAGE_SIZE ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-casino-border pt-4">
+          <button
+            type="button"
+            disabled={page <= 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            className="inline-flex items-center gap-1 rounded-casino-md border border-casino-border bg-white/[0.04] px-3 py-2 text-xs font-bold text-casino-foreground transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <IconChevronLeft size={14} /> Previous
+          </button>
+          <span className="text-xs font-semibold text-casino-muted">
+            Page {page + 1} of {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={page >= totalPages - 1}
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            className="inline-flex items-center gap-1 rounded-casino-md border border-casino-border bg-white/[0.04] px-3 py-2 text-xs font-bold text-casino-foreground transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next <IconChevronRight size={14} />
+          </button>
+        </div>
+      ) : null}
+      {sessions && deduped.length === 0 && !loadErr ? (
         <p className="mt-2 text-sm text-casino-muted">No active sessions found.</p>
       ) : null}
       <p className="mt-6 text-sm text-casino-muted">

@@ -1,4 +1,4 @@
-import { type FC } from 'react'
+import { type FC, type ReactNode } from 'react'
 
 type Option = {
   value: string
@@ -14,6 +14,8 @@ type Props = {
   onStartDateChange?: (value: string) => void
   onEndDateChange?: (value: string) => void
   className?: string
+  /** Rendered on the right side of the bar (e.g. Refresh). */
+  trailing?: ReactNode
 }
 
 const DataTimeframeBar: FC<Props> = ({
@@ -25,11 +27,13 @@ const DataTimeframeBar: FC<Props> = ({
   onStartDateChange,
   onEndDateChange,
   className = '',
+  trailing,
 }) => {
   const custom = value === 'custom'
   return (
     <div className={`card shadow-sm mb-4 ${className}`.trim()}>
-      <div className="card-body d-flex flex-wrap align-items-end gap-3">
+      <div className="card-body d-flex flex-wrap align-items-end justify-content-between gap-3">
+        <div className="d-flex flex-wrap align-items-end gap-3">
         <div>
           <label className="form-label small text-secondary mb-1">Timeframe</label>
           <select className="form-select form-select-sm" value={value} onChange={(e) => onChange(e.target.value)}>
@@ -62,6 +66,8 @@ const DataTimeframeBar: FC<Props> = ({
             </div>
           </>
         ) : null}
+        </div>
+        {trailing ? <div className="d-flex align-items-end ms-auto">{trailing}</div> : null}
       </div>
     </div>
   )

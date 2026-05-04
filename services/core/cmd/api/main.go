@@ -352,6 +352,7 @@ func main() {
 					r.Post("/profile/redeem-promo", playerH.RedeemPromo)
 					r.Post("/verify-email/resend", playerH.ResendVerification)
 					r.Get("/sessions", playerH.ListSessions)
+					r.Delete("/sessions/{sessionID}", playerH.RevokeSession)
 				})
 			})
 			r.Group(func(r chi.Router) {

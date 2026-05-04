@@ -126,6 +126,18 @@ export default function DemographicsOverviewPage() {
         endDate={customEnd}
         onStartDateChange={setCustomStart}
         onEndDateChange={setCustomEnd}
+        trailing={
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm"
+            disabled={loading}
+            onClick={() => void refetch()}
+            title="Reload analytics from the API"
+          >
+            <i className={`bi bi-arrow-clockwise me-1 ${loading ? 'opacity-50' : ''}`} aria-hidden />
+            Refresh
+          </button>
+        }
       />
 
       {error ? (

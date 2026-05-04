@@ -68,6 +68,8 @@ export function useTrafficSessionTracker(
         path: pathWithSearch,
         referrer: typeof document !== 'undefined' ? document.referrer : '',
         device_type: inferDevice(),
+        /** BCP47 locale — core maps region subtag to ISO2 when edge geo + Fingerprint miss (admin demographics). */
+        locale: typeof navigator !== 'undefined' ? navigator.language : '',
         ...utm,
       }
       if (fp?.requestId) body.fingerprint_request_id = fp.requestId

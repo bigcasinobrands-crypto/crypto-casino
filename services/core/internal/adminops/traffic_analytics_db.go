@@ -171,7 +171,7 @@ func buildTrafficAnalyticsFromDB(ctx context.Context, pool *pgxpool.Pool, start,
 		Referrers:       []ReferrerRow{},
 		UTMCampaigns:    []UTMCampaignRow{},
 		LandingPages:    []LandingPageRow{},
-		Notes:           "Sessions from POST /v1/analytics/session. Country uses X-Geo-Country when present; otherwise Fingerprint IP geolocation when the player sends fingerprint_request_id and the API has FINGERPRINT_SECRET_API_KEY. Unique visitors dedupe by fingerprint_visitor_id when set.",
+		Notes:           "Sessions from POST /v1/analytics/session. Country: proxy header X-Geo-Country if set; else Fingerprint Server API (requires fingerprint_request_id + FINGERPRINT_SECRET_API_KEY on core and matching eu/us API base); else navigator.language region (e.g. en-GB → GB). Unique visitors dedupe by fingerprint_visitor_id when set.",
 	}
 
 	var sessionsTotal int64
