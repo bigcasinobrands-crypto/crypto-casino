@@ -16,6 +16,13 @@ function fingerprintLoaderOptions(): { apiKey: string; region?: 'us' | 'eu' | 'a
 
 const fpOpts = fingerprintLoaderOptions()
 
+if (import.meta.env.DEV && fpOpts && fpOpts.region === undefined) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    '[fingerprint] VITE_FINGERPRINT_REGION is not set. If the workspace in the Fingerprint dashboard is EU, set VITE_FINGERPRINT_REGION=eu and restart Vite, or events go to the wrong region and "Check installation" / the EU app show no data.',
+  )
+}
+
 const appTree = (
   <BrowserRouter>
     <App />
