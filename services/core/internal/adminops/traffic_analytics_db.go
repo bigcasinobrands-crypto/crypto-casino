@@ -171,7 +171,7 @@ func buildTrafficAnalyticsFromDB(ctx context.Context, pool *pgxpool.Pool, start,
 		Referrers:       []ReferrerRow{},
 		UTMCampaigns:    []UTMCampaignRow{},
 		LandingPages:    []LandingPageRow{},
-		Notes:           "Sessions from POST /v1/analytics/session. Country: proxy header X-Geo-Country if set; else Fingerprint Server API (requires fingerprint_request_id + FINGERPRINT_SECRET_API_KEY on core and matching eu/us API base); else navigator.language region (e.g. en-GB → GB). Unique visitors dedupe by fingerprint_visitor_id when set.",
+		Notes:           "Sessions from POST /v1/analytics/session. Country: proxy header X-Geo-Country if set; else Fingerprint Server API (fingerprint_request_id + FINGERPRINT_SECRET_API_KEY + FINGERPRINT_API_BASE_URL matching VITE_FINGERPRINT_REGION: eu=https://eu.api.fpjs.io); else navigator.language region (e.g. en-GB → GB, geo_source=locale). Upgrades: edge/fingerprint beat locale on conflict. GET /health/operational shows fingerprint_server_api_configured.",
 	}
 
 	var sessionsTotal int64

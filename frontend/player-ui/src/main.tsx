@@ -8,20 +8,23 @@ import { FingerprintIntegrationBoundary } from './lib/fingerprintIntegrationBoun
 import { FingerprintProviderFallbackBoundary } from './lib/fingerprintProviderFallbackBoundary'
 import { FingerprintReactIntegration } from './lib/fingerprintReactIntegration'
 
-function fingerprintLoaderOptions(): { apiKey: string; region?: 'us' | 'eu' | 'ap' } | null {
+function fingerprintLoaderOptions(): { apiKey: string; region: 'us' | 'eu' | 'ap' } | null {
   const raw = import.meta.env.VITE_FINGERPRINT_PUBLIC_KEY
   if (typeof raw !== 'string' || !raw.trim()) return null
   const r = import.meta.env.VITE_FINGERPRINT_REGION?.trim().toLowerCase()
-  const region = r === 'eu' || r === 'us' || r === 'ap' ? r : undefined
+  const region: 'us' | 'eu' | 'ap' = r === 'eu' || r === 'us' || r === 'ap' ? r : 'us'
   return { apiKey: raw.trim(), region }
 }
 
 const fpOpts = fingerprintLoaderOptions()
 
-if (fpOpts && fpOpts.region === undefined) {
-  console.warn(
-    '[fingerprint] VITE_FINGERPRINT_REGION is not set. EU workspaces must use VITE_FINGERPRINT_REGION=eu (redeploy on Vercel) or events hit the wrong region and "Check installation" shows Event not found.',
-  )
+if (import.meta.env.DEV && fpOpts) {
+  const br = import.meta.env.VITE_FINGERPRINT_REGION
+  if (typeof br !== 'string' || !br.trim()) {
+    console.info(
+      '[fingerprint] VITE_FINGERPRINT_REGION not set; agent defaults to us. EU workspace: set VITE_FINGERPRINT_REGION=eu and API FINGERPRINT_API_BASE_URL=https://eu.api.fpjs.io',
+    )
+  }
 }
 
 const appTree = (

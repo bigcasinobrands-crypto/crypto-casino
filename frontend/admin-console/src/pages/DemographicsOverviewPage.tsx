@@ -149,12 +149,6 @@ export default function DemographicsOverviewPage() {
         </div>
       ) : null}
 
-      {data?.notes ? (
-        <div className="alert alert-light border small mb-3" role="note">
-          {data.notes}
-        </div>
-      ) : null}
-
       <div className="row mb-4">
         <div className="col-xl-8 mb-3 mb-xl-0">
           <div className="card shadow-sm h-100">

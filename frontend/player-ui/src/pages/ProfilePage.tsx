@@ -2321,21 +2321,87 @@ type AuthSessionRow = {
 
 const SESSIONS_PAGE_SIZE = 4
 
-/** One row per browser (visitor id) or session family so duplicate DB rows from the same login surface once. */
-function dedupeSessions(rows: AuthSessionRow[]): AuthSessionRow[] {
+type SessionGroup = {
+  /** Best row to show (latest last_seen, then richest IP/region/device). */
+  display: AuthSessionRow
+  /** Every player_sessions id merged into this card — revoke all on log out. */
+  sourceIds: string[]
+}
+
+function sessionRichness(s: AuthSessionRow): number {
+  let n = 0
+  if (String(s.client_ip || '').trim()) n += 4
+  if (String(s.country_iso2 || '').trim()) n += 2
+  if (String(s.region || '').trim()) n += 1
+  if (String(s.device_type || '').trim() && s.device_type !== 'unknown') n += 2
+  if (String(s.fingerprint_visitor_id || '').trim()) n += 2
+  return n
+}
+
+function pickBetterSession(a: AuthSessionRow, b: AuthSessionRow): AuthSessionRow {
+  const ta = new Date(a.last_seen_at).getTime()
+  const tb = new Date(b.last_seen_at).getTime()
+  if (tb !== ta) return tb > ta ? b : a
+  const ra = sessionRichness(a)
+  const rb = sessionRichness(b)
+  if (rb !== ra) return rb > ra ? b : a
+  return a
+}
+
+/**
+ * One card per logical session: same Fingerprint visitorId (multiple DB rows from refresh/login quirks),
+ * or same family_id when no visitor id. Rows without visitor id still join a family that has FP metadata.
+ */
+function dedupeSessions(rows: AuthSessionRow[]): SessionGroup[] {
+  if (rows.length === 0) return []
+
+  const asc = [...rows].sort(
+    (a, b) => new Date(a.last_seen_at).getTime() - new Date(b.last_seen_at).getTime(),
+  )
+  const famToFp = new Map<string, string>()
+  for (const s of asc) {
+    const fp = String(s.fingerprint_visitor_id || '').trim()
+    const fam = String(s.family_id || '').trim()
+    if (fp && fam) famToFp.set(fam, fp)
+  }
+
   const sorted = [...rows].sort(
     (a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime(),
   )
-  const byKey = new Map<string, AuthSessionRow>()
+
+  const byKey = new Map<string, AuthSessionRow[]>()
   for (const s of sorted) {
     const fp = String(s.fingerprint_visitor_id || '').trim()
     const fam = String(s.family_id || '').trim()
-    const key = fp !== '' ? `fp:${fp}` : fam !== '' ? `fam:${fam}` : `id:${s.id}`
-    if (!byKey.has(key)) byKey.set(key, s)
+    let key: string
+    if (fp) {
+      key = `fp:${fp}`
+    } else if (fam && famToFp.has(fam)) {
+      key = `fp:${famToFp.get(fam)!}`
+    } else if (fam) {
+      key = `fam:${fam}`
+    } else {
+      key = `id:${s.id}`
+    }
+    if (!byKey.has(key)) byKey.set(key, [])
+    byKey.get(key)!.push(s)
   }
-  return [...byKey.values()].sort(
-    (a, b) => new Date(b.last_seen_at).getTime() - new Date(a.last_seen_at).getTime(),
+
+  const groups: SessionGroup[] = []
+  for (const [, list] of byKey) {
+    const display = list.reduce((acc, cur) => pickBetterSession(acc, cur))
+    const sourceIds = [...new Set(list.map((r) => r.id))]
+    groups.push({ display, sourceIds })
+  }
+
+  return groups.sort(
+    (a, b) =>
+      new Date(b.display.last_seen_at).getTime() - new Date(a.display.last_seen_at).getTime(),
   )
+}
+
+function groupStableKey(g: SessionGroup): string {
+  return [...g.sourceIds].sort().join(',')
 }
 
 function formatSessionRegion(s: AuthSessionRow): string {
@@ -2353,7 +2419,7 @@ function SettingsSessions() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [currentVisitorId, setCurrentVisitorId] = useState<string | null>(null)
   const [page, setPage] = useState(0)
-  const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [revokingKey, setRevokingKey] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -2388,20 +2454,23 @@ function SettingsSessions() {
     return deduped.slice(start, start + SESSIONS_PAGE_SIZE)
   }, [deduped, page])
 
-  const revokeSession = async (s: AuthSessionRow, isThisDevice: boolean) => {
-    setRevokingId(s.id)
+  const revokeSession = async (g: SessionGroup, isThisDevice: boolean) => {
+    const rk = groupStableKey(g)
+    setRevokingKey(rk)
     try {
-      const res = await apiFetch(`/v1/auth/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const err = await readApiError(res)
-        toast.error(err?.message ?? 'Could not sign out that session.')
-        return
+      for (const id of g.sourceIds) {
+        const res = await apiFetch(`/v1/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const err = await readApiError(res)
+          toast.error(err?.message ?? 'Could not sign out that session.')
+          return
+        }
       }
       toast.success(isThisDevice ? 'Signed out from this device.' : 'That session was signed out.')
       if (isThisDevice) await logout()
       await load()
     } finally {
-      setRevokingId(null)
+      setRevokingKey(null)
     }
   }
 
@@ -2413,14 +2482,19 @@ function SettingsSessions() {
         <p className="text-sm text-casino-muted">Loading…</p>
       ) : null}
       <div className="flex flex-col gap-3">
-        {pageRows.map((s) => {
+        {pageRows.map((g) => {
+          const s = g.display
+          const rk = groupStableKey(g)
           const isThisDevice =
             !!currentVisitorId &&
-            String(s.fingerprint_visitor_id || '').trim() !== '' &&
-            s.fingerprint_visitor_id === currentVisitorId
+            (String(s.fingerprint_visitor_id || '').trim() === currentVisitorId ||
+              g.sourceIds.some((sid) => {
+                const row = sessions?.find((r) => r.id === sid)
+                return row && String(row.fingerprint_visitor_id || '').trim() === currentVisitorId
+              }))
           return (
             <div
-              key={s.id}
+              key={rk}
               className={`flex flex-col gap-3 rounded-casino-md border px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between ${
                 isThisDevice
                   ? 'border-casino-primary/20 bg-casino-primary/[0.04]'
@@ -2463,11 +2537,11 @@ function SettingsSessions() {
               <div className="flex shrink-0 sm:pt-0.5">
                 <button
                   type="button"
-                  disabled={revokingId !== null}
-                  onClick={() => void revokeSession(s, isThisDevice)}
+                  disabled={revokingKey !== null}
+                  onClick={() => void revokeSession(g, isThisDevice)}
                   className="rounded-casino-md border border-casino-border bg-white/[0.04] px-3 py-2 text-xs font-bold text-casino-foreground transition hover:bg-white/[0.08] disabled:opacity-50"
                 >
-                  {revokingId === s.id ? 'Signing out…' : 'Log out'}
+                  {revokingKey === rk ? 'Signing out…' : 'Log out'}
                 </button>
               </div>
             </div>

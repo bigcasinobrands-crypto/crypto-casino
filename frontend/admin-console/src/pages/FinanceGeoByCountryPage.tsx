@@ -59,12 +59,6 @@ export default function FinanceGeoByCountryPage() {
 
       {error ? <div className="alert alert-danger">{error}</div> : null}
 
-      {data?.notes ? (
-        <div className="alert alert-secondary small mb-3 mb-md-4" role="note">
-          {data.notes}
-        </div>
-      ) : null}
-
       {data?.coverage ? (
         <div className="row mb-4">
           <div className="col-xl-3 col-md-6 mb-3 mb-xl-0">

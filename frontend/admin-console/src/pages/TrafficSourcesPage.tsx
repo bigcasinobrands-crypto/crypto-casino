@@ -321,12 +321,6 @@ export default function TrafficSourcesPage() {
           </div>
         </div>
       </div>
-
-      {data?.notes ? (
-        <div className="alert alert-light border small" role="note">
-          {data.notes}
-        </div>
-      ) : null}
     </>
   )
 }

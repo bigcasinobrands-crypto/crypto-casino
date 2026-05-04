@@ -3,6 +3,7 @@ package adminops
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -186,14 +187,26 @@ ON CONFLICT (session_key) DO UPDATE SET
   last_path = EXCLUDED.last_path,
   page_views = traffic_sessions.page_views + 1,
   user_id = COALESCE(EXCLUDED.user_id, traffic_sessions.user_id),
-  country_iso2 = COALESCE(NULLIF(EXCLUDED.country_iso2,''), traffic_sessions.country_iso2),
+  country_iso2 = CASE
+    WHEN EXCLUDED.country_iso2 IS NULL THEN traffic_sessions.country_iso2
+    WHEN traffic_sessions.country_iso2 IS NULL OR BTRIM(COALESCE(traffic_sessions.country_iso2, '')) = '' THEN EXCLUDED.country_iso2
+    WHEN COALESCE(EXCLUDED.geo_source, '') IN ('edge', 'fingerprint') THEN EXCLUDED.country_iso2
+    WHEN COALESCE(traffic_sessions.geo_source, '') = 'locale' AND COALESCE(EXCLUDED.geo_source, '') = 'locale' THEN EXCLUDED.country_iso2
+    ELSE traffic_sessions.country_iso2
+  END,
   device_type = CASE
     WHEN NULLIF(EXCLUDED.device_type,'') IS NOT NULL AND EXCLUDED.device_type <> 'unknown' THEN EXCLUDED.device_type
     ELSE traffic_sessions.device_type
   END,
   fingerprint_visitor_id = COALESCE(NULLIF(traffic_sessions.fingerprint_visitor_id,''), NULLIF(EXCLUDED.fingerprint_visitor_id,'')),
   fingerprint_request_id = COALESCE(NULLIF(EXCLUDED.fingerprint_request_id,''), traffic_sessions.fingerprint_request_id),
-  geo_source = COALESCE(NULLIF(EXCLUDED.geo_source,''), traffic_sessions.geo_source)
+  geo_source = CASE
+    WHEN EXCLUDED.country_iso2 IS NULL THEN traffic_sessions.geo_source
+    WHEN traffic_sessions.country_iso2 IS NULL OR BTRIM(COALESCE(traffic_sessions.country_iso2, '')) = '' THEN COALESCE(NULLIF(EXCLUDED.geo_source,''), traffic_sessions.geo_source)
+    WHEN COALESCE(EXCLUDED.geo_source, '') IN ('edge', 'fingerprint') THEN NULLIF(EXCLUDED.geo_source,'')
+    WHEN COALESCE(traffic_sessions.geo_source, '') = 'locale' AND COALESCE(EXCLUDED.geo_source, '') = 'locale' THEN NULLIF(EXCLUDED.geo_source,'')
+    ELSE traffic_sessions.geo_source
+  END
 `
 
 	_, err = tx.Exec(ctx, insertSQL,
@@ -244,7 +257,22 @@ func (h *Handler) enrichFromFingerprint(ctx context.Context, requestID string) (
 		return "", deviceType
 	}
 	ev, err := h.Fingerprint.GetEvent(ctx, rid)
-	if err != nil || ev == nil {
+	if err != nil {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "not found") || strings.Contains(msg, "404") {
+			prefix := rid
+			if len(prefix) > 18 {
+				prefix = prefix[:18] + "…"
+			}
+			log.Printf(
+				"analytics/session: Fingerprint Server API event not found (request_id prefix=%s) — "+
+					"set FINGERPRINT_API_BASE_URL to match the player app region (eu=https://eu.api.fpjs.io us=https://api.fpjs.io)",
+				prefix,
+			)
+		}
+		return "", deviceType
+	}
+	if ev == nil {
 		return "", deviceType
 	}
 	return fingerprint.TrafficEnrichment(ev)

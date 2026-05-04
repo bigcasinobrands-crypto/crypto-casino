@@ -464,15 +464,17 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 		}
 
 		out := map[string]any{
-			"maintenance_mode":              cfg.MaintenanceMode,
-			"disable_game_launch":           cfg.DisableGameLaunch,
-			"blueocean_configured":          bog != nil && bog.Configured(),
-			"blueocean_launch_mode":         strings.TrimSpace(strings.ToLower(cfg.BlueOceanLaunchMode)),
-			"real_play_enabled":             realPlayEnabled,
-			"visible_games_count":           visible,
-			"blueocean_visible_games_count": blueoceanVisible,
-			"catalog_sync_ok":               syncOK,
-			"last_catalog_sync_at":          nil,
+			"maintenance_mode":                  cfg.MaintenanceMode,
+			"disable_game_launch":               cfg.DisableGameLaunch,
+			"blueocean_configured":              bog != nil && bog.Configured(),
+			"blueocean_launch_mode":             strings.TrimSpace(strings.ToLower(cfg.BlueOceanLaunchMode)),
+			"real_play_enabled":                 realPlayEnabled,
+			"visible_games_count":               visible,
+			"blueocean_visible_games_count":     blueoceanVisible,
+			"catalog_sync_ok":                   syncOK,
+			"last_catalog_sync_at":              nil,
+			"fingerprint_server_api_configured": cfg.FingerprintConfigured(),
+			"fingerprint_api_base_url":          strings.TrimSpace(cfg.FingerprintAPIBaseURL),
 		}
 		if base := strings.TrimSpace(cfg.APIPublicBase); base != "" {
 			out["api_public_base"] = base
