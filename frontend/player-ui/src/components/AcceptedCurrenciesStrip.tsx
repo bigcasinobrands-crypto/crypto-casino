@@ -113,13 +113,22 @@ const PriceCard: FC<{ c: Row }> = ({ c }) => (
   </div>
 )
 
+/** Marquee animation uses translateX(-50%); content must be two identical halves. Four full passes = wider seamless strip on large desktops. */
+function duplicateRowsForMarquee(rows: Row[], fullPasses: number): Row[] {
+  const out: Row[] = []
+  for (let p = 0; p < fullPasses; p++) {
+    out.push(...rows)
+  }
+  return out
+}
+
 const AcceptedCurrenciesStrip: FC = () => {
   const reduceMotion = usePrefersReducedMotion()
   const [rows, setRows] = useState<Row[]>(() =>
     ACCEPTED_CURRENCIES_STATIC.map((c) => ({ code: c.code, name: c.name })),
   )
   const [statusNote, setStatusNote] = useState<string | null>(null)
-  const loopRows = reduceMotion ? rows : [...rows, ...rows]
+  const loopRows = reduceMotion ? rows : duplicateRowsForMarquee(rows, 4)
 
   useEffect(() => {
     let cancelled = false
@@ -184,20 +193,26 @@ const AcceptedCurrenciesStrip: FC = () => {
         </p>
       ) : null}
       <div
-        className="relative -mx-1 overflow-hidden py-0.5"
+        className="relative -mx-1 w-full overflow-hidden py-0.5"
         role="region"
         aria-label="Cryptocurrency prices, scrolling"
       >
         <div
           className={
             reduceMotion
-              ? 'flex flex-wrap justify-center gap-2.5 md:gap-3'
+              ? 'grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3 xl:grid-cols-8'
               : 'infinite-marquee-track gap-2.5 md:gap-3'
           }
         >
-          {loopRows.map((c, i) => (
-            <PriceCard key={`${c.code}-${i}`} c={c} />
-          ))}
+          {loopRows.map((c, i) =>
+            reduceMotion ? (
+              <div key={`${c.code}-${i}`} className="flex min-w-0 justify-center">
+                <PriceCard c={c} />
+              </div>
+            ) : (
+              <PriceCard key={`${c.code}-${i}`} c={c} />
+            ),
+          )}
         </div>
       </div>
     </div>
