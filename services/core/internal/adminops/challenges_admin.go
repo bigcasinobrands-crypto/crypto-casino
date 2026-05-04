@@ -320,7 +320,8 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 		SELECT id::text, slug, title, description, challenge_type, status, prize_type, max_winners, winners_count,
 		       starts_at, ends_at, created_at,
 		       hero_image_url, badge_label, min_bet_amount_minor, prize_amount_minor, prize_currency,
-		       COALESCE(game_ids, '{}'::text[])
+		       COALESCE(game_ids, '{}'::text[]),
+		       COALESCE(vip_only, false)
 		FROM challenges
 		WHERE ($1 = '' OR status = $1)
 		ORDER BY created_at DESC
@@ -341,7 +342,8 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 		var prizeMinor sql.NullInt64
 		var prizeCur string
 		var gameIDs []string
-		if err := rows.Scan(&id, &slug, &title, &desc, &ctype, &st, &ptype, &maxW, &win, &starts, &ends, &created, &hero, &badge, &minBet, &prizeMinor, &prizeCur, &gameIDs); err != nil {
+		var vipOnly bool
+		if err := rows.Scan(&id, &slug, &title, &desc, &ctype, &st, &ptype, &maxW, &win, &starts, &ends, &created, &hero, &badge, &minBet, &prizeMinor, &prizeCur, &gameIDs, &vipOnly); err != nil {
 			continue
 		}
 		item := map[string]any{
@@ -351,6 +353,7 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 			"created_at": created.UTC().Format(time.RFC3339),
 			"min_bet_amount_minor": minBet,
 			"prize_currency":       prizeCur,
+			"vip_only":             vipOnly,
 		}
 		heroOut := ""
 		if hero != nil {

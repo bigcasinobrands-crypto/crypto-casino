@@ -34,6 +34,16 @@ This document records **where money metrics come from**, whether they are **ledg
 4. **Real-time:** Emit events after ledger writes; invalidate short TTL balance cache; extend existing balance SSE/WebSocket to admin scoped channels.
 5. **tests:** SQL/fixture tests for FTD, GGR, NGR queries against `ledger_entries` samples.
 
+## Player visibility (challenges, bonuses, VIP)
+
+| Surface | Shown when |
+|---------|------------|
+| **Challenges** (`GET /v1/challenges`) | `status IN ('scheduled','active')`, not ended, VIP gate passes for viewer. **Draft / paused / completed** are excluded by design. |
+| **Bonus offers** (`player_eligibility.go`) | Promotion version has **`published_at`** set; promotion not archived; eligibility rules pass. Unpublished versions never appear in the player hub. |
+| **VIP program UI** | Loads tier config from API; assignment uses operational + ledger-backed rewards when configured. |
+
+Ledger: challenge wager counting and prize payout flows use ledger postings on debit/win/settlement; configuring **draft** does not move money.
+
 ## Deployment (staging / production)
 
 Both SPAs call the Go API with **build-time** origins unless Vite dev proxy is used:

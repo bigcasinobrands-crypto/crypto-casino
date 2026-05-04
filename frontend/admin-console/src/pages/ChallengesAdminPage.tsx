@@ -30,6 +30,8 @@ type Row = {
   min_bet_amount_minor?: number
   prize_amount_minor?: number
   prize_currency?: string
+  /** When true, anonymous players never see this challenge; VIP eligibility is enforced on the API. */
+  vip_only?: boolean
 }
 
 function errBody(status: number, body: unknown) {
@@ -301,6 +303,8 @@ export default function ChallengesAdminPage() {
     backdropFilter: 'blur(8px)',
   }
 
+  const draftCount = useMemo(() => rows.filter((r) => r.status === 'draft').length, [rows])
+
   return (
     <>
       <PageMeta title="Engagement · Challenges" description="Casino challenges — list and monitor entries." />
@@ -308,8 +312,9 @@ export default function ChallengesAdminPage() {
         <div>
           <h2 className="h5 mb-1 text-body">Challenges</h2>
           <p className="text-secondary small mb-0">
-            Player-facing missions. Cards match the lobby layout; use <strong>Live</strong> to show or hide in the
-            player app. Superadmins can select cards for bulk tidy-up (pause, draft, archive, delete).{' '}
+            The player app only lists challenges in <strong>scheduled</strong> or <strong>active</strong> status.
+            <strong> Draft / paused</strong> do not appear until you turn on <strong>Live in player app</strong> (superadmin).
+            Wager progress and cash prizes post through the ledger when players play.{' '}
             <Link to="/engagement/challenges/flagged" className="link-primary">
               Flagged entries
             </Link>
@@ -324,6 +329,12 @@ export default function ChallengesAdminPage() {
       </div>
 
       <ComponentCard title="Catalog">
+        {!loading && draftCount > 0 ? (
+          <div className="alert alert-warning py-2 px-3 small mb-3 border-warning" role="status">
+            <strong>{draftCount}</strong> challenge{draftCount === 1 ? '' : 's'} in <strong>draft</strong> — hidden from
+            the player site. Toggle <strong>Live in player app</strong> on each card (or open Edit and save) to publish.
+          </div>
+        ) : null}
         <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
           <label className="small text-secondary mb-0">
             Status{' '}
@@ -562,6 +573,16 @@ export default function ChallengesAdminPage() {
                             Live in player app
                           </label>
                         </div>
+                        {r.status === 'draft' ? (
+                          <p className="text-warning mb-2 small" style={{ fontSize: '0.72rem' }}>
+                            Not visible to players until Live is on (becomes scheduled or active).
+                          </p>
+                        ) : null}
+                        {r.vip_only ? (
+                          <p className="text-secondary mb-2" style={{ fontSize: '0.68rem' }}>
+                            VIP-only: guests do not see this in the list; signed-in players must meet tier rules.
+                          </p>
+                        ) : null}
                         {liveLocked ? (
                           <p className="text-secondary mb-0" style={{ fontSize: '0.7rem' }}>
                             Terminal status — adjust on full page if needed.

@@ -422,7 +422,13 @@ export default function ChallengesPageContent() {
           </ul>
         )}
         {!loading && visible.length === 0 ? (
-          <p className="mt-8 text-center text-sm text-casino-muted">No challenges match this filter.</p>
+          <div className="mt-8 max-w-lg mx-auto text-center text-sm text-casino-muted space-y-2">
+            <p>
+              {list.length === 0
+                ? 'No challenges are live yet. Staff publishes them in the admin console (Engagement → Challenges): turn on “Live in player app” so the status becomes scheduled or active. Draft challenges never appear here.'
+                : 'No challenges match this filter — try All, or sign in if these are VIP-only.'}
+            </p>
+          </div>
         ) : null}
       </section>
 
