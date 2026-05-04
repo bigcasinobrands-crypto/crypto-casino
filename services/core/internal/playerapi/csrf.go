@@ -51,7 +51,7 @@ func PlayerCookieCSRFMiddleware(cfg *config.Config) func(http.Handler) http.Hand
 }
 
 func playerCSRFExempt(method, path string) bool {
-	if strings.HasPrefix(path, "/v1/webhooks/") {
+	if strings.HasPrefix(path, "/v1/webhooks/") || strings.HasPrefix(path, "/v1/oddin/") {
 		return true
 	}
 	if method != http.MethodPost {

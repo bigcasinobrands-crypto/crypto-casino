@@ -1,0 +1,69 @@
+/**
+ * Oddin Bifrost — reads public integration flags from Vite env (never secrets).
+ * Mirrors backend `ODDIN_*` naming where applicable.
+ */
+
+export type OddinPublicConfig = {
+  enabled: boolean
+  envLabel: string
+  brandToken: string
+  baseUrl: string
+  scriptUrl: string
+  theme: string | undefined
+  defaultLanguage: string
+  defaultCurrency: string
+  darkMode: boolean
+}
+
+function trim(v: string | undefined): string {
+  return typeof v === 'string' ? v.trim() : ''
+}
+
+export function oddinIframeEnabled(): boolean {
+  const v = import.meta.env.VITE_ODDIN_ENABLED
+  return v === 'true' || v === '1'
+}
+
+/** Sports lives at `/casino/sports`; Oddin vs coming-soon placeholder is decided by `CasinoSportsPage`. */
+export function sportsbookPlayerPath(): string {
+  return '/casino/sports'
+}
+
+export function readOddinPublicConfig(): OddinPublicConfig | null {
+  if (!oddinIframeEnabled()) return null
+
+  const brandToken = trim(import.meta.env.VITE_ODDIN_BRAND_TOKEN as string | undefined)
+  const baseUrl = trim(import.meta.env.VITE_ODDIN_BASE_URL as string | undefined)
+  const scriptUrl = trim(import.meta.env.VITE_ODDIN_SCRIPT_URL as string | undefined)
+  const envLabel = trim(import.meta.env.VITE_ODDIN_ENV as string | undefined) || 'integration'
+  const themeRaw = trim(import.meta.env.VITE_ODDIN_THEME as string | undefined)
+  const defaultLanguage = trim(import.meta.env.VITE_ODDIN_DEFAULT_LANGUAGE as string | undefined) || 'en'
+  const defaultCurrency = trim(import.meta.env.VITE_ODDIN_DEFAULT_CURRENCY as string | undefined) || 'USD'
+  const darkRaw = import.meta.env.VITE_ODDIN_DARK_MODE as string | undefined
+
+  return {
+    enabled: true,
+    envLabel,
+    brandToken,
+    baseUrl,
+    scriptUrl,
+    theme: themeRaw || undefined,
+    defaultLanguage,
+    defaultCurrency,
+    darkMode: darkRaw === undefined || darkRaw === 'true' || darkRaw === '1',
+  }
+}
+
+export function validateOddinPublicConfig(cfg: OddinPublicConfig): { ok: true } | { ok: false; message: string } {
+  if (!cfg.brandToken) return { ok: false, message: 'Sportsbook brand token is not configured (VITE_ODDIN_BRAND_TOKEN).' }
+  if (!cfg.scriptUrl) return { ok: false, message: 'Oddin script URL is not configured (VITE_ODDIN_SCRIPT_URL).' }
+  if (!cfg.baseUrl) return { ok: false, message: 'Oddin base URL is not configured (VITE_ODDIN_BASE_URL).' }
+  try {
+    // eslint-disable-next-line no-new -- validate URL shape
+    new URL(cfg.scriptUrl)
+    new URL(cfg.baseUrl)
+  } catch {
+    return { ok: false, message: 'Oddin script URL or base URL is not a valid absolute URL.' }
+  }
+  return { ok: true }
+}

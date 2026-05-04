@@ -32,6 +32,7 @@ import (
 	"github.com/crypto-casino/core/internal/mail"
 	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/obs"
+	"github.com/crypto-casino/core/internal/oddin"
 	"github.com/crypto-casino/core/internal/pii"
 	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/crypto-casino/core/internal/playerapi"
@@ -187,6 +188,8 @@ func main() {
 	go chatHub.Run()
 
 	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient, Fingerprint: fpClient, ChatHub: chatHub}
+	oddinH := &oddin.Handler{Pool: pool, Cfg: &cfg}
+	oddinOp := &oddin.OperatorHandler{Pool: pool, Cfg: &cfg}
 	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH, WA: wa}
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
@@ -317,6 +320,8 @@ func main() {
 				challenges.MountPlayer(r, pool, jwtIss, jtiRev, cfg.BlueOceanImageBaseURL, playerAccessCookie)
 				r.With(httprate.LimitByIP(180, time.Minute), playerapi.OptionalBearerMiddleware(jwtIss, jtiRev, playerAccessCookie)).
 					Post("/analytics/session", adminH.IngestTrafficSession)
+				r.With(httprate.LimitByIP(120, time.Minute), playerapi.OptionalBearerMiddleware(jwtIss, jtiRev, playerAccessCookie)).
+					Post("/sportsbook/oddin/client-event", oddinH.ClientEvent)
 				r.Get("/vip/program", wallet.VIPProgramHandler(pool))
 				uploadsRoot := filepath.Join(cfg.DataDir, "uploads")
 				_ = os.MkdirAll(uploadsRoot, 0o755) // #nosec G703 -- trusted DATA_DIR from env; path fixed under cfg.DataDir
@@ -389,6 +394,7 @@ func main() {
 				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
 				r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
 				r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient, cmcTickers, fpClient))
+				r.With(httprate.LimitByIP(30, time.Minute)).Post("/sportsbook/oddin/session-token", oddinH.SessionToken)
 				r.Group(func(r chi.Router) {
 					r.Use(httprate.LimitByIP(60, time.Minute))
 					r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg, fsClient))
@@ -401,6 +407,12 @@ func main() {
 				if rdb != nil {
 					r.With(httprate.LimitByIP(60, time.Minute)).Post("/chat/ws-ticket", chat.IssueWSTicketHandler(rdb))
 				}
+			})
+			r.Route("/oddin", func(r chi.Router) {
+				r.Use(oddin.OperatorSecurityMiddleware(&cfg))
+				r.Post("/userDetails", oddinOp.UserDetailsStub)
+				r.Post("/debitUser", oddinOp.DebitUserStub)
+				r.Post("/creditUser", oddinOp.CreditUserStub)
 			})
 		})
 	})

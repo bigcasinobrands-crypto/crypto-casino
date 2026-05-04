@@ -42,7 +42,8 @@ import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
 import { BootNonLobbyRoutes, InitialAppLoadProvider } from './context/InitialAppLoadContext'
 import DemoEmbedPage from './pages/DemoEmbedPage'
 import GameLobbyPage from './pages/GameLobbyPage'
-import SportsPage from './pages/SportsPage'
+import CasinoSportsPage from './pages/CasinoSportsPage'
+import { oddinIframeEnabled } from './lib/oddin/oddin.config'
 import LegalPage from './pages/LegalPage'
 import LobbyPage from './pages/LobbyPage'
 import ProfilePage from './pages/ProfilePage'
@@ -147,6 +148,8 @@ function AppShell() {
 
   const location = useLocation()
   const { pathname } = location
+  /** Oddin iframe fills the main column — hide outer scroll + bottom nav (same path as sidebar “Sports”). */
+  const oddinBifrostShell = oddinIframeEnabled() && pathname.startsWith('/casino/sports')
   const [searchParams, setSearchParams] = useSearchParams()
   const catalogSearchQ = searchParams.get('q') ?? ''
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -278,10 +281,10 @@ function AppShell() {
   }, [searchParams, setSearchParams, closeHeaderDropdowns])
 
   /** Embed routes stay chromeless; game lobby uses the same bottom nav + scroll inset as the catalog on phones. */
-  const showBottomNav = !pathname.startsWith('/embed/')
+  const showBottomNav = !pathname.startsWith('/embed/') && !oddinBifrostShell
 
   const mainScrollRef = useRef<HTMLDivElement>(null)
-  const pullToRefreshEnabled = !pathname.startsWith('/embed/')
+  const pullToRefreshEnabled = !pathname.startsWith('/embed/') && !oddinBifrostShell
 
   return (
     <PlayerLayoutProvider chatOpen={chatOpen}>
@@ -486,9 +489,9 @@ function AppShell() {
             <div
               ref={mainScrollRef}
               id={PLAYER_MAIN_SCROLL_ID}
-              className={`scrollbar-none overscroll-y-contain overscroll-x-none casino-shell-scroll flex min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto scroll-smooth [overflow-anchor:none] touch-pan-y ${
-                showBottomNav ? '' : 'casino-shell-scroll--no-bottom-nav'
-              }`}
+              className={`scrollbar-none overscroll-y-contain overscroll-x-none casino-shell-scroll flex min-h-0 min-w-0 flex-col overflow-x-hidden scroll-smooth [overflow-anchor:none] touch-pan-y ${
+                oddinBifrostShell ? 'overflow-y-hidden' : 'overflow-y-auto'
+              } ${showBottomNav ? '' : 'casino-shell-scroll--no-bottom-nav'}`}
             >
               <div className="relative z-[210] shrink-0">
                 <PlayerApiOriginBanner />
@@ -510,7 +513,8 @@ function AppShell() {
                     <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPage />} />
-                    <Route path="/casino/sports" element={<SportsPage />} />
+                    <Route path="/casino/sports" element={<CasinoSportsPage />} />
+                    <Route path="/sportsbook" element={<Navigate to="/casino/sports" replace />} />
                     <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
                     <Route path="/casino/:section" element={<LobbyPage operationalData={op.data} />} />
                     <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />

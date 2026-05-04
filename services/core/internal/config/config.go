@@ -142,6 +142,16 @@ type Config struct {
 	RequireFingerprintPlayerAuth bool
 	// WithdrawRequireFingerprint — when true, POST /v1/wallet/withdraw must include fingerprint_request_id (enforced before ledger).
 	WithdrawRequireFingerprint bool
+	// Oddin.gg Bifrost esports iframe + operator callbacks (secrets server-side only).
+	OddinEnabled             bool
+	OddinEnv                 string // integration | production (informational)
+	OddinPublicBaseURL       string // same logical values as player VITE_ODDIN_BASE_URL (admin/status only)
+	OddinPublicScriptURL     string
+	OddinBrandTokenPublic    string // optional server-side copy for audits
+	OddinAPISecurityKey      string // X-API-Key for /v1/oddin/* operator routes
+	OddinHashSecret          string // optional HMAC secret for operator request bodies
+	OddinTokenTTLSeconds     int
+	OddinOperatorIPAllowlist []string // when non-empty, restrict operator callbacks to these IPs (comma-separated in env)
 }
 
 // FystackDepositAssetCanonicalKeys are the standard on-chain deposit combinations we surface in admin UI.
@@ -378,6 +388,29 @@ func Load() (Config, error) {
 	}
 	c.RequireFingerprintPlayerAuth = requireFingerprintPlayerAuthFromEnv(os.Getenv("REQUIRE_FINGERPRINT_PLAYER_AUTH"), c.AppEnv)
 	c.WithdrawRequireFingerprint = parseBoolEnv(os.Getenv("WITHDRAW_REQUIRE_FINGERPRINT"))
+	c.OddinEnabled = parseBoolEnv(os.Getenv("ODDIN_ENABLED"))
+	c.OddinEnv = strings.TrimSpace(strings.ToLower(os.Getenv("ODDIN_ENV")))
+	if c.OddinEnv == "" {
+		c.OddinEnv = "integration"
+	}
+	c.OddinPublicBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("ODDIN_PUBLIC_BASE_URL")), "/")
+	c.OddinPublicScriptURL = strings.TrimSpace(os.Getenv("ODDIN_PUBLIC_SCRIPT_URL"))
+	c.OddinBrandTokenPublic = strings.TrimSpace(os.Getenv("ODDIN_BRAND_TOKEN"))
+	c.OddinAPISecurityKey = strings.TrimSpace(os.Getenv("ODDIN_API_SECURITY_KEY"))
+	c.OddinHashSecret = strings.TrimSpace(os.Getenv("ODDIN_HASH_SECRET"))
+	if raw := strings.TrimSpace(os.Getenv("ODDIN_TOKEN_TTL_SECONDS")); raw != "" {
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 {
+			c.OddinTokenTTLSeconds = int(n)
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("ODDIN_OPERATOR_IP_ALLOWLIST")); raw != "" {
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				c.OddinOperatorIPAllowlist = append(c.OddinOperatorIPAllowlist, p)
+			}
+		}
+	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
 	}
@@ -564,6 +597,33 @@ func NormalizeDepositNetwork(s string) string {
 	default:
 		return s
 	}
+}
+
+// OddinIntegrationEnabled mirrors ODDIN_ENABLED (operator iframe token + callbacks).
+func (c *Config) OddinIntegrationEnabled() bool {
+	return c != nil && c.OddinEnabled
+}
+
+// OddinEnvLabel returns integration or production for diagnostics.
+func (c *Config) OddinEnvLabel() string {
+	if c == nil || strings.TrimSpace(c.OddinEnv) == "" {
+		return "integration"
+	}
+	return strings.TrimSpace(strings.ToLower(c.OddinEnv))
+}
+
+// OddinOperatorIPAllowed returns true when IP matches allowlist or allowlist is disabled (empty).
+func (c *Config) OddinOperatorIPAllowed(ip string) bool {
+	if c == nil || len(c.OddinOperatorIPAllowlist) == 0 {
+		return true
+	}
+	ip = strings.TrimSpace(ip)
+	for _, a := range c.OddinOperatorIPAllowlist {
+		if strings.TrimSpace(a) == ip {
+			return true
+		}
+	}
+	return false
 }
 
 // DepositAssetKeyConfigured is true when FYSTACK_DEPOSIT_ASSETS_JSON contains a non-empty UUID for the canonical key.

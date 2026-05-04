@@ -41,7 +41,7 @@ export const CASINO_NAV_FALLBACK_CATEGORIES: CasinoNavCategory[] = [
   { id: 'providers', label: 'Studios', enabled: true },
 ]
 
-export const CASINO_NAV_FALLBACK_EXTRAS: CasinoNavCategory[] = [{ id: 'sports', label: 'Sports', enabled: true }]
+export const CASINO_NAV_FALLBACK_EXTRAS: CasinoNavCategory[] = [{ id: 'sports', label: 'E-Sports', enabled: true }]
 
 export const CASINO_NAV_FALLBACK_PROMO: CasinoNavCategory[] = [
   { id: 'rewards', label: 'My Bonuses', enabled: true },

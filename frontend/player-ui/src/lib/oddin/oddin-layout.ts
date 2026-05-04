@@ -1,0 +1,20 @@
+/** Shared layout helpers for Bifrost iframe height (avoid double scroll; match shell headers). */
+
+export function measureShellHeaderOffsetPx(): number {
+  if (typeof document === 'undefined') return 64
+  const selectors = ['.casino-shell-mobile-header', '.casino-shell-tablet-header', '.casino-shell-desktop-header']
+  let maxBottom = 0
+  for (const sel of selectors) {
+    const el = document.querySelector(sel)
+    if (!(el instanceof HTMLElement)) continue
+    const r = el.getBoundingClientRect()
+    if (r.height <= 0 || r.width <= 0) continue
+    maxBottom = Math.max(maxBottom, r.bottom)
+  }
+  return maxBottom > 0 ? Math.round(maxBottom) : 64
+}
+
+export function bifrostHeightPx(): number {
+  if (typeof window === 'undefined') return 720
+  return Math.max(320, window.innerHeight - measureShellHeaderOffsetPx())
+}

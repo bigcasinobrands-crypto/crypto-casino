@@ -4,10 +4,9 @@ import { RequireAuthLink } from './RequireAuthLink'
 import { PortraitGameThumb } from './PortraitGameThumb'
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
-import { resolveProviderLogoCandidates } from '../lib/providerLogoUrl'
 import { GameCardSkeleton } from './GameCardSkeleton'
-import { IconBuilding2, IconChevronLeft, IconChevronRight } from './icons'
-import { PulsingBrandTile } from './PulsingBrandTile'
+import { IconChevronLeft, IconChevronRight } from './icons'
+import StudioMarqueeSection from './StudioMarqueeSection'
 
 type Game = {
   id: string
@@ -19,8 +18,6 @@ type Game = {
   provider_system?: string
   live?: boolean
 }
-
-type ProviderAgg = { code: string; count: number }
 
 /** Catalog uses plain fetch + `playerApiUrl` only — never Fingerprint or auth fingerprint payloads — so lobby tiles cannot break when security integrations change. */
 async function fetchGames(query: string): Promise<Game[]> {
@@ -45,23 +42,6 @@ async function fetchGames(query: string): Promise<Game[]> {
     }
     return []
   }
-}
-
-function aggregateProviders(games: Game[]): ProviderAgg[] {
-  const m = new Map<string, number>()
-  for (const g of games) {
-    const studio = (g.provider_system ?? '').trim()
-    const fallback = (g.provider ?? '').trim()
-    const code =
-      studio ||
-      (fallback && fallback.toLowerCase() !== 'blueocean' ? fallback : '') ||
-      'Other studios'
-    m.set(code, (m.get(code) ?? 0) + 1)
-  }
-  return [...m.entries()]
-    .map(([code, count]) => ({ code, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 16)
 }
 
 /** Drop duplicate IDs (keeps order; avoids doubled tiles if the API echoes rows). */
@@ -191,7 +171,7 @@ function GameSection({
   title: string
   viewAllTo: string
   games: Game[]
-  /** First fetch still in flight — pulsing tile placeholders (same footprint as real tiles). */
+  /** Section-specific: hide skeleton as soon as this row’s catalog slice resolves (not gated on slower rows). */
   showSkeletons?: boolean
 }) {
   const reduceMotion = usePrefersReducedMotion()
@@ -328,118 +308,6 @@ function GameSection({
   )
 }
 
-function ProviderLogoCard({ code, count }: { code: string; count: number }) {
-  const candidates = useMemo(() => [...resolveProviderLogoCandidates(code)], [code])
-  const [tryIndex, setTryIndex] = useState(0)
-
-  useEffect(() => {
-    setTryIndex(0)
-  }, [code])
-
-  const dead = candidates.length === 0 || tryIndex >= candidates.length
-  const src = dead ? undefined : candidates[tryIndex]
-
-  return (
-    <Link
-      to={`/casino/games?provider=${encodeURIComponent(code)}`}
-      title={`${code} · ${count} games · filter by studio`}
-      className="flex h-[52px] w-[148px] shrink-0 flex-col items-center justify-center gap-1 rounded-[10px] border border-white/[0.09] bg-casino-surface px-3 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-casino-primary/40 sm:h-[58px] sm:w-[164px]"
-    >
-      {!dead && src ? (
-        <img
-          key={src}
-          src={src}
-          alt=""
-          draggable={false}
-          className="max-h-[26px] w-auto max-w-[140px] object-contain brightness-0 invert opacity-[0.94] sm:max-h-[28px]"
-          loading="lazy"
-          onError={() => setTryIndex((i) => i + 1)}
-        />
-      ) : (
-        <span className="max-w-full truncate text-[10px] font-extrabold uppercase tracking-[0.06em] text-white/72">
-          {code}
-        </span>
-      )}
-      <span className="sr-only">
-        {count} games · filter catalog by this studio
-      </span>
-    </Link>
-  )
-}
-
-function ProviderSection({ providers, showSkeletons }: { providers: ProviderAgg[]; showSkeletons?: boolean }) {
-  const reduceMotion = usePrefersReducedMotion()
-  const stripRef = useRef<HTMLDivElement>(null)
-
-  const scrollStrip = useCallback((dir: -1 | 1) => {
-    const el = stripRef.current
-    if (!el) return
-    const step = Math.max(el.clientWidth * 0.65, 220)
-    el.scrollBy({ left: dir * step, behavior: 'smooth' })
-  }, [])
-
-  return (
-    <section className="mb-5" id="studios">
-      <div className="mb-2 flex flex-nowrap items-center justify-between gap-2 sm:gap-2.5">
-        <Link
-          to="/casino/games#studios"
-          className="group/prov flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-bold leading-tight tracking-tight text-white transition-colors duration-150 hover:text-white/95 sm:text-sm sm:font-extrabold"
-        >
-          <IconBuilding2 size={17} className="shrink-0 text-white/50 transition-colors group-hover/prov:text-casino-primary" aria-hidden />
-          <span className="min-w-0">Studios</span>
-          <IconChevronRight
-            size={17}
-            className="shrink-0 text-white/40 transition-colors group-hover/prov:text-casino-primary"
-            aria-hidden
-          />
-        </Link>
-        {providers.length > 0 && !showSkeletons && !reduceMotion ? (
-          <ViewAllScrollCluster
-            viewAllTo="/casino/games#studios"
-            onScrollLeft={() => scrollStrip(-1)}
-            onScrollRight={() => scrollStrip(1)}
-          />
-        ) : providers.length > 0 && !showSkeletons ? (
-          <Link to="/casino/games#studios" className={outlinedViewAllClass}>
-            VIEW ALL
-          </Link>
-        ) : null}
-      </div>
-      {showSkeletons ? (
-        <div className="relative -mx-0.5" role="region" aria-label="Top studios">
-          <div className="scrollbar-none flex gap-2 overflow-x-auto py-1 [-webkit-overflow-scrolling:touch]">
-            {Array.from({ length: 4 }, (_, i) => (
-              <div
-                key={`psk-${i}`}
-                className="flex h-[52px] w-[148px] shrink-0 items-center justify-center rounded-[10px] border border-white/[0.09] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:h-[58px] sm:w-[164px]"
-              >
-                <PulsingBrandTile size="inline" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : providers.length === 0 ? (
-        <p className="text-center text-xs text-casino-muted">No studio data yet.</p>
-      ) : (
-        <div className="relative -mx-0.5" role="region" aria-label="Top studios">
-          <div
-            ref={stripRef}
-            className={
-              reduceMotion
-                ? 'scrollbar-none flex flex-wrap justify-center gap-2 py-0.5'
-                : 'scrollbar-none flex gap-2 overflow-x-auto py-1 [-webkit-overflow-scrolling:touch]'
-            }
-          >
-            {providers.map((p) => (
-              <ProviderLogoCard key={p.code} code={p.code} count={p.count} />
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-  )
-}
-
 type LobbyHomeSectionsProps = {
   /** When operational `/health/operational` reports a new catalog sync time, refetch tiles (new thumb_rev / URLs). */
   catalogSyncAt?: string | null
@@ -448,19 +316,24 @@ type LobbyHomeSectionsProps = {
 const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
   const location = useLocation()
   const lastVisFetchAt = useRef(0)
+  /** Reset skeleton flags only when route identity changes — not on visibility/catalog soft refetch. */
+  const prevRouteKeyRef = useRef<string | null>(null)
 
   const [featured, setFeatured] = useState<Game[]>([])
   /** Used when `/v1/games?featured=1` returns zero rows — must differ from alphabetical slots strip. */
   const [hotFallback, setHotFallback] = useState<Game[]>([])
+  const [featuredLoaded, setFeaturedLoaded] = useState(false)
+  const [hotFallbackLoaded, setHotFallbackLoaded] = useState(false)
+
   const [slots, setSlots] = useState<Game[]>([])
+  const [slotsLoaded, setSlotsLoaded] = useState(false)
   const [newRel, setNewRel] = useState<Game[]>([])
+  const [newLoaded, setNewLoaded] = useState(false)
   const [live, setLive] = useState<Game[]>([])
+  const [liveLoaded, setLiveLoaded] = useState(false)
   const [bonus, setBonus] = useState<Game[]>([])
-  const [providers, setProviders] = useState<ProviderAgg[]>([])
+  const [bonusLoaded, setBonusLoaded] = useState(false)
   const [visRefresh, setVisRefresh] = useState(0)
-  const [homeRowsReady, setHomeRowsReady] = useState(false)
-  /** Studio strip aggregates from a heavier `limit=200` fetch — tracked separately so game rows can resolve first. */
-  const [providersReady, setProvidersReady] = useState(false)
 
   useEffect(() => {
     const onVis = () => {
@@ -474,41 +347,52 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [])
 
+  const routeKey = `${location.pathname}\u0000${location.key}`
+
   useEffect(() => {
     let cancel = false
-    setHomeRowsReady(false)
-    setProvidersReady(false)
-    void (async () => {
-      const lim = String(HOME_FETCH_LIMIT)
-      const [f, s, n, l, b, hotBack] = await Promise.all([
-        fetchGames(`integration=blueocean&featured=1&limit=${lim}`),
-        fetchGames(`integration=blueocean&category=slots&limit=${lim}`),
-        fetchGames(`integration=blueocean&category=new&limit=${lim}`),
-        fetchGames(`integration=blueocean&category=live&limit=${lim}`),
-        fetchGames(`integration=blueocean&category=bonus-buys&limit=${lim}`),
-        fetchGames(`integration=blueocean&limit=${lim}&sort=new`),
-      ])
-      if (cancel) return
-      setFeatured(dedupeGamesById(f))
-      setHotFallback(dedupeGamesById(hotBack))
-      setSlots(dedupeGamesById(s))
-      setNewRel(dedupeGamesById(n))
-      setLive(dedupeGamesById(l))
-      setBonus(dedupeGamesById(b))
-      setHomeRowsReady(true)
+    const lim = String(HOME_FETCH_LIMIT)
+    const routeChanged = prevRouteKeyRef.current !== routeKey
+    if (routeChanged) {
+      prevRouteKeyRef.current = routeKey
+      setFeatured([])
+      setHotFallback([])
+      setSlots([])
+      setNewRel([])
+      setLive([])
+      setBonus([])
+      setFeaturedLoaded(false)
+      setHotFallbackLoaded(false)
+      setSlotsLoaded(false)
+      setNewLoaded(false)
+      setLiveLoaded(false)
+      setBonusLoaded(false)
+    }
 
-      const bulk = await fetchGames('integration=blueocean&limit=200&sort=provider')
+    const apply = (games: Game[], setList: (g: Game[]) => void, setDone: (v: boolean) => void) => {
       if (cancel) return
-      setProviders(aggregateProviders(dedupeGamesById(bulk)))
-      setProvidersReady(true)
-    })()
+      setList(dedupeGamesById(games))
+      setDone(true)
+    }
+
+    void fetchGames(`integration=blueocean&featured=1&limit=${lim}`).then((f) => apply(f, setFeatured, setFeaturedLoaded))
+    void fetchGames(`integration=blueocean&limit=${lim}&sort=new`).then((h) =>
+      apply(h, setHotFallback, setHotFallbackLoaded),
+    )
+    void fetchGames(`integration=blueocean&category=slots&limit=${lim}`).then((s) => apply(s, setSlots, setSlotsLoaded))
+    void fetchGames(`integration=blueocean&category=new&limit=${lim}`).then((n) => apply(n, setNewRel, setNewLoaded))
+    void fetchGames(`integration=blueocean&category=live&limit=${lim}`).then((l) => apply(l, setLive, setLiveLoaded))
+    void fetchGames(`integration=blueocean&category=bonus-buys&limit=${lim}`).then((b) => apply(b, setBonus, setBonusLoaded))
+
     return () => {
       cancel = true
     }
-  }, [location.pathname, location.key, visRefresh, catalogSyncAt])
+  }, [routeKey, catalogSyncAt, visRefresh])
 
   const logoRowGames = featured.length > 0 ? featured : hotFallback
-  const showSkeletons = !homeRowsReady
+  /** Hot row: wait for featured unless empty — then wait for fallback sorted-by-new list. */
+  const hotRowReady =
+    featuredLoaded && (featured.length > 0 || hotFallbackLoaded)
 
   return (
     <div className="min-w-0">
@@ -516,13 +400,13 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt }) => {
         title="Hot now"
         viewAllTo="/casino/challenges"
         games={logoRowGames}
-        showSkeletons={showSkeletons}
+        showSkeletons={!hotRowReady}
       />
-      <GameSection title="Slots" viewAllTo="/casino/slots" games={slots} showSkeletons={showSkeletons} />
-      <ProviderSection providers={providers} showSkeletons={!providersReady} />
-      <GameSection title="New releases" viewAllTo="/casino/new" games={newRel} showSkeletons={showSkeletons} />
-      <GameSection title="Live casino" viewAllTo="/casino/live" games={live} showSkeletons={showSkeletons} />
-      <GameSection title="Bonus buys" viewAllTo="/casino/bonus-buys" games={bonus} showSkeletons={showSkeletons} />
+      <GameSection title="Slots" viewAllTo="/casino/slots" games={slots} showSkeletons={!slotsLoaded} />
+      <StudioMarqueeSection />
+      <GameSection title="New releases" viewAllTo="/casino/new" games={newRel} showSkeletons={!newLoaded} />
+      <GameSection title="Live casino" viewAllTo="/casino/live" games={live} showSkeletons={!liveLoaded} />
+      <GameSection title="Bonus buys" viewAllTo="/casino/bonus-buys" games={bonus} showSkeletons={!bonusLoaded} />
     </div>
   )
 }

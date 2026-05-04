@@ -11,6 +11,7 @@ import {
 } from '../lib/casinoNav'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
+import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
 import {
   IconBanknote,
   IconBuilding2,
@@ -109,7 +110,8 @@ export default function CasinoSidebar({
   const icon = (id: string, size: number) => (ICON_MAP[id] ?? (() => null))(size)
 
   const renderTopItem = (item: CasinoNavCategory) => {
-    const route = ROUTE_MAP[item.id] ?? ''
+    const route =
+      item.id === 'sports' ? sportsbookPlayerPath() : (ROUTE_MAP[item.id] ?? '')
     /** Sports stays browsable when logged out; VIP/rewards-style promo routes require sign-in. */
     const publicPromo = item.id === 'sports'
 

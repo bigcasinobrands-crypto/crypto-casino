@@ -14,6 +14,16 @@ interface ImportMetaEnv {
   readonly VITE_FINGERPRINT_PUBLIC_KEY?: string
   /** Fingerprint region: `eu`, `us`, or `ap` — must match dashboard workspace (required for EU). */
   readonly VITE_FINGERPRINT_REGION?: string
+  /** Oddin Bifrost esports iframe at `/casino/sports` when enabled (public values only; never API secrets). */
+  readonly VITE_ODDIN_ENABLED?: string
+  readonly VITE_ODDIN_ENV?: string
+  readonly VITE_ODDIN_BRAND_TOKEN?: string
+  readonly VITE_ODDIN_BASE_URL?: string
+  readonly VITE_ODDIN_SCRIPT_URL?: string
+  readonly VITE_ODDIN_THEME?: string
+  readonly VITE_ODDIN_DEFAULT_LANGUAGE?: string
+  readonly VITE_ODDIN_DEFAULT_CURRENCY?: string
+  readonly VITE_ODDIN_DARK_MODE?: string
 }
 
 interface ImportMeta {

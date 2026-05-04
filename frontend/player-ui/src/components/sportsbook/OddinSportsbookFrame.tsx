@@ -1,0 +1,93 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { useAuthModal } from '../../authModalContext'
+import type { OddinPublicConfig } from '../../lib/oddin/oddin.config'
+import { bifrostHeightPx } from '../../lib/oddin/oddin-layout'
+import { useOddinBifrost } from '../../lib/oddin/useOddinBifrost'
+import { usePlayerAuth } from '../../playerAuth'
+import SportsbookErrorState from './SportsbookErrorState'
+import SportsbookLoadingState from './SportsbookLoadingState'
+
+type OddinSportsbookFrameProps = {
+  publicConfig: OddinPublicConfig
+  /** Resolved opaque token when logged in; null when logged out or browse-only. */
+  sessionToken: string | null
+}
+
+export default function OddinSportsbookFrame({ publicConfig, sessionToken }: OddinSportsbookFrameProps) {
+  const { refreshProfile, me } = usePlayerAuth()
+  const { openAuth } = useAuthModal()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const pageRoute = searchParams.get('page')?.trim() || undefined
+
+  const onOddinRoute = useCallback(
+    (route: string) => {
+      const next = new URLSearchParams(searchParams)
+      next.set('page', route)
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const [shellError, setShellError] = useState<string | null>(null)
+  const [fullscreen, setFullscreen] = useState(false)
+
+  const { phase, loadMessage, iframeReady, instanceRef } = useOddinBifrost(
+    publicConfig,
+    sessionToken,
+    pageRoute,
+    {
+      onOddinRoute,
+      userId: me?.id,
+      onRefreshBalance: () => void refreshProfile(),
+      onRequestSignIn: () => openAuth('login'),
+      onError: (m) => setShellError(m),
+      onToggleFullscreen: () => setFullscreen((f) => !f),
+    },
+  )
+
+  useEffect(() => {
+    if (phase === 'idle' || phase === 'loading_script') return
+    const inst = instanceRef.current
+    if (!inst) return
+    const onResize = () => {
+      try {
+        inst.updateConfig({
+          height: () => bifrostHeightPx(),
+        })
+      } catch {
+        /* ignore */
+      }
+    }
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [phase, instanceRef])
+
+  const showLoader = phase === 'loading_script' || phase === 'bootstrap' || (phase === 'ready' && !iframeReady)
+  const errMsg = shellError || loadMessage
+
+  if (phase === 'error') {
+    return <SportsbookErrorState message={errMsg || 'The sportsbook failed to load.'} />
+  }
+
+  return (
+    <div
+      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-casino-bg ${
+        fullscreen ? 'fixed inset-0 z-[320] min-h-0' : ''
+      }`}
+    >
+      {showLoader ? (
+        <div className="absolute inset-0 z-[1] flex bg-casino-bg/90 backdrop-blur-[2px]">
+          <SportsbookLoadingState />
+        </div>
+      ) : null}
+
+      <div
+        id="bifrost"
+        className="relative min-h-0 flex-1 w-full min-w-0 overflow-hidden [&_iframe]:block [&_iframe]:h-full [&_iframe]:min-h-0 [&_iframe]:w-full [&_iframe]:border-0"
+      />
+    </div>
+  )
+}

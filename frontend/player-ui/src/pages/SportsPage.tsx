@@ -233,10 +233,6 @@ export default function SportsPage() {
     }
   }, [isAuthenticated, apiFetch, shell, launchModeChoice, launchRetryNonce, recentKey])
 
-  const showLaunchModeModal = Boolean(
-    isAuthenticated && shell && catalogLoadErr === null && launchModeChoice === null && !iframeUrl && !launchErr,
-  )
-
   useEffect(() => {
     if (!isAuthenticated || !shell || catalogLoadErr !== null || iframeUrl || launchErr || launchModeChoice !== null)
       return
@@ -246,24 +242,20 @@ export default function SportsPage() {
     }
     if (!demoAllowed && realAllowed) {
       setLaunchModeChoice('real')
+      return
+    }
+    // Both demo and real allowed: skip "Choose how to play" and launch real money directly.
+    if (demoAllowed && realAllowed) {
+      setLaunchModeChoice('real')
     }
   }, [isAuthenticated, shell, catalogLoadErr, iframeUrl, launchErr, launchModeChoice, demoAllowed, realAllowed])
-
-  useEffect(() => {
-    if (!showLaunchModeModal) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') navigate('/casino/games')
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showLaunchModeModal, navigate])
 
   const goBack = () => navigate('/casino/games')
 
   const openSignIn = () => openAuth('login', { navigateTo: postAuthTarget })
   const openRegister = () => openAuth('register', { navigateTo: postAuthTarget })
 
-  const title = shell?.title?.trim() || 'Sportsbook'
+  const title = shell?.title?.trim() || 'E-Sports'
   const providerLabel = 'Blue Ocean'
   const launchPending = Boolean(
     isAuthenticated && launchModeChoice !== null && catalogLoadErr === null && !iframeUrl && !launchErr,
@@ -326,7 +318,7 @@ export default function SportsPage() {
                   <span className="hidden sm:inline">Games</span>
                 </button>
                 <span className="rounded bg-white/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-white/85 sm:px-2 sm:py-0.5 sm:text-[10px]">
-                  Sportsbook
+                  E-Sports
                 </span>
               </div>
               <div className="relative z-20 flex shrink-0 items-center gap-px sm:gap-0.5">
@@ -402,9 +394,9 @@ export default function SportsPage() {
               {!isAuthenticated ? (
                 <div className="absolute inset-0 z-[8] flex flex-col items-center justify-center gap-3 p-4 text-center sm:p-5">
                   <div className="max-w-sm rounded-casino-md border border-white/15 bg-black/75 px-4 py-4 shadow-xl backdrop-blur-md sm:px-5 sm:py-4">
-                    <p className="text-sm font-semibold text-white sm:text-base">Sportsbook</p>
+                    <p className="text-sm font-semibold text-white sm:text-base">E-Sports</p>
                     <p className="mt-1.5 text-xs text-white/65 sm:text-sm">
-                      Sign in to load the sportsbook. After you continue, the player opens here automatically.
+                      Sign in to load E-Sports. After you continue, the player opens here automatically.
                     </p>
                     <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
                       <button
@@ -429,58 +421,6 @@ export default function SportsPage() {
                     >
                       Back to games
                     </button>
-                  </div>
-                </div>
-              ) : null}
-
-              {showLaunchModeModal ? (
-                <div
-                  className="absolute inset-0 z-[14] flex items-center justify-center p-3 sm:p-5"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="sports-launch-mode-title"
-                >
-                  <button
-                    type="button"
-                    className="absolute inset-0 border-0 bg-black/60 backdrop-blur-[3px]"
-                    aria-label="Close and go back"
-                    onClick={goBack}
-                  />
-                  <div className="relative z-10 w-full max-w-[min(100%,20rem)] overflow-hidden rounded-casino-lg border border-white/15 bg-black/90 shadow-2xl ring-1 ring-white/10">
-                    <div className="border-b border-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
-                      <h2 id="sports-launch-mode-title" className="text-sm font-bold text-white sm:text-base">
-                        Choose how to play
-                      </h2>
-                    </div>
-                    <div className="space-y-3 px-3 py-3 sm:px-4 sm:py-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:gap-2.5">
-                        <button
-                          type="button"
-                          disabled={!realAllowed}
-                          title={!realAllowed ? 'This product only supports free play.' : undefined}
-                          className="flex-1 rounded-casino-md bg-casino-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
-                          onClick={() => setLaunchModeChoice('real')}
-                        >
-                          Real money
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!demoAllowed}
-                          title={!demoAllowed ? 'Free play is not available.' : undefined}
-                          className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
-                          onClick={() => setLaunchModeChoice('demo')}
-                        >
-                          Free play
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        className="w-full text-center text-xs font-medium text-casino-primary underline-offset-2 hover:underline sm:text-sm"
-                        onClick={goBack}
-                      >
-                        Back to games
-                      </button>
-                    </div>
                   </div>
                 </div>
               ) : null}

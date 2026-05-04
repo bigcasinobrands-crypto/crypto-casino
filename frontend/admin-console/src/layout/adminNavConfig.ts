@@ -58,6 +58,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
       { name: 'Launches', path: '/game-launches' },
       { name: 'Disputes', path: '/game-disputes' },
       { name: 'Provider ops', path: '/provider-ops' },
+      { name: 'Oddin Bifrost', path: '/integrations/oddin', new: true },
     ],
   },
   {

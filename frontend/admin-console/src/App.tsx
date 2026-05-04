@@ -28,6 +28,7 @@ const VipBroadcastPage = lazy(() => import('./pages/VipBroadcastPage'))
 const GamesCatalogPage = lazy(() => import('./pages/GamesCatalogPage'))
 const BlueOceanEventsPage = lazy(() => import('./pages/BlueOceanEventsPage'))
 const BlueOceanOpsPage = lazy(() => import('./pages/BlueOceanOpsPage'))
+const OddinIntegrationPage = lazy(() => import('./pages/OddinIntegrationPage'))
 const BonusHubLayout = lazy(() => import('./pages/BonusHubLayout'))
 const BonusesCatalogPage = lazy(() => import('./pages/BonusesCatalogPage'))
 const BonusDeliveryPage = lazy(() => import('./pages/BonusDeliveryPage'))
@@ -141,6 +142,7 @@ export default function App() {
                 element={<DataTablePage title="Game disputes" path="/v1/admin/game-disputes" />}
               />
               <Route path="/provider-ops" element={<BlueOceanOpsPage />} />
+              <Route path="/integrations/oddin" element={<OddinIntegrationPage />} />
               <Route path="/bog" element={<Navigate to="/provider-ops" replace />} />
               <Route path="/blueocean" element={<Navigate to="/provider-ops" replace />} />
 
