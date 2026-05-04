@@ -22,6 +22,7 @@ type Game = {
 
 type ProviderAgg = { code: string; count: number }
 
+/** Catalog uses plain fetch + `playerApiUrl` only — never Fingerprint or auth fingerprint payloads — so lobby tiles cannot break when security integrations change. */
 async function fetchGames(query: string): Promise<Game[]> {
   const path = `/v1/games?${query}`
   const url = playerApiUrl(path)
@@ -32,7 +33,6 @@ async function fetchGames(query: string): Promise<Game[]> {
         const hint = !playerApiOriginConfigured()
           ? ' Hint: set VITE_PLAYER_API_ORIGIN so /v1 hits the API, not the static host.'
           : ''
-        // eslint-disable-next-line no-console
         console.warn(`[catalog] GET ${path} → ${res.status}${hint}`, url)
       }
       return []
@@ -41,7 +41,6 @@ async function fetchGames(query: string): Promise<Game[]> {
     return j.games ?? []
   } catch (e) {
     if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
       console.warn('[catalog] GET games failed (network)', url, e)
     }
     return []

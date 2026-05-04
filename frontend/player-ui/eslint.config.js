@@ -29,4 +29,32 @@ export default defineConfig([
     files: ['src/playerAuth.tsx', 'src/authModalContext.tsx'],
     rules: { 'react-refresh/only-export-components': 'off' },
   },
+  // Game/catalog code must not import Fingerprint — lobby loading stays independent of security wiring.
+  {
+    files: [
+      'src/components/LobbyHomeSections.tsx',
+      'src/pages/LobbyPage.tsx',
+      'src/components/GameSearchOverlay.tsx',
+      'src/pages/GameLobbyPage.tsx',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@fingerprint/react',
+              message:
+                'Do not couple catalog/game listing to Fingerprint. Use fetch(playerApiUrl(...)) or playerFetch; keep @fingerprint/react in auth/wallet/main only.',
+            },
+            {
+              name: '@fingerprint/agent',
+              message:
+                'Do not import the Fingerprint agent from catalog/game modules.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ])

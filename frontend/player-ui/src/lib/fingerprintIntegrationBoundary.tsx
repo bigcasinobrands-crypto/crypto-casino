@@ -17,10 +17,11 @@ export class FingerprintIntegrationBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.warn('[fingerprint] Integration crashed — games and auth still run; fix FP config.', error, info.componentStack)
-    }
+    console.warn(
+      '[fingerprint] React integration crashed — catalog still runs; fix FP config.',
+      error,
+      info.componentStack,
+    )
   }
 
   render(): ReactNode {

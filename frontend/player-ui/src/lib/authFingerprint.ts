@@ -21,7 +21,7 @@ export async function getAuthFingerprintPayload(): Promise<AuthFingerprintPayloa
     return {
       ok: false,
       message:
-        'Browser identification did not complete. Disable ad blockers, allow third-party scripts, or try another browser.',
+        'Browser identification did not complete. In Vercel, set VITE_FINGERPRINT_PUBLIC_KEY and VITE_FINGERPRINT_REGION (eu/us/ap) to match your Fingerprint app. In the Fingerprint dashboard: Security → allowed domains must include this site. Disable ad blockers and try again.',
     }
   }
   const extra: Record<string, string> = { fingerprint_request_id: fp.requestId }

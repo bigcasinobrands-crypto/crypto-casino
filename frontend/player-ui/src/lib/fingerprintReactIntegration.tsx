@@ -1,4 +1,4 @@
-import { useContext, useEffect, useLayoutEffect } from 'react'
+import { useContext, useEffect } from 'react'
 import { FingerprintContext, useVisitorData } from '@fingerprint/react'
 import { bindFingerprintGetVisitorData } from './fingerprintClient'
 
@@ -7,28 +7,29 @@ import { bindFingerprintGetVisitorData } from './fingerprintClient'
  * {@link useVisitorData} with `immediate: true` so an identification runs on load (required for
  * the dashboard “Check installation” flow and consistent event_id). Catalog `/v1/games` uses
  * plain `fetch` and does not wait on Fingerprint.
+ *
+ * We bind `getVisitorData` synchronously during render so it is available before sibling
+ * `BrowserRouter`/`App` render — otherwise login could run before `useLayoutEffect` and miss `requestId`.
  */
 export function FingerprintReactIntegration() {
   const ctx = useContext(FingerprintContext)
+  bindFingerprintGetVisitorData(ctx.getVisitorData)
+
   const { error, isFetched, data } = useVisitorData({ immediate: true })
 
-  useLayoutEffect(() => {
-    bindFingerprintGetVisitorData(ctx.getVisitorData)
+  useEffect(() => {
     return () => bindFingerprintGetVisitorData(null)
-  }, [ctx.getVisitorData])
+  }, [])
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return
     if (error) {
-      // eslint-disable-next-line no-console
       console.warn(
-        '[fingerprint] Identification failed — the dashboard "Event not found" usually means no successful hit yet. Fix: matching public key + VITE_FINGERPRINT_REGION (eu for EU), allowed domains under Fingerprint → Security, disable ad blockers, reload your deployed player URL.',
+        '[fingerprint] Identification failed — "Event not found" in the dashboard: matching VITE_FINGERPRINT_PUBLIC_KEY, VITE_FINGERPRINT_REGION (eu/us/ap) with your Fingerprint app, Security → allowed domains for this origin, ad blockers off.',
         error,
       )
       return
     }
-    if (isFetched && data && typeof data.event_id === 'string' && data.event_id) {
-      // eslint-disable-next-line no-console
+    if (import.meta.env.DEV && isFetched && data && typeof data.event_id === 'string' && data.event_id) {
       console.info('[fingerprint] Identification succeeded (event_id)', data.event_id)
     }
   }, [error, isFetched, data])
