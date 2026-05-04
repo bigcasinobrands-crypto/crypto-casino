@@ -87,6 +87,11 @@ func main() {
 	}
 	defer pool.Close()
 
+	if err := db.ValidateCoreAuthSchema(ctx, pool); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL database schema: %v\n", err)
+		log.Fatalf("database schema: %v", err)
+	}
+
 	if cfg.BlueOceanCatalogSnapshotOnStartup && strings.TrimSpace(cfg.BlueOceanCatalogSnapshotPath) != "" {
 		n, snapErr := blueocean.SyncCatalog(ctx, pool, nil, &cfg)
 		if snapErr != nil {

@@ -34,9 +34,15 @@ async function getAgent(): Promise<FingerprintAgent | null> {
   return agent
 }
 
+/** Default bound for auth flows (login/register/refresh) so identification completes before JSON POST. */
+export const FINGERPRINT_AUTH_TIMEOUT_MS = 5000
+
+/** Default bound for traffic analytics beacons (can wait longer for slow EU networks). */
+export const FINGERPRINT_TRAFFIC_TIMEOUT_MS = 12_000
+
 /**
- * Returns visitorId + requestId for attaching to sensitive API calls (e.g. withdrawal).
- * Resolves null when Fingerprint is not configured or identification fails.
+ * Full identification; use for user-driven actions (withdraw) where we wait for success or failure.
+ * Returns null when Fingerprint is not configured or identification fails.
  */
 export async function getFingerprintForAction(): Promise<{
   visitorId: string
@@ -57,6 +63,19 @@ export async function getFingerprintForAction(): Promise<{
     }
     return null
   }
+}
+
+/**
+ * Identification bounded by `timeoutMs` so auth and analytics never stall indefinitely.
+ * Same identification contract as {@link getFingerprintForAction}; returns null on timeout.
+ */
+export async function getIdentificationWithTimeout(
+  timeoutMs: number,
+): Promise<{ visitorId: string; requestId: string } | null> {
+  return Promise.race([
+    getFingerprintForAction(),
+    new Promise<null>((r) => setTimeout(() => r(null), timeoutMs)),
+  ])
 }
 
 /**

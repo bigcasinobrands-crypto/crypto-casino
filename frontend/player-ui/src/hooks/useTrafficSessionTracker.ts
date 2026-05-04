@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { getFingerprintForAction } from '../lib/fingerprintClient'
+import {
+  FINGERPRINT_TRAFFIC_TIMEOUT_MS,
+  getIdentificationWithTimeout,
+} from '../lib/fingerprintClient'
 import { playerFetch } from '../lib/playerFetch'
 
 const STORAGE_KEY = 'crypto_traffic_session_key'
@@ -56,10 +59,7 @@ export function useTrafficSessionTracker(
     if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
     void (async () => {
-      const fp = await Promise.race([
-        getFingerprintForAction(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
-      ])
+      const fp = await getIdentificationWithTimeout(FINGERPRINT_TRAFFIC_TIMEOUT_MS)
       const body: Record<string, unknown> = {
         session_key: browserSessionKey(),
         path: pathWithSearch,

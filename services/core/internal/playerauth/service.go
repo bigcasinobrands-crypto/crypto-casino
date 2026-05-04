@@ -408,8 +408,7 @@ func (s *Service) sessionFields(ctx context.Context, sc *SessionContext) (
 		geoSource = "edge"
 	}
 	if s != nil && s.Fingerprint != nil && s.Cfg != nil && s.Cfg.FingerprintConfigured() && fpRid != "" {
-		// Never block login/session on slow or broken Fingerprint Server API (timeout < client transport timeout).
-		ctxFP, cancel := context.WithTimeout(ctx, 3*time.Second)
+		ctxFP, cancel := context.WithTimeout(ctx, fingerprint.ServerAPIEnrichmentTimeout)
 		ev, err := s.Fingerprint.GetEvent(ctxFP, fpRid)
 		cancel()
 		if err == nil && ev != nil {
