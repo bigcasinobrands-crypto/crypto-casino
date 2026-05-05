@@ -23,7 +23,7 @@ function AuthError({ children }: { children: ReactNode }) {
 
 function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
   return (
-    <label htmlFor={htmlFor} className="text-[10px] font-semibold text-casino-foreground sm:text-[11px]">
+    <label htmlFor={htmlFor} className="text-[10px] font-semibold text-casino-muted sm:text-[11px]">
       {children}
     </label>
   )
@@ -37,7 +37,9 @@ function InputRow({
   right?: ReactNode
 }) {
   return (
-    <div className="flex min-h-9 items-center gap-1.5 rounded-casino-md bg-casino-surface px-2.5 transition-shadow focus-within:ring-1 focus-within:ring-casino-primary/35 sm:min-h-10 sm:gap-2 sm:px-3">
+    <div
+      className="flex min-h-9 items-center gap-1.5 rounded-casino-md border border-white/[0.12] bg-casino-elevated px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_1px_2px_rgba(0,0,0,0.2)] transition-[box-shadow,border-color,background-color] focus-within:border-casino-primary/40 focus-within:bg-casino-elevated focus-within:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_0_1px_rgba(123,97,255,0.22),0_2px_8px_rgba(123,97,255,0.08)] sm:min-h-10 sm:gap-2 sm:px-3"
+    >
       {children}
       {right ? <div className="flex shrink-0 items-center">{right}</div> : null}
     </div>
@@ -45,7 +47,7 @@ function InputRow({
 }
 
 const authInputClass =
-  'min-w-0 flex-1 bg-transparent py-1 text-[12px] text-casino-foreground outline-none placeholder:text-casino-muted sm:py-1.5 sm:text-[13px]'
+  'min-w-0 flex-1 bg-transparent py-1 text-[12px] text-casino-foreground caret-casino-primary outline-none placeholder:text-casino-muted/85 sm:py-1.5 sm:text-[13px]'
 
 const authPrimaryBtnClass =
   'flex min-h-9 w-full items-center justify-center rounded-casino-md bg-casino-primary text-[13px] font-semibold text-white shadow-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50 sm:min-h-10 sm:text-sm'
@@ -84,6 +86,7 @@ export function LoginForm({
   rememberStorageKey: string
   idPrefix?: string
 }) {
+  const { t } = useTranslation()
   const { schedulePostAuthContinuation } = useAuthModal()
   const location = useLocation()
   const registerTo = useMemo(() => {
@@ -120,7 +123,7 @@ export function LoginForm({
     setLoading(false)
     if (!r.ok) {
       toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/login')
-      setErr(formatApiError(r.error, 'Sign in failed'))
+      setErr(formatApiError(r.error, t('auth.signInFailed')))
       return
     }
     try {
@@ -133,7 +136,7 @@ export function LoginForm({
   }
 
   return (
-    <div className="flex flex-col gap-1.5 sm:gap-2">
+    <div className="flex flex-col gap-2 sm:gap-2.5">
       {import.meta.env.PROD && !playerApiOriginConfigured() ? (
         <AuthError>
           Production build has no <span className="font-mono text-[10px]">VITE_PLAYER_API_ORIGIN</span>. Set it in
@@ -142,9 +145,9 @@ export function LoginForm({
         </AuthError>
       ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-1.5 sm:gap-2">
-        <div className="flex flex-col gap-0.5 sm:gap-1">
-          <FieldLabel htmlFor={`${idPrefix}-login-email`}>Email or username</FieldLabel>
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2.5 sm:gap-3">
+        <div className="flex flex-col gap-1 sm:gap-1.5">
+          <FieldLabel htmlFor={`${idPrefix}-login-email`}>{t('auth.login.emailOrUsername')}</FieldLabel>
           <InputRow>
             <IconUser size={14} className="shrink-0 text-casino-muted max-sm:scale-90" aria-hidden />
             <input
@@ -156,20 +159,20 @@ export function LoginForm({
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com or username"
+              placeholder={t('auth.login.emailOrUsernamePlaceholder')}
             />
           </InputRow>
         </div>
 
-        <div className="flex flex-col gap-0.5 sm:gap-1">
-          <FieldLabel htmlFor={`${idPrefix}-login-pw`}>Password</FieldLabel>
+        <div className="flex flex-col gap-1 sm:gap-1.5">
+          <FieldLabel htmlFor={`${idPrefix}-login-pw`}>{t('auth.login.password')}</FieldLabel>
           <InputRow
             right={
               <button
                 type="button"
                 className="flex h-6 w-6 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground sm:h-7 sm:w-7"
                 onClick={() => setShowPw((v) => !v)}
-                aria-label={showPw ? 'Hide password' : 'Show password'}
+                aria-label={showPw ? t('auth.login.hidePassword') : t('auth.login.showPassword')}
               >
                 {showPw ? <IconEyeOff size={14} /> : <IconEye size={14} />}
               </button>
@@ -184,7 +187,7 @@ export function LoginForm({
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
+              placeholder={t('auth.login.passwordPlaceholder')}
             />
           </InputRow>
         </div>
@@ -211,30 +214,32 @@ export function LoginForm({
                 strokeWidth={2.5}
               />
             </span>
-            <span>Remember me</span>
+            <span>{t('auth.login.rememberMe')}</span>
           </label>
           <Link
             to={forgotTo}
             replace
             className="shrink-0 text-[10px] font-semibold text-casino-foreground transition hover:text-casino-primary sm:text-[11px]"
           >
-            Forgot password?
+            {t('auth.login.forgotPassword')}
           </Link>
         </div>
 
         <button type="submit" disabled={loading} className={authPrimaryBtnClass}>
-          {loading ? 'Signing in…' : 'Sign in'}
+          {loading ? t('auth.login.signingIn') : t('auth.login.signInCta')}
         </button>
       </form>
 
       <Link
         to={registerTo}
         replace
-        aria-label="Create an account — register"
+        aria-label={t('auth.login.registerAria')}
         className="mt-2 flex w-full items-center justify-center gap-1.5 py-0.5 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
       >
-        <span>Don&apos;t have an account?</span>
-        <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">Register</span>
+        <span>{t('auth.login.noAccount')}</span>
+        <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">
+          {t('auth.login.registerLink')}
+        </span>
       </Link>
     </div>
   )
@@ -266,11 +271,11 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
     e.preventDefault()
     setErr(null)
     if (!username.trim()) {
-      setErr('Please choose a username')
+      setErr(t('auth.registerForm.usernameRequired'))
       return
     }
     if (password !== confirm) {
-      setErr('Passwords do not match')
+      setErr(t('auth.registerForm.passwordsMismatch'))
       return
     }
     if (!acceptTerms || !acceptPrivacy) {
@@ -289,14 +294,14 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
     setLoading(false)
     if (!r.ok) {
       toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/register')
-      setErr(formatApiError(r.error, 'Registration failed'))
+      setErr(formatApiError(r.error, t('auth.registerForm.registrationFailed')))
       return
     }
     schedulePostAuthContinuation()
   }
 
   return (
-    <div className="flex flex-col gap-1.5 sm:gap-2">
+    <div className="flex flex-col gap-2 sm:gap-2.5">
       {import.meta.env.PROD && !playerApiOriginConfigured() ? (
         <AuthError>
           Production build has no <span className="font-mono text-[10px]">VITE_PLAYER_API_ORIGIN</span>. Set it in
@@ -305,9 +310,9 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         </AuthError>
       ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-1.5 sm:gap-2">
-        <div className="flex flex-col gap-0.5 sm:gap-1">
-          <FieldLabel htmlFor={`${idPrefix}-reg-email`}>Email</FieldLabel>
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2.5 sm:gap-3">
+        <div className="flex flex-col gap-1 sm:gap-1.5">
+          <FieldLabel htmlFor={`${idPrefix}-reg-email`}>{t('auth.registerForm.email')}</FieldLabel>
           <InputRow>
             <IconUser size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
@@ -318,13 +323,13 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              placeholder={t('auth.registerForm.emailPlaceholder')}
             />
           </InputRow>
         </div>
 
-        <div className="flex flex-col gap-0.5 sm:gap-1">
-          <FieldLabel htmlFor={`${idPrefix}-reg-username`}>Username</FieldLabel>
+        <div className="flex flex-col gap-1 sm:gap-1.5">
+          <FieldLabel htmlFor={`${idPrefix}-reg-username`}>{t('auth.registerForm.username')}</FieldLabel>
           <InputRow>
             <IconUser size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
@@ -338,23 +343,21 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               pattern="[a-zA-Z0-9_]+"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Choose a username"
+              placeholder={t('auth.registerForm.usernamePlaceholder')}
             />
           </InputRow>
-          <span className="text-[9px] text-casino-muted sm:text-[10px]">
-            3-20 characters, letters, numbers, and underscores
-          </span>
+          <span className="text-[9px] text-casino-muted sm:text-[10px]">{t('auth.registerForm.usernameHint')}</span>
         </div>
 
-        <div className="flex flex-col gap-0.5 sm:gap-1">
-          <FieldLabel htmlFor={`${idPrefix}-reg-pw`}>Create password</FieldLabel>
+        <div className="flex flex-col gap-1 sm:gap-1.5">
+          <FieldLabel htmlFor={`${idPrefix}-reg-pw`}>{t('auth.registerForm.createPassword')}</FieldLabel>
           <InputRow
             right={
               <button
                 type="button"
                 className="flex h-6 w-6 items-center justify-center rounded-casino-sm text-casino-muted transition hover:text-casino-foreground sm:h-7 sm:w-7"
                 onClick={() => setShowPw((v) => !v)}
-                aria-label={showPw ? 'Hide password' : 'Show password'}
+                aria-label={showPw ? t('auth.registerForm.hidePassword') : t('auth.registerForm.showPassword')}
               >
                 {showPw ? <IconEyeOff size={14} /> : <IconEye size={14} />}
               </button>
@@ -370,13 +373,13 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               minLength={12}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
+              placeholder={t('auth.registerForm.passwordPlaceholder')}
             />
           </InputRow>
         </div>
 
-        <div className="flex flex-col gap-0.5 sm:gap-1">
-          <FieldLabel htmlFor={`${idPrefix}-reg-confirm`}>Confirm password</FieldLabel>
+        <div className="flex flex-col gap-1 sm:gap-1.5">
+          <FieldLabel htmlFor={`${idPrefix}-reg-confirm`}>{t('auth.registerForm.confirmPassword')}</FieldLabel>
           <InputRow>
             <IconLock size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
@@ -388,7 +391,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               minLength={12}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              placeholder="Re-enter password"
+              placeholder={t('auth.registerForm.confirmPlaceholder')}
             />
           </InputRow>
         </div>
@@ -403,24 +406,27 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         <TurnstileField onToken={setCaptcha} />
 
         <button type="submit" disabled={loading} className={authPrimaryBtnClass}>
-          {loading ? 'Creating…' : 'Register'}
+          {loading ? t('auth.registerForm.creating') : t('auth.registerForm.submit')}
         </button>
       </form>
 
       <Link
         to={loginTo}
         replace
-        aria-label="Sign in — already have an account"
+        aria-label={t('auth.registerForm.signInAria')}
         className="mt-2 flex w-full items-center justify-center gap-1.5 py-0.5 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
       >
-        <span>Already have an account?</span>
-        <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">Sign in</span>
+        <span>{t('auth.registerForm.alreadyHaveAccount')}</span>
+        <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">
+          {t('auth.registerForm.signInLink')}
+        </span>
       </Link>
     </div>
   )
 }
 
 export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [done, setDone] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -440,7 +446,7 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
         toastPlayerApiError(p, res.status, 'POST /v1/auth/forgot-password', rid)
       }
     } catch {
-      toastPlayerNetworkError('Could not reach server.', 'POST /v1/auth/forgot-password')
+      toastPlayerNetworkError(t('auth.forgotForm.networkError'), 'POST /v1/auth/forgot-password')
     } finally {
       setLoading(false)
       setDone(true)
@@ -450,19 +456,19 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
   if (done) {
     return (
       <div className="flex flex-col gap-2 text-center text-[11px] text-casino-muted sm:gap-3 sm:text-xs">
-        <p>If an account exists for that email, we sent reset instructions.</p>
+        <p>{t('auth.forgotForm.resetSent')}</p>
         <button type="button" className={authPrimaryBtnClass} onClick={onBack}>
-          Back to log in
+          {t('auth.forgotForm.backToLogin')}
         </button>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-1.5 sm:gap-2">
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-1.5 sm:gap-2">
-        <div className="flex flex-col gap-0.5 sm:gap-1">
-          <FieldLabel htmlFor="m-forgot-email">Email</FieldLabel>
+    <div className="flex flex-col gap-2 sm:gap-2.5">
+      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2.5 sm:gap-3">
+        <div className="flex flex-col gap-1 sm:gap-1.5">
+          <FieldLabel htmlFor="m-forgot-email">{t('auth.forgotForm.email')}</FieldLabel>
           <InputRow>
             <IconUser size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
             <input
@@ -473,12 +479,12 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              placeholder={t('auth.forgotForm.emailPlaceholder')}
             />
           </InputRow>
         </div>
         <button type="submit" disabled={loading} className={authPrimaryBtnClass}>
-          {loading ? 'Sending…' : 'Send reset link'}
+          {loading ? t('auth.forgotForm.sending') : t('auth.forgotForm.sendResetLink')}
         </button>
       </form>
       <button
@@ -486,7 +492,7 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
         className="w-full text-[10px] font-semibold text-casino-foreground transition hover:text-casino-primary sm:text-[11px]"
         onClick={onBack}
       >
-        Back to log in
+        {t('auth.forgotForm.backToLogin')}
       </button>
     </div>
   )

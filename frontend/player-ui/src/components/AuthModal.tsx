@@ -80,7 +80,7 @@ export function AuthModal() {
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={copy.subtitle ? descId : undefined}
-        className="relative flex max-h-[calc(100dvh-1rem)] w-full max-w-[min(100%,380px)] flex-col gap-2 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth rounded-casino-lg border border-casino-border/30 bg-casino-surface p-4 text-casino-foreground shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:max-h-[calc(100dvh-1.5rem)] sm:max-w-[420px] sm:gap-3 sm:p-5 scrollbar-casino"
+        className="relative flex max-h-[calc(100dvh-1rem)] w-full max-w-[min(100%,380px)] flex-col gap-2 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth rounded-casino-lg border border-white/[0.1] bg-casino-surface p-4 text-casino-foreground shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:max-h-[calc(100dvh-1.5rem)] sm:max-w-[420px] sm:gap-3 sm:p-5 scrollbar-casino"
       >
         <button
           type="button"

@@ -24,7 +24,7 @@
       "raffle": "Tombola 25 K$"
     },
     "extras": {
-      "sports": "Sports électroniques"
+      "sports": "E-Sports"
     }
   },
   "sidebar": {
@@ -211,7 +211,53 @@
     "resetSubtitle": "Nous enverrons un lien de réinitialisation si cette adresse est associée à un compte.",
     "acceptTermsError": "Veuillez accepter les conditions et la politique de confidentialité",
     "registerAcceptTerms": "J'accepte les conditions d'utilisation.",
-    "registerAcceptPrivacy": "J'accepte la politique de confidentialité."
+    "registerAcceptPrivacy": "J'accepte la politique de confidentialité.",
+    "signInFailed": "Échec de la connexion",
+    "login": {
+      "emailOrUsername": "Courriel ou nom d'utilisateur",
+      "emailOrUsernamePlaceholder": "nom@exemple.com ou nom d'utilisateur",
+      "password": "Mot de passe",
+      "passwordPlaceholder": "Entrez votre mot de passe",
+      "rememberMe": "Se souvenir de moi",
+      "forgotPassword": "Mot de passe oublié?",
+      "signInCta": "Se connecter",
+      "signingIn": "Connexion…",
+      "noAccount": "Pas encore de compte?",
+      "registerLink": "S'inscrire",
+      "registerAria": "Créer un compte — inscription",
+      "showPassword": "Afficher le mot de passe",
+      "hidePassword": "Masquer le mot de passe"
+    },
+    "registerForm": {
+      "email": "Courriel",
+      "emailPlaceholder": "vous@exemple.com",
+      "username": "Nom d'utilisateur",
+      "usernamePlaceholder": "Choisissez un nom d'utilisateur",
+      "usernameHint": "3 à 20 caractères : lettres, chiffres et traits de soulignement",
+      "usernameRequired": "Veuillez choisir un nom d'utilisateur",
+      "createPassword": "Créer un mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "passwordPlaceholder": "Entrez votre mot de passe",
+      "confirmPlaceholder": "Entrez de nouveau le mot de passe",
+      "passwordsMismatch": "Les mots de passe ne correspondent pas",
+      "submit": "S'inscrire",
+      "creating": "Création…",
+      "registrationFailed": "Échec de l'inscription",
+      "alreadyHaveAccount": "Vous avez déjà un compte?",
+      "signInLink": "Se connecter",
+      "signInAria": "Se connecter — vous avez déjà un compte",
+      "showPassword": "Afficher le mot de passe",
+      "hidePassword": "Masquer le mot de passe"
+    },
+    "forgotForm": {
+      "email": "Courriel",
+      "emailPlaceholder": "vous@exemple.com",
+      "sendResetLink": "Envoyer le lien",
+      "sending": "Envoi…",
+      "resetSent": "Si un compte existe pour cette adresse, nous avons envoyé les instructions de réinitialisation.",
+      "backToLogin": "Retour à la connexion",
+      "networkError": "Impossible de joindre le serveur."
+    }
   },
   "crypto": {
     "stripTitle": "Prix des crypto",
