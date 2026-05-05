@@ -1,10 +1,17 @@
 import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import type { RewardsHubPayload } from '../hooks/useRewardsHub'
 import { usePlayerAuth } from '../playerAuth'
+import {
+  PLAYER_CHROME_CLOSE_CHAT_EVENT,
+  PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT,
+  PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT,
+  PLAYER_CHROME_CLOSE_REWARDS_EVENT,
+  PLAYER_CHROME_CLOSE_WALLET_EVENT,
+} from '../lib/playerChromeEvents'
 import { IconBell } from './icons'
 
 export type PlayerNotification = {
@@ -62,6 +69,7 @@ export default function NotificationBell({
   rewardsHub = null,
 }: NotificationBellProps) {
   const { t, i18n } = useTranslation()
+  const { pathname } = useLocation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<PlayerNotification[]>([])
@@ -123,6 +131,24 @@ export default function NotificationBell({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
+  useEffect(() => {
+    const close = () => setOpen(false)
+    window.addEventListener(PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT, close)
+    return () => window.removeEventListener(PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT, close)
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_WALLET_EVENT))
+    window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_REWARDS_EVENT))
+    window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT))
+    window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_CHAT_EVENT))
+  }, [open])
+
+  useEffect(() => {
+    setOpen(false)
+  }, [pathname])
+
   const unreadCount = notifications.filter((n) => !n.read).length
 
   const { rakebackBoostLive, rakebackBoostLine } = useMemo(() => {
@@ -165,7 +191,7 @@ export default function NotificationBell({
   const triggerClasses = `${className} ${open ? openClassName : ''}`.trim()
 
   return (
-    <div ref={rootRef} className="relative hidden sm:inline-flex">
+    <div ref={rootRef} className="relative inline-flex">
       <button
         type="button"
         className={triggerClasses}

@@ -5,6 +5,7 @@ import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
 import {
   PLAYER_CHROME_CLOSE_CHAT_EVENT,
   PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT,
+  PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT,
   PLAYER_CHROME_CLOSE_REWARDS_EVENT,
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
 } from './lib/playerChromeEvents'
@@ -182,6 +183,7 @@ function AppShell() {
   const closeHeaderDropdowns = useCallback(() => {
     window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_WALLET_EVENT))
     window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_REWARDS_EVENT))
+    window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT))
   }, [])
 
   /** Closes menu drawer, game search, wallet modal, chat, and header wallet/rewards dropdowns. */
@@ -329,6 +331,7 @@ function AppShell() {
                 ) : null}
                 {isAuthenticated ? (
                   <>
+                    <NotificationBell className={`${iconBtn} relative inline-flex`} rewardsHub={rewardsHub.data} />
                     <RewardsHeaderDropdown className={`${rewardsHeaderBtn} relative inline-flex`} />
                     <HeaderProfileIcon />
                   </>
@@ -630,6 +633,11 @@ function HeaderProfileIcon() {
       className="flex items-center gap-2.5 rounded-[10px] px-1.5 py-1 transition hover:bg-white/[0.06]"
       aria-label={`Account: ${label}${vip ? ` · VIP ${vip}` : ''}`}
       title={vip ? `${label} · VIP ${vip}` : label}
+      onClick={() => {
+        window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_WALLET_EVENT))
+        window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_REWARDS_EVENT))
+        window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT))
+      }}
     >
       <div className="relative shrink-0">
         {avatarSrc && !avatarBroken ? (

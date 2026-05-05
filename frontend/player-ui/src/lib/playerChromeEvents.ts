@@ -1,6 +1,7 @@
 /** Wallet / rewards header dropdowns coordinate via document events (mobile portals + z-index). */
 export const PLAYER_CHROME_CLOSE_WALLET_EVENT = 'vybe-player-close-wallet-dropdown'
 export const PLAYER_CHROME_CLOSE_REWARDS_EVENT = 'vybe-player-close-rewards-dropdown'
+export const PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT = 'vybe-player-close-notifications-dropdown'
 /** Global Chat drawer — close when opening rewards / wallet chrome that overlaps it. */
 export const PLAYER_CHROME_CLOSE_CHAT_EVENT = 'vybe-player-close-chat-drawer'
 /** Mobile left drawer — close when opening wallet/rewards; open menu closes wallet+rewards via App. */

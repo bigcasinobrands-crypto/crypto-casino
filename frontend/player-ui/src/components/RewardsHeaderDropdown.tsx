@@ -14,6 +14,7 @@ import { IconBarChart3, IconCrown, IconGift, IconZap } from './icons'
 import {
   PLAYER_CHROME_CLOSE_CHAT_EVENT,
   PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT,
+  PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT,
   PLAYER_CHROME_CLOSE_REWARDS_EVENT,
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
 } from '../lib/playerChromeEvents'
@@ -374,6 +375,7 @@ export default function RewardsHeaderDropdown({
     if (open) {
       window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT))
       window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_CHAT_EVENT))
+      window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT))
     }
   }, [open])
 
