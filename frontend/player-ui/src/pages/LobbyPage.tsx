@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
@@ -84,6 +86,7 @@ function emptySectionCopy(
   provider: string,
   pillActive: (pill: string) => boolean,
   op: OperationalHealth | null | undefined,
+  t: TFunction,
 ): string {
   const noBlueOceanGames =
     op?.blueocean_configured === true &&
@@ -91,33 +94,36 @@ function emptySectionCopy(
     op.blueocean_visible_games_count === 0
   const noGamesInDb =
     typeof op?.visible_games_count === 'number' && op.visible_games_count === 0
-  const staff = 'Run catalog sync from the staff console (Blue Ocean ops), or check that games are not hidden.'
+  const staff = t('catalog.empty.staffOpsHint')
 
   if (sec === 'featured' || sec === 'challenges') {
-    return 'No featured games — set BLUEOCEAN_FEATURED_ID_HASHES on the API (comma-separated id_hash values), then sync the catalog.'
+    return t('catalog.empty.featuredChallenges')
   }
   if (q.trim() || provider.trim() || pillActive('gameshows') || pillActive('blackjack')) {
-    return 'No games match your search or filters. Try clearing filters or browse all games.'
+    return t('catalog.empty.searchFilters')
   }
   if (sec === 'slots' || sec === 'live' || sec === 'new' || sec === 'bonus-buys') {
-    return `No games in this category. Open Games for the full catalog, or run a catalog sync in the staff console if you expect titles here. ${staff}`
+    return `${t('catalog.empty.category')} ${staff}`
   }
   if (noBlueOceanGames || (!op?.blueocean_configured && noGamesInDb)) {
-    return `No games from the Blue Ocean catalog are visible yet. ${staff}`
+    return `${t('catalog.empty.blueOceanNone')} ${staff}`
   }
-  return 'No games in this view.'
+  return t('catalog.empty.default')
 }
 
-const SECTION_TITLE: Record<Section, string> = {
-  games: 'Games',
-  featured: 'Featured',
-  challenges: 'Challenges',
-  slots: 'Slots',
-  live: 'Live',
-  new: 'New',
-  favourites: 'Favourites',
-  recent: 'Recent',
-  'bonus-buys': 'Bonus buys',
+function catalogSectionTitle(sec: Section, t: TFunction): string {
+  const keys: Record<Section, string> = {
+    games: 'catalog.section.games',
+    featured: 'catalog.section.featured',
+    challenges: 'catalog.section.challenges',
+    slots: 'catalog.section.slots',
+    live: 'catalog.section.live',
+    new: 'catalog.section.new',
+    favourites: 'catalog.section.favourites',
+    recent: 'catalog.section.recent',
+    'bonus-buys': 'catalog.section.bonusBuys',
+  }
+  return t(keys[sec])
 }
 
 function buildListUrl(
@@ -169,6 +175,7 @@ type LobbyPageProps = {
 const CATALOG_SKELETON_COUNT = 18
 
 export default function LobbyPage({ operationalData }: LobbyPageProps) {
+  const { t } = useTranslation()
   const location = useLocation()
   const { pathname } = location
   const { section = 'games' } = useParams<{ section: Section }>()
@@ -460,13 +467,13 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
       {loadErr ? <p className="mb-3 text-sm text-red-400">{loadErr}</p> : null}
 
       <h1 className="mb-4 text-xl font-semibold tracking-tight text-casino-foreground md:text-2xl">
-        {SECTION_TITLE[sec]}
+        {catalogSectionTitle(sec, t)}
       </h1>
 
       {games.length > 0 ? (
         <p className="mb-3 text-xs text-casino-muted">
-          {games.length.toLocaleString()} shown
-          {showLoadMore ? ' · more available' : ''}
+          {t('catalog.shownCount', { count: games.length })}
+          {showLoadMore ? ` · ${t('catalog.moreAvailable')}` : ''}
         </p>
       ) : null}
 
@@ -474,8 +481,8 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
       {sec === 'games' ? (
         <div className="mb-4 flex flex-wrap gap-2 text-sm">
           {[
-            { id: 'gameshows', label: 'Game shows' },
-            { id: 'blackjack', label: 'Blackjack' },
+            { id: 'gameshows', label: t('catalog.pillGameShows') },
+            { id: 'blackjack', label: t('catalog.pillBlackjack') },
           ].map(({ id, label }) => (
             <Link
               key={id}
@@ -513,7 +520,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
                   </RequireAuthLink>
                   <button
                     type="button"
-                    title={isFavourite(g.id) ? 'Remove favourite' : 'Favourite'}
+                    title={isFavourite(g.id) ? t('gameLobby.removeFavourite') : t('gameLobby.favourite')}
                     className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-casino-md border border-casino-border/80 bg-casino-bg/90 text-lg text-casino-primary shadow-sm backdrop-blur-sm hover:bg-casino-surface"
                     onClick={(e) => {
                       e.preventDefault()
@@ -544,13 +551,13 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
             onClick={() => void loadMore()}
             className="rounded-casino-md border border-casino-border bg-casino-surface px-6 py-3 text-sm font-medium text-casino-foreground hover:border-casino-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loadingMore ? 'Loading…' : 'Load more'}
+            {loadingMore ? t('catalog.loadingGames') : t('catalog.loadMore')}
           </button>
         </div>
       ) : null}
       {games.length === 0 && !loadErr && !listLoading ? (
         <p className="mt-6 text-center text-sm text-casino-muted">
-          {emptySectionCopy(sec, q, provider, pillActive, operationalData)}
+          {emptySectionCopy(sec, q, provider, pillActive, operationalData, t)}
         </p>
       ) : null}
     </div>

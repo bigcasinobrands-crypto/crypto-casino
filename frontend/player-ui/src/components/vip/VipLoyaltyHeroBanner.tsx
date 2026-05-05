@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { bonusHeroImageSrc } from '../rewards/offerDisplayUtils'
 import {
   normalizeVipLoyaltyHero,
@@ -15,6 +16,7 @@ function slideImageSrc(s: VipLoyaltyHeroSlide): string | undefined {
 }
 
 export function VipLoyaltyHeroBanner() {
+  const { t } = useTranslation()
   const { getContent, refreshSiteContent } = useSiteContent()
   const heroRefreshThrottle = useRef(0)
 
@@ -111,7 +113,7 @@ export function VipLoyaltyHeroBanner() {
         <div
           className="flex shrink-0 flex-wrap gap-2 px-0.5 pb-1"
           role="tablist"
-          aria-label="Loyalty hero slides"
+          aria-label={t('vipPage.heroSlidesAria')}
         >
           {slides.map((_, i) => {
             const selected = i === idx

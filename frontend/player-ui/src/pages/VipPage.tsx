@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
 import { Link, Navigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { readApiError } from '../api/errors'
@@ -29,7 +31,8 @@ function formatScheduleInstant(iso?: string): string {
   if (!iso || typeof iso !== 'string') return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  const lng = i18n.language === 'fr-CA' ? 'fr-CA' : 'en-US'
+  return d.toLocaleString(lng, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function parseIsoMs(iso?: string): number {
@@ -41,9 +44,14 @@ function parseIsoMs(iso?: string): number {
 
 /** Remaining time until `targetMs` for scheduled VIP bonus tiles (weeks, days, hours, minutes, seconds). */
 function formatVipScheduledCountdown(targetMs: number, nowMs: number): string {
+  const W = i18n.t('duration.week')
+  const D = i18n.t('duration.day')
+  const H = i18n.t('duration.hour')
+  const M = i18n.t('duration.minute')
+  const S = i18n.t('duration.second')
   if (Number.isNaN(targetMs)) return '—'
   const remain = targetMs - nowMs
-  if (remain <= 0) return '0s'
+  if (remain <= 0) return `0${S}`
   let s = Math.floor(remain / 1000)
   const w = Math.floor(s / (7 * 86400))
   s %= 7 * 86400
@@ -54,16 +62,17 @@ function formatVipScheduledCountdown(targetMs: number, nowMs: number): string {
   const m = Math.floor(s / 60)
   const sec = s % 60
   const parts: string[] = []
-  if (w > 0) parts.push(`${w}w`)
-  if (d > 0) parts.push(`${d}d`)
-  if (h > 0) parts.push(`${h}h`)
-  if (m > 0) parts.push(`${m}m`)
-  parts.push(`${sec}s`)
+  if (w > 0) parts.push(`${w}${W}`)
+  if (d > 0) parts.push(`${d}${D}`)
+  if (h > 0) parts.push(`${h}${H}`)
+  if (m > 0) parts.push(`${m}${M}`)
+  parts.push(`${sec}${S}`)
   return parts.join(' ')
 }
 
 /** Weekly/monthly delivery preview lives in the hero cards; this block is rain-only. */
 function VipRainTrack({ hub }: { hub: RewardsHubPayload | null }) {
+  const { t } = useTranslation()
   const rain = hub?.rain_eligibility
   const showRain =
     rain &&
@@ -75,8 +84,8 @@ function VipRainTrack({ hub }: { hub: RewardsHubPayload | null }) {
   return (
     <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
       <div>
-        <p className="m-0 text-sm font-semibold text-white/70">Rain</p>
-        <p className="mt-0.5 text-[11px] leading-snug text-white/45">Community rain eligibility when the programme is live.</p>
+        <p className="m-0 text-sm font-semibold text-white/70">{t('vipPage.rainTitle')}</p>
+        <p className="mt-0.5 text-[11px] leading-snug text-white/45">{t('vipPage.rainBody')}</p>
         <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.02] p-2.5 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             {typeof rain!.eligible === 'boolean' ? (
@@ -85,7 +94,7 @@ function VipRainTrack({ hub }: { hub: RewardsHubPayload | null }) {
                   rain!.eligible ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/60'
                 }`}
               >
-                {rain!.eligible ? 'Eligible' : 'Not eligible'}
+                {rain!.eligible ? t('vipPage.rainEligible') : t('vipPage.rainNotEligible')}
               </span>
             ) : null}
             {rain!.next_round_at && rain!.next_round_at.trim() !== '' ? (
@@ -158,6 +167,7 @@ function useRewardsClaimActions({
   /** False when the tier has no rakeback boost schedule benefit. */
   tierRakebackBoostEligible?: boolean
 }): RewardsClaimActions {
+  const { t } = useTranslation()
   const [busy, setBusy] = useState<'rake' | 'rakeWallet' | null>(null)
   const rb = hub?.vip?.rakeback_boost
   const rc = hub?.vip?.rakeback_claim
@@ -186,15 +196,15 @@ function useRewardsClaimActions({
         toastPlayerApiError(await readApiError(res), res.status, 'POST /v1/vip/rakeback-boost/claim')
         return
       }
-      toast.success('Rakeback boost activated', { description: 'Your boosted rate applies for the active window.' })
+      toast.success(t('vipPage.rakeToastBoostActivatedTitle'), { description: t('vipPage.rakeToastBoostActivatedBody') })
       reloadHub()
       refreshProfile?.()
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST /v1/vip/rakeback-boost/claim')
+      toastPlayerNetworkError(t('common.networkError'), 'POST /v1/vip/rakeback-boost/claim')
     } finally {
       setBusy(null)
     }
-  }, [apiFetch, canClaimRakeBoost, reloadHub, refreshProfile, tierRakebackBoostEligible])
+  }, [apiFetch, canClaimRakeBoost, reloadHub, refreshProfile, tierRakebackBoostEligible, t])
 
   const claimRakeWallet = useCallback(async () => {
     if (!canClaimRakeWallet) return
@@ -207,19 +217,19 @@ function useRewardsClaimActions({
       }
       const j = (await res.json()) as { paid_minor?: number }
       const paid = typeof j.paid_minor === 'number' && Number.isFinite(j.paid_minor) ? j.paid_minor : 0
-      toast.success('Rakeback claimed', {
+      toast.success(t('vipPage.rakeToastClaimedTitle'), {
         description:
-          paid > 0 ? `${formatMoneyMinorCents(paid)} added to your cash wallet.` : 'Your wallet is up to date.',
+          paid > 0 ? t('vipPage.rakeToastClaimedBodyWithAmount', { amount: formatMoneyMinorCents(paid) }) : t('vipPage.rakeToastClaimedBodyUpToDate'),
       })
       reloadHub()
       reloadVip?.()
       refreshProfile?.()
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST /v1/rewards/rakeback/claim')
+      toastPlayerNetworkError(t('common.networkError'), 'POST /v1/rewards/rakeback/claim')
     } finally {
       setBusy(null)
     }
-  }, [apiFetch, canClaimRakeWallet, reloadHub, reloadVip, refreshProfile, tierPassiveRakeEligible])
+  }, [apiFetch, canClaimRakeWallet, reloadHub, reloadVip, refreshProfile, tierPassiveRakeEligible, t])
 
   const rakeWalletDisplay =
     !isAuthenticated ? '$0.00' : hubLoading ? '…' : !tierPassiveRakeEligible ? '—' : formatMoneyMinorCents(rc?.claimable_minor)
@@ -231,13 +241,13 @@ function useRewardsClaimActions({
     if (rb?.active_now && add != null) {
       const p = add
       rakeDisplayMain = `+${p % 1 === 0 ? p.toFixed(0) : p.toFixed(1)}%`
-      rakeSub = 'Boost active'
+      rakeSub = t('vipPage.boostActive')
     } else if (rb?.claimable_now) {
-      rakeDisplayMain = add != null ? `+${add % 1 === 0 ? add.toFixed(0) : add.toFixed(1)}%` : 'Ready'
-      rakeSub = 'Tap Claim in the window'
+      rakeDisplayMain = add != null ? `+${add % 1 === 0 ? add.toFixed(0) : add.toFixed(1)}%` : t('vipPage.ready')
+      rakeSub = t('vipPage.tapClaimWindow')
     } else if (rb?.enabled === true && add != null) {
       rakeDisplayMain = `+${add % 1 === 0 ? add.toFixed(0) : add.toFixed(1)}%`
-      rakeSub = 'Extra on top of tier rakeback when you claim'
+      rakeSub = t('vipPage.extraOnTop')
     }
   }
 
@@ -281,22 +291,23 @@ function RakebackBoostSlotStrip({
   /** e.g. centered promo card: `"mx-auto flex justify-center flex-wrap gap-1.5"` */
   className?: string
 }) {
+  const { t } = useTranslation()
   if (!slots?.length) return null
   return (
     <div
       className={className ?? 'ml-auto flex shrink-0 items-center gap-1.5'}
       role="list"
-      aria-label="Rakeback boost times today"
+      aria-label={t('vipPage.rakeStripAria')}
     >
       {slots.map((s) => {
         const hot = s.claimable || s.active
         /** Claim recorded for this UTC window and boost is not the one currently running. */
         const spent = s.claimed === true && !s.active
         const parts = [`${s.start_utc} UTC`]
-        if (s.active) parts.push('Boost running')
-        else if (s.claimable) parts.push('Claim open')
-        else if (s.claimed) parts.push('Claimed for this window')
-        else parts.push('Not in claim window')
+        if (s.active) parts.push(t('vipPage.slotBoostRunning'))
+        else if (s.claimable) parts.push(t('vipPage.slotClaimOpen'))
+        else if (s.claimed) parts.push(t('vipPage.slotClaimedWindow'))
+        else parts.push(t('vipPage.slotNotInWindow'))
         const title = parts.join(' — ')
         const outer = hot
           ? 'border-emerald-400/90 bg-emerald-500/[0.12] shadow-[0_0_12px_rgba(16,185,129,0.25)]'
@@ -341,31 +352,39 @@ function utcDayStartMsFromTimestamp(ms: number): number {
 
 /** Remaining time (count down). */
 function formatDurationHms(ms: number): string {
-  if (ms <= 0) return '0s'
+  const H = i18n.t('duration.hour')
+  const M = i18n.t('duration.minute')
+  const S = i18n.t('duration.second')
+  if (ms <= 0) return `0${S}`
   const sec = Math.floor(ms / 1000)
   const h = Math.floor(sec / 3600)
   const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  return `${m}m ${s.toString().padStart(2, '0')}s`
+  if (h > 0) return `${h}${H} ${m}${M} ${s}${S}`
+  return `${m}${M} ${s.toString().padStart(2, '0')}${S}`
 }
 
 /** Elapsed since phase anchor (count up). */
 function formatElapsedHms(ms: number): string {
-  if (ms <= 0) return '0s'
+  const H = i18n.t('duration.hour')
+  const M = i18n.t('duration.minute')
+  const S = i18n.t('duration.second')
+  if (ms <= 0) return `0${S}`
   const sec = Math.floor(ms / 1000)
   const h = Math.floor(sec / 3600)
   const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
+  if (h > 0) return `${h}${H} ${m}${M} ${s}${S}`
+  if (m > 0) return `${m}${M} ${s}${S}`
+  return `${s}${S}`
 }
+
+type RakebackPhaseKind = 'boost_active' | 'claim_window' | 'next_boost'
 
 type RakebackReleasePhase = {
   target: number
   phaseStart: number
-  headline: string
+  phaseKind: RakebackPhaseKind
   /** When false, hide the fill ratio (unknown anchor). */
   allowFill: boolean
 }
@@ -382,7 +401,7 @@ function inferRakebackReleasePhase(rb: RakebackBoostReleaseTimerInput, nowMs: nu
       return {
         target,
         phaseStart: hasAnchor ? started : nowMs,
-        headline: 'Boost active',
+        phaseKind: 'boost_active',
         allowFill: hasAnchor,
       }
     }
@@ -396,7 +415,7 @@ function inferRakebackReleasePhase(rb: RakebackBoostReleaseTimerInput, nowMs: nu
       return {
         target,
         phaseStart: hasAnchor ? winStart : nowMs,
-        headline: 'Claim window',
+        phaseKind: 'claim_window',
         allowFill: hasAnchor,
       }
     }
@@ -429,13 +448,14 @@ function inferRakebackReleasePhase(rb: RakebackBoostReleaseTimerInput, nowMs: nu
   return {
     target: nextMs,
     phaseStart,
-    headline: 'Next boost',
+    phaseKind: 'next_boost',
     allowFill,
   }
 }
 
 /** Countdown to the next milestone + bar filling toward it; secondary line counts up from phase start. */
 function RakebackBoostReleaseTimer({ config }: { config: RakebackBoostReleaseTimerInput }) {
+  const { t } = useTranslation()
   const [tick, setTick] = useState(0)
   useEffect(() => {
     const id = window.setInterval(() => setTick((n) => n + 1), 1000)
@@ -453,32 +473,39 @@ function RakebackBoostReleaseTimer({ config }: { config: RakebackBoostReleaseTim
     if (phase.allowFill && span > 1000) {
       fillPct = Math.min(100, Math.max(0, (elapsedMs / span) * 100))
     }
+    const partsDur = formatDurationHms(remainingMs)
     let primary = ''
     if (remainingMs <= 0) {
-      primary = 'Starting soon'
-    } else if (phase.headline === 'Boost active') {
-      primary = `Ends in ${formatDurationHms(remainingMs)}`
-    } else if (phase.headline === 'Claim window') {
-      primary = `Claim closes in ${formatDurationHms(remainingMs)}`
+      primary = t('duration.startingSoon')
+    } else if (phase.phaseKind === 'boost_active') {
+      primary = t('duration.endsIn', { parts: partsDur })
+    } else if (phase.phaseKind === 'claim_window') {
+      primary = t('duration.claimClosesIn', { parts: partsDur })
     } else {
-      primary = `Opens in ${formatDurationHms(remainingMs)}`
+      primary = t('duration.opensIn', { parts: partsDur })
     }
-    const secondary = `${formatElapsedHms(elapsedMs)} elapsed`
+    const secondary = t('duration.elapsedLine', { time: formatElapsedHms(elapsedMs) })
+    const headline =
+      phase.phaseKind === 'boost_active'
+        ? t('vipPage.timerHeadlineBoost')
+        : phase.phaseKind === 'claim_window'
+          ? t('vipPage.timerHeadlineClaim')
+          : t('vipPage.timerHeadlineNext')
     const barGradient =
-      phase.headline === 'Boost active'
+      phase.phaseKind === 'boost_active'
         ? 'from-emerald-500 to-emerald-400'
-        : phase.headline === 'Claim window'
+        : phase.phaseKind === 'claim_window'
           ? 'from-amber-500 to-amber-400'
           : 'from-sky-500 to-cyan-400'
-    return { phase, primary, secondary, fillPct, barGradient }
-  }, [config, tick])
+    return { phase, primary, secondary, fillPct, barGradient, headline }
+  }, [config, tick, t])
 
   if (!snap) return null
 
   return (
     <div className="border-t border-white/10 bg-black/20 px-4 py-2.5">
       <div className="mb-1.5 flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
-        <span className="text-[10px] font-bold uppercase tracking-wide text-white/70">{snap.phase.headline}</span>
+        <span className="text-[10px] font-bold uppercase tracking-wide text-white/70">{snap.headline}</span>
         <div className="flex min-w-0 flex-col items-end text-right">
           <span className="tabular-nums text-[11px] font-semibold text-white/90">{snap.primary}</span>
           <span className="tabular-nums text-[9px] text-white/45">{snap.secondary}</span>
@@ -490,7 +517,7 @@ function RakebackBoostReleaseTimer({ config }: { config: RakebackBoostReleaseTim
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={snap.fillPct != null ? Math.round(snap.fillPct) : undefined}
-        aria-label="Progress toward next boost release"
+        aria-label={t('vipPage.timerProgressAria')}
       >
         <div
           className={`h-full rounded-full bg-gradient-to-r transition-[width] duration-1000 ease-linear ${snap.barGradient}`}
@@ -499,9 +526,9 @@ function RakebackBoostReleaseTimer({ config }: { config: RakebackBoostReleaseTim
       </div>
       {snap.fillPct == null ? (
         <p className="mt-1 m-0 text-[9px] text-white/38">
-          {snap.phase.headline === 'Next boost'
-            ? `Next at ${formatScheduleInstant(new Date(snap.phase.target).toISOString())}`
-            : `Ends at ${formatScheduleInstant(new Date(snap.phase.target).toISOString())}`}
+          {snap.phase.phaseKind === 'next_boost'
+            ? t('duration.nextAt', { when: formatScheduleInstant(new Date(snap.phase.target).toISOString()) })
+            : t('duration.endsAt', { when: formatScheduleInstant(new Date(snap.phase.target).toISOString()) })}
         </p>
       ) : null}
     </div>
@@ -532,6 +559,7 @@ function VipRakebackCard({
   /** Signed-in player tier has no passive rakeback % configured. */
   tierPassiveRakeEligible: boolean
 }) {
+  const { t } = useTranslation()
   const programs = useMemo(() => {
     const m = vip?.rebate_percent_add_by_program
     if (!m || typeof m !== 'object') return [] as [string, number][]
@@ -546,8 +574,8 @@ function VipRakebackCard({
       className={`flex h-full min-h-[280px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-casino-surface shadow-[0_12px_40px_rgba(0,0,0,0.35)] ${tierLocked ? VIP_TIER_LOCKED_SURFACE_CLS : ''}`}
     >
       <div className="flex items-center gap-2 px-4 pt-4">
-        <h3 className="m-0 shrink-0 text-base font-bold text-white">Rakeback</h3>
-        <InfoTip label="Tier % is your passive add on eligible cash play. Periodic rakeback posts to your claimable balance (UTC schedule). Timed boost % applies only to stake during the boost window; when the boost ends that extra rakeback is booked to the same claimable balance. Claim sends the total to your cash wallet." />
+        <h3 className="m-0 shrink-0 text-base font-bold text-white">{t('vipPage.rakebackTitle')}</h3>
+        <InfoTip label={t('vipPage.rakeInfoTip')} />
       </div>
       <div className="flex flex-1 items-center justify-center px-4 py-6">
         {VIP_HERO_TILES[0]?.image ? (
@@ -561,16 +589,16 @@ function VipRakebackCard({
       </div>
       <div className="mt-auto space-y-2 border-t border-white/10 bg-black/25 px-4 py-3">
         {!isAuthenticated ? (
-          <p className="m-0 text-center text-sm text-white/45">Sign in to see your tier rakeback and claim balance.</p>
+          <p className="m-0 text-center text-sm text-white/45">{t('vipPage.rakeSignInBlurb')}</p>
         ) : vipLoading || hubLoading ? (
-          <p className="m-0 text-center text-sm text-white/45">Loading…</p>
+          <p className="m-0 text-center text-sm text-white/45">{t('common.loading')}</p>
         ) : tierLocked ? (
           <p className="m-0 text-center text-[11px] leading-snug text-white/45">
-            Passive rakeback is not part of your current VIP tier. It unlocks automatically when you reach a tier that includes it.
+            {t('vipPage.rakeTierLocked')}
           </p>
         ) : programs.length === 0 ? (
           <p className="m-0 text-center text-[11px] leading-snug text-white/40">
-            No passive rakeback add is assigned to your tier in programme data yet.
+            {t('vipPage.rakeNoProgrammeData')}
           </p>
         ) : (
           <ul className="m-0 list-none space-y-2 p-0">
@@ -592,7 +620,9 @@ function VipRakebackCard({
                     </span>
                     {matchBoost ? (
                       <span className="text-base font-black tabular-nums text-amber-300 sm:text-lg">
-                        +{formatRebatePointsDisplay(rakebackBoost.boost_percent_add ?? 0)}% boost
+                        {t('vipPage.boostPercent', {
+                          pct: formatRebatePointsDisplay(rakebackBoost.boost_percent_add ?? 0),
+                        })}
                       </span>
                     ) : null}
                   </span>
@@ -603,12 +633,14 @@ function VipRakebackCard({
         )}
         {isAuthenticated && rakebackBoost?.active_now === true ? (
           <p className="m-0 text-center text-[10px] leading-snug text-amber-200/90">
-            Boost tally (settles into claimable rakeback when boost ends): ~{formatMoneyMinorCents(rakebackBoost.boost_accrued_estimate_minor)}{' '}
-            on {formatMoneyMinorCents(rakebackBoost.boost_wager_accrued_minor)} wager this window.
+            {t('vipPage.rakeBoostSettles', {
+              accrued: formatMoneyMinorCents(rakebackBoost.boost_accrued_estimate_minor),
+              wager: formatMoneyMinorCents(rakebackBoost.boost_wager_accrued_minor),
+            })}
           </p>
         ) : null}
         {isAuthenticated && !vipLoading && programs.length > 0 ? (
-          <p className="m-0 text-center text-[10px] text-white/35">Accrues from eligible play; rates are tier-based.</p>
+          <p className="m-0 text-center text-[10px] text-white/35">{t('vipPage.rakeAccruesFootnote')}</p>
         ) : null}
         <div className="flex items-center justify-between gap-3 pt-1">
           <button
@@ -621,7 +653,7 @@ function VipRakebackCard({
                 : claimActions.rakeClaimIdleCls
             }
           >
-            {claimActions.busy === 'rakeWallet' ? '…' : 'Claim'}
+            {claimActions.busy === 'rakeWallet' ? '…' : t('vipPage.claim')}
           </button>
           <div className="flex items-center gap-2 tabular-nums">
             <span className="text-sm font-bold text-white sm:text-base">{claimActions.rakeWalletDisplay}</span>
@@ -636,6 +668,7 @@ function VipRakebackCard({
 }
 
 function RakebackBoostCard(a: RewardsClaimActions & { tierBoostLocked: boolean }) {
+  const { t } = useTranslation()
   const tierLocked = a.tierBoostLocked
   const slots = tierLocked ? undefined : a.rakeBoostSlots
   const anyHot = Boolean(slots?.some((s) => s.claimable || s.active))
@@ -653,8 +686,8 @@ function RakebackBoostCard(a: RewardsClaimActions & { tierBoostLocked: boolean }
     >
       <div className="px-4 pt-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="m-0 shrink-0 text-base font-bold text-white">Rakeback boost</h3>
-          <InfoTip label="One lightning icon per scheduled UTC window today. Green: claim open or boost running. Gray: already claimed for that window. Timed windows match your VIP tier schedule." />
+          <h3 className="m-0 shrink-0 text-base font-bold text-white">{t('vipPage.rakebackBoostTitle')}</h3>
+          <InfoTip label={t('vipPage.rakeBoostInfoTip')} />
         </div>
         <RakebackBoostSlotStrip slots={slots} className="mt-3 flex w-full flex-wrap justify-center gap-2 sm:justify-start" />
       </div>
@@ -670,7 +703,7 @@ function RakebackBoostCard(a: RewardsClaimActions & { tierBoostLocked: boolean }
       {tierLocked ? (
         <div className="border-t border-white/10 bg-black/20 px-4 py-2.5">
           <p className="m-0 text-center text-[10px] leading-snug text-white/45">
-            Timed rakeback boosts are not included in your current tier. They activate when you reach a tier with this benefit.
+            {t('vipPage.rakeBoostTierLocked')}
           </p>
         </div>
       ) : null}
@@ -683,7 +716,7 @@ function RakebackBoostCard(a: RewardsClaimActions & { tierBoostLocked: boolean }
             (a.canClaimRakeBoost && a.busy === null) || a.busy === 'rake' ? a.rakeClaimReadyCls : a.rakeClaimIdleCls
           }
         >
-          {a.busy === 'rake' ? '…' : 'Claim'}
+          {a.busy === 'rake' ? '…' : t('vipPage.claim')}
         </button>
         <div className="flex flex-col items-end gap-0.5">
           <div className="flex items-center gap-2 tabular-nums">
@@ -721,11 +754,18 @@ function perkStateBadgeClass(state: VipTierPerkState): string {
   }
 }
 
-function perkStateLabel(state: VipTierPerkState): string {
-  return state === 'active' ? 'Active' : state === 'claimable' ? 'Claimable' : state === 'pending' ? 'Pending' : 'Unavailable'
+function perkStateLabel(state: VipTierPerkState, tr: (k: string) => string): string {
+  return state === 'active'
+    ? tr('vipPage.perkStateActive')
+    : state === 'claimable'
+      ? tr('vipPage.perkStateClaimable')
+      : state === 'pending'
+        ? tr('vipPage.perkStatePending')
+        : tr('vipPage.perkStateUnavailable')
 }
 
 export default function VipPage() {
+  const { t } = useTranslation()
   const { data, loading, err, reload } = useVipProgram()
   const { data: vip, loading: vipLoading, reload: reloadVip } = useVipStatus()
   const { data: hub, loading: hubLoading, reload: reloadHub } = useRewardsHub()
@@ -803,20 +843,20 @@ export default function VipPage() {
     const tiles: PromoTile[] = [
       {
         key: 'weekly',
-        title: 'Weekly bonus',
+        title: t('vipPage.weeklyBonus'),
         img: VIP_HERO_TILES[0]?.image,
         unlockAt: preview?.weekly_next_at?.trim(),
       },
       {
         key: 'monthly',
-        title: 'Monthly bonus',
+        title: t('vipPage.monthlyBonus'),
         img: VIP_HERO_TILES[1]?.image,
         unlockAt: preview?.monthly_next_at?.trim(),
       },
-      { key: 'browse', title: 'Earn rewards', img: VIP_HERO_TILES[2]?.image },
+      { key: 'browse', title: t('vipPage.earnRewards'), img: VIP_HERO_TILES[2]?.image },
     ]
     return tiles
-  }, [preview?.weekly_next_at, preview?.monthly_next_at])
+  }, [preview?.weekly_next_at, preview?.monthly_next_at, t])
 
   const promoHeroGridCls =
     promoHeroTiles.length <= 1
@@ -907,7 +947,7 @@ export default function VipPage() {
     if (Number.isNaN(unlockMs) || nowMs < unlockMs) return
     const offer = kind === 'weekly' ? scheduledOfferByKey.weekly : scheduledOfferByKey.monthly
     if (!offer) {
-      toast.error('Bonus not ready', { description: 'This scheduled bonus is not published yet.' })
+      toast.error(t('vipPage.toastBonusNotReady'), { description: t('vipPage.toastBonusNotPublished') })
       return
     }
     setVipDeliveryClaimBusy(kind)
@@ -922,17 +962,27 @@ export default function VipPage() {
         toastPlayerApiError(apiErr, res.status, 'POST /v1/bonuses/claim-offer')
         return
       }
-      toast.success(`${kind === 'weekly' ? 'Weekly' : 'Monthly'} bonus claimed`, {
-        description: 'Added to My Bonuses. Normal bonus rules still apply.',
+      toast.success(kind === 'weekly' ? t('vipPage.toastWeeklyClaimed') : t('vipPage.toastMonthlyClaimed'), {
+        description: t('vipPage.toastClaimedBody'),
       })
       reloadHub()
       refreshProfile()
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST /v1/bonuses/claim-offer')
+      toastPlayerNetworkError(t('common.networkError'), 'POST /v1/bonuses/claim-offer')
     } finally {
       setVipDeliveryClaimBusy(null)
     }
-  }, [apiFetch, monthlyUnlockMs, nowMs, refreshProfile, reloadHub, scheduledOfferByKey.monthly, scheduledOfferByKey.weekly, weeklyUnlockMs])
+  }, [
+    apiFetch,
+    monthlyUnlockMs,
+    nowMs,
+    refreshProfile,
+    reloadHub,
+    scheduledOfferByKey.monthly,
+    scheduledOfferByKey.weekly,
+    weeklyUnlockMs,
+    t,
+  ])
 
   if (!isAuthenticated) return <Navigate to="/casino/games?auth=login" replace />
 
@@ -940,7 +990,7 @@ export default function VipPage() {
     <div className="w-full min-w-0 overflow-x-clip text-casino-foreground">
       <div className="player-casino-max mx-auto px-4 pb-14 pt-6 sm:px-6 lg:pb-20 lg:pt-10">
         <header className="relative mb-6">
-          <h1 className="m-0 text-lg font-black uppercase tracking-[0.2em] text-casino-foreground">Rewards</h1>
+          <h1 className="m-0 text-lg font-black uppercase tracking-[0.2em] text-casino-foreground">{t('vipPage.pageTitle')}</h1>
           <IconGem size={78} className="pointer-events-none absolute -right-2 -top-6 text-white/5" aria-hidden />
         </header>
 
@@ -954,14 +1004,14 @@ export default function VipPage() {
                     hasAssignedTier ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/55'
                   }`}
                 >
-                  {hasAssignedTier ? 'VIP tier active' : 'Unlock your first tier'}
+                  {hasAssignedTier ? t('vipPage.tierBadgeActive') : t('vipPage.tierBadgeUnlock')}
                 </span>
               </div>
             ) : null}
-            <p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-white/50">VIP tier</p>
-            <p className="mt-1 text-3xl font-black uppercase text-white">{vip?.tier ?? currentTier?.name ?? 'Novice'}</p>
+            <p className="mt-3 text-[11px] font-bold uppercase tracking-wide text-white/50">{t('vipPage.vipTierLabel')}</p>
+            <p className="mt-1 text-3xl font-black uppercase text-white">{vip?.tier ?? currentTier?.name ?? t('vipPage.tierFallback')}</p>
             <p className="mt-1 text-[11px] text-white/45">
-              Lifetime wager from real-money spins (summed stake on each qualifying game bet). Builds toward tier unlocks.
+              {t('vipPage.lifetimeWagerBlurb')}
             </p>
             <div className="mt-3 h-2 rounded-full bg-white/10">
               <div
@@ -976,9 +1026,9 @@ export default function VipPage() {
             </div>
             <div className="mt-4 grid grid-cols-1 gap-2 text-center text-xs md:grid-cols-3 md:gap-3">
               {[
-                { label: 'Wagered', value: formatWagerMinor(vip?.progress?.lifetime_wager_minor) },
-                { label: 'Next tier', value: formatWagerMinor(vip?.progress?.next_tier_min_wager_minor) },
-                { label: 'Remaining', value: formatWagerMinor(vip?.progress?.remaining_wager_minor) },
+                { label: t('vipPage.statWagered'), value: formatWagerMinor(vip?.progress?.lifetime_wager_minor) },
+                { label: t('vipPage.statNextTier'), value: formatWagerMinor(vip?.progress?.next_tier_min_wager_minor) },
+                { label: t('vipPage.statRemaining'), value: formatWagerMinor(vip?.progress?.remaining_wager_minor) },
               ].map((x) => (
                 <div
                   key={x.label}
@@ -998,38 +1048,38 @@ export default function VipPage() {
 
         <section className="mb-8 space-y-4">
           <div className={`grid grid-cols-1 gap-3 ${promoHeroGridCls}`}>
-            {promoHeroTiles.map((t) => (
+            {promoHeroTiles.map((tile) => (
               <article
-                key={t.key}
+                key={tile.key}
                 className={`flex flex-col items-center rounded-2xl border border-white/10 bg-casino-elevated px-4 pb-4 pt-5 text-center shadow-[0_12px_40px_rgba(0,0,0,0.35)] ${
                   isAuthenticated &&
-                  (t.key === 'weekly' || t.key === 'monthly') &&
-                  !(t.key === 'weekly' ? tierScheduleEligible.weekly : tierScheduleEligible.monthly)
+                  (tile.key === 'weekly' || tile.key === 'monthly') &&
+                  !(tile.key === 'weekly' ? tierScheduleEligible.weekly : tierScheduleEligible.monthly)
                     ? VIP_TIER_LOCKED_SURFACE_CLS
                     : ''
                 }`}
               >
-                <p className="m-0 w-full text-left text-xs font-bold uppercase tracking-wide text-white/55">{t.title}</p>
-                {t.img ? (
+                <p className="m-0 w-full text-left text-xs font-bold uppercase tracking-wide text-white/55">{tile.title}</p>
+                {tile.img ? (
                   <img
-                    src={t.img}
+                    src={tile.img}
                     alt=""
                     className="mt-3 h-[100px] w-full max-w-[160px] rounded-xl object-cover ring-1 ring-white/10"
                     loading="lazy"
                   />
                 ) : null}
-                {t.key === 'browse' ? (
+                {tile.key === 'browse' ? (
                   <Link
                     to="/casino/games"
                     className="mt-auto w-full rounded-xl border border-sky-500/70 bg-sky-500/15 py-2.5 text-center text-xs font-extrabold uppercase tracking-wide text-sky-100 no-underline transition hover:bg-sky-500/25"
                   >
-                    Browse
+                    {t('vipPage.browse')}
                   </Link>
                 ) : (
                   (() => {
-                    const kind = t.key as 'weekly' | 'monthly'
+                    const kind = tile.key as 'weekly' | 'monthly'
                     const perkEligible = kind === 'weekly' ? tierScheduleEligible.weekly : tierScheduleEligible.monthly
-                    const unlockMs = parseIsoMs(perkEligible ? t.unlockAt : undefined)
+                    const unlockMs = parseIsoMs(perkEligible ? tile.unlockAt : undefined)
                     const unlocked = perkEligible && !Number.isNaN(unlockMs) && nowMs >= unlockMs
                     const offer = kind === 'weekly' ? scheduledOfferByKey.weekly : scheduledOfferByKey.monthly
                     const tierOfferBlocked =
@@ -1038,23 +1088,23 @@ export default function VipPage() {
                     const isBusy = vipDeliveryClaimBusy === kind
                     let statusLine: string
                     if (!isAuthenticated) {
-                      statusLine = 'Sign in for schedule'
+                      statusLine = t('vipPage.signInSchedule')
                     } else if (!perkEligible) {
                       statusLine = !hasAssignedTier
-                        ? 'Wager to unlock your first VIP tier for scheduled bonuses'
+                        ? t('vipPage.wagerUnlockTier')
                         : kind === 'weekly'
-                          ? 'Weekly bonus not enabled for your VIP tier'
-                          : 'Monthly bonus not enabled for your VIP tier'
+                          ? t('vipPage.weeklyNotEnabledTier')
+                          : t('vipPage.monthlyNotEnabledTier')
                     } else if (tierOfferBlocked) {
-                      statusLine = 'Offer not available at your tier'
+                      statusLine = t('vipPage.offerNotAtTier')
                     } else if (Number.isNaN(unlockMs)) {
-                      statusLine = 'Unlock when scheduled'
+                      statusLine = t('vipPage.unlockWhenScheduled')
                     } else if (unlocked) {
                       statusLine = offer
-                        ? `Claim open · ${formatScheduleInstant(t.unlockAt)}`
-                        : `Claim window open · ${formatScheduleInstant(t.unlockAt)}`
+                        ? t('vipPage.claimOpenAt', { when: formatScheduleInstant(tile.unlockAt) })
+                        : t('vipPage.claimWindowOpenAt', { when: formatScheduleInstant(tile.unlockAt) })
                     } else {
-                      statusLine = `Opens · ${formatScheduleInstant(t.unlockAt)}`
+                      statusLine = t('vipPage.opensAt', { when: formatScheduleInstant(tile.unlockAt) })
                     }
                     const countdownLabel = formatVipScheduledCountdown(unlockMs, nowMs)
                     const slotShell =
@@ -1085,11 +1135,11 @@ export default function VipPage() {
                             }`}
                           >
                             {blocked ? (
-                              <span className="text-xs font-extrabold uppercase tracking-wide text-amber-100/80">Unavailable</span>
+                              <span className="text-xs font-extrabold uppercase tracking-wide text-amber-100/80">{t('vipPage.unavailable')}</span>
                             ) : isBusy ? (
-                              <span className="text-xs font-extrabold uppercase tracking-wide text-amber-100">Claiming…</span>
+                              <span className="text-xs font-extrabold uppercase tracking-wide text-amber-100">{t('vipPage.claiming')}</span>
                             ) : offer ? (
-                              <span className="text-xs font-extrabold uppercase tracking-wide text-amber-100">Claim bonus</span>
+                              <span className="text-xs font-extrabold uppercase tracking-wide text-amber-100">{t('vipPage.claimBonus')}</span>
                             ) : (
                               <span className="block whitespace-normal break-words tabular-nums text-sm font-black leading-snug tracking-tight text-amber-100 sm:text-[15px]">
                                 {!Number.isNaN(unlockMs) ? countdownLabel : '—'}
@@ -1123,26 +1173,26 @@ export default function VipPage() {
           ) : null}
         </section>
 
-        {loading ? <p className="text-sm text-casino-muted">Loading programme…</p> : null}
+        {loading ? <p className="text-sm text-casino-muted">{t('vipPage.loadingProgramme')}</p> : null}
         {err ? (
           <div className="mb-6 rounded-[var(--radius-casino-md)] border border-casino-destructive/40 bg-casino-destructive/10 px-4 py-3 text-sm">
             <span className="text-casino-foreground">{err}</span>{' '}
             <button type="button" className="font-semibold text-casino-primary underline" onClick={() => void reload()}>
-              Retry
+              {t('vipPage.retry')}
             </button>
           </div>
         ) : null}
 
         <section className="mb-8">
-          <h2 className="mb-3 text-base font-extrabold uppercase tracking-wide text-white">Rewards</h2>
+          <h2 className="mb-3 text-base font-extrabold uppercase tracking-wide text-white">{t('vipPage.rewardsHeading')}</h2>
           {!isAuthenticated ? (
             <p className="m-0 max-w-xl text-sm text-white/65">
-              Sign in to see your active VIP perks and any claimable tier rewards in one place.
+              {t('vipPage.signInPerksBlurb')}
             </p>
           ) : vipLoading || loading ? (
-            <p className="text-sm text-white/60">Loading your VIP perks…</p>
+            <p className="text-sm text-white/60">{t('vipPage.loadingPerks')}</p>
           ) : currentTierRewards.length === 0 ? (
-            <p className="m-0 text-sm text-white/65">No tier-specific perks are configured for your rank yet.</p>
+            <p className="m-0 text-sm text-white/65">{t('vipPage.noPerksConfigured')}</p>
           ) : (
             <div className="flex flex-wrap gap-3">
               {currentTierRewards.map((p) => (
@@ -1194,14 +1244,14 @@ export default function VipPage() {
 
         <section className="rounded-2xl border border-cyan-500/40 bg-casino-surface p-3">
           <div className="mb-3 flex items-center justify-between border-b border-white/10 pb-2">
-            <h2 className="m-0 text-base font-extrabold uppercase tracking-wide text-cyan-300">VIP Levels</h2>
-            <span className="text-xs text-white/60">{currentTier?.name ?? 'Novice'}</span>
+            <h2 className="m-0 text-base font-extrabold uppercase tracking-wide text-cyan-300">{t('vipPage.vipLevelsHeading')}</h2>
+            <span className="text-xs text-white/60">{currentTier?.name ?? t('vipPage.tierFallback')}</span>
           </div>
           <div className="overflow-hidden rounded-xl border border-white/10">
             <div className="grid grid-cols-3 bg-white/[0.03] px-4 py-3 text-xs font-bold uppercase tracking-wide text-white/70">
-              <span>Tier Level</span>
-              <span className="justify-self-center">Wager Required</span>
-              <span className="text-right">Completion</span>
+              <span>{t('vipPage.colTierLevel')}</span>
+              <span className="justify-self-center">{t('vipPage.colWagerRequired')}</span>
+              <span className="text-right">{t('vipPage.colCompletion')}</span>
             </div>
             {sortedTiers.map((tier) => {
               const required = formatVipWagerThreshold(tier.min_lifetime_wager_minor)
@@ -1239,7 +1289,7 @@ export default function VipPage() {
                     <span className="block justify-self-center w-[8ch] text-left font-semibold tabular-nums">{required}</span>
                     <span className="flex items-center justify-end gap-2 text-right">
                       {isCurrent ? (
-                        <span className="rounded bg-emerald-500/20 px-2 py-1 text-xs font-bold text-emerald-300">Current</span>
+                        <span className="rounded bg-emerald-500/20 px-2 py-1 text-xs font-bold text-emerald-300">{t('vipPage.currentTierBadge')}</span>
                       ) : null}
                       <span
                         className={`text-base leading-none text-white/70 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
@@ -1255,7 +1305,7 @@ export default function VipPage() {
                     <div className="overflow-hidden">
                       <div className="grid grid-cols-1 gap-2 border-t border-white/5 bg-black/20 px-4 py-3 md:grid-cols-2">
                         {benefits.length === 0 ? (
-                          <p className="m-0 text-xs text-white/60">No rewards configured for this tier yet.</p>
+                          <p className="m-0 text-xs text-white/60">{t('vipPage.noRewardsTierYet')}</p>
                         ) : (
                           benefits.map((b, bIdx) => {
                             const isUsersTier = vip?.tier_id != null && tier.id === vip.tier_id
@@ -1280,11 +1330,11 @@ export default function VipPage() {
                                         <span
                                           className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${perkStateBadgeClass(perk.state)}`}
                                         >
-                                          {perkStateLabel(perk.state)}
+                                          {perkStateLabel(perk.state, t)}
                                         </span>
                                       ) : preview ? (
                                         <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white/55">
-                                          At this tier
+                                          {t('vipPage.previewAtTier')}
                                         </span>
                                       ) : null}
                                     </span>

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useState, useId, type FC } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { useCompleteInitialLoad } from '../context/InitialAppLoadContext'
 import { CATALOG_SEARCH_SHELL_ROW } from '../components/CasinoCatalogSearchStrip'
@@ -37,6 +38,7 @@ async function fetchCatalogForCounts(): Promise<CatalogGame[]> {
 }
 
 const StudiosPage: FC = () => {
+  const { t } = useTranslation()
   const completeInitialLoad = useCompleteInitialLoad()
   const searchId = useId()
   const [query, setQuery] = useState('')
@@ -72,7 +74,7 @@ const StudiosPage: FC = () => {
   return (
     <div className="player-casino-max relative min-w-0 shrink-0 flex-1 px-4 pb-16 pt-5 sm:px-5 md:px-6 lg:px-8">
       <header className="mb-5 flex min-h-[2.5rem] items-start justify-between gap-4">
-        <h1 className="text-xl font-semibold tracking-tight text-white md:text-2xl">Studios</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-white md:text-2xl">{t('studios.pageTitle')}</h1>
       </header>
 
       <div className={`${CATALOG_SEARCH_SHELL_ROW} mb-6 w-full max-w-full min-[480px]:max-w-xl`}>
@@ -82,15 +84,15 @@ const StudiosPage: FC = () => {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search studios"
+          placeholder={t('studios.searchPlaceholder')}
           autoComplete="off"
-          aria-label="Search studios"
+          aria-label={t('studios.searchAria')}
           className="min-w-0 flex-1 border-0 bg-transparent py-1 text-[13px] font-medium text-white placeholder:text-white/42 focus:outline-none focus:ring-0"
         />
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-center text-sm text-casino-muted">No studios match your search.</p>
+        <p className="text-center text-sm text-casino-muted">{t('studios.noMatch')}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-3.5 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
           {filtered.map((logo) => (
@@ -111,12 +113,13 @@ function StudioPublisherCard({
   logo: StudioMarqueeLogo
   gameCount: number | undefined
 }) {
+  const { t } = useTranslation()
   const href = `/casino/games?provider=${encodeURIComponent(logo.providerQuery)}`
   const countLabel =
     gameCount === undefined ? (
       <span className="tabular-nums text-white/38">…</span>
     ) : (
-      <span className="tabular-nums text-white/55">{gameCount.toLocaleString()} games</span>
+      <span className="tabular-nums text-white/55">{t('studios.gamesCount', { count: gameCount })}</span>
     )
 
   return (
@@ -124,7 +127,7 @@ function StudioPublisherCard({
       <Link
         to={href}
         className="group flex aspect-[5/4] min-h-[100px] w-full flex-col items-center justify-center rounded-[10px] border border-white/[0.09] bg-casino-surface p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-casino-primary/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50 sm:aspect-[4/3] sm:min-h-[112px]"
-        aria-label={`${logo.label} — browse games`}
+        aria-label={t('studios.browseGamesAria', { label: logo.label })}
       >
         <img
           src={logo.src}

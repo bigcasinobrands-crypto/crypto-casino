@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuthModal } from '../authModalContext'
 import { formatApiError, readApiError } from '../api/errors'
 import { playerFetch } from '../lib/playerFetch'
@@ -240,6 +241,7 @@ export function LoginForm({
 }
 
 export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
+  const { t } = useTranslation()
   const { schedulePostAuthContinuation } = useAuthModal()
   const location = useLocation()
   const loginTo = useMemo(() => {
@@ -272,7 +274,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
       return
     }
     if (!acceptTerms || !acceptPrivacy) {
-      setErr('Please accept the terms and privacy policy')
+      setErr(t('auth.acceptTermsError'))
       return
     }
     setLoading(true)
@@ -392,10 +394,10 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         </div>
 
         <CheckLine checked={acceptTerms} onChange={setAcceptTerms}>
-          I accept the <strong>Terms of Service</strong>.
+          {t('auth.registerAcceptTerms')}
         </CheckLine>
         <CheckLine checked={acceptPrivacy} onChange={setAcceptPrivacy}>
-          I accept the <strong>Privacy Policy</strong>.
+          {t('auth.registerAcceptPrivacy')}
         </CheckLine>
 
         <TurnstileField onToken={setCaptcha} />

@@ -1,4 +1,6 @@
+import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
 import type { RewardsHubPayload } from '../hooks/useRewardsHub'
@@ -18,20 +20,21 @@ type NotificationsResponse = {
   notifications: PlayerNotification[]
 }
 
-function formatNotificationTime(iso: string): string {
+function formatNotificationTime(iso: string, t: TFunction, lng: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
+  const loc = lng === 'fr-CA' ? 'fr-CA' : 'en-US'
   const now = Date.now()
   const diffMs = now - d.getTime()
   const sec = Math.floor(diffMs / 1000)
-  if (sec < 45) return 'Just now'
+  if (sec < 45) return t('notifications.justNow')
   const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
+  if (min < 60) return t('notifications.minutesAgo', { count: min })
   const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
+  if (hr < 24) return t('notifications.hoursAgo', { count: hr })
   const day = Math.floor(hr / 24)
-  if (day < 7) return `${day}d ago`
-  return d.toLocaleDateString(undefined, {
+  if (day < 7) return t('notifications.daysAgo', { count: day })
+  return d.toLocaleDateString(loc, {
     month: 'short',
     day: 'numeric',
     year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
@@ -58,6 +61,7 @@ export default function NotificationBell({
   openClassName = defaultOpenClass,
   rewardsHub = null,
 }: NotificationBellProps) {
+  const { t, i18n } = useTranslation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<PlayerNotification[]>([])
@@ -71,16 +75,16 @@ export default function NotificationBell({
     try {
       const res = await apiFetch('/v1/notifications')
       if (!res.ok) {
-        setError('Could not load notifications')
+        setError(t('notifications.couldNotLoad'))
         return
       }
       const j = (await res.json()) as NotificationsResponse
       setNotifications(Array.isArray(j.notifications) ? j.notifications : [])
       setError(null)
     } catch {
-      setError('Could not load notifications')
+      setError(t('notifications.couldNotLoad'))
     }
-  }, [isAuthenticated, apiFetch])
+  }, [isAuthenticated, apiFetch, t])
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -131,10 +135,10 @@ export default function NotificationBell({
       return { rakebackBoostLive: false, rakebackBoostLine: null as string | null }
     }
     if (active) {
-      return { rakebackBoostLive: true, rakebackBoostLine: 'Your rakeback boost is running.' }
+      return { rakebackBoostLive: true, rakebackBoostLine: t('rewards.rakebackRunning') }
     }
-    return { rakebackBoostLive: true, rakebackBoostLine: 'Rakeback boost claim window is open.' }
-  }, [rewardsHub?.vip?.rakeback_boost])
+    return { rakebackBoostLive: true, rakebackBoostLine: t('rewards.rakebackClaimWindow') }
+  }, [rewardsHub?.vip?.rakeback_boost, t])
 
   const markRead = async (notificationId: number) => {
     setMarkingId(notificationId)
@@ -165,7 +169,7 @@ export default function NotificationBell({
       <button
         type="button"
         className={triggerClasses}
-        aria-label={rakebackBoostLive ? 'Notifications, rakeback boost is live' : 'Notifications'}
+        aria-label={rakebackBoostLive ? t('notifications.ariaRakebackLive') : t('notifications.ariaDefault')}
         aria-expanded={open}
         aria-haspopup="true"
         onClick={() => setOpen((o) => !o)}
@@ -185,9 +189,9 @@ export default function NotificationBell({
       </button>
 
       {open ? (
-        <div className={panelClass} role="region" aria-label="Notifications list">
+        <div className={panelClass} role="region" aria-label={t('notifications.listAria')}>
           <div className="border-b border-casino-border bg-casino-surface/40 px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-casino-muted">Notifications</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-casino-muted">{t('notifications.title')}</p>
           </div>
           <div className="scrollbar-chat max-h-[min(70vh-2.5rem,22rem)] overflow-y-auto">
             {rakebackBoostLive && rakebackBoostLine ? (
@@ -206,23 +210,23 @@ export default function NotificationBell({
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/95">
-                        Rakeback boost
+                        {t('rewards.rakebackBoostTitle')}
                       </p>
                       <p className="mt-1 text-sm font-semibold leading-snug text-casino-foreground">
                         {rakebackBoostLine}
                       </p>
-                      <p className="mt-1 text-[11px] font-medium text-emerald-100/80">Open VIP rewards →</p>
+                      <p className="mt-1 text-[11px] font-medium text-emerald-100/80">{t('rewards.openVipRewards')}</p>
                     </div>
                   </div>
                 </Link>
               </div>
             ) : null}
             {initialLoading && notifications.length === 0 ? (
-              <p className="px-3 py-4 text-sm text-casino-muted">Loading…</p>
+              <p className="px-3 py-4 text-sm text-casino-muted">{t('common.loading')}</p>
             ) : error && notifications.length === 0 ? (
               <p className="px-3 py-4 text-sm text-casino-destructive">{error}</p>
             ) : notifications.length === 0 ? (
-              <p className="px-3 py-4 text-sm text-casino-muted">No notifications yet.</p>
+              <p className="px-3 py-4 text-sm text-casino-muted">{t('notifications.noneYet')}</p>
             ) : (
               <ul className="divide-y divide-casino-border">
                 {notifications.map((n) => (
@@ -240,7 +244,7 @@ export default function NotificationBell({
                           <span className="truncate text-sm font-semibold text-casino-foreground">{n.title}</span>
                           {!n.read && (
                             <span className="shrink-0 rounded-full bg-gradient-to-b from-casino-primary to-casino-primary-dim px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm shadow-casino-primary/25">
-                              New
+                              {t('notifications.newBadge')}
                             </span>
                           )}
                         </div>
@@ -250,7 +254,7 @@ export default function NotificationBell({
                           </p>
                         ) : null}
                         <p className="mt-1.5 text-[11px] text-casino-muted/80">
-                          {formatNotificationTime(n.created_at)}
+                          {formatNotificationTime(n.created_at, t, i18n.language)}
                           {n.kind ? ` · ${n.kind}` : ''}
                         </p>
                       </div>
@@ -262,10 +266,10 @@ export default function NotificationBell({
                         disabled={markingId === n.id}
                         onClick={() => void markRead(n.id)}
                       >
-                        {markingId === n.id ? 'Marking…' : 'Mark as read'}
+                        {markingId === n.id ? t('notifications.marking') : t('notifications.markAsRead')}
                       </button>
                     ) : (
-                      <p className="mt-2 text-[11px] font-medium text-casino-muted">Read</p>
+                      <p className="mt-2 text-[11px] font-medium text-casino-muted">{t('notifications.read')}</p>
                     )}
                   </li>
                 ))}

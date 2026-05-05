@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
+import i18n from '../../i18n'
 import { toast } from 'sonner'
 import { readApiError } from '../../api/errors'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../../notifications/playerToast'
@@ -92,15 +94,16 @@ function formatLbTime(iso: string): string {
   if (!iso?.trim()) return '—'
   const d = new Date(iso)
   if (!Number.isFinite(d.getTime())) return '—'
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const lng = i18n.language === 'fr-CA' ? 'fr-CA' : 'en-US'
+  return d.toLocaleString(lng, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
 function prizeShort(c: PlayerChallengeListItem): string {
   if (c.prize_type === 'cash' && typeof c.prize_amount_minor === 'number') {
     return formatUsdMinor(c.prize_amount_minor, c.prize_currency ?? 'USDT')
   }
-  if (c.prize_type === 'free_spins') return 'Free spins'
-  if (c.prize_type === 'bonus') return 'Bonus'
+  if (c.prize_type === 'free_spins') return i18n.t('challenges.prizeFreeSpins')
+  if (c.prize_type === 'bonus') return i18n.t('challenges.prizeBonusCredit')
   return c.prize_type.replace(/_/g, ' ')
 }
 
@@ -110,15 +113,15 @@ function isCashPrize(c: PlayerChallengeListItem): boolean {
 
 /** One-line goal from challenge type + targets (matches lobby card expectations). */
 function challengeGoalLine(c: PlayerChallengeListItem): string | null {
-  const t = (c.challenge_type ?? '').toLowerCase()
-  if (t === 'multiplier' && typeof c.target_multiplier === 'number' && c.target_multiplier > 0) {
-    return `Win target: ${formatMult(c.target_multiplier)}`
+  const ty = (c.challenge_type ?? '').toLowerCase()
+  if (ty === 'multiplier' && typeof c.target_multiplier === 'number' && c.target_multiplier > 0) {
+    return i18n.t('challenges.goalWinTarget', { mult: formatMult(c.target_multiplier) })
   }
-  if (t === 'wager_volume' && typeof c.target_wager_amount_minor === 'number' && c.target_wager_amount_minor > 0) {
-    return `Wager target: ${formatUsdMinor(c.target_wager_amount_minor)}`
+  if (ty === 'wager_volume' && typeof c.target_wager_amount_minor === 'number' && c.target_wager_amount_minor > 0) {
+    return i18n.t('challenges.goalWagerTarget', { amount: formatUsdMinor(c.target_wager_amount_minor) })
   }
-  if (t === 'win_streak') return 'Win-streak challenge'
-  if (t === 'race') return 'Race challenge'
+  if (ty === 'win_streak') return i18n.t('challenges.goalWinStreak')
+  if (ty === 'race') return i18n.t('challenges.goalRace')
   return null
 }
 
@@ -164,6 +167,7 @@ export default function GameLobbyActiveChallenges({
   /** Catalog identifiers for this title (at least URL `gameId`; include `id_hash` when known). */
   catalogGameKeys: readonly string[]
 }) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { apiFetch, isAuthenticated, refreshProfile, me } = usePlayerAuth()
   const { data: vipProgram } = useVipProgram()
@@ -200,7 +204,7 @@ export default function GameLobbyActiveChallenges({
         const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
         if (!silent) {
           toastPlayerApiError(apiErr, res.status, `GET ${path}`, rid)
-          setErr('Could not load challenges.')
+          setErr(i18n.t('challenges.lobby.loadError'))
         }
         return
       }
@@ -208,8 +212,8 @@ export default function GameLobbyActiveChallenges({
       setList(Array.isArray(j.challenges) ? j.challenges : [])
     } catch {
       if (!silent) {
-        toastPlayerNetworkError('Network error.', 'GET /v1/challenges')
-        setErr('Network error.')
+        toastPlayerNetworkError(i18n.t('common.networkError'), 'GET /v1/challenges')
+        setErr(i18n.t('common.networkError'))
       }
     }
   }, [isAuthenticated, apiFetch, catalogGameId])
@@ -228,8 +232,8 @@ export default function GameLobbyActiveChallenges({
     (c: PlayerChallengeListItem) => {
       const id = firstCatalogGameId(c.game_ids)
       if (!id) {
-        toast.message('Game link unavailable', {
-          description: 'This challenge has no linked game in the catalog yet.',
+        toast.message(i18n.t('challenges.toastGameUnavailableTitle'), {
+          description: i18n.t('challenges.toastGameUnavailableBody'),
         })
         return
       }
@@ -293,7 +297,7 @@ export default function GameLobbyActiveChallenges({
         setLbRows(normalized.slice(0, 14))
       } catch {
         if (!quiet) {
-          toastPlayerNetworkError('Network error.', 'GET challenge leaderboard')
+          toastPlayerNetworkError(i18n.t('common.networkError'), 'GET challenge leaderboard')
           setLbRows([])
           setLbType('')
         }
@@ -361,12 +365,14 @@ export default function GameLobbyActiveChallenges({
         toastPlayerApiError(errRes, res.status, 'POST challenge claim')
         return
       }
-      toast.success('Prize claimed', { description: 'Funds were added to your cash wallet.' })
+      toast.success(i18n.t('challenges.modal.prizeClaimedTitle'), {
+        description: i18n.t('challenges.modal.prizeClaimedBody'),
+      })
       await refreshProfile()
       await loadChallenges()
       if (focusChallengeId === challengeId) void loadLeaderboard(challengeId, true)
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST challenge claim')
+      toastPlayerNetworkError(i18n.t('common.networkError'), 'POST challenge claim')
     } finally {
       setClaimBusyId(null)
     }
@@ -384,7 +390,7 @@ export default function GameLobbyActiveChallenges({
   if (!isAuthenticated) return null
   if (err) {
     return (
-      <section className="border-t border-casino-border bg-casino-surface/30" aria-label="Challenges for this game">
+      <section className="border-t border-casino-border bg-casino-surface/30" aria-label={t('challenges.lobby.sectionAria')}>
         <div className={`${lobbySectionInner} py-2`}>
           <p className="text-center text-[11px] text-red-400/90 sm:text-xs">{err}</p>
         </div>
@@ -394,12 +400,12 @@ export default function GameLobbyActiveChallenges({
   if (visibleList.length === 0) return null
 
   return (
-    <section className="border-t border-casino-border bg-casino-surface/30" aria-label="Challenges for this game">
+    <section className="border-t border-casino-border bg-casino-surface/30" aria-label={t('challenges.lobby.sectionAria')}>
       <div className={`${lobbySectionInner} py-2 sm:py-2.5`}>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
-          <h2 className="text-[11px] font-bold text-casino-foreground sm:text-xs">Challenges on this game</h2>
+          <h2 className="text-[11px] font-bold text-casino-foreground sm:text-xs">{t('challenges.lobby.challengesOnGame')}</h2>
           <Link to="/casino/challenges" className="text-[10px] font-semibold text-casino-primary hover:underline sm:text-[11px]">
-            All challenges
+            {t('challenges.lobby.allChallenges')}
           </Link>
         </div>
 
@@ -407,7 +413,7 @@ export default function GameLobbyActiveChallenges({
           <div
             className="mb-2 flex flex-wrap gap-1 sm:gap-1.5"
             role="tablist"
-            aria-label="Select challenge for leaderboard"
+            aria-label={t('challenges.lobby.leaderboardTabAria')}
           >
             {visibleList.map((c) => {
               const active = c.id === focusChallengeId
@@ -440,8 +446,7 @@ export default function GameLobbyActiveChallenges({
               const entry = c.my_entry
               const canClaim = entry?.can_claim_prize === true
               const joinOpen = canJoinChallengeInUi(c, nowTick) && !entry
-              const cornerTag =
-                canClaim ? null : entry ? 'Entered' : null
+              const showEnteredBadge = Boolean(!canClaim && entry)
               const isFocused = c.id === focusChallengeId
               const prizeCash = isCashPrize(c)
               const goalLine = challengeGoalLine(c)
@@ -465,22 +470,22 @@ export default function GameLobbyActiveChallenges({
                         />
                       ) : (
                         <div className="flex size-full items-center justify-center bg-gradient-to-br from-casino-primary/20 to-transparent text-[10px] font-bold text-slate-500">
-                          Challenge
+                          {t('challenges.lobby.placeholderTitle')}
                         </div>
                       )}
                       {c.is_featured ? (
                         <span className="pointer-events-none absolute right-1.5 top-1.5 rounded bg-black/75 px-1 py-px text-[8px] font-extrabold uppercase text-white backdrop-blur-sm">
-                          Featured
+                          {t('challenges.featuredDefault')}
                         </span>
                       ) : null}
-                      {cornerTag ? (
+                      {showEnteredBadge ? (
                         <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-white backdrop-blur-sm">
-                          {cornerTag}
+                          {t('challenges.lobby.entered')}
                         </span>
                       ) : null}
                       {canClaim ? (
                         <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-amber-400/90 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-black backdrop-blur-sm">
-                          Ready
+                          {t('challenges.lobby.ready')}
                         </span>
                       ) : null}
                     </div>
@@ -493,14 +498,14 @@ export default function GameLobbyActiveChallenges({
                         <p className="text-[9px] font-bold leading-snug text-casino-primary/95">{goalLine}</p>
                       ) : null}
                       <div className="flex flex-col gap-px">
-                        <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">Min bet</span>
+                        <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">{t('challenges.minBet')}</span>
                         <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-casino-foreground">
                           <IconCircleDollarSign size={10} className="shrink-0 text-casino-success" aria-hidden />
                           {formatUsdMinor(c.min_bet_amount_minor)}
                         </span>
                       </div>
                       <div className="flex flex-col gap-px">
-                        <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">Prize</span>
+                        <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">{t('challenges.prize')}</span>
                         <span
                           className={`inline-flex items-center gap-1.5 text-[10px] font-extrabold ${prizeCash ? 'text-casino-success' : 'text-casino-foreground'}`}
                         >
@@ -515,7 +520,7 @@ export default function GameLobbyActiveChallenges({
                         </span>
                       </div>
                       <div className="mt-auto flex flex-col gap-px pt-0.5">
-                        <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">Ends in</span>
+                        <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">{t('challenges.endsIn')}</span>
                         <span
                           className="font-mono text-[10px] font-extrabold tabular-nums leading-tight text-casino-foreground"
                           title={new Date(c.ends_at).toLocaleString()}
@@ -536,7 +541,7 @@ export default function GameLobbyActiveChallenges({
                           void onClaimPrize(c.id)
                         }}
                       >
-                        {claimBusyId === c.id ? 'Claiming…' : 'Claim prize'}
+                        {claimBusyId === c.id ? t('challenges.lobby.claiming') : t('challenges.ctaClaimPrize')}
                       </button>
                     </div>
                   ) : joinOpen ? (
@@ -550,7 +555,7 @@ export default function GameLobbyActiveChallenges({
                           setEnterModalChallengeId(c.id)
                         }}
                       >
-                        Claim
+                        {t('challenges.modal.enterChallenge')}
                       </button>
                     </div>
                   ) : null}
@@ -565,7 +570,7 @@ export default function GameLobbyActiveChallenges({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.1] px-3 py-2.5 sm:px-3.5">
               <div className="min-w-0">
                 <p className="text-xs font-black uppercase tracking-wide text-casino-foreground sm:text-sm">
-                  Live leaderboard
+                  {t('challenges.lobby.liveLeaderboard')}
                 </p>
                 {focusedChallenge ? (
                   <p className="mt-0.5 truncate text-[11px] font-semibold text-casino-muted sm:text-xs">
@@ -579,7 +584,7 @@ export default function GameLobbyActiveChallenges({
                   <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-casino-muted sm:text-[11px]">
-                  Live
+                  {t('challenges.lobby.liveBadge')}
                 </span>
               </div>
             </div>
@@ -588,12 +593,14 @@ export default function GameLobbyActiveChallenges({
                 <table className="w-full border-collapse text-left text-[11px] sm:text-xs">
                   <thead className="sticky top-0 z-10 border-b border-white/[0.08]">
                     <tr className="text-[9px] font-bold uppercase tracking-wider text-casino-muted sm:text-[10px]">
-                      <th className="bg-casino-bg py-2 pr-2 font-bold">Player</th>
-                      <th className="bg-casino-bg py-2 pr-2 text-right font-bold whitespace-nowrap">Time</th>
+                      <th className="bg-casino-bg py-2 pr-2 font-bold">{t('challenges.lobby.colPlayer')}</th>
+                      <th className="bg-casino-bg py-2 pr-2 text-right font-bold whitespace-nowrap">{t('challenges.lobby.colTime')}</th>
                       {wagerMode ? (
-                        <th className="bg-casino-bg py-2 font-bold text-right">Wagered</th>
+                        <th className="bg-casino-bg py-2 font-bold text-right">{t('challenges.lobby.colWagered')}</th>
                       ) : (
-                        <th className="bg-casino-bg py-2 text-right font-bold whitespace-nowrap">Multiplier</th>
+                        <th className="bg-casino-bg py-2 text-right font-bold whitespace-nowrap">
+                          {t('challenges.lobby.colMultiplier')}
+                        </th>
                       )}
                     </tr>
                   </thead>
@@ -601,13 +608,13 @@ export default function GameLobbyActiveChallenges({
                     {lbLoading && lbRows.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="py-8 text-center text-sm font-semibold text-casino-muted">
-                          Loading standings…
+                          {t('challenges.lobby.loadingStandings')}
                         </td>
                       </tr>
                     ) : sortedLbRows.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="px-2 py-8 text-center text-sm font-medium leading-relaxed text-casino-muted">
-                          No entries yet. Be the first on the board.
+                          {t('challenges.lobby.emptyLeaderboard')}
                         </td>
                       </tr>
                     ) : (
@@ -624,7 +631,11 @@ export default function GameLobbyActiveChallenges({
                             key={`${row.player_label}-${row.achieved_at}-${idx}`}
                             className="transition hover:bg-white/[0.03]"
                             title={
-                              isLeader ? 'Current leader' : row.is_viewer ? 'Your standing' : undefined
+                              isLeader
+                                ? t('challenges.lobby.leaderTooltip')
+                                : row.is_viewer
+                                  ? t('challenges.lobby.yourStandingTooltip')
+                                  : undefined
                             }
                           >
                             <td className="max-w-none py-1.5 pr-2 sm:py-2">
@@ -650,7 +661,7 @@ export default function GameLobbyActiveChallenges({
                                   </span>
                                   {row.is_viewer ? (
                                     <span className="shrink-0 rounded bg-casino-primary/25 px-1 py-px text-[8px] font-bold uppercase tracking-wide text-casino-primary sm:text-[9px]">
-                                      You
+                                      {t('challenges.lobby.youBadge')}
                                     </span>
                                   ) : null}
                                 </span>
@@ -677,9 +688,7 @@ export default function GameLobbyActiveChallenges({
               </div>
             </div>
             <p className="shrink-0 border-t border-white/[0.08] px-3 py-2 text-[10px] font-medium leading-snug text-casino-muted sm:px-3.5 sm:text-[11px]">
-              {wagerMode
-                ? 'Ranked by total qualifying wager. Time is the latest settled round we have. Refreshes about every 12s.'
-                : 'Ranked by best win multiplier. Time is from the round that hit that multiplier when available. Refreshes about every 12s.'}
+              {wagerMode ? t('challenges.lobby.footerWagerMode') : t('challenges.lobby.footerMultMode')}
             </p>
           </div>
         </div>

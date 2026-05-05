@@ -1,4 +1,5 @@
 import { useState, useMemo, type FC } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import { IconChevronDown, IconChevronUp } from './icons'
@@ -22,36 +23,6 @@ const ROULETTE_IMG =
 const VIP_IMG =
   'https://storage.googleapis.com/banani-generated-images/generated-images/2dca9e52-ef12-4d8c-9660-031082ff2696.jpg'
 
-const FALLBACK_SLIDES: HeroSlide[] = [
-  {
-    enabled: true,
-    tag: '1d 9h 35m',
-    title: '$25K Raffle',
-    cta_label: 'Learn more',
-    cta_link: '/casino/games#raffle',
-    image_url: RAFFLE_IMG,
-    interactive: 'raffle_tickets',
-  },
-  {
-    enabled: true,
-    tag: 'New Release',
-    title: 'vybebet Roulette',
-    subtitle: 'Half the house edge of normal roulette!',
-    cta_label: 'Play Now!',
-    cta_link: '/casino/live',
-    image_url: ROULETTE_IMG,
-  },
-  {
-    enabled: true,
-    tag: 'Rewards',
-    title: 'Become a vybebet VIP',
-    subtitle: 'The worlds most lucrative VIP programme',
-    cta_label: 'Explore VIP',
-    cta_link: '/vip',
-    image_url: VIP_IMG,
-  },
-]
-
 const tagClass =
   'inline-flex rounded-[4px] bg-casino-accent px-[7px] py-0.5 text-[9px] font-extrabold uppercase leading-tight text-white'
 
@@ -59,17 +30,18 @@ const promoTileClass =
   'casino-promo-card relative z-0 flex items-center justify-between overflow-hidden rounded-casino-md bg-casino-surface px-3 py-3 transition-[transform,box-shadow] duration-300 ease-out hover:z-10 hover:scale-[1.025] hover:shadow-[0_12px_40px_rgba(0,0,0,0.35)] motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:hover:shadow-none sm:px-4 sm:py-3.5'
 
 const RaffleTicketWidget: FC = () => {
+  const { t } = useTranslation()
   const [tickets, setTickets] = useState(0)
   return (
     <div className="text-[11px] leading-snug text-casino-muted">
-      <span className="text-casino-foreground">Your tickets:</span>
+      <span className="text-casino-foreground">{t('lobby.hero.yourTickets')}</span>
       <div className="mt-1.5 flex items-center overflow-hidden rounded-[4px] bg-casino-elevated">
         <span className="px-2.5 py-1 text-xs font-semibold text-casino-foreground">{tickets}</span>
         <div className="flex flex-col border-l border-casino-border">
           <button
             type="button"
             className="flex h-2.5 w-[18px] items-center justify-center bg-casino-primary-dim text-casino-muted hover:text-casino-foreground"
-            aria-label="Increase tickets"
+            aria-label={t('lobby.hero.increaseTickets')}
             onClick={() => setTickets((n) => Math.min(99, n + 1))}
           >
             <IconChevronUp size={10} aria-hidden />
@@ -77,7 +49,7 @@ const RaffleTicketWidget: FC = () => {
           <button
             type="button"
             className="flex h-2.5 w-[18px] items-center justify-center border-t border-casino-border bg-casino-primary-dim text-casino-muted hover:text-casino-foreground"
-            aria-label="Decrease tickets"
+            aria-label={t('lobby.hero.decreaseTickets')}
             onClick={() => setTickets((n) => Math.max(0, n - 1))}
           >
             <IconChevronDown size={10} aria-hidden />
@@ -129,12 +101,46 @@ const SlideCard: FC<{ slide: HeroSlide }> = ({ slide }) => (
 )
 
 const PromoHero: FC = () => {
+  const { t } = useTranslation()
   const { getContent } = useSiteContent()
+  const fallbackSlides = useMemo(
+    (): HeroSlide[] => [
+      {
+        enabled: true,
+        tag: t('lobby.hero.sampleCountdown'),
+        title: t('lobby.hero.raffleTitle'),
+        cta_label: t('lobby.hero.learnMore'),
+        cta_link: '/casino/games#raffle',
+        image_url: RAFFLE_IMG,
+        interactive: 'raffle_tickets',
+      },
+      {
+        enabled: true,
+        tag: t('lobby.hero.newReleaseTag'),
+        title: t('lobby.hero.rouletteTitle'),
+        subtitle: t('lobby.hero.rouletteSubtitle'),
+        cta_label: t('lobby.hero.playNow'),
+        cta_link: '/casino/live',
+        image_url: ROULETTE_IMG,
+      },
+      {
+        enabled: true,
+        tag: t('lobby.hero.rewardsTag'),
+        title: t('lobby.hero.vipTitle'),
+        subtitle: t('lobby.hero.vipSubtitle'),
+        cta_label: t('lobby.hero.exploreVip'),
+        cta_link: '/vip',
+        image_url: VIP_IMG,
+      },
+    ],
+    [t],
+  )
+
   const slides = useMemo(() => {
     const cms = getContent<HeroSlide[] | undefined>('hero_slides')
-    const raw = Array.isArray(cms) && cms.length > 0 ? cms : FALLBACK_SLIDES
+    const raw = Array.isArray(cms) && cms.length > 0 ? cms : fallbackSlides
     return raw.filter((s) => s.enabled !== false)
-  }, [getContent])
+  }, [getContent, fallbackSlides])
 
   if (slides.length === 0) return null
 

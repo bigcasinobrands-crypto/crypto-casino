@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { IconGift, IconInfo } from '../icons'
 import { readApiError } from '../../api/errors'
 import { usePlayerAuth } from '../../playerAuth'
@@ -10,10 +11,16 @@ import { bonusHeroImageSrc } from './offerDisplayUtils'
 import { BonusForfeitConfirmModal } from './BonusForfeitConfirmModal'
 import { BonusInstanceDetailsPanel } from './BonusInstanceDetailsPanel'
 
-function formatMinorUsd(minor: number | undefined) {
+function formatMinorUsd(minor: number | undefined, lng: string) {
   const n = Number(minor)
   const safe = Number.isFinite(n) ? n : 0
-  return `$${(safe / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const loc = lng === 'fr-CA' ? 'fr-CA' : 'en-US'
+  return new Intl.NumberFormat(loc, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(safe / 100)
 }
 
 /** Until GET /v1/rewards/hub includes the new row, keep the offer visible under Active. */
@@ -61,6 +68,10 @@ export function MyBonusesLayout({
   stagedAfterClaim,
   subNav,
 }: MyBonusesLayoutProps) {
+  const { t, i18n } = useTranslation()
+  const lng = i18n.language
+  const fmtUsd = useCallback((minor: number | undefined) => formatMinorUsd(minor, lng), [lng])
+
   const offers = useMemo(() => {
     const raw = data?.available_offers ?? []
     if (!stagedAfterClaim) return raw
@@ -108,11 +119,9 @@ export function MyBonusesLayout({
             </span>
             <div>
               <h1 className="m-0 text-xl font-black uppercase tracking-wide text-casino-foreground sm:text-2xl">
-                My Bonuses
+                {t('bonuses.pageTitle')}
               </h1>
-              <p className="mt-1 text-sm text-casino-muted">
-                Offers published in the operator Bonus Hub appear here when you qualify.
-              </p>
+              <p className="mt-1 text-sm text-casino-muted">{t('bonuses.pageSubtitle')}</p>
             </div>
           </div>
           <div className="hidden text-casino-primary/25 sm:block">
@@ -128,7 +137,7 @@ export function MyBonusesLayout({
           {err}{' '}
           {onRetry ? (
             <button type="button" className="ml-2 underline" onClick={() => void onRetry()}>
-              Retry
+              {t('bonuses.retry')}
             </button>
           ) : null}
         </div>
@@ -139,32 +148,32 @@ export function MyBonusesLayout({
         <div className="mb-6 min-w-0 sm:mb-8">
           <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:gap-3">
           <div className="min-w-0 overflow-hidden rounded-casino-md border border-white/[0.06] bg-casino-card px-3 py-2.5">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-casino-muted">Wagering left</div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-casino-muted">{t('bonuses.wageringLeft')}</div>
             {loading && !data ? (
               <div className="mt-1.5 h-5 w-24 max-w-full animate-pulse rounded bg-white/[0.08]" aria-hidden />
             ) : (
               <div className="text-sm font-extrabold text-casino-foreground">
-                {formatMinorUsd(aggregates?.wagering_remaining_minor ?? 0)}
+                {fmtUsd(aggregates?.wagering_remaining_minor ?? 0)}
               </div>
             )}
           </div>
           <div className="min-w-0 rounded-casino-md border border-white/[0.06] bg-casino-card px-3 py-2.5">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-casino-muted">Locked bonus</div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-casino-muted">{t('bonuses.lockedBonus')}</div>
             {loading && !data ? (
               <div className="mt-1.5 h-5 w-24 max-w-full animate-pulse rounded bg-white/[0.08]" aria-hidden />
             ) : (
               <div className="text-sm font-extrabold text-casino-foreground">
-                {formatMinorUsd(aggregates?.bonus_locked_minor ?? 0)}
+                {fmtUsd(aggregates?.bonus_locked_minor ?? 0)}
               </div>
             )}
           </div>
           <div className="min-w-0 rounded-casino-md border border-white/[0.06] bg-casino-card px-3 py-2.5">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-casino-muted">Lifetime promo</div>
+            <div className="text-[10px] font-bold uppercase tracking-wide text-casino-muted">{t('bonuses.lifetimePromo')}</div>
             {loading && !data ? (
               <div className="mt-1.5 h-5 w-24 max-w-full animate-pulse rounded bg-white/[0.08]" aria-hidden />
             ) : (
               <div className="text-sm font-extrabold text-casino-foreground">
-                {formatMinorUsd(aggregates?.lifetime_promo_minor ?? 0)}
+                {fmtUsd(aggregates?.lifetime_promo_minor ?? 0)}
               </div>
             )}
           </div>
@@ -176,7 +185,7 @@ export function MyBonusesLayout({
       <section className="mb-10">
         <h2 className="mb-4 flex items-center gap-2 text-base font-extrabold text-casino-foreground">
           <IconGift size={20} className="text-casino-success" aria-hidden />
-          Active bonuses
+          {t('bonuses.activeSection')}
         </h2>
 
         {showActiveLoadingPlaceholders ? (
@@ -187,13 +196,12 @@ export function MyBonusesLayout({
           </div>
         ) : activeInstances.length === 0 ? (
           <p className="rounded-casino-lg border border-white/[0.06] bg-casino-card px-4 py-6 text-center text-sm text-casino-muted">
-            You don&apos;t have an active bonus right now. Activate an offer below or check back after your next
-            deposit.
+            {t('bonuses.activeEmpty')}
           </p>
         ) : (
           <ul className={cardGrid}>
             {activeInstances.map((b: HubBonusInstance) => (
-              <ActiveBonusCard key={b.id} bonus={b} onForfeited={onBonusForfeited} />
+              <ActiveBonusCard key={b.id} bonus={b} formatUsd={fmtUsd} onForfeited={onBonusForfeited} />
             ))}
           </ul>
         )}
@@ -203,7 +211,7 @@ export function MyBonusesLayout({
       <section>
         <h2 className="mb-4 flex items-center gap-2 text-base font-extrabold text-casino-foreground">
           <IconGift size={20} className="text-casino-primary" aria-hidden />
-          Available bonuses
+          {t('bonuses.availableSection')}
         </h2>
 
         {loading ? (
@@ -214,8 +222,7 @@ export function MyBonusesLayout({
           </div>
         ) : offers.length === 0 ? (
           <p className="rounded-casino-lg border border-white/[0.06] bg-casino-card px-4 py-6 text-center text-sm text-casino-muted">
-            No eligible offers right now. When staff publish a promotion and you meet targeting rules, it will show up
-            here.
+            {t('bonuses.availableEmpty')}
           </p>
         ) : (
           <ul className={cardGrid}>
@@ -231,11 +238,14 @@ export function MyBonusesLayout({
 
 function ActiveBonusCard({
   bonus,
+  formatUsd,
   onForfeited,
 }: {
   bonus: HubBonusInstance
+  formatUsd: (minor: number | undefined) => string
   onForfeited?: (promotionVersionId?: number) => void
 }) {
+  const { t } = useTranslation()
   const { apiFetch, refreshProfile } = usePlayerAuth()
   const [infoOpen, setInfoOpen] = useState(false)
   const [forfeitOpen, setForfeitOpen] = useState(false)
@@ -313,7 +323,7 @@ function ActiveBonusCard({
           {showHero ? null : <IconGift size={44} className="text-casino-success/50" aria-hidden />}
         </div>
         <span className="absolute right-2 top-2 rounded-casino-sm bg-casino-success/25 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-casino-success">
-          {isAwaitingDeposit ? 'Activated' : 'Active'}
+          {isAwaitingDeposit ? t('bonuses.statusActivated') : t('bonuses.statusActive')}
         </span>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3 sm:p-3.5">
@@ -326,14 +336,11 @@ function ActiveBonusCard({
             <p className="mt-1 text-[11px] leading-relaxed text-casino-muted">{bonus.description.trim()}</p>
           ) : null}
           {isAwaitingDeposit ? (
-            <p className="mt-1.5 text-[11px] leading-relaxed text-casino-muted">
-              This promotion is active on your account. Match or bonus credit appears once a qualifying deposit is
-              completed.
-            </p>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-casino-muted">{t('bonuses.awaitingDepositHint')}</p>
           ) : (
             <p className="mt-1 text-[11px] text-casino-muted">
-              Granted{' '}
-              <span className="font-semibold text-casino-foreground">{formatMinorUsd(bonus.granted_amount_minor)}</span>
+              {t('bonuses.grantedLabel')}{' '}
+              <span className="font-semibold text-casino-foreground">{formatUsd(bonus.granted_amount_minor)}</span>
             </p>
           )}
         </div>
@@ -341,9 +348,9 @@ function ActiveBonusCard({
         {isAwaitingDeposit ? null : (
           <div>
             <div className="mb-1 flex justify-between gap-2 text-[10px] font-bold text-casino-muted">
-              <span>Wagering</span>
+              <span>{t('bonuses.wageringLabel')}</span>
               <span className="text-casino-foreground">
-                {formatMinorUsd(wrDone)} / {formatMinorUsd(wrReq)}
+                {formatUsd(wrDone)} / {formatUsd(wrReq)}
               </span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
@@ -361,20 +368,20 @@ function ActiveBonusCard({
           className="flex w-fit items-center gap-1 text-[11px] font-bold text-casino-muted transition hover:text-casino-primary"
         >
           <IconInfo size={13} aria-hidden />
-          More info
+          {t('bonuses.moreInfo')}
         </button>
         <BonusInstanceDetailsPanel details={bonus.details} infoOpen={infoOpen} apiFetch={apiFetch} />
 
         <div className="mt-auto flex flex-col gap-2">
           <span className="block w-full rounded-casino-md border border-casino-success/40 bg-casino-success/10 py-2 text-center text-xs font-extrabold text-casino-success">
-            {isAwaitingDeposit ? 'Activated' : 'In progress'}
+            {isAwaitingDeposit ? t('bonuses.statusActivated') : t('bonuses.inProgress')}
           </span>
           <button
             type="button"
             onClick={() => setForfeitOpen(true)}
             className="block w-full rounded-casino-md border border-red-500/35 py-2 text-center text-xs font-extrabold text-red-300 transition hover:bg-red-500/10"
           >
-            {isAwaitingDeposit ? 'Forfeit (cancel offer)' : 'Forfeit bonus'}
+            {isAwaitingDeposit ? t('bonuses.forfeitCancelOffer') : t('bonuses.forfeitBonus')}
           </button>
         </div>
       </div>

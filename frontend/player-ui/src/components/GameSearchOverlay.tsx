@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type FC } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
 import { IconSearch, IconX } from './icons'
 import { GameCardSkeleton } from './GameCardSkeleton'
 import { PortraitGameThumb } from './PortraitGameThumb'
@@ -29,6 +31,7 @@ type Props = {
 }
 
 const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
+  const { t } = useTranslation()
   const titleId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
@@ -108,7 +111,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
         )
         if (!res.ok) {
           if (!cancelled) {
-            setErr('Could not load games.')
+            setErr(i18n.t('gameSearch.loadError'))
             setGames([])
           }
           return
@@ -117,7 +120,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
         if (!cancelled) setGames(j.games ?? [])
       } catch {
         if (!cancelled) {
-          setErr('Network error.')
+          setErr(i18n.t('common.networkError'))
           setGames([])
         }
       } finally {
@@ -142,10 +145,11 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
   /**
    * z-[240]: above fixed shell headers (z~211) so dim/blur covers the top bar; was trapped inside App `z-[200]` before.
    * Below mobile menu drawer (z-[260]) so menu stays on top if both were open.
+   * Mobile bottom inset matches `.casino-shell-mobile-nav` via `--casino-mobile-nav-offset` (not 4rem+safe-area — that left a visible gap).
    */
   return (
     <div
-      className="fixed inset-x-0 top-0 bottom-0 z-[240] flex flex-col max-[767px]:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))]"
+      className="fixed inset-x-0 top-0 bottom-0 z-[240] flex flex-col max-[767px]:bottom-[var(--casino-mobile-nav-offset)]"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -153,7 +157,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
       <button
         type="button"
         className="absolute inset-x-0 top-0 bottom-0 z-0 bg-black/55 backdrop-blur-sm"
-        aria-label="Close search"
+        aria-label={t('gameSearch.closeAria')}
         onClick={onClose}
       />
       <div className="relative z-10 flex h-full min-h-0 flex-1 flex-col pointer-events-none">
@@ -162,7 +166,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
           data-game-search-shield
           onClick={onClose}
           className="pointer-events-auto absolute right-3 top-3 z-20 inline-flex size-9 shrink-0 items-center justify-center rounded-[6px] bg-casino-primary text-white shadow-sm transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary [&_svg]:text-white"
-          aria-label="Close search"
+          aria-label={t('gameSearch.closeAria')}
         >
           <IconX size={18} aria-hidden />
         </button>
@@ -176,7 +180,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
           >
             <div className="relative w-full max-w-2xl" data-game-search-shield>
               <label id={titleId} className="sr-only">
-                Search games by title, studio, or category
+                {t('gameSearch.srTitle')}
               </label>
               <IconSearch
                 className="pointer-events-none absolute left-4 top-1/2 z-10 size-[18px] -translate-y-1/2 text-white/50"
@@ -188,8 +192,8 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search games or studios (e.g. Pragmatic)"
-                aria-label="Search games by title, studio, or category"
+                placeholder={t('gameSearch.placeholder')}
+                aria-label={t('gameSearch.srTitle')}
                 autoComplete="off"
                 className="min-w-0 w-full rounded-full border border-casino-primary/25 bg-casino-surface/90 py-2.5 pl-11 pr-11 text-[13px] text-white/90 shadow-[0_0_0_1px_rgba(123,97,255,0.12)] outline-none backdrop-blur-sm transition placeholder:text-casino-muted focus:border-casino-primary/50 focus:shadow-[0_0_0_1px_rgba(123,97,255,0.35),0_0_20px_rgba(123,97,255,0.12)]"
               />
@@ -225,7 +229,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
             ) : null}
             {err ? <p className="py-6 text-center text-sm text-red-400">{err}</p> : null}
             {debounced && !loading && !err && games.length === 0 ? (
-              <p className="py-6 text-center text-sm text-casino-muted/95">No games match that search.</p>
+              <p className="py-6 text-center text-sm text-casino-muted/95">{t('gameSearch.noResults')}</p>
             ) : null}
 
             {games.length > 0 ? (
@@ -249,7 +253,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
                       </RequireAuthLink>
                       <button
                         type="button"
-                        title={isFavourite(g.id) ? 'Remove favourite' : 'Favourite'}
+                        title={isFavourite(g.id) ? t('gameSearch.favouriteRemove') : t('gameSearch.favouriteAdd')}
                         className="absolute right-1 top-1 z-10 flex h-8 w-8 items-center justify-center rounded-[4px] border border-white/15 bg-black/75 text-base text-amber-400/90 shadow-sm backdrop-blur-sm hover:bg-black/90"
                         onClick={(e) => {
                           e.preventDefault()

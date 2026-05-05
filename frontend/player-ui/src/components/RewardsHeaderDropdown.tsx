@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 
 import { usePlayerAuth } from '../playerAuth'
@@ -97,6 +98,7 @@ function RewardsSnapshotPanel({
   loadErr: string | null
   stats: PlayerWalletStats | null
 }) {
+  const { t } = useTranslation()
   const bonus = hub ? pickHeaderBonusInfo(hub.bonus_instances ?? []) : null
   const ag = hub?.aggregates
   const vip = hub?.vip
@@ -110,9 +112,9 @@ function RewardsSnapshotPanel({
           aria-hidden
         />
         <div className="relative">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-casino-primary">Rewards</p>
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-casino-primary">{t('rewards.panelTitle')}</p>
           <p className="mt-1.5 text-[12px] leading-relaxed text-casino-muted">
-            Quick view — open full pages for every detail.
+            {t('rewards.quickViewIntro')}
           </p>
         </div>
       </div>
@@ -135,7 +137,7 @@ function RewardsSnapshotPanel({
               <span className={iconPill}>
                 <IconGift size={14} aria-hidden />
               </span>
-              Active bonus
+              {t('rewards.activeBonus')}
             </h3>
             {bonus ? (
               <p className="mb-2.5 line-clamp-2 text-sm font-extrabold leading-snug text-casino-foreground">
@@ -146,41 +148,44 @@ function RewardsSnapshotPanel({
                     promotionVersionId: bonus.row.promotion_version_id,
                     bonusType: bonus.row.bonus_type,
                   },
-                  'Bonus',
+                  t('rewards.bonusFallbackTitle'),
                 )}
               </p>
             ) : null}
             {!bonus ? (
-              <p className="text-[13px] font-medium leading-relaxed text-casino-muted">No active bonus in progress right now.</p>
+              <p className="text-[13px] font-medium leading-relaxed text-casino-muted">{t('rewards.noActiveBonus')}</p>
             ) : bonus.mode === 'awaiting' ? (
               <p className="text-[13px] font-medium leading-relaxed text-casino-muted">
-                This offer is on your account — once a qualifying deposit is completed, the bonus and wagering will apply.
+                {t('rewards.awaitingDepositBody')}
               </p>
             ) : null}
 
             <dl className="mt-1">
               <div className={statLine}>
-                <dt className={statLabel}>Wagering left</dt>
+                <dt className={statLabel}>{t('rewards.wageringLeft')}</dt>
                 <dd className={statValue}>
                   {bonus?.mode === 'awaiting' ? <span className="text-casino-muted/90">—</span> : usdMinor(ag?.wagering_remaining_minor ?? 0)}
                 </dd>
               </div>
               <div className={statLine}>
-                <dt className={statLabel}>Locked bonus</dt>
+                <dt className={statLabel}>{t('rewards.lockedBonus')}</dt>
                 <dd className={statValue}>{usdMinor(ag?.bonus_locked_minor ?? 0)}</dd>
               </div>
               <div className={statLine}>
-                <dt className={statLabel}>Promo granted (this bonus)</dt>
+                <dt className={statLabel}>{t('rewards.promoGrantedThisBonus')}</dt>
                 <dd className={statValue}>{usdMinor(ag?.lifetime_promo_minor ?? 0)}</dd>
               </div>
             </dl>
             {bonus && bonus.mode === 'wr' && (bonus.row.wr_required_minor ?? 0) > 0 ? (
               <p className="mt-2.5 rounded-casino-sm border border-casino-success/15 bg-casino-success/8 px-2.5 py-1.5 text-[11px] text-casino-success">
-                Progress: {usdMinor(bonus.row.wr_contributed_minor)} of {usdMinor(bonus.row.wr_required_minor)} wagered
+                {t('rewards.progressWagered', {
+                  done: usdMinor(bonus.row.wr_contributed_minor),
+                  required: usdMinor(bonus.row.wr_required_minor),
+                })}
               </p>
             ) : null}
             <Link to="/bonuses" onClick={() => setOpen(false)} className={ctaPrimary}>
-              My Bonuses
+              {t('rewards.myBonusesCta')}
             </Link>
           </section>
 
@@ -190,16 +195,20 @@ function RewardsSnapshotPanel({
                 <span className={iconPill}>
                   <IconZap size={14} aria-hidden />
                 </span>
-                Wager hunt
+                {t('rewards.wagerHunt')}
               </h3>
               <p className="text-[13px] font-semibold leading-relaxed text-casino-foreground">
-                {usdMinor(hunt.wager_accrued_minor)} toward next tier
+                {t('rewards.towardNextTier', { accrued: usdMinor(hunt.wager_accrued_minor) })}
                 {typeof hunt.next_threshold_wager_minor === 'number' ? (
-                  <span className="text-casino-muted"> · goal {usdMinor(hunt.next_threshold_wager_minor)}</span>
+                  <span className="text-casino-muted">
+                    {t('rewards.goalSuffix', { goal: usdMinor(hunt.next_threshold_wager_minor) })}
+                  </span>
                 ) : null}
               </p>
               {typeof hunt.next_reward_minor === 'number' && hunt.next_reward_minor > 0 ? (
-                <p className="mt-1.5 text-xs text-casino-muted">Next reward: {usdMinor(hunt.next_reward_minor)}</p>
+                <p className="mt-1.5 text-xs text-casino-muted">
+                  {t('rewards.nextReward', { amount: usdMinor(hunt.next_reward_minor) })}
+                </p>
               ) : null}
             </section>
           ) : null}
@@ -210,25 +219,29 @@ function RewardsSnapshotPanel({
                 <span className={iconPill}>
                   <IconCrown size={14} aria-hidden />
                 </span>
-                VIP
+                {t('rewards.vipSection')}
               </h3>
               <p className="text-base font-black uppercase leading-tight tracking-wide text-casino-foreground md:text-lg">
                 {vip.tier || '—'}
               </p>
-              {vip.next_tier ? <p className="mt-1.5 text-xs text-casino-primary/90">Next: {vip.next_tier}</p> : null}
-              <p className="mt-1 text-sm font-medium text-casino-muted">Points: {Number(vip.points ?? 0).toLocaleString()}</p>
+              {vip.next_tier ? (
+                <p className="mt-1.5 text-xs text-casino-primary/90">{t('rewards.nextTier', { tier: vip.next_tier })}</p>
+              ) : null}
+              <p className="mt-1 text-sm font-medium text-casino-muted">
+                {t('rewards.pointsLabel', { points: Number(vip.points ?? 0).toLocaleString() })}
+              </p>
               {typeof vip.progress?.lifetime_wager_minor === 'number' ? (
                 <p className="mt-2 text-sm font-semibold text-casino-foreground">
-                  Lifetime wager: {usdMinor(vip.progress.lifetime_wager_minor)}
+                  {t('rewards.lifetimeWager', { amount: usdMinor(vip.progress.lifetime_wager_minor) })}
                 </p>
               ) : null}
               {typeof vip.progress?.remaining_wager_minor === 'number' && vip.progress.remaining_wager_minor > 0 ? (
                 <p className="mt-1.5 text-[12px] leading-relaxed text-casino-muted">
-                  ≈{usdMinor(vip.progress.remaining_wager_minor)} more wager to the next rank (where configured).
+                  {t('rewards.moreWagerToRank', { amount: usdMinor(vip.progress.remaining_wager_minor) })}
                 </p>
               ) : null}
               <Link to="/vip" onClick={() => setOpen(false)} className={ctaPrimary}>
-                VIP program
+                {t('rewards.vipProgramCta')}
               </Link>
             </section>
           ) : null}
@@ -238,16 +251,16 @@ function RewardsSnapshotPanel({
               <span className={iconPill}>
                 <IconBarChart3 size={14} aria-hidden />
               </span>
-              Your play
+              {t('rewards.yourPlay')}
             </h3>
             {stats ? (
               <dl>
                 <div className={statLine}>
-                  <dt className={statLabel}>Total wagered</dt>
+                  <dt className={statLabel}>{t('rewards.totalWagered')}</dt>
                   <dd className={statValue}>{usdMinor(stats.total_wagered)}</dd>
                 </div>
                 <div className={statLine}>
-                  <dt className={statLabel}>Bets (rounds)</dt>
+                  <dt className={statLabel}>{t('rewards.betsRounds')}</dt>
                   <dd className={statValue}>{Number(stats.total_bets).toLocaleString()}</dd>
                 </div>
                 <div className={statLine}>
@@ -261,14 +274,14 @@ function RewardsSnapshotPanel({
                   </dd>
                 </div>
                 <div className={statLine}>
-                  <dt className={statLabel}>Biggest win</dt>
+                  <dt className={statLabel}>{t('rewards.biggestWin')}</dt>
                   <dd className={statValue}>{usdMinor(stats.highest_win)}</dd>
                 </div>
               </dl>
             ) : (
-              <p className="text-[13px] text-casino-muted">Stats will load on your next visit if unavailable.</p>
+              <p className="text-[13px] text-casino-muted">{t('rewards.statsNextVisit')}</p>
             )}
-            <p className="mt-2.5 text-[10px] font-medium text-casino-muted/80">All-time, from your account history.</p>
+            <p className="mt-2.5 text-[10px] font-medium text-casino-muted/80">{t('rewards.allTimeFootnote')}</p>
           </section>
         </div>
       )}
@@ -285,6 +298,7 @@ export default function RewardsHeaderDropdown({
   className = '',
   openClassName = defaultOpenClass,
 }: RewardsHeaderDropdownProps) {
+  const { t } = useTranslation()
   const { pathname } = useLocation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const [open, setOpen] = useState(false)
@@ -306,7 +320,7 @@ export default function RewardsHeaderDropdown({
         apiFetch('/v1/wallet/stats'),
       ])
       if (!rHub.ok) {
-        setLoadErr('Could not load rewards')
+        setLoadErr(t('rewards.couldNotLoad'))
         setHub(null)
         return
       }
@@ -325,12 +339,12 @@ export default function RewardsHeaderDropdown({
         })
       }
     } catch {
-      setLoadErr('Could not load rewards')
+      setLoadErr(t('rewards.couldNotLoad'))
       setHub(null)
     } finally {
       setLoading(false)
     }
-  }, [isAuthenticated, apiFetch])
+  }, [isAuthenticated, apiFetch, t])
 
   useEffect(() => {
     if (open && isAuthenticated) void load()
@@ -390,7 +404,7 @@ export default function RewardsHeaderDropdown({
       <button
         type="button"
         className={triggerClasses}
-        aria-label="Rewards — bonus and VIP snapshot"
+        aria-label={t('rewards.triggerAria')}
         aria-expanded={open}
         aria-haspopup="true"
         aria-current={onBonusesRoute ? 'page' : undefined}
@@ -398,7 +412,7 @@ export default function RewardsHeaderDropdown({
       >
         <IconGift size={18} aria-hidden />
         <span className="hidden max-w-[4.5rem] truncate text-[10px] font-extrabold uppercase leading-none tracking-wide min-[1280px]:inline">
-          Rewards
+          {t('rewards.button')}
         </span>
       </button>
 
@@ -406,7 +420,7 @@ export default function RewardsHeaderDropdown({
         <div
           className={`${panelClass} scrollbar-casino overscroll-y-contain`}
           role="region"
-          aria-label="Rewards snapshot"
+          aria-label={t('rewards.snapshotAria')}
         >
           <RewardsSnapshotPanel
             setOpen={setOpen}
@@ -426,15 +440,15 @@ export default function RewardsHeaderDropdown({
                 z above wallet backdrop (199) / panel (219).
               */}
               <div
-                className="fixed z-[228] bg-black/40 backdrop-blur-sm left-0 right-0 top-[calc(64px+env(safe-area-inset-top,0px))] bottom-[calc(4rem+env(safe-area-inset-bottom,0px))]"
+                className="fixed z-[228] bg-black/40 backdrop-blur-sm left-0 right-0 top-[calc(64px+env(safe-area-inset-top,0px))] bottom-[var(--casino-mobile-nav-offset)]"
                 onClick={() => setOpen(false)}
                 aria-hidden
               />
               <div
-                className="fixed z-[232] left-1/2 top-[calc(64px+env(safe-area-inset-top,0px))] bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] w-[min(24rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto overflow-x-hidden rounded-casino-lg border border-white/[0.1] bg-casino-elevated text-casino-foreground shadow-[0_24px_64px_rgba(0,0,0,0.55),0_0_0_1px_rgba(123,97,255,0.12)] scrollbar-casino overscroll-y-contain"
+                className="fixed z-[232] left-1/2 top-[calc(64px+env(safe-area-inset-top,0px))] bottom-[var(--casino-mobile-nav-offset)] w-[min(24rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto overflow-x-hidden rounded-casino-lg border border-white/[0.1] bg-casino-elevated text-casino-foreground shadow-[0_24px_64px_rgba(0,0,0,0.55),0_0_0_1px_rgba(123,97,255,0.12)] scrollbar-casino overscroll-y-contain"
                 role="dialog"
                 aria-modal="true"
-                aria-label="Rewards snapshot"
+                aria-label={t('rewards.snapshotAria')}
               >
                 <RewardsSnapshotPanel
                   setOpen={setOpen}

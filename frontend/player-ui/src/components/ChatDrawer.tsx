@@ -278,7 +278,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
           chat-drawer-aside fixed right-0 bottom-0 z-[236] flex shrink-0 flex-col overflow-hidden
           border-l border-white/[0.04] bg-casino-sidebar
           transition-[width] duration-200 ease-out
-          max-md:box-border max-md:pb-[calc(64px+env(safe-area-inset-bottom,0px))]
+          max-md:box-border max-md:pb-[var(--casino-mobile-nav-offset)]
           ${open ? 'min-w-0 w-[var(--shell-chat-panel-w)]' : 'w-0'}
         `}
       >

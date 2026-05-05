@@ -1,5 +1,7 @@
+import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { readApiError } from '../api/errors'
 import { toast } from 'sonner'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
@@ -74,12 +76,7 @@ type Transaction = {
 
 type ProfileTab = 'overview' | 'transactions' | 'history' | 'settings'
 
-const TABS: { key: ProfileTab; label: string }[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'transactions', label: 'Transactions' },
-  { key: 'history', label: 'Game History' },
-  { key: 'settings', label: 'Settings' },
-]
+const TAB_ORDER: ProfileTab[] = ['overview', 'transactions', 'history', 'settings']
 
 /* ------------------------------------------------------------------ */
 /*  Transaction helpers                                               */
@@ -128,52 +125,47 @@ function classifyStatus(entryType: string): TxStatus {
   return 'completed'
 }
 
-const DISPLAY_TYPE_LABELS: Record<TxDisplayType, string> = {
-  received: 'Received',
-  sent: 'Sent',
-  withdrawal: 'Withdrawal',
-  bonus: 'Bonus',
-  bonus_forfeit: 'Bonus',
-  bonus_activation: 'Bonus',
-  bonus_relinquish: 'Bonus',
-  bonus_release: 'Bonus',
-  refund: 'Refund',
-  challenge_activity: 'Challenge',
+function displayTypeLabel(dt: TxDisplayType, t: TFunction): string {
+  return t(`tx.display.${dt}`)
 }
 
-function txChallengeTitle(tx: Transaction): string {
+function txChallengeTitle(tx: Transaction, t: TFunction): string {
   const m = tx.metadata
   if (m && typeof m === 'object' && typeof (m as Record<string, unknown>).challenge_title === 'string') {
-    const t = String((m as Record<string, unknown>).challenge_title).trim()
-    if (t) return t
+    const title = String((m as Record<string, unknown>).challenge_title).trim()
+    if (title) return title
   }
-  return 'Challenge'
+  return t('tx.challengeDefault')
 }
 
-function transactionTypeLabel(entryType: string, amountMinor: number, tx?: Transaction): string {
+function transactionTypeLabel(entryType: string, amountMinor: number, tx: Transaction | undefined, t: TFunction): string {
   switch (entryType) {
     case 'challenge.join':
-      return tx ? `Joined challenge — ${txChallengeTitle(tx)}` : 'Joined challenge'
+      return tx
+        ? t('tx.joinedChallenge', { title: txChallengeTitle(tx, t) })
+        : t('tx.joinedChallengeShort')
     case 'challenge.prize':
-      return tx ? `Challenge payout — ${txChallengeTitle(tx)}` : 'Challenge payout'
+      return tx
+        ? t('tx.challengePayout', { title: txChallengeTitle(tx, t) })
+        : t('tx.challengePayoutShort')
     case 'promo.rakeback':
-      return 'Rakeback cash claimed'
+      return t('tx.rakebackClaimed')
     case 'promo.daily_hunt_cash':
-      return 'Daily hunt cash claimed'
+      return t('tx.dailyHuntCash')
     case 'vip.level_up_cash':
-      return 'VIP level-up cash reward'
+      return t('tx.vipLevelUpCash')
     case 'promo.grant':
-      return 'Bonus credited'
+      return t('tx.bonusCredited')
     case 'promo.forfeit':
-      return 'Bonus forfeited'
+      return t('tx.bonusForfeited')
     case 'promo.activation':
-      return 'Bonus offer activated'
+      return t('tx.bonusOfferActivated')
     case 'promo.relinquish':
-      return 'Bonus offer cancelled'
+      return t('tx.bonusOfferCancelled')
     case 'promo.convert':
-      return amountMinor >= 0 ? 'Bonus released to cash' : 'Bonus balance converted'
+      return amountMinor >= 0 ? t('tx.bonusReleasedToCash') : t('tx.bonusBalanceConverted')
     default:
-      return DISPLAY_TYPE_LABELS[classifyDisplayType(entryType, amountMinor)] ?? 'Transaction'
+      return displayTypeLabel(classifyDisplayType(entryType, amountMinor), t) || t('tx.fallback')
   }
 }
 
@@ -191,19 +183,21 @@ function formatMinorAmount(minor: number, currency: string): string {
   return `${sign}${formatted} ${currency}`
 }
 
-function formatDate(iso: string): string {
+function formatTxDate(iso: string, t: TFunction, lng: string): string {
   const d = new Date(iso)
   const now = new Date()
   const diffMs = now.getTime() - d.getTime()
   const diffDays = Math.floor(diffMs / 86_400_000)
+  const loc = lng === 'fr-CA' ? 'fr-CA' : 'en-US'
+  const timeOpts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
 
   if (diffDays === 0) {
-    return `Today, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+    return `${t('profile.today')}, ${d.toLocaleTimeString(loc, timeOpts)}`
   }
   if (diffDays === 1) {
-    return `Yesterday, ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+    return `${t('profile.yesterday')}, ${d.toLocaleTimeString(loc, timeOpts)}`
   }
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString(loc, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 /* ------------------------------------------------------------------ */
@@ -372,8 +366,14 @@ function usePlayerStats(): { stats: PlayerStats; loading: boolean } {
   return { stats, loading }
 }
 
-function formatMinorUsd(minor: number) {
-  return `$${(minor / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+function formatMinorUsd(minor: number, lng: string) {
+  const loc = lng === 'fr-CA' ? 'fr-CA' : 'en-US'
+  return new Intl.NumberFormat(loc, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(minor / 100)
 }
 
 type PlayerBonusRow = {
@@ -409,6 +409,8 @@ function statusBucket(status: string): 'active' | 'past' {
 }
 
 function PlayerBonusesPanel() {
+  const { t, i18n } = useTranslation()
+  const lng = i18n.language
   const { apiFetch, refreshProfile } = usePlayerAuth()
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -450,10 +452,10 @@ function PlayerBonusesPanel() {
           setOffers([])
         }
         if (!bRes.ok && !oRes.ok) {
-          setErr('Could not load bonuses')
+          setErr(t('profile.couldNotLoadBonuses'))
         }
       } catch {
-        if (!cancelled) setErr('Network error')
+        if (!cancelled) setErr(t('profile.networkErrorShort'))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -461,7 +463,7 @@ function PlayerBonusesPanel() {
     return () => {
       cancelled = true
     }
-  }, [apiFetch, reloadTick])
+  }, [apiFetch, reloadTick, t])
 
   const filteredBonuses = useMemo(() => {
     if (listFilter === 'all') return bonuses
@@ -498,22 +500,20 @@ function PlayerBonusesPanel() {
     <div className="rounded-casino-lg border border-white/[0.06] bg-casino-card p-4 sm:p-5">
       <div className="mb-3 flex items-center gap-2">
         <IconGift size={20} className="text-casino-primary" aria-hidden />
-        <h2 className="text-sm font-extrabold tracking-wide text-casino-foreground">Bonuses</h2>
+        <h2 className="text-sm font-extrabold tracking-wide text-casino-foreground">{t('profile.bonusesTitle')}</h2>
       </div>
-      <p className="mb-3 text-xs leading-relaxed text-casino-muted">
-        Eligible deposit offers can credit automatically after a qualifying deposit (when the platform worker is
-        running). Promo codes use Settings → Promo Code.
-      </p>
-      {loading ? <p className="text-sm text-casino-muted">Loading…</p> : null}
+      <p className="mb-3 text-xs leading-relaxed text-casino-muted">{t('profile.bonusesIntro')}</p>
+      {loading ? <p className="text-sm text-casino-muted">{t('profile.loadingEllipsis')}</p> : null}
       {err ? <p className="text-sm text-red-400">{err}</p> : null}
       {!loading && bonusLockedMinor != null ? (
         <p className="mb-3 text-xs text-casino-muted">
-          Locked bonus balance: <span className="font-semibold text-casino-foreground">{formatMinorUsd(bonusLockedMinor)}</span>
+          {t('profile.lockedBonusBalance')}{' '}
+          <span className="font-semibold text-casino-foreground">{formatMinorUsd(bonusLockedMinor, lng)}</span>
         </p>
       ) : null}
       {!loading && !err && offers.length > 0 ? (
         <div className="mb-4">
-          <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-casino-muted">Eligible for you</h3>
+          <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-casino-muted">{t('profile.eligibleForYou')}</h3>
           <ul className="space-y-2">
             {offers.map((o) => (
               <li
@@ -528,13 +528,13 @@ function PlayerBonusesPanel() {
                       promotionVersionId: o.promotion_version_id,
                       bonusType: o.bonus_type,
                     },
-                    'Offer',
+                    t('profile.offerFallback'),
                   )}
                 </div>
                 {o.description ? <p className="mt-1 text-xs text-casino-muted">{o.description}</p> : null}
                 <p className="mt-1 text-[11px] text-casino-muted">
-                  {o.kind === 'redeem_code' ? 'Redeem with a code' : 'Auto on deposit'} ·{' '}
-                  {o.schedule_summary ?? 'Active'}
+                  {o.kind === 'redeem_code' ? t('profile.redeemOrAuto') : t('profile.autoOnDeposit')} ·{' '}
+                  {o.schedule_summary ?? t('profile.activeSchedule')}
                 </p>
               </li>
             ))}
@@ -544,7 +544,7 @@ function PlayerBonusesPanel() {
       {!loading && bonuses.length > 0 ? (
         <div>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-[11px] font-bold uppercase tracking-wide text-casino-muted">Your bonus instances</h3>
+            <h3 className="text-[11px] font-bold uppercase tracking-wide text-casino-muted">{t('profile.yourBonusInstances')}</h3>
             <div className="flex gap-1 rounded-casino-md border border-white/[0.08] p-0.5">
               {(['active', 'past', 'all'] as const).map((key) => (
                 <button
@@ -557,13 +557,13 @@ function PlayerBonusesPanel() {
                       : 'text-casino-muted hover:text-casino-foreground'
                   }`}
                 >
-                  {key === 'all' ? 'All' : key === 'past' ? 'History' : 'Active'}
+                  {key === 'all' ? t('profile.filterAll') : key === 'past' ? t('profile.filterHistory') : t('profile.filterActive')}
                 </button>
               ))}
             </div>
           </div>
           {filteredBonuses.length === 0 ? (
-            <p className="text-xs text-casino-muted">Nothing in this tab.</p>
+            <p className="text-xs text-casino-muted">{t('profile.nothingInTab')}</p>
           ) : (
             <ul className="space-y-2">
               {filteredBonuses.map((b) => {
@@ -590,8 +590,8 @@ function PlayerBonusesPanel() {
                       <span className="text-xs text-casino-muted">{b.currency}</span>
                     </div>
                     <p className="mt-1 text-xs text-casino-muted">
-                      Granted {formatMinorUsd(b.granted_amount_minor)} · WR {formatMinorUsd(b.wr_contributed_minor)} /{' '}
-                      {formatMinorUsd(b.wr_required_minor)}
+                      {t('profile.grantedLabel')} {formatMinorUsd(b.granted_amount_minor, lng)} · WR{' '}
+                      {formatMinorUsd(b.wr_contributed_minor, lng)} / {formatMinorUsd(b.wr_required_minor, lng)}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                       <button
@@ -599,7 +599,7 @@ function PlayerBonusesPanel() {
                         onClick={() => setDetailsOpenId((x) => (x === b.id ? null : b.id))}
                         className="rounded-casino-sm border border-white/[0.1] px-2 py-1 text-[11px] font-semibold text-casino-foreground hover:bg-white/[0.04]"
                       >
-                        {detailsOpen ? 'Hide rules & games' : 'Rules & games'}
+                        {detailsOpen ? t('profile.rulesGamesHide') : t('profile.rulesGamesShow')}
                       </button>
                       {canForfeit ? (
                         <button
@@ -608,7 +608,7 @@ function PlayerBonusesPanel() {
                           onClick={() => setForfeitTarget(b)}
                           className="rounded-casino-sm border border-red-500/40 px-2 py-1 text-[11px] font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50"
                         >
-                          Forfeit
+                          {t('profile.forfeit')}
                         </button>
                       ) : null}
                     </div>
@@ -630,7 +630,7 @@ function PlayerBonusesPanel() {
         </div>
       ) : null}
       {!loading && !err && offers.length === 0 && bonuses.length === 0 ? (
-        <p className="text-sm text-casino-muted">No active bonuses yet. Published deposit offers appear here when you qualify.</p>
+        <p className="text-sm text-casino-muted">{t('profile.noBonusesYet')}</p>
       ) : null}
 
       <BonusForfeitConfirmModal
@@ -660,6 +660,8 @@ function PlayerBonusesPanel() {
 /* ------------------------------------------------------------------ */
 
 export default function ProfilePage() {
+  const { t, i18n } = useTranslation()
+  const lng = i18n.language
   const { isAuthenticated, me, refreshProfile, logout, apiFetch } = usePlayerAuth()
   const { data: vipProgram } = useVipProgram()
   const [searchParams] = useSearchParams()
@@ -689,22 +691,41 @@ export default function ProfilePage() {
         const p = await readApiError(res)
         const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
         toastPlayerApiError(p, res.status, 'POST /v1/auth/verify-email/resend', rid)
-        setResendMsg(p?.message ?? 'Could not send email')
+        setResendMsg(p?.message ?? t('profile.couldNotSendEmail'))
         return
       }
-      setResendMsg('Check your inbox for a new verification link.')
+      setResendMsg(t('profile.resendCheckInbox'))
       void refreshProfile()
     } catch {
       toastPlayerNetworkError('Network error.', 'POST /v1/auth/verify-email/resend')
-      setResendMsg('Network error.')
+      setResendMsg(t('profile.networkErrorShort'))
     }
-  }, [apiFetch, refreshProfile])
+  }, [apiFetch, refreshProfile, t])
 
   if (!isAuthenticated) return <Navigate to="/?auth=login" replace />
 
   const joinDate = me?.created_at
-    ? new Date(me.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
+    ? new Date(me.created_at).toLocaleDateString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
+        year: 'numeric',
+        month: 'long',
+      })
     : null
+
+  const tabs = useMemo(
+    () =>
+      TAB_ORDER.map((key) => ({
+        key,
+        label:
+          key === 'overview'
+            ? t('profile.tabOverview')
+            : key === 'transactions'
+              ? t('profile.tabTransactions')
+              : key === 'history'
+                ? t('profile.tabHistory')
+                : t('profile.tabSettings'),
+      })),
+    [t],
+  )
 
   const displayName = me?.username || me?.email?.split('@')[0] || 'Player'
   const currentVipTierImage = useMemo(() => {
@@ -720,8 +741,7 @@ export default function ProfilePage() {
     return playerApiUrl(raw.trim())
   }, [vipProgram?.tiers, me?.vip_tier, me?.vip_tier_id])
 
-  const fmtUsd = (minor: number) =>
-    `$${(minor / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const fmtUsd = (minor: number) => formatMinorUsd(minor, lng)
 
   return (
     <div className="mx-auto w-full max-w-[1160px] space-y-6 px-5 py-6 sm:px-6 md:px-8 md:py-8">
@@ -737,16 +757,16 @@ export default function ProfilePage() {
                 {displayName}
               </h1>
               {joinDate && (
-                <span className="text-sm font-semibold text-casino-muted">Joined {joinDate}</span>
+                <span className="text-sm font-semibold text-casino-muted">{t('profile.joined', { date: joinDate })}</span>
               )}
               <div className="mt-1.5 flex flex-wrap gap-2">
                 {me?.email_verified ? (
                   <span className="rounded-casino-sm bg-casino-success/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-success">
-                    Verified
+                    {t('profile.verified')}
                   </span>
                 ) : (
                   <span className="rounded-casino-sm bg-casino-warning/15 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider text-casino-warning">
-                    Unverified
+                    {t('profile.unverified')}
                   </span>
                 )}
                 {me?.vip_tier ? (
@@ -765,7 +785,7 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
-          <VipProgressPanel className="w-full shrink-0 md:w-[min(280px,36vw)] md:max-w-sm lg:w-72" />
+          <VipProgressPanel className="w-full shrink-0 md:w-[min(280px,36vw)] md:max-w-sm lg:w-72" lng={lng} />
         </div>
       </div>
 
@@ -773,22 +793,22 @@ export default function ProfilePage() {
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
           icon={<IconCoins size={24} />}
-          label="Total Wagered"
+          label={t('profile.statTotalWagered')}
           value={statsLoading ? '…' : fmtUsd(stats.totalWagered)}
         />
         <StatCard
           icon={<IconDice5 size={24} />}
-          label="Total Bets"
-          value={statsLoading ? '…' : stats.totalBets.toLocaleString()}
+          label={t('profile.statTotalBets')}
+          value={statsLoading ? '…' : stats.totalBets.toLocaleString(lng === 'fr-CA' ? 'fr-CA' : 'en-US')}
         />
         <StatCard
           icon={<IconTrophy size={24} />}
-          label="Highest Win"
+          label={t('profile.statHighestWin')}
           value={statsLoading ? '…' : fmtUsd(stats.highestWin)}
         />
         <StatCard
           icon={<IconTrendingUp size={24} />}
-          label="Net Profit"
+          label={t('profile.statNetProfit')}
           value={
             statsLoading
               ? '…'
@@ -802,7 +822,7 @@ export default function ProfilePage() {
 
       {/* Tabs */}
       <div className="scrollbar-none flex gap-6 overflow-x-auto border-b-2 border-white/[0.06] sm:gap-8" role="tablist">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
@@ -874,12 +894,12 @@ export default function ProfilePage() {
       <div className="flex flex-col gap-2 text-sm">
         {supportUrl && (
           <a href={supportUrl} target="_blank" rel="noreferrer" className="text-casino-primary hover:underline">
-            Help & support
+            {t('profile.helpSupport')}
           </a>
         )}
         {rgUrl && (
           <a href={rgUrl} target="_blank" rel="noreferrer" className="text-casino-primary hover:underline">
-            Responsible gambling resources
+            {t('profile.rgResources')}
           </a>
         )}
       </div>
@@ -889,7 +909,7 @@ export default function ProfilePage() {
         className="w-full rounded-casino-md border border-casino-border py-2.5 text-sm font-semibold text-casino-muted transition hover:bg-casino-elevated"
         onClick={() => void logout()}
       >
-        Sign out
+        {t('profile.signOut')}
       </button>
     </div>
   )
@@ -1132,7 +1152,8 @@ function AvatarUpload({
 /*  VIP Progress                                                      */
 /* ------------------------------------------------------------------ */
 
-function VipProgressPanel({ className = '' }: { className?: string }) {
+function VipProgressPanel({ className = '', lng }: { className?: string; lng: string }) {
+  const { t } = useTranslation()
   const { data, loading, err } = useVipStatus()
   const nextMin = data?.progress?.next_tier_min_wager_minor
   const life = data?.progress?.lifetime_wager_minor ?? 0
@@ -1147,10 +1168,10 @@ function VipProgressPanel({ className = '' }: { className?: string }) {
       <div className="flex items-center justify-between text-[13px] font-bold">
         <div className="flex items-center gap-2 text-casino-foreground">
           <IconCrown size={16} className="text-casino-primary" />
-          <span>{loading ? '…' : data?.tier ?? 'Member'}</span>
+          <span>{loading ? '…' : data?.tier ?? t('profile.vipMember')}</span>
         </div>
         <span className="text-xs text-casino-muted">
-          {data?.next_tier ? `Next: ${data.next_tier}` : 'VIP'}
+          {data?.next_tier ? t('profile.vipNextTier', { tier: data.next_tier }) : 'VIP'}
         </span>
       </div>
       {err ? <p className="text-xs text-red-400">{err}</p> : null}
@@ -1162,18 +1183,18 @@ function VipProgressPanel({ className = '' }: { className?: string }) {
       </div>
       <div className="text-right text-xs font-bold text-casino-primary">
         {loading
-          ? 'Loading…'
+          ? t('profile.loadingEllipsis')
           : remain != null && nextMin
-            ? `${formatMinorUsd(remain)} to go`
+            ? t('profile.vipRemainToGo', { amount: formatMinorUsd(remain, lng) })
             : pct > 0
-              ? `${pct}% toward next tier`
-              : 'Play to progress'}
+              ? t('profile.vipPctToward', { pct })
+              : t('profile.vipPlayToProgress')}
       </div>
       <Link
         to="/vip"
         className="text-center text-[11px] font-semibold text-casino-muted underline transition hover:text-casino-primary"
       >
-        View VIP programme
+        {t('profile.viewVipProgramme')}
       </Link>
     </div>
   )
@@ -1236,11 +1257,14 @@ function TransactionsPanel({
   onGoTo?: (p: number) => void
   paginated?: boolean
 }) {
+  const { t, i18n } = useTranslation()
+  const lng = i18n.language
+  const txHeaders = [t('profile.txColType'), t('profile.txColAmount'), t('profile.txColDate'), t('profile.txColStatus')]
   return (
     <div className="flex flex-col gap-5 rounded-casino-lg bg-casino-card p-5 sm:p-6">
       <h3 className="flex items-center gap-2.5 text-lg font-extrabold text-casino-foreground">
         <IconArrowRightLeft size={20} className="text-casino-primary" />
-        Recent Transactions
+        {t('profile.recentTransactions')}
       </h3>
 
       {loading ? (
@@ -1249,14 +1273,14 @@ function TransactionsPanel({
         </div>
       ) : txs.length === 0 ? (
         <p className="py-10 text-center text-sm text-casino-muted">
-          {page != null && page > 0 ? 'No more transactions.' : 'No transactions yet.'}
+          {page != null && page > 0 ? t('profile.txNoMore') : t('profile.txNoneYet')}
         </p>
       ) : (
         <div className="-mx-2 overflow-x-auto sm:mx-0">
           <table className="w-full min-w-[540px] border-collapse">
             <thead>
               <tr>
-                {['Type', 'Amount', 'Date', 'Status'].map((h) => (
+                {txHeaders.map((h) => (
                   <th
                     key={h}
                     className="border-b border-white/[0.04] px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-casino-muted"
@@ -1279,8 +1303,8 @@ function TransactionsPanel({
                         <TxTypeIcon displayType={displayType} isPositive={isPositive} />
                         <span className="text-sm font-semibold text-[#e2dff0]">
                           {isManualBonusGrant(tx)
-                            ? 'Manual bonus credit'
-                            : transactionTypeLabel(tx.entry_type, tx.amount_minor, tx)}
+                            ? t('profile.manualBonusCredit')
+                            : transactionTypeLabel(tx.entry_type, tx.amount_minor, tx, t)}
                           {tx.currency !== 'USDT' ? ` (${tx.currency})` : ''}
                         </span>
                       </div>
@@ -1299,7 +1323,7 @@ function TransactionsPanel({
                       </span>
                     </td>
                     <td className="px-4 py-3.5 text-sm font-semibold text-[#e2dff0]">
-                      {formatDate(tx.created_at)}
+                      {formatTxDate(tx.created_at, t, lng)}
                     </td>
                     <td className="px-4 py-3.5">
                       <TxStatusBadge status={status} />
@@ -1371,23 +1395,24 @@ function TxTypeIcon({ displayType, isPositive }: { displayType: TxDisplayType; i
 }
 
 function TxStatusBadge({ status }: { status: TxStatus }) {
+  const { t } = useTranslation()
   switch (status) {
     case 'completed':
       return (
         <span className="inline-flex items-center rounded-full bg-casino-success/15 px-3 py-1 text-[11px] font-extrabold text-casino-success">
-          Completed
+          {t('profile.completed')}
         </span>
       )
     case 'processing':
       return (
         <span className="inline-flex items-center rounded-full bg-casino-warning/15 px-3 py-1 text-[11px] font-extrabold text-casino-warning">
-          Processing
+          {t('profile.statusProcessing')}
         </span>
       )
     case 'failed':
       return (
         <span className="inline-flex items-center rounded-full bg-casino-destructive/15 px-3 py-1 text-[11px] font-extrabold text-casino-destructive">
-          Failed
+          {t('profile.statusFailed')}
         </span>
       )
   }
@@ -1477,10 +1502,11 @@ function formatSessionTime(mins: number): string {
 }
 
 function GameHistoryPanel() {
+  const { t, i18n } = useTranslation()
+  const lng = i18n.language
   const { data, loading } = useGameHistory()
 
-  const fmtUsd = (minor: number) =>
-    `$${(minor / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const fmtUsd = (minor: number) => formatMinorUsd(minor, lng)
 
   if (loading) {
     return (
@@ -1495,11 +1521,9 @@ function GameHistoryPanel() {
       <div className="rounded-casino-lg bg-casino-card p-6">
         <h3 className="mb-4 flex items-center gap-2.5 text-lg font-extrabold text-casino-foreground">
           <IconDice5 size={20} className="text-casino-primary" />
-          Game History
+          {t('profile.gameHistoryTitle')}
         </h3>
-        <p className="py-10 text-center text-sm text-casino-muted">
-          No game history yet. Start playing to see your stats here.
-        </p>
+        <p className="py-10 text-center text-sm text-casino-muted">{t('profile.ghEmpty')}</p>
       </div>
     )
   }
@@ -1527,7 +1551,7 @@ function GameHistoryPanel() {
             <div className="flex items-center gap-2.5">
               <IconStar size={16} className="text-casino-warning" />
               <span className="text-[11px] font-extrabold uppercase tracking-wider text-casino-warning">
-                Favourite Game
+                {t('profile.favouriteGameBadge')}
               </span>
             </div>
             <h3 className="text-xl font-black text-casino-foreground sm:text-2xl">
@@ -1552,22 +1576,22 @@ function GameHistoryPanel() {
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
           icon={<IconDice5 size={24} />}
-          label="Total Sessions"
-          value={data.total_sessions.toLocaleString()}
+          label={t('profile.ghStatSessions')}
+          value={data.total_sessions.toLocaleString(lng === 'fr-CA' ? 'fr-CA' : 'en-US')}
         />
         <StatCard
           icon={<IconCoins size={24} />}
-          label="Total Wagered"
+          label={t('profile.statTotalWagered')}
           value={data.total_wagered > 0 ? fmtUsd(data.total_wagered) : '$0.00'}
         />
         <StatCard
           icon={<IconTrendingUp size={24} />}
-          label="Avg Wager / Bet"
+          label={t('profile.ghStatAvgWager')}
           value={data.avg_wager > 0 ? fmtUsd(data.avg_wager) : '$0.00'}
         />
         <StatCard
           icon={<IconTrophy size={24} />}
-          label="Total Won"
+          label={t('profile.statTotalWonLabel')}
           value={data.total_won > 0 ? fmtUsd(data.total_won) : '$0.00'}
         />
       </div>
@@ -1576,13 +1600,13 @@ function GameHistoryPanel() {
       <div className="flex flex-col gap-5 rounded-casino-lg bg-casino-card p-5 sm:p-6">
         <h3 className="flex items-center gap-2.5 text-lg font-extrabold text-casino-foreground">
           <IconDice5 size={20} className="text-casino-primary" />
-          Games Played
+          {t('profile.gamesPlayedTitle')}
         </h3>
         <div className="-mx-2 overflow-x-auto sm:mx-0">
           <table className="w-full min-w-[600px] border-collapse">
             <thead>
               <tr>
-                {['Game', 'Category', 'Sessions', 'Avg Play Time', 'Last Played'].map((h) => (
+                {[t('profile.ghColGame'), t('profile.ghColCategory'), t('profile.ghColSessions'), t('profile.ghColAvgPlay'), t('profile.ghColLastPlayed')].map((h) => (
                   <th
                     key={h}
                     className="border-b border-white/[0.04] px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-casino-muted"
@@ -1625,7 +1649,7 @@ function GameHistoryPanel() {
                     </div>
                   </td>
                   <td className="px-4 py-3.5 text-sm font-semibold text-[#e2dff0]">
-                    {formatDate(g.last_played)}
+                    {formatTxDate(g.last_played, t, lng)}
                   </td>
                 </tr>
               ))}
@@ -1709,13 +1733,15 @@ function useWallets() {
 }
 
 function WalletPanel() {
+  const { t, i18n } = useTranslation()
+  const lng = i18n.language
   const { wallets, loading } = useWallets()
 
   return (
     <div className="flex flex-col gap-5 rounded-casino-lg bg-casino-card p-5 sm:p-6">
       <h3 className="flex items-center gap-2.5 text-lg font-extrabold text-casino-foreground">
         <IconWallet size={20} className="text-casino-primary" />
-        My Wallets
+        {t('profile.myWallets')}
       </h3>
 
       {loading ? (
@@ -1723,14 +1749,12 @@ function WalletPanel() {
           <div className="size-5 animate-spin rounded-full border-2 border-casino-muted border-t-casino-primary" />
         </div>
       ) : wallets.length === 0 ? (
-        <p className="py-6 text-center text-sm text-casino-muted">
-          No wallets yet. Make a deposit to get started.
-        </p>
+        <p className="py-6 text-center text-sm text-casino-muted">{t('profile.walletEmpty')}</p>
       ) : (
         <div className="flex flex-col gap-3">
           {wallets.map((w) => {
             const meta = getCurrencyMeta(w.currency)
-            const bal = (w.balance_minor / 100).toLocaleString('en-US', {
+            const bal = (w.balance_minor / 100).toLocaleString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
             })
@@ -1759,9 +1783,9 @@ function WalletPanel() {
                     <span className="text-xs font-semibold text-casino-muted">{w.currency}</span>
                   )}
                   <span className="text-[11px] font-semibold text-casino-muted">
-                    Bonus remaining:{' '}
+                    {t('profile.bonusRemaining')}{' '}
                     <span className="text-casino-foreground">
-                      {((w.bonus_locked_minor ?? 0) / 100).toLocaleString('en-US', {
+                      {((w.bonus_locked_minor ?? 0) / 100).toLocaleString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
@@ -1798,6 +1822,7 @@ function AccountSettingsPanel({
   resendMsg: string | null
   onChangePassword: () => void
 }) {
+  const { t } = useTranslation()
   const { apiFetch, refreshProfile } = usePlayerAuth()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(username ?? '')
@@ -1812,8 +1837,14 @@ function AccountSettingsPanel({
   const save = useCallback(async () => {
     setErr(null)
     const trimmed = draft.trim()
-    if (!trimmed) { setErr('Username is required'); return }
-    if (trimmed.length < 3) { setErr('Must be at least 3 characters'); return }
+    if (!trimmed) {
+      setErr(t('settings.usernameRequired'))
+      return
+    }
+    if (trimmed.length < 3) {
+      setErr(t('settings.usernameMinLength'))
+      return
+    }
     setSaving(true)
     try {
       const res = await apiFetch('/v1/auth/profile', {
@@ -1823,29 +1854,29 @@ function AccountSettingsPanel({
       })
       if (res.ok) {
         setEditing(false)
-        setSuccessMsg('Username updated!')
+        setSuccessMsg(t('settings.usernameUpdated'))
         void refreshProfile()
         setTimeout(() => setSuccessMsg(null), 3000)
       } else {
         const j = (await res.json().catch(() => null)) as { message?: string } | null
-        setErr(j?.message ?? 'Could not update username')
+        setErr(j?.message ?? t('settings.couldNotUpdateUsername'))
       }
     } catch {
-      setErr('Network error')
+      setErr(t('settings.networkError'))
     } finally {
       setSaving(false)
     }
-  }, [apiFetch, draft, refreshProfile])
+  }, [apiFetch, draft, refreshProfile, t])
 
   return (
     <div className="flex flex-col gap-5 rounded-casino-lg bg-casino-card p-5 sm:p-6">
       <h3 className="flex items-center gap-2.5 text-lg font-extrabold text-casino-foreground">
         <IconSettings size={20} className="text-casino-primary" />
-        Account Settings
+        {t('profile.accountSettingsTitle')}
       </h3>
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-bold text-casino-muted">Username</label>
+          <label className="text-[13px] font-bold text-casino-muted">{t('settings.username')}</label>
           {editing ? (
             <div className="flex flex-col gap-2">
               <input
@@ -1854,11 +1885,11 @@ function AccountSettingsPanel({
                 onChange={(e) => setDraft(e.target.value)}
                 maxLength={20}
                 className="flex h-11 items-center rounded-casino-sm border border-casino-primary/50 bg-white/[0.015] px-4 text-sm font-semibold text-casino-foreground placeholder:text-casino-muted/60 focus:outline-none focus:ring-1 focus:ring-casino-primary/30"
-                placeholder="Choose a username"
+                placeholder={t('settings.usernamePlaceholder')}
                 autoFocus
                 onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') { setEditing(false); setErr(null) } }}
               />
-              <p className="text-[11px] text-casino-muted">3-20 characters, letters, numbers, underscores</p>
+              <p className="text-[11px] text-casino-muted">{t('settings.usernameHint')}</p>
               {err && <span className="text-xs font-semibold text-casino-destructive">{err}</span>}
               <div className="flex gap-2">
                 <button
@@ -1867,14 +1898,14 @@ function AccountSettingsPanel({
                   onClick={() => void save()}
                   className="rounded-casino-sm bg-casino-primary px-4 py-2 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? t('settings.saving') : t('settings.save')}
                 </button>
                 <button
                   type="button"
                   onClick={() => { setEditing(false); setErr(null) }}
                   className="rounded-casino-sm border border-casino-border px-4 py-2 text-xs font-bold text-casino-muted transition hover:text-casino-foreground"
                 >
-                  Cancel
+                  {t('settings.cancel')}
                 </button>
               </div>
             </div>
@@ -1888,14 +1919,14 @@ function AccountSettingsPanel({
                 onClick={() => setEditing(true)}
                 className="shrink-0 text-xs font-bold text-casino-primary hover:underline"
               >
-                Edit
+                {t('settings.edit')}
               </button>
             </div>
           )}
           {successMsg && <span className="text-xs font-semibold text-casino-success">{successMsg}</span>}
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-bold text-casino-muted">Email Address</label>
+          <label className="text-[13px] font-bold text-casino-muted">{t('settings.emailAddress')}</label>
           <div className="flex h-11 items-center rounded-casino-sm border border-casino-border bg-white/[0.015] px-4 text-sm font-semibold text-casino-muted">
             {email ? maskEmail(email) : '…'}
           </div>
@@ -1907,7 +1938,7 @@ function AccountSettingsPanel({
               className="text-sm font-semibold text-casino-warning underline"
               onClick={onResendVerification}
             >
-              Verify your email
+              {t('settings.verifyEmail')}
             </button>
             {resendMsg && <p className="mt-1.5 text-xs text-casino-muted">{resendMsg}</p>}
           </div>
@@ -1917,7 +1948,7 @@ function AccountSettingsPanel({
           onClick={onChangePassword}
           className="mt-2 flex h-11 items-center justify-center rounded-casino-sm border border-casino-primary/40 text-sm font-bold text-casino-primary transition hover:bg-casino-primary/10"
         >
-          Change Password
+          {t('settings.changePassword')}
         </button>
       </div>
     </div>
@@ -1930,16 +1961,18 @@ function AccountSettingsPanel({
 
 type SettingsSection = 'general' | 'security' | 'privacy' | 'preference' | 'sessions' | 'verify' | 'promo' | 'responsible'
 
-const SETTINGS_MENU: { key: SettingsSection; label: string; icon: React.ReactNode }[] = [
-  { key: 'general', label: 'General', icon: <IconUser size={18} /> },
-  { key: 'security', label: 'Security', icon: <IconLock size={18} /> },
-  { key: 'privacy', label: 'Privacy', icon: <IconEyeOff size={18} /> },
-  { key: 'preference', label: 'Preference', icon: <IconEye size={18} /> },
-  { key: 'sessions', label: 'Sessions', icon: <IconUsers size={18} /> },
-  { key: 'verify', label: 'Verify', icon: <IconBadgeCheck size={18} /> },
-  { key: 'promo', label: 'Promo Code', icon: <IconTicket size={18} /> },
-  { key: 'responsible', label: 'Responsible Gambling', icon: <IconGlobe size={18} /> },
-]
+function settingsMenuItems(t: TFunction): { key: SettingsSection; label: string; icon: React.ReactNode }[] {
+  return [
+    { key: 'general', label: t('settings.sidebar.general'), icon: <IconUser size={18} /> },
+    { key: 'security', label: t('settings.sidebar.security'), icon: <IconLock size={18} /> },
+    { key: 'privacy', label: t('settings.sidebar.privacy'), icon: <IconEyeOff size={18} /> },
+    { key: 'preference', label: t('settings.sidebar.preference'), icon: <IconEye size={18} /> },
+    { key: 'sessions', label: t('settings.sidebar.sessions'), icon: <IconUsers size={18} /> },
+    { key: 'verify', label: t('settings.sidebar.verify'), icon: <IconBadgeCheck size={18} /> },
+    { key: 'promo', label: t('settings.sidebar.promo'), icon: <IconTicket size={18} /> },
+    { key: 'responsible', label: t('settings.sidebar.responsible'), icon: <IconGlobe size={18} /> },
+  ]
+}
 
 function SettingsPanel({
   email,
@@ -1960,6 +1993,8 @@ function SettingsPanel({
   initialSettingsSection?: SettingsSection
   promoPrefill?: string
 }) {
+  const { t } = useTranslation()
+  const settingsMenu = useMemo(() => settingsMenuItems(t), [t])
   const [section, setSection] = useState<SettingsSection>(initialSettingsSection ?? 'general')
 
   useEffect(() => {
@@ -1970,7 +2005,7 @@ function SettingsPanel({
     <div className="flex flex-col gap-0 rounded-casino-lg bg-casino-card md:flex-row">
       {/* Sidebar */}
       <nav className="flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-white/[0.06] p-3 md:w-52 md:flex-col md:overflow-x-visible md:border-b-0 md:border-r md:p-4 lg:w-56">
-        {SETTINGS_MENU.map((item) => (
+        {settingsMenu.map((item) => (
           <button
             key={item.key}
             type="button"
@@ -2034,6 +2069,7 @@ function SettingsGeneral({
   onResendVerification: () => void
   resendMsg: string | null
 }) {
+  const { t } = useTranslation()
   const { apiFetch, refreshProfile } = usePlayerAuth()
   const [editingUsername, setEditingUsername] = useState(false)
   const [newUsername, setNewUsername] = useState(username ?? '')
@@ -2048,7 +2084,7 @@ function SettingsGeneral({
     setUsernameErr(null)
     const trimmed = newUsername.trim()
     if (!trimmed) {
-      setUsernameErr('Username is required')
+      setUsernameErr(t('settings.usernameRequired'))
       return
     }
     setSaving(true)
@@ -2063,26 +2099,26 @@ function SettingsGeneral({
         void refreshProfile()
       } else {
         const j = (await res.json().catch(() => null)) as { message?: string } | null
-        setUsernameErr(j?.message ?? 'Could not update username')
+        setUsernameErr(j?.message ?? t('settings.couldNotUpdateUsername'))
       }
     } catch {
-      setUsernameErr('Network error')
+      setUsernameErr(t('settings.networkError'))
     } finally {
       setSaving(false)
     }
-  }, [apiFetch, newUsername, refreshProfile])
+  }, [apiFetch, newUsername, refreshProfile, t])
 
   return (
     <>
-      <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">General</h3>
+      <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">{t('settings.sidebar.general')}</h3>
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-bold text-casino-muted">Username</label>
+          <label className="text-[13px] font-bold text-casino-muted">{t('settings.username')}</label>
           {editingUsername ? (
             <div className="flex flex-col gap-2">
               <SettingsInput
                 icon={<IconUser size={16} />}
-                placeholder="Choose a username"
+                placeholder={t('settings.usernamePlaceholder')}
                 value={newUsername}
                 onChange={setNewUsername}
               />
@@ -2094,14 +2130,14 @@ function SettingsGeneral({
                   onClick={() => void saveUsername()}
                   className="w-fit rounded-casino-sm bg-casino-primary px-4 py-2 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-50"
                 >
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? t('settings.saving') : t('settings.save')}
                 </button>
                 <button
                   type="button"
                   onClick={() => { setEditingUsername(false); setUsernameErr(null) }}
                   className="w-fit rounded-casino-sm border border-casino-border px-4 py-2 text-xs font-bold text-casino-muted transition hover:text-casino-foreground"
                 >
-                  Cancel
+                  {t('settings.cancel')}
                 </button>
               </div>
             </div>
@@ -2115,12 +2151,12 @@ function SettingsGeneral({
                 onClick={() => { setNewUsername(username ?? ''); setEditingUsername(true) }}
                 className="shrink-0 text-xs font-bold text-casino-primary hover:underline"
               >
-                Edit
+                {t('settings.edit')}
               </button>
             </div>
           )}
         </div>
-        <SettingsField label="Email Address" value={email ? maskEmail(email) : '…'} />
+        <SettingsField label={t('settings.emailAddress')} value={email ? maskEmail(email) : '…'} />
         {!emailVerified && (
           <div>
             <button
@@ -2128,7 +2164,7 @@ function SettingsGeneral({
               className="text-sm font-semibold text-casino-warning underline"
               onClick={onResendVerification}
             >
-              Verify your email
+              {t('settings.verifyEmail')}
             </button>
             {resendMsg && <p className="mt-1.5 text-xs text-casino-muted">{resendMsg}</p>}
           </div>

@@ -2,6 +2,7 @@
  * Left drawer menu (<1280px). Same nav targets as desktop `CasinoSidebar` — driven by `lib/casinoNav` + CMS.
  */
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { NavLink } from 'react-router-dom'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
 import {
@@ -12,13 +13,14 @@ import {
   type CasinoNavCategory,
 } from '../lib/casinoNav'
 import { useSiteContent } from '../hooks/useSiteContent'
+import { translateNavItemLabel } from '../lib/navI18n'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import CasinoNavDrawerPromo from './CasinoNavDrawerPromo'
+import { LanguageMenu } from './LanguageMenu'
 import {
   IconChevronDown,
   IconDices,
   IconFileText,
-  IconGlobe,
   IconHeadphones,
   IconMessageSquare,
   IconTrophy,
@@ -48,6 +50,7 @@ export default function MobileCasinoMenuOverlay({
   chatUnreadCount = 0,
 }: Props) {
   const [casinoOpen, setCasinoOpen] = useState(true)
+  const { t } = useTranslation()
   const { getContent } = useSiteContent()
 
   const casinoItems = getContent<CasinoNavCategory[]>('nav.categories.casino', CASINO_NAV_FALLBACK_CATEGORIES).filter(
@@ -70,14 +73,14 @@ export default function MobileCasinoMenuOverlay({
       <button
         type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-        aria-label="Close menu"
+        aria-label={t('sidebar.closeMenu')}
         onClick={onClose}
       />
       <aside
         className="relative z-10 flex h-full w-[min(82vw,320px)] max-w-[320px] flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.5)]"
         role="dialog"
         aria-modal="true"
-        aria-label="Casino menu"
+        aria-label={t('sidebar.casinoMenu')}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-3 pb-2 pt-[max(10px,env(safe-area-inset-top))]">
@@ -86,14 +89,14 @@ export default function MobileCasinoMenuOverlay({
             type="button"
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-casino-chip text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06]"
             onClick={onClose}
-            aria-label="Close menu"
+            aria-label={t('sidebar.closeMenu')}
           >
             <IconX size={20} aria-hidden />
           </button>
         </div>
 
         <nav
-          className="scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain px-3 pt-3 max-md:pb-[calc(64px+env(safe-area-inset-bottom,0px)+16px)] md:pb-8"
+          className="scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain px-3 pt-3 max-md:pb-[calc(var(--casino-mobile-nav-offset)+16px)] md:pb-8"
           onClick={() => onClose()}
         >
           <button
@@ -107,7 +110,7 @@ export default function MobileCasinoMenuOverlay({
           >
             <span className="flex min-w-0 items-center gap-2.5">
               <IconDices size={15} className="shrink-0 text-white/90" aria-hidden />
-              Casino
+              {t('sidebar.casino')}
             </span>
             <IconChevronDown
               size={15}
@@ -133,6 +136,7 @@ export default function MobileCasinoMenuOverlay({
             .map((item) => {
               const to = casinoNavRoute(item.id)
               if (!to) return null
+              const label = translateNavItemLabel(t, 'extras', item)
               return (
                 <NavLink
                   key={item.id}
@@ -142,23 +146,19 @@ export default function MobileCasinoMenuOverlay({
                   }
                 >
                   <IconTrophy size={17} aria-hidden />
-                  {item.label}
+                  {label}
                 </NavLink>
               )
             })}
 
           <div className="my-2 h-px bg-casino-border" role="separator" />
 
-          <button type="button" className={`${row} cursor-default`}>
-            <IconGlobe size={17} aria-hidden />
-            Language
-            <IconChevronDown size={15} className="ml-auto opacity-70" aria-hidden />
-          </button>
+          <LanguageMenu variant="drawer" buttonClassName={row} />
           {onOpenChat ? (
             <button
               type="button"
               className={`${row} relative ${chatOpen ? 'bg-casino-primary/22 text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary' : ''}`}
-              aria-label="Live chat"
+              aria-label={t('sidebar.liveChat')}
               aria-pressed={chatOpen}
               onClick={(e) => {
                 e.stopPropagation()
@@ -166,7 +166,7 @@ export default function MobileCasinoMenuOverlay({
               }}
             >
               <IconMessageSquare size={17} className="shrink-0 opacity-90" aria-hidden />
-              Live chat
+              {t('sidebar.liveChat')}
               {chatUnreadCount > 0 && !chatOpen ? (
                 <span className="ml-auto rounded-full bg-casino-segment px-1.5 py-0.5 text-[10px] font-bold text-casino-bg">
                   {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
@@ -176,11 +176,11 @@ export default function MobileCasinoMenuOverlay({
           ) : null}
           <NavLink to="/casino/games#help" className={row}>
             <IconHeadphones size={17} aria-hidden />
-            Live Support
+            {t('sidebar.liveSupport')}
           </NavLink>
           <NavLink to="/casino/games#blog" className={row}>
             <IconFileText size={17} aria-hidden />
-            Blog
+            {t('sidebar.blog')}
           </NavLink>
         </nav>
       </aside>

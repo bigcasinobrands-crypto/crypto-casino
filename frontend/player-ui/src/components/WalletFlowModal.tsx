@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState, type FC } from 'react'
+import { useTranslation } from 'react-i18next'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
 import { usePlayerAuth } from '../playerAuth'
@@ -32,6 +33,7 @@ type WalletFlowModalProps = {
 const MIN_USD = 10
 
 const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }) => {
+  const { t } = useTranslation()
   const titleId = useId()
   const { balanceMinor } = usePlayerAuth()
   const logoUrls = useCryptoLogoUrlMap()
@@ -107,7 +109,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
     setAmountErr(null)
     const parsed = Number(amountUsd.replace(',', '.'))
     if (!Number.isFinite(parsed) || parsed < MIN_USD) {
-      setAmountErr(`Enter at least ${MIN_USD} USD.`)
+      setAmountErr(t('wallet.enterMinUsd', { min: MIN_USD }))
       return
     }
     setCommittedAmountUsd(parsed.toFixed(2))
@@ -124,7 +126,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
       <button
         type="button"
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        aria-label="Close"
+        aria-label={t('wallet.close')}
         onClick={onClose}
       />
       <div
@@ -136,13 +138,13 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
         <h2 id={titleId} className="sr-only">
           {mainTab === 'deposit'
             ? depositFlowStep === 'address'
-              ? 'Deposit address'
+              ? t('wallet.srDepositAddress')
               : depositFlowStep === 'sent'
-                ? 'Deposit submitted'
-                : 'Deposit funds'
+                ? t('wallet.srDepositSubmitted')
+                : t('wallet.srDepositFunds')
             : withdrawFlowStep === 'success'
-              ? 'Withdrawal status'
-              : 'Withdraw funds'}
+              ? t('wallet.srWithdrawStatus')
+              : t('wallet.srWithdrawFunds')}
         </h2>
         <div className="flex shrink-0 items-stretch border-b border-casino-border">
           <button
@@ -154,7 +156,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
             }`}
             onClick={() => setMainTab('deposit')}
           >
-            Deposit
+            {t('wallet.deposit')}
           </button>
           <button
             type="button"
@@ -165,13 +167,13 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
             }`}
             onClick={() => setMainTab('withdraw')}
           >
-            Withdraw
+            {t('wallet.withdraw')}
           </button>
           <button
             type="button"
             className="flex w-10 shrink-0 items-center justify-center text-base text-casino-muted hover:text-casino-foreground"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('wallet.close')}
           >
             ×
           </button>
@@ -208,7 +210,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
                     onClick={continueToAddressInModal}
                     className="w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110"
                   >
-                    Continue
+                    {t('wallet.continue')}
                   </button>
                 </div>
               </>

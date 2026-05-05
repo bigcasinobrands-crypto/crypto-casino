@@ -1,4 +1,5 @@
 import { useEffect, useState, type FC } from 'react'
+import { useTranslation } from 'react-i18next'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { playerApiUrl } from '../lib/playerApiUrl'
 
@@ -123,6 +124,7 @@ function duplicateRowsForMarquee(rows: Row[], fullPasses: number): Row[] {
 }
 
 const AcceptedCurrenciesStrip: FC = () => {
+  const { t } = useTranslation()
   const reduceMotion = usePrefersReducedMotion()
   const [rows, setRows] = useState<Row[]>(() =>
     ACCEPTED_CURRENCIES_STATIC.map((c) => ({ code: c.code, name: c.name })),
@@ -142,19 +144,21 @@ const AcceptedCurrenciesStrip: FC = () => {
         if (cancelled) return
 
         if (!res.ok) {
-          setStatusNote(data.error ? `Prices unavailable (${data.error}).` : 'Prices temporarily unavailable.')
-          return
-        }
-
-        if (data.error === 'not_configured') {
           setStatusNote(
-            'Live prices need COINMARKETCAP_API_KEY in services/core/.env (then restart the API).',
+            data.error
+              ? t('crypto.pricesUnavailableWithError', { error: data.error })
+              : t('crypto.pricesUnavailable'),
           )
           return
         }
 
+        if (data.error === 'not_configured') {
+          setStatusNote(t('crypto.pricesNeedApiKey'))
+          return
+        }
+
         if (!Array.isArray(data.currencies) || data.currencies.length === 0) {
-          if (data.error) setStatusNote(`Prices unavailable (${data.error}).`)
+          if (data.error) setStatusNote(t('crypto.pricesUnavailableWithError', { error: data.error }))
           return
         }
 
@@ -176,17 +180,17 @@ const AcceptedCurrenciesStrip: FC = () => {
           }),
         )
       } catch {
-        setStatusNote('Could not load prices — check that the API is running.')
+        setStatusNote(t('crypto.couldNotLoad'))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   return (
     <div>
-      <div className="mb-3 text-[11px] font-extrabold text-casino-foreground">Crypto prices</div>
+      <div className="mb-3 text-[11px] font-extrabold text-casino-foreground">{t('crypto.stripTitle')}</div>
       {statusNote ? (
         <p className="mb-3 rounded-[4px] border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[9px] leading-snug text-amber-200/90">
           {statusNote}
@@ -195,7 +199,7 @@ const AcceptedCurrenciesStrip: FC = () => {
       <div
         className="relative -mx-1 w-full overflow-hidden py-0.5"
         role="region"
-        aria-label="Cryptocurrency prices, scrolling"
+        aria-label={t('crypto.regionAriaLabel')}
       >
         <div
           className={

@@ -1,3 +1,4 @@
+import i18n from '../../i18n'
 import type { VipProgramTier } from '../../lib/vipPresentation'
 import type { PlayerChallengeListItem } from './playerChallengeTypes'
 
@@ -20,8 +21,8 @@ export function prizeLabel(c: PlayerChallengeListItem): { label: string; cash: b
   if (c.prize_type === 'cash' && typeof c.prize_amount_minor === 'number') {
     return { label: formatUsdMinor(c.prize_amount_minor, c.prize_currency ?? 'USDT'), cash: true }
   }
-  if (c.prize_type === 'free_spins') return { label: 'Free spins', cash: false }
-  if (c.prize_type === 'bonus') return { label: 'Bonus credit', cash: false }
+  if (c.prize_type === 'free_spins') return { label: i18n.t('challenges.prizeFreeSpins'), cash: false }
+  if (c.prize_type === 'bonus') return { label: i18n.t('challenges.prizeBonusCredit'), cash: false }
   return { label: c.prize_type.replace(/_/g, ' '), cash: false }
 }
 
@@ -94,7 +95,8 @@ export function formatStartsInCountdown(ms: number): string {
   const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60
   const pad = (n: number) => n.toString().padStart(2, '0')
-  if (d > 0) return `${d}d ${pad(h)}:${pad(m)}:${pad(s)}`
+  const D = i18n.t('duration.day')
+  if (d > 0) return `${d}${D} ${pad(h)}:${pad(m)}:${pad(s)}`
   return `${pad(h)}:${pad(m)}:${pad(s)}`
 }
 
@@ -116,16 +118,20 @@ export function formatEndsCountdown(iso: string, nowMs: number): string {
   const end = parseTimeMs(iso)
   if (!Number.isFinite(end)) return '—'
   const msLeft = end - nowMs
-  if (msLeft <= 0) return 'Ended'
+  if (msLeft <= 0) return i18n.t('challenges.countdownEnded')
   const sec = Math.floor(msLeft / 1000)
   const d = Math.floor(sec / 86400)
   const h = Math.floor((sec % 86400) / 3600)
   const m = Math.floor((sec % 3600) / 60)
   const s = sec % 60
-  if (d > 0) return `${d}d ${h}h ${m}m`
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
+  const D = i18n.t('duration.day')
+  const H = i18n.t('duration.hour')
+  const M = i18n.t('duration.minute')
+  const S = i18n.t('duration.second')
+  if (d > 0) return `${d}${D} ${h}${H} ${m}${M}`
+  if (h > 0) return `${h}${H} ${m}${M} ${s}${S}`
+  if (m > 0) return `${m}${M} ${s}${S}`
+  return `${s}${S}`
 }
 
 export function resolveVipTierMeta(vipTiers: VipProgramTier[], vipTierMinimum?: string) {
@@ -133,7 +139,11 @@ export function resolveVipTierMeta(vipTiers: VipProgramTier[], vipTierMinimum?: 
   const id = raw ? Number.parseInt(raw, 10) : NaN
   const tier = Number.isFinite(id) ? vipTiers.find((t) => t.id === id) : undefined
   const color = tier?.perks?.display?.header_color?.trim() || '#7b61ff'
-  return { tier, color, label: tier?.name?.trim() ? `VIP · ${tier.name}` : 'VIP' }
+  return {
+    tier,
+    color,
+    label: tier?.name?.trim() ? i18n.t('vipPage.vipLabelPrefix', { name: tier.name }) : 'VIP',
+  }
 }
 
 export function ChallengeThumbBadgeStack({
@@ -148,7 +158,7 @@ export function ChallengeThumbBadgeStack({
   if (!showFeatured && !showVip) return null
 
   const { color: vipColor, label: vipLabel } = resolveVipTierMeta(vipTiers, challenge.vip_tier_minimum)
-  const featuredText = (challenge.badge_label?.trim() || 'Featured').toUpperCase()
+  const featuredText = (challenge.badge_label?.trim() || i18n.t('challenges.featuredDefault')).toUpperCase()
 
   return (
     <div className="pointer-events-none absolute right-2 top-2 z-10 flex max-w-[min(10rem,calc(100%-1rem))] flex-col items-end gap-0.5">
@@ -172,5 +182,6 @@ export function ChallengeThumbBadgeStack({
 export function formatChallengeEndAt(iso: string): string {
   const t = new Date(iso).getTime()
   if (!Number.isFinite(t)) return '—'
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  const lng = i18n.language === 'fr-CA' ? 'fr-CA' : 'en-US'
+  return new Date(iso).toLocaleString(lng, { dateStyle: 'medium', timeStyle: 'short' })
 }

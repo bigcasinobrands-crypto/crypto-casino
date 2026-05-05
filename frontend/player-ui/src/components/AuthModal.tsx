@@ -1,5 +1,6 @@
-import { useEffect, useId } from 'react'
+import { useEffect, useId, useMemo } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuthModal, type AuthPanel } from '../authModalContext'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { useSiteContent } from '../hooks/useSiteContent'
@@ -9,31 +10,35 @@ import { IconShieldCheck } from './icons'
 
 const REMEMBER_KEY = 'player_remember_login_id'
 
-const panelCopy: Record<AuthPanel, { kicker: string; title: string; subtitle: string }> = {
-  login: {
-    kicker: 'Welcome back',
-    title: 'Sign in',
-    subtitle: 'Use your email and password to continue.',
-  },
-  register: {
-    kicker: 'Create your account',
-    title: 'Register',
-    subtitle: 'Use your email and a strong password (12+ characters).',
-  },
-  forgot: {
-    kicker: 'Account help',
-    title: 'Reset password',
-    subtitle: "We'll email a reset link if that address has an account.",
-  },
-}
-
 export function AuthModal() {
+  const { t } = useTranslation()
   const { panel, closeAuth, setPanel } = useAuthModal()
   const { isAuthenticated } = usePlayerAuth()
   const { getContent } = useSiteContent()
   const siteLabel = (getContent<string>('branding.site_name', '') ?? '').trim() || 'vybebet'
   const titleId = useId()
   const descId = useId()
+
+  const copy = useMemo(() => {
+    const panels: Record<AuthPanel, { kicker: string; title: string; subtitle: string }> = {
+      login: {
+        kicker: t('auth.welcomeBack'),
+        title: t('auth.signIn'),
+        subtitle: t('auth.signInSubtitle'),
+      },
+      register: {
+        kicker: t('auth.createAccount'),
+        title: t('auth.register'),
+        subtitle: t('auth.registerSubtitle'),
+      },
+      forgot: {
+        kicker: t('auth.accountHelp'),
+        title: t('auth.resetPassword'),
+        subtitle: t('auth.resetSubtitle'),
+      },
+    }
+    return panel ? panels[panel] : null
+  }, [panel, t])
 
   useEffect(() => {
     if (isAuthenticated && panel) closeAuth()
@@ -57,9 +62,7 @@ export function AuthModal() {
     return () => window.removeEventListener('keydown', onKey)
   }, [panel, closeAuth])
 
-  if (!panel) return null
-
-  const copy = panelCopy[panel]
+  if (!panel || !copy) return null
 
   return createPortal(
     <div
@@ -69,7 +72,7 @@ export function AuthModal() {
       <button
         type="button"
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        aria-label="Close"
+        aria-label={t('auth.close')}
         onClick={closeAuth}
       />
       <div
@@ -83,7 +86,7 @@ export function AuthModal() {
           type="button"
           className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-casino-md text-sm text-casino-muted transition hover:bg-casino-elevated hover:text-casino-foreground sm:right-3 sm:top-3 sm:h-8 sm:w-8 sm:text-base"
           onClick={closeAuth}
-          aria-label="Close"
+          aria-label={t('auth.close')}
         >
           ×
         </button>

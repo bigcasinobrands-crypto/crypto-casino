@@ -1,5 +1,7 @@
+import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
@@ -75,20 +77,20 @@ function requestGameFullscreen(el: HTMLElement): Promise<void> {
   return Promise.reject(new Error('fullscreen not supported'))
 }
 
-function launchErrorMessage(code: string | undefined, fallback: string) {
+function launchErrorMessage(code: string | undefined, fallback: string, t: TFunction) {
   switch (code) {
     case 'maintenance':
-      return 'The site is in maintenance mode. Try again later.'
+      return t('gameLobby.error.maintenance')
     case 'launch_disabled':
-      return 'Game launch is temporarily disabled.'
+      return t('gameLobby.error.launch_disabled')
     case 'geo_blocked':
-      return 'Games are not available in your region.'
+      return t('gameLobby.error.geo_blocked')
     case 'self_excluded':
-      return 'Your account is self-excluded from play.'
+      return t('gameLobby.error.self_excluded')
     case 'account_closed':
-      return 'This account is closed.'
+      return t('gameLobby.error.account_closed')
     case 'bog_unconfigured':
-      return 'Games are not available (provider not configured).'
+      return t('gameLobby.error.bog_unconfigured')
     case 'bog_error':
       if (/invalid\s+user\s+details/i.test(fallback)) {
         // Prefer full API message — core API appends snapshot/agent/IP hints after this phrase.
@@ -99,29 +101,18 @@ function launchErrorMessage(code: string | undefined, fallback: string) {
         /demo\s+game\s+not\s+available|not\s+available\s+at\s+this\s+moment/i.test(fallback) ||
         (/demo/i.test(fallback) && /not\s+available/i.test(fallback))
       ) {
-        return 'The provider refused free play for this title right now (sandbox limits, staging, or a temporary outage). You can try real money play if your wallet is funded, or try again later.'
+        return t('gameLobby.error.providerRefusedFreePlay')
       }
       return fallback
     case 'demo_unavailable':
-      return 'Demo play is not available for this game.'
+      return t('gameLobby.error.demo_unavailable')
     case 'not_found':
-      return 'Game not found or unavailable.'
+      return t('gameLobby.error.not_found')
     case 'unauthorized':
-      return 'Your session expired or is invalid. Sign out and sign in again, then reopen this game.'
+      return t('gameLobby.error.unauthorized')
     default:
       return fallback
   }
-}
-
-/** Launch overlay message implies provider rejected free/demo play — offer real play when allowed. */
-function providerRefusedFreePlay(launchErrText: string): boolean {
-  const t = launchErrText.toLowerCase()
-  return (
-    t.includes('refused free play') ||
-    t.includes('demo game not available') ||
-    t.includes('not available at this moment') ||
-    (t.includes('demo') && t.includes('not available'))
-  )
 }
 
 type GameLaunchErrorModalProps = {
@@ -143,6 +134,7 @@ function GameLaunchErrorModal({
   backLabel,
   onBack,
 }: GameLaunchErrorModalProps) {
+  const { t } = useTranslation()
   if (typeof document === 'undefined') return null
   return createPortal(
     <div
@@ -154,18 +146,18 @@ function GameLaunchErrorModal({
       <button
         type="button"
         className="absolute inset-0 border-0 bg-black/75 backdrop-blur-sm"
-        aria-label="Dismiss error"
+        aria-label={t('gameLobby.dismissError')}
         onClick={onDismiss}
       />
       <div className="relative flex max-h-[min(88vh,36rem)] w-full max-w-md flex-col overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-2xl">
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-casino-border px-4 py-3">
           <h2 id="game-launch-error-title" className="text-sm font-bold text-casino-foreground">
-            Could not load the game
+            {t('gameLobby.errorModalTitle')}
           </h2>
           <button
             type="button"
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-casino-muted transition hover:bg-casino-elevated hover:text-casino-foreground"
-            aria-label="Close"
+            aria-label={t('gameLobby.close')}
             onClick={onDismiss}
           >
             <IconX size={18} aria-hidden />
@@ -174,10 +166,10 @@ function GameLaunchErrorModal({
         <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <p className="break-words text-[12px] leading-snug text-red-300/95">{launchErr}</p>
           <p className="mt-2 text-[11px] leading-relaxed text-casino-muted">
-            This is common in staging when the provider sandbox is down or IP-blocked.
+            {t('gameLobby.errorStagingHint1')}
           </p>
           <p className="mt-2 text-[11px] leading-relaxed text-casino-muted">
-            Check your connection or try again. If this persists, contact support.
+            {t('gameLobby.errorStagingHint2')}
           </p>
           <div className="mt-4 flex flex-col gap-2">
             <button
@@ -185,7 +177,7 @@ function GameLaunchErrorModal({
               className="rounded-casino-md bg-white px-4 py-2.5 text-xs font-semibold text-zinc-900 transition hover:bg-white/90"
               onClick={onRetry}
             >
-              Try again
+              {t('gameLobby.tryAgain')}
             </button>
             {showTryReal ? (
               <button
@@ -193,7 +185,7 @@ function GameLaunchErrorModal({
                 className="rounded-casino-md border border-casino-primary/55 bg-casino-primary/20 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-casino-primary/30"
                 onClick={onTryReal}
               >
-                Try real money play
+                {t('gameLobby.tryRealMoneyPlay')}
               </button>
             ) : null}
             <button
@@ -284,12 +276,6 @@ const relatedGameCardShell =
 /** Match `LobbyPage` / `player-casino-max` gutters so the lobby reads at the same scale as the catalog on phones. */
 const lobbyRailInner = 'mx-auto w-full max-w-[min(100%,90rem)] px-4 sm:px-5 md:px-6 lg:px-8'
 
-/** Preview copy when catalog metadata has no description (mobile lobby block). */
-const GAME_LOBBY_DESCRIPTION_FALLBACK =
-  'Step into a vivid slot inspired by folk art and mythic creatures. Spin through colourful reels, chase bonus rounds, and dial the pace to match your style.\n\n' +
-  'Try demo play to learn symbols and features without risking balance. When you switch to real play, keep sessions measured—set limits, take breaks, and treat gameplay as entertainment.\n\n' +
-  'Provider rules, RTP ranges, and feature availability can vary by region. This placeholder appears until your catalog supplies a description for this title.'
-
 /** Above this length, mobile description uses show more / show less. */
 const MOBILE_GAME_DESC_TOGGLE_CHARS = 260
 
@@ -324,11 +310,14 @@ export default function GameLobbyPage() {
   const { openAuth } = useAuthModal()
   const { mini, openMini, closeMini } = usePersistentMiniPlayer()
   const thisGameInMini = Boolean(gameId && mini?.gameId === gameId)
+  const { t } = useTranslation()
 
   const [meta, setMeta] = useState<GameMeta | null>(null)
   const [metaErr, setMetaErr] = useState<string | null>(null)
   const [iframeUrl, setIframeUrl] = useState<string | null>(null)
   const [launchErr, setLaunchErr] = useState<string | null>(null)
+  /** API `code` from last failed `/v1/games/launch` — locale-safe (not translated message text). */
+  const [launchFailCode, setLaunchFailCode] = useState<string | undefined>(undefined)
   const [launchRetryNonce, setLaunchRetryNonce] = useState(0)
   const [launchModeChoice, setLaunchModeChoice] = useState<LaunchPlayMode | null>(null)
   /** After Real/Demo (or auto-start on narrow viewports), enter fullscreen on the iframe shell as soon as the game URL is ready. */
@@ -337,6 +326,7 @@ export default function GameLobbyPage() {
   const [iframeStageReady, setIframeStageReady] = useState(false)
   const [, bumpFav] = useState(0)
   const refreshFav = useCallback(() => bumpFav((n) => n + 1), [])
+  const descriptionFallback = useMemo(() => t('gameLobby.descriptionFallback'), [t])
   /** Encodes how we fetch “recommended” tiles: same studio → else same category → else newest catalog slice. */
   const relatedFetchKey = useMemo(() => {
     if (!isAuthenticated || !gameId || !meta) return null
@@ -443,14 +433,14 @@ export default function GameLobbyPage() {
           const apiErr = await readApiError(res)
           const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
           toastPlayerApiError(apiErr, res.status, `GET ${statsPath}`, rid)
-          if (!cancelled) setStatsErr(formatApiError(apiErr, 'Could not load statistics'))
+          if (!cancelled) setStatsErr(formatApiError(apiErr, t('gameLobby.statsCouldNotLoad')))
           return
         }
         const j = (await res.json()) as BlueOceanInfoResponse
         if (!cancelled) setStatsData(j)
       } catch {
         toastPlayerNetworkError('Network error.', 'GET /v1/games/.../blueocean-info')
-        if (!cancelled) setStatsErr('Network error.')
+        if (!cancelled) setStatsErr(t('profile.networkErrorShort'))
       } finally {
         if (!cancelled) setStatsLoading(false)
       }
@@ -458,7 +448,7 @@ export default function GameLobbyPage() {
     return () => {
       cancelled = true
     }
-  }, [statsOpen, isAuthenticated, gameId, apiFetch])
+  }, [statsOpen, isAuthenticated, gameId, apiFetch, t])
 
   useEffect(() => {
     if (!statsOpen) return
@@ -496,13 +486,13 @@ export default function GameLobbyPage() {
     }
     openMini({
       iframeUrl,
-      title: meta?.title?.trim() || 'Game',
+      title: meta?.title?.trim() || t('gameLobby.thisGame'),
       gameId,
       thumbSrc: theaterPosterSrc || '',
-      providerLabel: meta?.provider_system?.trim() || meta?.provider?.trim() || 'Casino',
+      providerLabel: meta?.provider_system?.trim() || meta?.provider?.trim() || t('gameLobby.casinoProviderFallback'),
     })
     if (document.fullscreenElement) void document.exitFullscreen()
-  }, [iframeUrl, thisGameInMini, closeMini, openMini, meta, gameId, theaterPosterSrc])
+  }, [iframeUrl, thisGameInMini, closeMini, openMini, meta, gameId, theaterPosterSrc, t])
 
   useEffect(() => {
     if (!thisGameInMini || statsOpen) return
@@ -525,25 +515,25 @@ export default function GameLobbyPage() {
           const parsed = await readApiError(res)
           const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
           toastPlayerApiError(parsed, res.status, `GET ${metaPath}`, rid)
-          if (!cancelled) setMetaErr('Could not load game details.')
+          if (!cancelled) setMetaErr(t('gameLobby.couldNotLoadDetails'))
           return
         }
         const j = (await res.json()) as { games: GameMeta[] }
         const g = j.games?.[0]
         if (!g) {
-          if (!cancelled) setMetaErr('Game not found.')
+          if (!cancelled) setMetaErr(t('gameLobby.gameNotFound'))
           return
         }
         if (!cancelled) setMeta(g)
       } catch {
         toastPlayerNetworkError('Network error loading game.', 'GET /v1/games (game meta)')
-        if (!cancelled) setMetaErr('Network error loading game.')
+        if (!cancelled) setMetaErr(t('gameLobby.networkLoadingGame'))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [gameId])
+  }, [gameId, t])
 
   useEffect(() => {
     if (!isAuthenticated || !gameId || !launchModeChoice) return
@@ -551,6 +541,7 @@ export default function GameLobbyPage() {
     void (async () => {
       if (!cancelled) {
         setLaunchErr(null)
+        setLaunchFailCode(undefined)
         setIframeUrl(null)
       }
       try {
@@ -565,7 +556,7 @@ export default function GameLobbyPage() {
         if (!res.ok) {
           const apiErr = await readApiError(res)
           const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          const msg = launchErrorMessage(apiErr?.code, formatApiError(apiErr, 'Launch failed'))
+          const msg = launchErrorMessage(apiErr?.code, formatApiError(apiErr, t('gameLobby.launchFailed')), t)
           toastPlayerApiError(
             apiErr ? { ...apiErr, message: msg } : null,
             res.status,
@@ -574,12 +565,14 @@ export default function GameLobbyPage() {
           )
           if (!cancelled) {
             setRequestedImmersiveLaunch(false)
+            setLaunchFailCode(apiErr?.code)
             setLaunchErr(msg)
           }
           return
         }
         const j = (await res.json()) as { url: string }
         if (!cancelled) {
+          setLaunchFailCode(undefined)
           setIframeUrl(j.url)
           pushRecent(gameId)
         }
@@ -590,14 +583,15 @@ export default function GameLobbyPage() {
         )
         if (!cancelled) {
           setRequestedImmersiveLaunch(false)
-          setLaunchErr('Network error while launching. Check your connection and try again.')
+          setLaunchFailCode(undefined)
+          setLaunchErr(t('gameLobby.networkLaunching'))
         }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated, apiFetch, gameId, launchModeChoice, launchRetryNonce])
+  }, [isAuthenticated, apiFetch, gameId, launchModeChoice, launchRetryNonce, t])
 
   useLayoutEffect(() => {
     if (!iframeUrl?.trim() || !requestedImmersiveLaunch || thisGameInMini) return
@@ -754,16 +748,20 @@ export default function GameLobbyPage() {
     return <Navigate to="/casino/games" replace />
   }
 
-  const title = meta?.title ?? (metaLoading ? 'Loading game…' : 'Game lobby')
+  const title = meta?.title ?? (metaLoading ? t('gameLobby.loadingGame') : t('gameLobby.gameLobbyTitle'))
   const providerLabel =
-    meta?.provider_system?.trim() || meta?.provider?.trim() || (metaLoading ? '…' : 'Casino')
+    meta?.provider_system?.trim() ||
+    meta?.provider?.trim() ||
+    (metaLoading ? '…' : t('gameLobby.casinoProviderFallback'))
   const edgeLabel =
-    meta?.live || meta?.category?.toLowerCase() === 'live' ? 'Live table' : 'Casino play'
+    meta?.live || meta?.category?.toLowerCase() === 'live'
+      ? t('gameLobby.edgeLiveTable')
+      : t('gameLobby.edgeCasinoPlay')
   const popOutButtonTitle = thisGameInMini
-    ? 'Return game to theater'
+    ? t('gameLobby.popOutReturnTheater')
     : mini && mini.gameId !== gameId
-      ? 'Pop out this game (replaces current mini player)'
-      : 'Pop out game (bottom-right mini player)'
+      ? t('gameLobby.popOutReplace')
+      : t('gameLobby.popOutDefault')
   const launchPending = Boolean(
     isAuthenticated && launchModeChoice !== null && !metaErr && !iframeUrl && !launchErr,
   )
@@ -780,7 +778,7 @@ export default function GameLobbyPage() {
   const showMobileFramelessPlayer = Boolean(showInlinePlayer && viewportBelowXl)
   const gameDescription = meta?.description?.trim() ?? ''
   const mobileLobbyDisplayDescription =
-    meta && !metaErr ? gameDescription || GAME_LOBBY_DESCRIPTION_FALLBACK : ''
+    meta && !metaErr ? gameDescription || descriptionFallback : ''
   const mobileLobbyDescNeedsToggle = mobileLobbyDisplayDescription.length > MOBILE_GAME_DESC_TOGGLE_CHARS
   const showMobilePlayButtons = Boolean(
     isAuthenticated && meta && !metaErr && !iframeUrl && !thisGameInMini && !launchPending,
@@ -806,6 +804,7 @@ export default function GameLobbyPage() {
     }
     setIframeUrl(null)
     setLaunchErr(null)
+    setLaunchFailCode(undefined)
     setLaunchModeChoice(null)
   }, [])
 
@@ -828,7 +827,7 @@ export default function GameLobbyPage() {
             className="mt-3 inline-block text-casino-primary underline"
             onClick={goBackToCatalog}
           >
-            Back to games
+            {t('gameLobby.backToGames')}
           </button>
         </div>
       ) : null}
@@ -842,12 +841,12 @@ export default function GameLobbyPage() {
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <button
                       type="button"
-                      aria-label="Back to games"
+                      aria-label={t('gameLobby.backToGamesAria')}
                       className="inline-flex shrink-0 items-center gap-0.5 rounded-[4px] px-1.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10 hover:text-white sm:gap-1 sm:px-2 sm:py-1.5 sm:text-xs"
                       onClick={goBackToCatalog}
                     >
                       <IconChevronLeft size={14} aria-hidden />
-                      <span className="hidden sm:inline">Games</span>
+                      <span className="hidden sm:inline">{t('gameLobby.gamesLink')}</span>
                     </button>
                     <span className="rounded bg-white/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-white/85 sm:px-2 sm:py-0.5 sm:text-[10px]">
                       {edgeLabel}
@@ -868,9 +867,7 @@ export default function GameLobbyPage() {
                       type="button"
                       className={chromeIconBtn}
                       title={
-                        isAuthenticated
-                          ? 'Game statistics (Blue Ocean)'
-                          : 'Sign in to view game statistics'
+                        isAuthenticated ? t('gameLobby.statsSignedIn') : t('gameLobby.statsSignedOut')
                       }
                       disabled={!gameId}
                       onClick={() => {
@@ -888,10 +885,10 @@ export default function GameLobbyPage() {
                       className={chromeIconBtn}
                       title={
                         thisGameInMini
-                          ? 'Return the game to the theater to use full screen'
+                          ? t('gameLobby.fsReturnTheater')
                           : isFullscreen
-                            ? 'Exit full screen'
-                            : 'Full screen'
+                            ? t('gameLobby.exitFullscreen')
+                            : t('gameLobby.enterFullscreen')
                       }
                       disabled={thisGameInMini}
                       onClick={() => toggleFullscreen()}
@@ -933,15 +930,15 @@ export default function GameLobbyPage() {
                       className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/65 p-3 text-center backdrop-blur-[2px] sm:gap-3 sm:p-5"
                       role="status"
                       aria-live="polite"
-                      aria-label="Game window loading"
+                      aria-label={t('gameLobby.gameWindowLoadingAria')}
                     >
                       <div
                         className="size-9 animate-spin rounded-full border-2 border-white/20 border-t-casino-primary sm:size-10"
                         aria-hidden
                       />
-                      <p className="text-xs font-semibold text-white sm:text-sm">Opening game…</p>
+                      <p className="text-xs font-semibold text-white sm:text-sm">{t('gameLobby.openingGame')}</p>
                       <p className="max-w-sm px-1 text-[11px] text-white/55 sm:text-xs">
-                        The provider window can stay dark for a few seconds while the game boots.
+                        {t('gameLobby.providerBootHint')}
                       </p>
                     </div>
                   ) : null}
@@ -960,10 +957,10 @@ export default function GameLobbyPage() {
                       type="button"
                       title={
                         !isAuthenticated
-                          ? 'Sign in to save favourites'
+                          ? t('gameLobby.favouriteSignIn')
                           : isFavourite(meta.id)
-                            ? 'Remove favourite'
-                            : 'Favourite'
+                            ? t('gameLobby.removeFavourite')
+                            : t('gameLobby.favourite')
                       }
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-base text-amber-400/90 transition hover:bg-white/10 sm:h-9 sm:w-9 sm:text-lg"
                       onClick={onFavouriteClick}
@@ -977,7 +974,7 @@ export default function GameLobbyPage() {
               </div>
               <div className={`${lobbyRailInner} shrink-0`}>
                 <p className="py-1 text-center text-[11px] text-casino-muted sm:text-xs">
-                  Having trouble?{' '}
+                  {t('gameLobby.havingTrouble')}{' '}
                   <button
                     type="button"
                     className="font-medium text-casino-primary underline-offset-2 hover:underline"
@@ -988,10 +985,11 @@ export default function GameLobbyPage() {
                       }
                       setIframeUrl(null)
                       setLaunchErr(null)
+                      setLaunchFailCode(undefined)
                       setLaunchModeChoice(null)
                     }}
                   >
-                    Reload player
+                    {t('gameLobby.reloadPlayer')}
                   </button>
                 </p>
               </div>
@@ -1037,7 +1035,7 @@ export default function GameLobbyPage() {
                       <button
                         type="button"
                         className="pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-black/55 text-white shadow-[0_4px_16px_rgba(0,0,0,0.45)] ring-1 ring-white/[0.12] backdrop-blur-sm transition hover:bg-black/70"
-                        aria-label="Close game"
+                        aria-label={t('gameLobby.closeGameAria')}
                         onClick={exitMobileImmersivePlayer}
                       >
                         <IconChevronLeft size={20} aria-hidden />
@@ -1060,7 +1058,7 @@ export default function GameLobbyPage() {
                           type="button"
                           className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
                           title={
-                            isAuthenticated ? 'Game statistics (Blue Ocean)' : 'Sign in to view game statistics'
+                            isAuthenticated ? t('gameLobby.statsSignedIn') : t('gameLobby.statsSignedOut')
                           }
                           disabled={!gameId}
                           onClick={() => {
@@ -1081,15 +1079,15 @@ export default function GameLobbyPage() {
                         className="absolute inset-0 z-[40] flex flex-col items-center justify-center gap-2 bg-black/65 p-4 text-center backdrop-blur-[2px]"
                         role="status"
                         aria-live="polite"
-                        aria-label="Game window loading"
+                        aria-label={t('gameLobby.gameWindowLoadingAria')}
                       >
                         <div
                           className="size-10 animate-spin rounded-full border-2 border-white/20 border-t-casino-primary"
                           aria-hidden
                         />
-                        <p className="text-sm font-semibold text-white">Opening game…</p>
+                        <p className="text-sm font-semibold text-white">{t('gameLobby.openingGame')}</p>
                         <p className="max-w-sm text-[11px] leading-relaxed text-white/55">
-                          The provider window can stay dark for a few seconds while the game boots.
+                          {t('gameLobby.providerBootHint')}
                         </p>
                       </div>
                     ) : null}
@@ -1107,7 +1105,7 @@ export default function GameLobbyPage() {
                 <div className="flex min-w-0 items-center gap-2">
                   <button
                     type="button"
-                    aria-label="Back to games"
+                    aria-label={t('gameLobby.backToGamesAria')}
                     className="inline-flex shrink-0 items-center gap-0.5 rounded-[4px] px-1.5 py-1 text-[11px] font-semibold text-casino-foreground/90 transition hover:bg-white/10 sm:gap-1 sm:px-2 sm:py-1.5 sm:text-xs"
                     onClick={goBackToCatalog}
                   >
@@ -1122,10 +1120,10 @@ export default function GameLobbyPage() {
                     type="button"
                     title={
                       !isAuthenticated
-                        ? 'Sign in to save favourites'
+                        ? t('gameLobby.favouriteSignIn')
                         : isFavourite(meta.id)
-                          ? 'Remove favourite'
-                          : 'Favourite'
+                          ? t('gameLobby.removeFavourite')
+                          : t('gameLobby.favourite')
                     }
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[4px] text-lg text-amber-400/90 transition hover:bg-white/10"
                     onClick={onFavouriteClick}
@@ -1170,16 +1168,16 @@ export default function GameLobbyPage() {
                   />
                   {isAuthenticated && iframeUrl && thisGameInMini ? (
                     <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/75 p-4 text-center backdrop-blur-sm">
-                      <p className="text-sm font-semibold text-white">Playing in mini player</p>
+                      <p className="text-sm font-semibold text-white">{t('gameLobby.miniPlayerTitle')}</p>
                       <p className="max-w-[18rem] text-[11px] leading-relaxed text-white/55">
-                        The game is in the floating window. Close it or expand to bring it back here.
+                        {t('gameLobby.miniPlayerBody')}
                       </p>
                       <button
                         type="button"
                         className="mt-0.5 rounded-casino-sm bg-white/12 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/20 transition hover:bg-white/18"
                         onClick={() => closeMini()}
                       >
-                        Return to theater
+                        {t('gameLobby.returnToTheater')}
                       </button>
                     </div>
                   ) : null}
@@ -1187,9 +1185,9 @@ export default function GameLobbyPage() {
                   {!isAuthenticated ? (
                     <div className="absolute inset-0 z-[8] flex flex-col items-center justify-center gap-3 p-4 text-center">
                       <div className="max-w-sm rounded-casino-md border border-white/15 bg-black/75 px-4 py-4 shadow-xl backdrop-blur-md">
-                        <p className="text-sm font-semibold text-white">Play this game</p>
+                        <p className="text-sm font-semibold text-white">{t('gameLobby.playThisGame')}</p>
                         <p className="mt-1.5 text-xs text-white/65">
-                          Sign in or create an account. After you continue, you can launch from here.
+                          {t('gameLobby.signInPromptShort')}
                         </p>
                         <div className="mt-4 flex flex-col gap-2">
                           <button
@@ -1197,14 +1195,14 @@ export default function GameLobbyPage() {
                             className="rounded-casino-sm bg-casino-primary px-4 py-2 text-xs font-semibold text-white hover:brightness-110"
                             onClick={openSignIn}
                           >
-                            Sign in
+                            {t('auth.signIn')}
                           </button>
                           <button
                             type="button"
                             className="rounded-casino-sm border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
                             onClick={openRegister}
                           >
-                            Register
+                            {t('auth.register')}
                           </button>
                         </div>
                         <button
@@ -1212,7 +1210,7 @@ export default function GameLobbyPage() {
                           className="mt-3 inline-block text-xs font-medium text-casino-primary underline-offset-2 hover:underline"
                           onClick={goBackToCatalog}
                         >
-                          Back to games
+                          {t('gameLobby.backToGames')}
                         </button>
                       </div>
                     </div>
@@ -1225,9 +1223,11 @@ export default function GameLobbyPage() {
                         aria-hidden
                       />
                       <p className="text-xs font-semibold text-white">
-                        {launchModeChoice === 'demo' ? 'Starting free play…' : 'Connecting for real play…'}
+                        {launchModeChoice === 'demo'
+                          ? t('gameLobby.startingFreePlay')
+                          : t('gameLobby.connectingRealPlay')}
                       </p>
-                      <p className="text-[11px] text-white/55">Contacting provider…</p>
+                      <p className="text-[11px] text-white/55">{t('gameLobby.contactingProvider')}</p>
                     </div>
                   ) : null}
                 </div>
@@ -1238,26 +1238,26 @@ export default function GameLobbyPage() {
                   <button
                     type="button"
                     disabled={!realAllowed}
-                    title={!realAllowed ? 'This title only supports free play.' : undefined}
+                    title={!realAllowed ? t('gameLobby.realMoneyOnlyFreePlayTitle') : undefined}
                     className="w-full rounded-casino-md bg-casino-primary px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
                     onClick={() => {
                       setRequestedImmersiveLaunch(true)
                       setLaunchModeChoice('real')
                     }}
                   >
-                    Real play
+                    {t('gameLobby.realPlay')}
                   </button>
                   <button
                     type="button"
                     disabled={!demoAllowed}
-                    title={!demoAllowed ? 'Free play is not available for this game.' : undefined}
+                    title={!demoAllowed ? t('gameLobby.freePlayUnavailableTitle') : undefined}
                     className="w-full rounded-casino-md border border-white/18 bg-white/10 px-4 py-3 text-sm font-semibold text-casino-foreground transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40"
                     onClick={() => {
                       setRequestedImmersiveLaunch(true)
                       setLaunchModeChoice('demo')
                     }}
                   >
-                    Demo play
+                    {t('gameLobby.demoPlay')}
                   </button>
                 </div>
               ) : null}
@@ -1278,7 +1278,7 @@ export default function GameLobbyPage() {
                       className="mt-2 text-xs font-semibold text-casino-primary underline-offset-2 hover:underline"
                       onClick={() => setMobileLobbyDescExpanded((v) => !v)}
                     >
-                      {mobileLobbyDescExpanded ? 'Show less' : 'Show more'}
+                      {mobileLobbyDescExpanded ? t('gameLobby.showLess') : t('gameLobby.showMore')}
                     </button>
                   ) : null}
                 </div>
@@ -1295,12 +1295,12 @@ export default function GameLobbyPage() {
               <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                 <button
                   type="button"
-                  aria-label="Back to games"
+                  aria-label={t('gameLobby.backToGamesAria')}
                   className="inline-flex shrink-0 items-center gap-0.5 rounded-[4px] px-1.5 py-1 text-[11px] font-semibold text-white/80 transition hover:bg-white/10 hover:text-white sm:gap-1 sm:px-2 sm:py-1.5 sm:text-xs"
                   onClick={goBackToCatalog}
                 >
                   <IconChevronLeft size={14} aria-hidden />
-                  <span className="hidden sm:inline">Games</span>
+                  <span className="hidden sm:inline">{t('gameLobby.gamesLink')}</span>
                 </button>
                 <span className="rounded bg-white/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-white/85 sm:px-2 sm:py-0.5 sm:text-[10px]">
                   {edgeLabel}
@@ -1321,9 +1321,7 @@ export default function GameLobbyPage() {
                   type="button"
                   className={chromeIconBtn}
                   title={
-                    isAuthenticated
-                      ? 'Game statistics (Blue Ocean)'
-                      : 'Sign in to view game statistics'
+                    isAuthenticated ? t('gameLobby.statsSignedIn') : t('gameLobby.statsSignedOut')
                   }
                   disabled={!gameId}
                   onClick={() => {
@@ -1341,10 +1339,10 @@ export default function GameLobbyPage() {
                   className={chromeIconBtn}
                   title={
                     thisGameInMini
-                      ? 'Return the game to the theater to use full screen'
+                      ? t('gameLobby.fsReturnTheater')
                       : isFullscreen
-                        ? 'Exit full screen'
-                        : 'Full screen'
+                        ? t('gameLobby.exitFullscreen')
+                        : t('gameLobby.enterFullscreen')
                   }
                   disabled={thisGameInMini}
                   onClick={() => toggleFullscreen()}
@@ -1368,16 +1366,16 @@ export default function GameLobbyPage() {
 
               {isAuthenticated && iframeUrl && thisGameInMini ? (
                 <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 p-4 text-center">
-                  <p className="text-sm font-semibold text-white/95 sm:text-base">Playing in mini player</p>
+                  <p className="text-sm font-semibold text-white/95 sm:text-base">{t('gameLobby.miniPlayerTitle')}</p>
                   <p className="max-w-[18rem] text-[11px] leading-relaxed text-white/55 sm:text-xs">
-                    The game is in the floating window. Close it or expand to bring it back here.
+                    {t('gameLobby.miniPlayerBody')}
                   </p>
                   <button
                     type="button"
                     className="mt-0.5 rounded-casino-sm bg-white/12 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/20 transition hover:bg-white/18 sm:text-sm"
                     onClick={() => closeMini()}
                   >
-                    Return to theater
+                    {t('gameLobby.returnToTheater')}
                   </button>
                 </div>
               ) : null}
@@ -1385,9 +1383,9 @@ export default function GameLobbyPage() {
               {!isAuthenticated ? (
                 <div className="absolute inset-0 z-[8] flex flex-col items-center justify-center gap-3 p-4 text-center sm:p-5">
                   <div className="max-w-sm rounded-casino-md border border-white/15 bg-black/75 px-4 py-4 shadow-xl backdrop-blur-md sm:px-5 sm:py-4">
-                    <p className="text-sm font-semibold text-white sm:text-base">Play this game</p>
+                    <p className="text-sm font-semibold text-white sm:text-base">{t('gameLobby.playThisGame')}</p>
                     <p className="mt-1.5 text-xs text-white/65 sm:text-sm">
-                      Sign in or create an account. After you continue, this game loads here automatically.
+                      {t('gameLobby.signInPromptTheater')}
                     </p>
                     <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
                       <button
@@ -1395,14 +1393,14 @@ export default function GameLobbyPage() {
                         className="rounded-casino-sm bg-casino-primary px-4 py-2 text-xs font-semibold text-white hover:brightness-110 sm:rounded-casino-md sm:px-5 sm:py-2.5 sm:text-sm"
                         onClick={openSignIn}
                       >
-                        Sign in
+                        {t('auth.signIn')}
                       </button>
                       <button
                         type="button"
                         className="rounded-casino-sm border border-white/25 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/15 sm:rounded-casino-md sm:px-5 sm:py-2.5 sm:text-sm"
                         onClick={openRegister}
                       >
-                        Register
+                        {t('auth.register')}
                       </button>
                     </div>
                     <button
@@ -1410,7 +1408,7 @@ export default function GameLobbyPage() {
                       className="mt-3 inline-block text-xs font-medium text-casino-primary underline-offset-2 hover:underline sm:text-sm"
                       onClick={goBackToCatalog}
                     >
-                      Back to games
+                      {t('gameLobby.backToGames')}
                     </button>
                   </div>
                 </div>
@@ -1426,13 +1424,13 @@ export default function GameLobbyPage() {
                   <button
                     type="button"
                     className="absolute inset-0 border-0 bg-black/60 backdrop-blur-[3px]"
-                    aria-label="Close and go back to games"
+                    aria-label={t('gameLobby.closeLaunchModal')}
                     onClick={goBackToCatalog}
                   />
                   <div className="relative z-10 w-full max-w-[min(100%,20rem)] overflow-hidden rounded-casino-lg border border-white/15 bg-black/90 shadow-2xl ring-1 ring-white/10">
                     <div className="border-b border-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
                       <h2 id="launch-mode-title" className="text-sm font-bold text-white sm:text-base">
-                        Choose how to play
+                        {t('gameLobby.chooseHowToPlay')}
                       </h2>
                     </div>
                     <div className="space-y-3 px-3 py-3 sm:px-4 sm:py-4">
@@ -1440,26 +1438,26 @@ export default function GameLobbyPage() {
                         <button
                           type="button"
                           disabled={!realAllowed}
-                          title={!realAllowed ? 'This title only supports free play.' : undefined}
+                          title={!realAllowed ? t('gameLobby.realMoneyOnlyFreePlayTitle') : undefined}
                           className="flex-1 rounded-casino-md bg-casino-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
                           onClick={() => {
                             setRequestedImmersiveLaunch(true)
                             setLaunchModeChoice('real')
                           }}
                         >
-                          Real money
+                          {t('gameLobby.realMoney')}
                         </button>
                         <button
                           type="button"
                           disabled={!demoAllowed}
-                          title={!demoAllowed ? 'Free play is not available for this game.' : undefined}
+                          title={!demoAllowed ? t('gameLobby.freePlayUnavailableTitle') : undefined}
                           className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
                           onClick={() => {
                             setRequestedImmersiveLaunch(true)
                             setLaunchModeChoice('demo')
                           }}
                         >
-                          Free play
+                          {t('gameLobby.freePlay')}
                         </button>
                       </div>
                       <button
@@ -1467,7 +1465,7 @@ export default function GameLobbyPage() {
                         className="w-full text-center text-xs font-medium text-casino-primary underline-offset-2 hover:underline sm:text-sm"
                         onClick={goBackToCatalog}
                       >
-                        Back to games
+                        {t('gameLobby.backToGames')}
                       </button>
                     </div>
                   </div>
@@ -1479,7 +1477,7 @@ export default function GameLobbyPage() {
                   className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 p-3 text-center sm:gap-3 sm:p-5"
                   role="status"
                   aria-live="polite"
-                  aria-label="Connecting to game provider"
+                  aria-label={t('gameLobby.connectingProvider')}
                 >
                   <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" aria-hidden />
                   <div className="relative flex max-w-md flex-col items-center gap-2 sm:gap-3">
@@ -1488,12 +1486,13 @@ export default function GameLobbyPage() {
                       aria-hidden
                     />
                     <p className="text-xs font-semibold text-white sm:text-sm">
-                      {launchModeChoice === 'demo' ? 'Starting free play…' : 'Connecting for real play…'}
+                      {launchModeChoice === 'demo'
+                        ? t('gameLobby.startingFreePlay')
+                        : t('gameLobby.connectingRealPlay')}
                     </p>
-                    <p className="text-xs font-medium text-white/85 sm:text-sm">Contacting provider…</p>
+                    <p className="text-xs font-medium text-white/85 sm:text-sm">{t('gameLobby.contactingProvider')}</p>
                     <p className="max-w-sm px-1 text-[11px] text-white/55 sm:text-xs">
-                      On staging this can take a few seconds. If it never clears, check Blue Ocean credentials and
-                      sandbox access.
+                      {t('gameLobby.stagingHint')}
                     </p>
                   </div>
                 </div>
@@ -1514,10 +1513,10 @@ export default function GameLobbyPage() {
                   type="button"
                   title={
                     !isAuthenticated
-                      ? 'Sign in to save favourites'
+                      ? t('gameLobby.favouriteSignIn')
                       : isFavourite(meta.id)
-                        ? 'Remove favourite'
-                        : 'Favourite'
+                        ? t('gameLobby.removeFavourite')
+                        : t('gameLobby.favourite')
                   }
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-base text-amber-400/90 transition hover:bg-white/10 sm:h-9 sm:w-9 sm:text-lg"
                   onClick={onFavouriteClick}
@@ -1536,17 +1535,18 @@ export default function GameLobbyPage() {
           {isAuthenticated && iframeUrl && !showInlinePlayer ? (
             <div className={`${lobbyRailInner} shrink-0`}>
               <p className="py-1 text-center text-[11px] text-casino-muted sm:text-xs">
-                Having trouble?{' '}
+                {t('gameLobby.havingTrouble')}{' '}
                 <button
                   type="button"
                   className="font-medium text-casino-primary underline-offset-2 hover:underline"
                   onClick={() => {
                     setIframeUrl(null)
                     setLaunchErr(null)
+                    setLaunchFailCode(undefined)
                     setLaunchModeChoice(null)
                   }}
                 >
-                  Reload player
+                  {t('gameLobby.reloadPlayer')}
                 </button>
               </p>
             </div>
@@ -1566,15 +1566,17 @@ export default function GameLobbyPage() {
           {isAuthenticated && relatedGames.length > 0 && meta ? (
             <section
               className="mt-auto shrink-0 border-t border-casino-border bg-casino-surface/30 pb-3 sm:pb-4"
-              aria-label="Recommended games"
+              aria-label={t('gameLobby.recommendedSection')}
             >
               <div className={`${lobbyRailInner} py-2 sm:py-3`}>
-                <h2 className="mb-2 text-xs font-bold text-casino-foreground sm:mb-2.5 sm:text-sm">Recommended</h2>
+                <h2 className="mb-2 text-xs font-bold text-casino-foreground sm:mb-2.5 sm:text-sm">
+                  {t('gameLobby.recommendedHeading')}
+                </h2>
                 <div className="flex gap-0 xl:gap-2">
                   <button
                     type="button"
                     className="hidden w-8 shrink-0 items-center justify-center self-stretch rounded-casino-sm border border-white/10 bg-white/[0.04] text-casino-muted shadow-sm transition-colors duration-200 hover:border-casino-primary/45 hover:bg-casino-primary-dim hover:text-white hover:shadow-[0_0_0_1px_rgba(167,139,250,0.2)] active:brightness-95 disabled:pointer-events-none disabled:opacity-25 disabled:hover:border-white/10 disabled:hover:bg-white/[0.04] disabled:hover:text-casino-muted disabled:hover:shadow-none xl:inline-flex xl:w-9"
-                    aria-label="Scroll games left"
+                    aria-label={t('gameLobby.scrollGamesLeft')}
                     disabled={!relatedScrollEdges.canLeft}
                     onClick={() => scrollRelatedRail(-1)}
                   >
@@ -1613,7 +1615,7 @@ export default function GameLobbyPage() {
                   <button
                     type="button"
                     className="hidden w-8 shrink-0 items-center justify-center self-stretch rounded-casino-sm border border-white/10 bg-white/[0.04] text-casino-muted shadow-sm transition-colors duration-200 hover:border-casino-primary/45 hover:bg-casino-primary-dim hover:text-white hover:shadow-[0_0_0_1px_rgba(167,139,250,0.2)] active:brightness-95 disabled:pointer-events-none disabled:opacity-25 disabled:hover:border-white/10 disabled:hover:bg-white/[0.04] disabled:hover:text-casino-muted disabled:hover:shadow-none xl:inline-flex xl:w-9"
-                    aria-label="Scroll games right"
+                    aria-label={t('gameLobby.scrollGamesRight')}
                     disabled={!relatedScrollEdges.canRight}
                     onClick={() => scrollRelatedRail(1)}
                   >
@@ -1629,9 +1631,13 @@ export default function GameLobbyPage() {
       {isAuthenticated && launchErr ? (
         <GameLaunchErrorModal
           launchErr={launchErr}
-          onDismiss={() => setLaunchErr(null)}
+          onDismiss={() => {
+            setLaunchErr(null)
+            setLaunchFailCode(undefined)
+          }}
           onRetry={() => {
             setLaunchErr(null)
+            setLaunchFailCode(undefined)
             setLaunchRetryNonce((n) => n + 1)
           }}
           showTryReal={
@@ -1639,15 +1645,16 @@ export default function GameLobbyPage() {
               launchModeChoice === 'demo' &&
                 realAllowed &&
                 launchErr &&
-                providerRefusedFreePlay(launchErr),
+                (launchFailCode === 'bog_error' || launchFailCode === 'demo_unavailable'),
             )
           }
           onTryReal={() => {
             setLaunchErr(null)
+            setLaunchFailCode(undefined)
             setRequestedImmersiveLaunch(true)
             setLaunchModeChoice('real')
           }}
-          backLabel={showMobileFramelessPlayer ? 'Back to game page' : 'Back to games'}
+          backLabel={showMobileFramelessPlayer ? t('gameLobby.backToGamePage') : t('gameLobby.backToGames')}
           onBack={showMobileFramelessPlayer ? exitMobileImmersivePlayer : goBackToCatalog}
         />
       ) : null}
@@ -1662,7 +1669,7 @@ export default function GameLobbyPage() {
           <button
             type="button"
             className="absolute inset-0 border-0 bg-black/65 backdrop-blur-sm"
-            aria-label="Close statistics"
+            aria-label={t('gameLobby.statsClose')}
             onClick={() => setStatsOpen(false)}
           />
           <div className="relative flex max-h-[min(88vh,40rem)] w-full max-w-lg flex-col overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-2xl">
@@ -1675,30 +1682,34 @@ export default function GameLobbyPage() {
                       (typeof s?.catalog_title === 'string' && s.catalog_title.trim()) ||
                       meta?.title?.trim() ||
                       (typeof statsData?.local?.title === 'string' && statsData.local.title.trim()) ||
-                      'This game'
-                    return `Statistics — ${name}`
+                      t('gameLobby.thisGame')
+                    return t('gameLobby.statsTitle', { name })
                   })()}
                 </h2>
                 <p className="mt-0.5 line-clamp-2 text-[11px] text-casino-muted">
                   {statsData?.scope
-                    ? `Per-title data for catalog id ${statsData.scope.game_id ?? gameId}${
-                        typeof statsData.scope.bog_game_id === 'number' && statsData.scope.bog_game_id > 0
-                          ? ` · Blue Ocean game id ${statsData.scope.bog_game_id}`
-                          : ''
-                      }${
-                        statsData.scope.id_hash
-                          ? ` · id_hash ${statsData.scope.id_hash}`
-                          : ''
-                      }.`
+                    ? (() => {
+                        const sc = statsData.scope
+                        const bogPart =
+                          typeof sc.bog_game_id === 'number' && sc.bog_game_id > 0
+                            ? t('gameLobby.bogGameIdFragment', { id: sc.bog_game_id })
+                            : ''
+                        const hashPart = sc.id_hash ? t('gameLobby.idHashFragment', { hash: sc.id_hash }) : ''
+                        return t('gameLobby.statsSubtitleScope', {
+                          catalogId: sc.game_id ?? gameId,
+                          bogPart,
+                          hashPart,
+                        })
+                      })()
                     : meta
-                      ? `Per-title data for this lobby (catalog id ${meta.id}).`
-                      : `Per-title data for catalog id ${gameId}.`}
+                      ? t('gameLobby.statsSubtitleLobby', { id: meta.id })
+                      : t('gameLobby.statsSubtitleFallback', { id: gameId })}
                 </p>
               </div>
               <button
                 type="button"
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-casino-muted transition hover:bg-casino-elevated hover:text-casino-foreground"
-                aria-label="Close"
+                aria-label={t('gameLobby.close')}
                 onClick={() => setStatsOpen(false)}
               >
                 <IconX size={18} aria-hidden />
@@ -1706,17 +1717,17 @@ export default function GameLobbyPage() {
             </div>
             <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-4 py-3 text-sm">
               {statsLoading ? (
-                <p className="text-center text-xs text-casino-muted">Loading provider data…</p>
+                <p className="text-center text-xs text-casino-muted">{t('gameLobby.loadingProviderData')}</p>
               ) : null}
               {statsErr ? <p className="text-center text-xs text-red-400">{statsErr}</p> : null}
               {statsData && !statsLoading ? (
                 <div className="space-y-5">
                   <section>
                     <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-casino-muted">
-                      This title (our catalog)
+                      {t('gameLobby.statsCatalogHeading')}
                     </h3>
                     <p className="mb-2 text-[11px] leading-relaxed text-casino-muted/90">
-                      Rows below are the single game row tied to this lobby URL — not site-wide or brand totals.
+                      {t('gameLobby.statsCatalogBlurb')}
                     </p>
                     <StatsKeyValueTable
                       data={statsData.local}
@@ -1743,10 +1754,10 @@ export default function GameLobbyPage() {
                   {statsData.blue_ocean != null && statsData.blue_ocean !== undefined ? (
                     <section>
                       <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-casino-muted">
-                        Blue Ocean (this title)
+                        {t('gameLobby.statsBlueOceanHeading')}
                       </h3>
                       <p className="mb-2 text-[11px] leading-relaxed text-casino-muted/90">
-                        XAPI payload for the same Blue Ocean game id as above (when the provider returns it).
+                        {t('gameLobby.statsBlueOceanBlurb')}
                       </p>
                       {typeof statsData.blue_ocean === 'object' &&
                       statsData.blue_ocean !== null &&

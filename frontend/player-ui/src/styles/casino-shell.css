@@ -16,6 +16,11 @@
   --casino-gutter-x-mobile: 1rem;
   --casino-gutter-x-tablet: 1.25rem;
   --casino-gutter-x-desktop: 1.5rem;
+  /**
+   * Height of `.casino-shell-mobile-nav` (PlayerMobileBottomNav): pt-1.5 + row min-h + pb max(6px, safe-area).
+   * Use for overlays that stop above the bar so blur/scrim meets the nav without a gap (avoid 4rem + safe-area double-count).
+   */
+  --casino-mobile-nav-offset: calc(50px + max(6px, env(safe-area-inset-bottom, 0px)));
 }
 
 /**

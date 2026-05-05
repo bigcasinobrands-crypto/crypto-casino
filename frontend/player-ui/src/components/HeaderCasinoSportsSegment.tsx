@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 
 type HeaderCasinoSportsSegmentProps = {
@@ -15,6 +16,7 @@ export default function HeaderCasinoSportsSegment({
   className = '',
   onNavigate,
 }: HeaderCasinoSportsSegmentProps) {
+  const { t } = useTranslation()
   const { pathname } = useLocation()
   const onSports = pathname.startsWith('/casino/sports')
 
@@ -30,13 +32,13 @@ export default function HeaderCasinoSportsSegment({
     <div
       className={`flex min-w-0 max-w-full shrink rounded-xl bg-casino-segment-track p-[3px] shadow-[inset_0_2px_6px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.07] ${className}`}
       role="group"
-      aria-label="Casino or E-Sports"
+      aria-label={t('header.casinoSportsAria')}
     >
       <Link to="/casino/games" className={onSports ? casinoIdle : casinoSelected} onClick={onNavigate}>
-        Casino
+        {t('sidebar.casino')}
       </Link>
       <Link to="/casino/sports" className={onSports ? casinoSelected : casinoIdle} onClick={onNavigate}>
-        E-Sports
+        {t('nav.extras.sports')}
       </Link>
     </div>
   )

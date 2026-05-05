@@ -1,5 +1,6 @@
 import type { FC, ReactNode } from 'react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { usePlayerLayout } from '../context/PlayerLayoutContext'
 import { RequireAuthLink } from './RequireAuthLink'
@@ -43,45 +44,6 @@ export const CATALOG_SEARCH_SHELL_ROW =
 /** Matches home `sm:flex-row` strip: two `flex-1` tracks + `gap-2.5` → each track ≈ `(100% - 0.625rem) / 2`. */
 export const CATALOG_SEARCH_HOME_COLUMN_MAX_W = 'max-w-full sm:max-w-[calc((100%-0.625rem)/2)]'
 
-/** Catalog-only shortcuts (no Lobby / Studios strip). Matches Pigmo-style game menu. */
-const NAV: NavItem[] = [
-  {
-    key: 'hot',
-    to: '/casino/games',
-    label: 'Hot now',
-    icon: IconZap,
-    isActive: ({ lobbyDashboardHome }) => lobbyDashboardHome,
-  },
-  {
-    key: 'new',
-    to: '/casino/new',
-    label: 'New releases',
-    icon: IconSparkles,
-    isActive: ({ pathname }) => pathname.endsWith('/casino/new'),
-  },
-  {
-    key: 'slots',
-    to: '/casino/slots',
-    label: 'Slots',
-    icon: IconGem,
-    isActive: ({ pathname }) => pathname.endsWith('/casino/slots'),
-  },
-  {
-    key: 'bonus',
-    to: '/casino/bonus-buys',
-    label: 'Bonus buys',
-    icon: IconBanknote,
-    isActive: ({ pathname }) => pathname.includes('/casino/bonus-buys'),
-  },
-  {
-    key: 'live',
-    to: '/casino/live',
-    label: 'Live games',
-    icon: IconRadio,
-    isActive: ({ pathname }) => pathname.endsWith('/casino/live'),
-  },
-]
-
 const pillBase =
   'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-[12px] font-bold tracking-tight no-underline outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-casino-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#000] [&_svg]:shrink-0'
 const pillBaseCompact =
@@ -110,6 +72,48 @@ export const CasinoCatalogNavPills: FC<CasinoCatalogNavPillsProps> = ({
   compact = false,
   stripLayout = 'default',
 }) => {
+  const { t } = useTranslation()
+  const navItems = useMemo(
+    (): NavItem[] => [
+      {
+        key: 'hot',
+        to: '/casino/games',
+        label: t('nav.casino.hot_now'),
+        icon: IconZap,
+        isActive: ({ lobbyDashboardHome: home }) => home,
+      },
+      {
+        key: 'new',
+        to: '/casino/new',
+        label: t('nav.casino.new_releases'),
+        icon: IconSparkles,
+        isActive: ({ pathname: p }) => p.endsWith('/casino/new'),
+      },
+      {
+        key: 'slots',
+        to: '/casino/slots',
+        label: t('nav.casino.slots'),
+        icon: IconGem,
+        isActive: ({ pathname: p }) => p.endsWith('/casino/slots'),
+      },
+      {
+        key: 'bonus',
+        to: '/casino/bonus-buys',
+        label: t('nav.casino.bonus_buys'),
+        icon: IconBanknote,
+        isActive: ({ pathname: p }) => p.includes('/casino/bonus-buys'),
+      },
+      {
+        key: 'live',
+        to: '/casino/live',
+        label: t('lobby.catalogLiveGames'),
+        icon: IconRadio,
+        isActive: ({ pathname: p }) => p.endsWith('/casino/live'),
+      },
+    ],
+    [t],
+  )
+
   const ctx: StripContext = { pathname, lobbyDashboardHome }
   const pillSz = compact ? pillBaseCompact : pillBase
   const iconSize = compact ? 13 : 15
@@ -120,8 +124,8 @@ export const CasinoCatalogNavPills: FC<CasinoCatalogNavPillsProps> = ({
       : `${stripTray} casino-catalog-pills-row flex ${trayMin} min-w-0 w-full items-center gap-1 px-1 py-1 sm:gap-1.5`
 
   return (
-    <nav className={`${navTrayClass} ${className}`} aria-label="Game categories">
-      {NAV.map((item) => {
+    <nav className={`${navTrayClass} ${className}`} aria-label={t('lobby.categoriesAriaLabel')}>
+      {navItems.map((item) => {
         const active = item.isActive(ctx)
         const Ic = item.icon
         const content: ReactNode = (
@@ -162,6 +166,7 @@ export const CasinoCatalogSearchField: FC<CasinoCatalogSearchFieldProps> = ({
   matchHomeStripColumnWidth = false,
   compact = false,
 }) => {
+  const { t } = useTranslation()
   const id = useId()
   const [searchParams, setSearchParams] = useSearchParams()
   const qParam = searchParams.get('q') ?? ''
@@ -200,9 +205,9 @@ export const CasinoCatalogSearchField: FC<CasinoCatalogSearchFieldProps> = ({
         type="search"
         value={draftQ}
         onChange={(e) => setDraftQ(e.target.value)}
-        placeholder="Search titles or studios"
+        placeholder={t('lobby.searchPlaceholder')}
         autoComplete="off"
-        aria-label="Search games by title or studio"
+        aria-label={t('lobby.searchAriaLabel')}
         className={`min-w-0 flex-1 border-0 bg-transparent py-1 font-medium text-white placeholder:text-white/42 focus:outline-none focus:ring-0 ${compact ? 'text-[12px]' : 'text-[13px]'}`}
       />
     </>
@@ -229,6 +234,7 @@ const stripScrollBtn =
 
 /** Home + catalog section pages: search + category pills on one row (`sm:flex-row`), same chrome and debounced `q` sync. */
 const CasinoCatalogSearchStrip: FC<CasinoCatalogSearchStripProps> = ({ pathname, lobbyDashboardHome }) => {
+  const { t } = useTranslation()
   const { chatOpen } = usePlayerLayout()
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -263,7 +269,7 @@ const CasinoCatalogSearchStrip: FC<CasinoCatalogSearchStripProps> = ({ pathname,
       <button
         type="button"
         className={stripScrollBtn}
-        aria-label="Scroll search and filters left"
+        aria-label={t('lobby.scrollSearchFiltersLeft')}
         onClick={() => scrollStripBy(-1)}
       >
         <IconChevronLeft size={16} aria-hidden />
@@ -287,7 +293,7 @@ const CasinoCatalogSearchStrip: FC<CasinoCatalogSearchStripProps> = ({ pathname,
       <button
         type="button"
         className={stripScrollBtn}
-        aria-label="Scroll search and filters right"
+        aria-label={t('lobby.scrollSearchFiltersRight')}
         onClick={() => scrollStripBy(1)}
       >
         <IconChevronRight size={16} aria-hidden />

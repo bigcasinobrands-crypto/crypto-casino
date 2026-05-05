@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
 import type { CasinoNavCategory } from '../lib/casinoNav'
 import { casinoNavRoute } from '../lib/casinoNav'
+import { translateNavItemLabel } from '../lib/navI18n'
 import { IconCrown, IconGift, IconTicket, IconTractor, IconUsers } from './icons'
 
 const PROMO_ICONS: Record<string, (size: number) => ReactNode> = {
@@ -25,6 +27,7 @@ type Props = {
  * Promo / account rows in the mobile drawer — routes mirror desktop sidebar (`CasinoSidebar` `renderTopItem`).
  */
 export default function CasinoNavDrawerPromo({ promoItems }: Props) {
+  const { t } = useTranslation()
   const { pathname, hash } = useLocation()
   const raffleActive = pathname === '/casino/games' && hash === '#raffle'
 
@@ -32,6 +35,7 @@ export default function CasinoNavDrawerPromo({ promoItems }: Props) {
     <>
       {promoItems.map((item) => {
         const route = casinoNavRoute(item.id)
+        const label = translateNavItemLabel(t, 'promo', item)
         const ico = (PROMO_ICONS[item.id] ?? ((s: number) => <IconGift size={s} aria-hidden />))(17)
 
         if (item.id === 'raffle' && route && !item.coming_soon) {
@@ -44,16 +48,16 @@ export default function CasinoNavDrawerPromo({ promoItems }: Props) {
               }`}
             >
               {ico}
-              {item.label}
+              {label}
             </NavLink>
           )
         }
 
         if (!route || item.coming_soon) {
           return (
-            <span key={item.id} className={`${row} cursor-default opacity-45`} title={item.coming_soon ? 'Coming soon' : undefined}>
+            <span key={item.id} className={`${row} cursor-default opacity-45`} title={item.coming_soon ? t('sidebar.comingSoon') : undefined}>
               {ico}
-              {item.label}
+              {label}
             </span>
           )
         }
@@ -61,7 +65,7 @@ export default function CasinoNavDrawerPromo({ promoItems }: Props) {
         return (
           <RequireAuthNavLink key={item.id} to={route} className={({ isActive }) => `${row} ${isActive ? rowActive : ''}`}>
             {ico}
-            {item.label}
+            {label}
           </RequireAuthNavLink>
         )
       })}

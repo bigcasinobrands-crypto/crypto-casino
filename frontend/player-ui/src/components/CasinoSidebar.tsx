@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
 import { useSiteContent } from '../hooks/useSiteContent'
@@ -9,8 +10,10 @@ import {
   CASINO_NAV_ROUTE_MAP,
   type CasinoNavCategory,
 } from '../lib/casinoNav'
+import { translateNavItemLabel } from '../lib/navI18n'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
+import { LanguageMenu } from './LanguageMenu'
 import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
 import {
   IconBanknote,
@@ -22,7 +25,6 @@ import {
   IconFileText,
   IconGem,
   IconGift,
-  IconGlobe,
   IconHeadphones,
   IconMessageSquare,
   IconPanelLeftClose,
@@ -76,6 +78,7 @@ export default function CasinoSidebar({
 }: CasinoSidebarProps) {
   const [casinoOpen, setCasinoOpen] = useState(true)
   const { pathname, hash } = useLocation()
+  const { t } = useTranslation()
   const { getContent } = useSiteContent()
 
   const casinoItems = getContent<CasinoNavCategory[]>('nav.categories.casino', CASINO_NAV_FALLBACK_CATEGORIES)
@@ -109,7 +112,8 @@ export default function CasinoSidebar({
 
   const icon = (id: string, size: number) => (ICON_MAP[id] ?? (() => null))(size)
 
-  const renderTopItem = (item: CasinoNavCategory) => {
+  const renderTopItem = (section: 'promo' | 'extras') => (item: CasinoNavCategory) => {
+    const label = translateNavItemLabel(t, section, item)
     const route =
       item.id === 'sports' ? sportsbookPlayerPath() : (ROUTE_MAP[item.id] ?? '')
     /** Sports stays browsable when logged out; VIP/rewards-style promo routes require sign-in. */
@@ -128,7 +132,7 @@ export default function CasinoSidebar({
             key={item.id}
             to={route}
             className={raffleCollapsedCls}
-            title={item.label}
+            title={label}
           >
             <IconTicket size={15} aria-hidden />
           </NavLink>
@@ -141,7 +145,7 @@ export default function CasinoSidebar({
           className={raffleExpandedCls}
         >
           {icon(item.id, 15)}
-          {item.label}
+          {label}
         </NavLink>
       )
     }
@@ -149,16 +153,16 @@ export default function CasinoSidebar({
     if (!route || item.coming_soon) {
       if (collapsed) {
         return (
-          <span key={item.id} className={navItem} title={`${item.label}${item.coming_soon ? ' (coming soon)' : ''}`}>
+          <span key={item.id} className={navItem} title={`${label}${item.coming_soon ? ` (${t('sidebar.comingSoon')})` : ''}`}>
             {icon(item.id, 15)}
           </span>
         )
       }
       return (
-        <span key={item.id} className={`${navItem} cursor-default opacity-45`} title={item.coming_soon ? 'Coming soon' : undefined}>
+        <span key={item.id} className={`${navItem} cursor-default opacity-45`} title={item.coming_soon ? t('sidebar.comingSoon') : undefined}>
           <span className="flex items-center gap-2.5">
             {icon(item.id, 15)}
-            {item.label}
+            {label}
           </span>
         </span>
       )
@@ -167,13 +171,13 @@ export default function CasinoSidebar({
     if (collapsed) {
       if (publicPromo) {
         return (
-          <NavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title={item.label}>
+          <NavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title={label}>
             {icon(item.id, 15)}
           </NavLink>
         )
       }
       return (
-        <RequireAuthNavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title={item.label}>
+        <RequireAuthNavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`} title={label}>
           {icon(item.id, 15)}
         </RequireAuthNavLink>
       )
@@ -184,7 +188,7 @@ export default function CasinoSidebar({
         <NavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
           <span className="flex items-center gap-2.5">
             {icon(item.id, 15)}
-            {item.label}
+            {label}
           </span>
         </NavLink>
       )
@@ -194,7 +198,7 @@ export default function CasinoSidebar({
       <RequireAuthNavLink key={item.id} to={route} className={({ isActive }) => `${navItem} ${isActive ? navItemActive : ''}`}>
         <span className="flex items-center gap-2.5">
           {icon(item.id, 15)}
-          {item.label}
+          {label}
         </span>
       </RequireAuthNavLink>
     )
@@ -214,8 +218,8 @@ export default function CasinoSidebar({
                   type="button"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] bg-casino-chip text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover"
                   onClick={onToggleCollapse}
-                  aria-label="Expand sidebar"
-                  title="Expand sidebar"
+                  aria-label={t('sidebar.expandSidebar')}
+                  title={t('sidebar.expandSidebar')}
                 >
                   <IconPanelLeftOpen size={18} aria-hidden />
                 </button>
@@ -226,8 +230,8 @@ export default function CasinoSidebar({
                   type="button"
                   className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-casino-chip text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover"
                   onClick={onToggleCollapse}
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
+                  aria-label={t('sidebar.collapseSidebar')}
+                  title={t('sidebar.collapseSidebar')}
                 >
                   <IconPanelLeftClose size={18} aria-hidden />
                 </button>
@@ -250,7 +254,7 @@ export default function CasinoSidebar({
                 to="/casino/games"
                 end
                 className={`${navItem} ${hotNowSidebarActive ? navItemActive : ''}`}
-                title="Casino"
+                title={t('sidebar.casino')}
               >
                 <IconDices size={15} className="shrink-0" aria-hidden />
               </NavLink>
@@ -266,7 +270,7 @@ export default function CasinoSidebar({
               >
                 <span className="flex min-w-0 items-center gap-2.5 text-white">
                   <IconDices size={15} className="shrink-0 text-white/90" aria-hidden />
-                  Casino
+                  {t('sidebar.casino')}
                 </span>
                 <IconChevronDown
                   size={15}
@@ -283,25 +287,23 @@ export default function CasinoSidebar({
             ) : null}
           </div>
 
-          {extraItems.filter((x) => x.id !== 'sports').map(renderTopItem)}
+          {extraItems.filter((x) => x.id !== 'sports').map(renderTopItem('extras'))}
 
           <div className={`my-2.5 h-px bg-casino-border ${collapsed ? 'w-full' : ''}`} role="separator" />
 
           {collapsed ? (
             <>
-              {promoItems.map(renderTopItem)}
+              {promoItems.map(renderTopItem('promo'))}
 
               <div className="my-2.5 h-px w-full bg-casino-border" role="separator" />
 
-              <button type="button" className={navItem} title="Language">
-                <IconGlobe size={15} aria-hidden />
-              </button>
+              <LanguageMenu variant="collapsed" buttonClassName={navItem} />
               {onOpenChat ? (
                 <button
                   type="button"
                   className={`${navItem} relative ${chatOpen ? navItemActive : ''}`}
-                  title="Chat"
-                  aria-label="Chat"
+                  title={t('sidebar.chat')}
+                  aria-label={t('sidebar.chat')}
                   onClick={onOpenChat}
                 >
                   <IconMessageSquare size={15} aria-hidden />
@@ -315,42 +317,36 @@ export default function CasinoSidebar({
               <NavLink
                 to="/casino/games#help"
                 className={`${navItem} ${helpSidebarActive ? navItemActive : ''}`}
-                title="Live Support"
+                title={t('sidebar.liveSupport')}
               >
                 <IconHeadphones size={15} aria-hidden />
               </NavLink>
               <NavLink
                 to="/casino/games#blog"
                 className={`${navItem} ${blogSidebarActive ? navItemActive : ''}`}
-                title="Blog"
+                title={t('sidebar.blog')}
               >
                 <IconFileText size={15} aria-hidden />
               </NavLink>
             </>
           ) : (
             <>
-              {promoItems.map(renderTopItem)}
+              {promoItems.map(renderTopItem('promo'))}
 
               <div className="my-2.5 h-px bg-casino-border" role="separator" />
 
-              <button type="button" className={navItem}>
-                <span className="flex items-center gap-2.5">
-                  <IconGlobe size={15} aria-hidden />
-                  Language
-                </span>
-                <IconChevronDown size={15} aria-hidden />
-              </button>
+              <LanguageMenu variant="expanded" buttonClassName={navItem} />
               {onOpenChat ? (
                 <button
                   type="button"
                   className={`${navItem} relative ${chatOpen ? navItemActive : ''}`}
-                  aria-label="Chat"
+                  aria-label={t('sidebar.chat')}
                   aria-pressed={chatOpen}
                   onClick={onOpenChat}
                 >
                   <span className="flex items-center gap-2.5">
                     <IconMessageSquare size={15} aria-hidden />
-                    Chat
+                    {t('sidebar.chat')}
                   </span>
                   {chatUnreadCount > 0 && !chatOpen ? (
                     <span className="rounded-full bg-casino-segment px-1.5 py-0.5 text-[10px] font-bold text-casino-bg">
@@ -365,7 +361,7 @@ export default function CasinoSidebar({
               >
                 <span className="flex items-center gap-2.5">
                   <IconHeadphones size={15} aria-hidden />
-                  Live Support
+                  {t('sidebar.liveSupport')}
                 </span>
               </NavLink>
               <NavLink
@@ -374,7 +370,7 @@ export default function CasinoSidebar({
               >
                 <span className="flex items-center gap-2.5">
                   <IconFileText size={15} aria-hidden />
-                  Blog
+                  {t('sidebar.blog')}
                 </span>
               </NavLink>
             </>

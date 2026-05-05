@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import { PortraitGameThumb } from './PortraitGameThumb'
@@ -127,20 +128,21 @@ function ViewAllScrollCluster({
   onScrollLeft: () => void
   onScrollRight: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex shrink-0 items-center gap-2">
       <Link to={viewAllTo} className={outlinedViewAllClass}>
-        VIEW ALL
+        {t('lobby.viewAll')}
       </Link>
       <div
         className="flex min-h-9 overflow-hidden rounded-lg border border-white/[0.10] bg-casino-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors duration-150 hover:border-white/[0.14]"
         role="group"
-        aria-label="Scroll games horizontally"
+        aria-label={t('lobby.scrollGamesHorizontal')}
       >
         <button
           type="button"
           className="flex flex-1 min-w-[2.25rem] items-center justify-center px-2.5 py-2 text-white/82 transition-colors duration-150 hover:bg-white/[0.08] hover:text-white active:bg-white/[0.12] focus-visible:relative focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-casino-primary/50 disabled:pointer-events-none disabled:opacity-35"
-          aria-label="Scroll left"
+          aria-label={t('lobby.scrollLeft')}
           onClick={onScrollLeft}
         >
           <IconChevronLeft size={16} aria-hidden />
@@ -149,7 +151,7 @@ function ViewAllScrollCluster({
         <button
           type="button"
           className="flex flex-1 min-w-[2.25rem] items-center justify-center px-2.5 py-2 text-white/82 transition-colors duration-150 hover:bg-white/[0.08] hover:text-white active:bg-white/[0.12] focus-visible:relative focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-casino-primary/50 disabled:pointer-events-none disabled:opacity-35"
-          aria-label="Scroll right"
+          aria-label={t('lobby.scrollRight')}
           onClick={onScrollRight}
         >
           <IconChevronRight size={16} aria-hidden />
@@ -171,6 +173,7 @@ function GameSection({
   /** Section-specific: hide skeleton as soon as this row’s catalog slice resolves (not gated on slower rows). */
   showSkeletons?: boolean
 }) {
+  const { t } = useTranslation()
   const reduceMotion = usePrefersReducedMotion()
   const stripRef = useRef<HTMLDivElement>(null)
   const tileCap = useHomeSectionTileCap()
@@ -233,7 +236,7 @@ function GameSection({
         {games.length > 0 && !showSkeletons ? (
           reduceMotion ? (
             <Link to={viewAllTo} className={`${outlinedViewAllClass} shrink-0`}>
-              VIEW ALL
+              {t('lobby.viewAll')}
             </Link>
           ) : (
             <>
@@ -241,7 +244,7 @@ function GameSection({
                 to={viewAllTo}
                 className={`${outlinedViewAllClass} shrink-0 min-[1280px]:hidden`}
               >
-                VIEW ALL
+                {t('lobby.viewAll')}
               </Link>
               <div className="hidden min-[1280px]:block">
                 <ViewAllScrollCluster
@@ -299,7 +302,7 @@ function GameSection({
         </div>
       </div>
       {!showSkeletons && games.length === 0 ? (
-        <p className="text-center text-xs text-casino-muted">No games in this row yet.</p>
+        <p className="text-center text-xs text-casino-muted">{t('lobby.noGamesInRow')}</p>
       ) : null}
     </section>
   )
@@ -312,6 +315,7 @@ type LobbyHomeSectionsProps = {
 
 const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalogSyncAt }) => {
   void _catalogSyncAt
+  const { t } = useTranslation()
   const location = useLocation()
   /** Reset skeleton flags only when route identity changes — not on visibility/catalog soft refetch. */
   const prevRouteKeyRef = useRef<string | null>(null)
@@ -379,16 +383,16 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
   return (
     <div className="min-w-0">
       <GameSection
-        title="Hot now"
+        title={t('nav.casino.hot_now')}
         viewAllTo="/casino/challenges"
         games={logoRowGames}
         showSkeletons={!hotRowReady}
       />
-      <GameSection title="Slots" viewAllTo="/casino/slots" games={slots} showSkeletons={!slotsLoaded} />
+      <GameSection title={t('nav.casino.slots')} viewAllTo="/casino/slots" games={slots} showSkeletons={!slotsLoaded} />
       <StudioMarqueeSection />
-      <GameSection title="New releases" viewAllTo="/casino/new" games={newRel} showSkeletons={!newLoaded} />
-      <GameSection title="Live casino" viewAllTo="/casino/live" games={live} showSkeletons={!liveLoaded} />
-      <GameSection title="Bonus buys" viewAllTo="/casino/bonus-buys" games={bonus} showSkeletons={!bonusLoaded} />
+      <GameSection title={t('nav.casino.new_releases')} viewAllTo="/casino/new" games={newRel} showSkeletons={!newLoaded} />
+      <GameSection title={t('lobby.sectionLiveCasino')} viewAllTo="/casino/live" games={live} showSkeletons={!liveLoaded} />
+      <GameSection title={t('nav.casino.bonus_buys')} viewAllTo="/casino/bonus-buys" games={bonus} showSkeletons={!bonusLoaded} />
     </div>
   )
 }

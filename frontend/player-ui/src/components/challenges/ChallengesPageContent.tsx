@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { readApiError } from '../../api/errors'
@@ -30,12 +31,6 @@ const rgUrl = (import.meta.env.VITE_RG_URL as string | undefined)?.trim()
 
 type FilterKey = 'all' | 'active' | 'completed'
 
-const FILTER_OPTIONS: { id: FilterKey; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'active', label: 'In progress' },
-  { id: 'completed', label: 'Completed' },
-]
-
 function ChallengeCard({
   challenge,
   vipTiers,
@@ -51,6 +46,7 @@ function ChallengeCard({
   onOpen: () => void
   onOpenLinkedGame: (c: PlayerChallengeListItem) => void
 }) {
+  const { t } = useTranslation()
   const { label: prizeText, cash: prizeCash } = prizeLabel(challenge)
   const entry = challenge.my_entry
   const completed = entry?.status === 'completed'
@@ -75,7 +71,7 @@ function ChallengeCard({
     }
   }, [challenge.id, challenge.my_entry, challenge.starts_at, nowMs, onCountdownReached])
 
-  const ctaLabel = claimReady ? 'Claim prize' : entry ? 'View details' : 'Claim'
+  const ctaLabel = claimReady ? t('challenges.ctaClaimPrize') : entry ? t('challenges.ctaViewDetails') : t('challenges.ctaClaim')
   const ctaPrimary = claimReady || (!entry && joinOpen)
 
   const playGameId = useMemo(() => firstCatalogGameId(challenge.game_ids), [challenge.game_ids])
@@ -101,18 +97,18 @@ function ChallengeCard({
         />
       ) : (
         <div className="flex size-full items-center justify-center bg-gradient-to-br from-casino-primary/20 to-transparent text-[10px] font-bold text-slate-500">
-          Challenge
+          {t('challenges.placeholderTitle')}
         </div>
       )}
       <ChallengeThumbBadgeStack challenge={challenge} vipTiers={vipTiers} />
       {completed ? (
         <span className="pointer-events-none absolute left-2 top-2 rounded-casino-sm bg-casino-success px-1.5 py-0.5 text-[9px] font-extrabold uppercase text-black backdrop-blur-sm">
-          Completed
+          {t('challenges.badgeCompleted')}
         </span>
       ) : null}
       {claimReady ? (
         <span className="pointer-events-none absolute left-2 top-[2rem] rounded-casino-sm bg-amber-400/90 px-1.5 py-0.5 text-[8px] font-extrabold uppercase text-black backdrop-blur-sm">
-          Claim
+          {t('challenges.badgeClaim')}
         </span>
       ) : null}
     </>
@@ -124,7 +120,9 @@ function ChallengeCard({
         type="button"
         className={`${heroAreaClass} ${heroInteractiveClass} block border-0 p-0 text-left ${playGameId ? '' : 'cursor-default hover:brightness-100'}`}
         onClick={() => onOpenLinkedGame(challenge)}
-        aria-label={playGameId ? `Open game: ${challenge.title}` : `${challenge.title} — no linked game`}
+        aria-label={
+          playGameId ? t('challenges.ariaOpenGame', { title: challenge.title }) : t('challenges.ariaNoLinkedGame', { title: challenge.title })
+        }
       >
         {heroFigure}
       </button>
@@ -136,14 +134,14 @@ function ChallengeCard({
           {challenge.description || '—'}
         </p>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Min bet</span>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{t('challenges.minBet')}</span>
           <span className="inline-flex items-center gap-1 text-[12px] font-extrabold text-casino-foreground">
             <IconCircleDollarSign size={11} className="shrink-0 text-casino-success" aria-hidden />
             {formatUsdMinor(challenge.min_bet_amount_minor)}
           </span>
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Prize</span>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{t('challenges.prize')}</span>
           <span
             className={`inline-flex items-center gap-1.5 text-[12px] font-extrabold ${prizeCash ? 'text-casino-success' : 'text-casino-foreground'}`}
           >
@@ -159,7 +157,7 @@ function ChallengeCard({
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-            {endsLiveCountdown ? 'Ends in' : 'Ends'}
+            {endsLiveCountdown ? t('challenges.endsIn') : t('challenges.ends')}
           </span>
           <span
             className={`text-[12px] font-extrabold leading-tight text-casino-foreground ${endsLiveCountdown ? 'font-mono tabular-nums' : ''}`}
@@ -171,7 +169,7 @@ function ChallengeCard({
         <div className="mt-auto border-t border-white/[0.06] pt-2">
           {entry ? (
             <p className="mb-1.5 text-[10px] text-slate-400">
-              Your status:{' '}
+              {t('challenges.yourStatus')}{' '}
               <span className="font-bold text-casino-foreground">{entry.status}</span>
             </p>
           ) : null}
@@ -182,7 +180,7 @@ function ChallengeCard({
               className="flex h-9 w-full flex-col items-center justify-center rounded-casino-sm border border-white/10 bg-white/[0.06] px-1.5 py-1 text-center transition-colors hover:border-white/15 hover:bg-white/[0.09]"
               aria-live="polite"
             >
-              <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">Starts in</span>
+              <span className="text-[8px] font-bold uppercase tracking-wide text-slate-500">{t('challenges.startsIn')}</span>
               <span className="font-mono text-[11px] font-extrabold tabular-nums text-casino-foreground">
                 {formatStartsInCountdown(msUntilStart(challenge, nowMs))}
               </span>
@@ -198,7 +196,7 @@ function ChallengeCard({
               }`}
               onClick={onOpen}
             >
-              {!entry && !joinOpen ? 'Closed' : ctaLabel}
+              {!entry && !joinOpen ? t('challenges.closed') : ctaLabel}
             </button>
           )}
         </div>
@@ -208,6 +206,7 @@ function ChallengeCard({
 }
 
 export default function ChallengesPageContent() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { apiFetch, isAuthenticated, refreshProfile } = usePlayerAuth()
@@ -225,14 +224,14 @@ export default function ChallengesPageContent() {
     (c: PlayerChallengeListItem) => {
       const id = firstCatalogGameId(c.game_ids)
       if (!id) {
-        toast.message('Game link unavailable', {
-          description: 'This challenge has no linked game in the catalog yet.',
+        toast.message(t('challenges.toastGameUnavailableTitle'), {
+          description: t('challenges.toastGameUnavailableBody'),
         })
         return
       }
       navigate(`/casino/game-lobby/${encodeURIComponent(id)}`)
     },
-    [navigate],
+    [navigate, t],
   )
 
   const loadList = useCallback(async (opts?: { silent?: boolean }) => {
@@ -343,14 +342,20 @@ export default function ChallengesPageContent() {
             <IconTarget size={26} aria-hidden />
           </div>
           <div>
-            <h1 className="mb-1 text-xl font-black uppercase tracking-wide text-casino-foreground">Challenges</h1>
+            <h1 className="mb-1 text-xl font-black uppercase tracking-wide text-casino-foreground">{t('challenges.pageTitle')}</h1>
             <p className="text-[13px] font-medium text-casino-muted">
-              Hit multipliers and wagering targets to win cash and rewards. Play responsibly.
+              {t('challenges.subtitle')}
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter challenges">
-          {FILTER_OPTIONS.map(({ id, label }) => {
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('challenges.filterTablistAria')}>
+          {(
+            [
+              { id: 'all' as const, label: t('challenges.filterAll') },
+              { id: 'active' as const, label: t('challenges.filterActive') },
+              { id: 'completed' as const, label: t('challenges.filterCompleted') },
+            ] as const
+          ).map(({ id, label }) => {
             const active = filter === id
             return (
               <button
@@ -374,25 +379,23 @@ export default function ChallengesPageContent() {
 
       <section
         className="mb-8 flex flex-col gap-6 rounded-casino-md border border-casino-primary/20 bg-gradient-to-r from-casino-primary/10 via-white/[0.02] to-transparent p-6 sm:flex-row sm:items-center sm:justify-between"
-        aria-label="Your challenge activity"
+        aria-label={t('challenges.progressSectionAria')}
       >
         <div>
-          <h2 className="mb-1 text-lg font-black text-casino-foreground">Your progress</h2>
+          <h2 className="mb-1 text-lg font-black text-casino-foreground">{t('challenges.yourProgress')}</h2>
           <p className="max-w-xl text-[13px] font-medium text-casino-muted">
-            {isAuthenticated
-              ? 'Active entries update every few seconds while this page is open.'
-              : 'Sign in to enter challenges and track progress.'}
+            {isAuthenticated ? t('challenges.progressHintSignedIn') : t('challenges.progressHintSignedOut')}
           </p>
         </div>
         <div className="flex flex-wrap gap-8">
           <div>
-            <div className="text-xs font-semibold text-casino-muted">Active entries</div>
+            <div className="text-xs font-semibold text-casino-muted">{t('challenges.activeEntries')}</div>
             <strong className="text-lg font-black text-casino-foreground">
               {isAuthenticated ? (meStats?.active ?? '—') : '—'}
             </strong>
           </div>
           <div>
-            <div className="text-xs font-semibold text-casino-muted">Completed</div>
+            <div className="text-xs font-semibold text-casino-muted">{t('challenges.completedLabel')}</div>
             <strong className="text-lg font-black text-casino-foreground">
               {isAuthenticated ? (meStats?.completed ?? '—') : '—'}
             </strong>
@@ -400,9 +403,9 @@ export default function ChallengesPageContent() {
         </div>
       </section>
 
-      <section aria-label="Challenge list">
+      <section aria-label={t('challenges.listAria')}>
         {loading ? (
-          <p className="text-center text-sm text-casino-muted">Loading challenges…</p>
+          <p className="text-center text-sm text-casino-muted">{t('challenges.loading')}</p>
         ) : (
           <ul className="grid grid-cols-3 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 md:gap-4 xl:grid-cols-5 2xl:grid-cols-6">
             {visible.map((c) => (
@@ -424,9 +427,7 @@ export default function ChallengesPageContent() {
         {!loading && visible.length === 0 ? (
           <div className="mt-8 max-w-lg mx-auto text-center text-sm text-casino-muted space-y-2">
             <p>
-              {list.length === 0
-                ? 'No challenges are live yet. Staff publishes them in the admin console (Engagement → Challenges): turn on “Live in player app” so the status becomes scheduled or active. Draft challenges never appear here.'
-                : 'No challenges match this filter — try All, or sign in if these are VIP-only.'}
+              {list.length === 0 ? t('challenges.emptyNonePublished') : t('challenges.emptyFilter')}
             </p>
           </div>
         ) : null}
@@ -434,15 +435,15 @@ export default function ChallengesPageContent() {
 
       {rgUrl ? (
         <footer className="mt-10 border-t border-white/10 pt-6 text-center text-[12px] text-slate-500">
-          Gambling can be addictive.{' '}
+          {t('challenges.footerRg')}{' '}
           <a href={rgUrl} className="font-semibold text-casino-primary underline-offset-2 hover:underline" target="_blank" rel="noreferrer">
-            Responsible gambling resources
+            {t('challenges.footerRgLink')}
           </a>
           .
         </footer>
       ) : (
         <footer className="mt-10 border-t border-white/10 pt-6 text-center text-[12px] text-slate-500">
-          Play within your limits. If you need help, use your operator&apos;s responsible gambling tools.
+          {t('challenges.footerGeneric')}
         </footer>
       )}
 

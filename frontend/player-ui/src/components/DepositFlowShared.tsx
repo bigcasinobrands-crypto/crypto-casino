@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
 import { IconCopy, IconSearch } from './icons'
 
 export type DepositNetworkId = 'BEP20' | 'ERC20' | 'TRC20'
@@ -98,6 +100,7 @@ export function DepositSearchBar({
   value: string
   onChange: (v: string) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="relative mb-2">
       <IconSearch
@@ -108,7 +111,7 @@ export function DepositSearchBar({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Search…"
+        placeholder={t('wallet.depositSearchPlaceholder')}
         className="w-full rounded-lg border border-casino-border bg-casino-bg py-2 pl-9 pr-2.5 text-sm text-casino-foreground outline-none placeholder:text-casino-muted focus:border-casino-primary"
         autoComplete="off"
       />
@@ -128,18 +131,19 @@ export function AssetToggleRow({
   /** Lowercase symbol → img.logo.dev URL from API */
   logoUrls?: Record<string, string>
 }) {
+  const { t } = useTranslation()
   const q = searchFilter.trim().toLowerCase()
   const assets: { id: DepositAssetSymbol; label: string; sub: string; ring: string; glyph: string; bg: string }[] = [
-    { id: 'ETH', label: 'ETH', sub: 'Ethereum', ring: 'ring-[#627EEA]/50', glyph: 'Ξ', bg: 'bg-[#627EEA]' },
-    { id: 'USDT', label: 'USDT', sub: 'Tether', ring: 'ring-[#26A17B]/50', glyph: '₮', bg: 'bg-[#26A17B]' },
-    { id: 'USDC', label: 'USDC', sub: 'USD Coin', ring: 'ring-[#2775CA]/50', glyph: '$', bg: 'bg-[#2775CA]' },
-    { id: 'TRX', label: 'TRX', sub: 'Tron', ring: 'ring-[#EB0029]/50', glyph: 'T', bg: 'bg-[#EB0029]' },
+    { id: 'ETH', label: 'ETH', sub: t('wallet.assets.ETH'), ring: 'ring-[#627EEA]/50', glyph: 'Ξ', bg: 'bg-[#627EEA]' },
+    { id: 'USDT', label: 'USDT', sub: t('wallet.assets.USDT'), ring: 'ring-[#26A17B]/50', glyph: '₮', bg: 'bg-[#26A17B]' },
+    { id: 'USDC', label: 'USDC', sub: t('wallet.assets.USDC'), ring: 'ring-[#2775CA]/50', glyph: '$', bg: 'bg-[#2775CA]' },
+    { id: 'TRX', label: 'TRX', sub: t('wallet.assets.TRX'), ring: 'ring-[#EB0029]/50', glyph: 'T', bg: 'bg-[#EB0029]' },
   ]
   const visible = assets.filter(
     (a) => !q || a.label.toLowerCase().includes(q) || a.sub.toLowerCase().includes(q),
   )
   if (visible.length === 0) {
-    return <p className="mb-2 text-xs text-casino-muted">No match.</p>
+    return <p className="mb-2 text-xs text-casino-muted">{t('wallet.assetNoMatch')}</p>
   }
   return (
     <div className="mb-3 grid grid-cols-4 gap-1.5">
@@ -200,6 +204,7 @@ export function NetworkCardGrid({
   depositAmountInput?: string
   logoUrls?: Record<string, string>
 }) {
+  const { t } = useTranslation()
   const bal = balanceLabel ?? '0.00'
   const balNum = Number(bal.replace(',', '.')) || 0
   const addAmt = parseAmountInput(depositAmountInput)
@@ -208,7 +213,7 @@ export function NetworkCardGrid({
   const availableNetworks = assetDef ? DEPOSIT_NETWORK_ORDER.filter((n) => assetDef.networks.includes(n)) : DEPOSIT_NETWORK_ORDER
   return (
     <div>
-      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">Network</p>
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">{t('wallet.networkSection')}</p>
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
         {availableNetworks.map((id) => {
           const m = NETWORK_META[id]
@@ -224,14 +229,14 @@ export function NetworkCardGrid({
             >
               <NetworkGlyph id={id} logoUrl={logoUrls?.[NETWORK_CHAIN_LOGO[id]]} />
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold leading-tight text-casino-foreground">{m.title}</div>
+                <div className="text-xs font-semibold leading-tight text-casino-foreground">{t(`wallet.net.${id}`)}</div>
                 <div className="text-[10px] leading-tight text-casino-muted">
                   {m.chainLine} · {symbol}
                 </div>
                 <div className="mt-1 text-sm font-bold tabular-nums text-white">{bal}</div>
                 {newBal && (
                   <div className="text-[10px] tabular-nums text-emerald-400">
-                    After deposit: {newBal}
+                    {t('wallet.afterDeposit')} {newBal}
                   </div>
                 )}
               </div>
@@ -262,13 +267,14 @@ export function WithdrawNetworkCardGrid({
   withdrawAmountInput?: string
   logoUrls?: Record<string, string>
 }) {
+  const { t } = useTranslation()
   const bal = balanceLabel ?? '0.00'
   const balNum = Number(bal.replace(',', '.')) || 0
   const wdAmt = parseAmountInput(withdrawAmountInput)
   const remaining = wdAmt > 0 ? Math.max(0, balNum - wdAmt).toFixed(2) : null
   return (
     <div>
-      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">Network</p>
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">{t('wallet.networkSection')}</p>
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
         {WITHDRAW_NETWORK_IDS.map((id) => {
           const m = NETWORK_META[id]
@@ -284,14 +290,14 @@ export function WithdrawNetworkCardGrid({
             >
               <NetworkGlyph id={id} logoUrl={logoUrls?.[NETWORK_CHAIN_LOGO[id]]} />
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold leading-tight text-casino-foreground">{m.title}</div>
+                <div className="text-xs font-semibold leading-tight text-casino-foreground">{t(`wallet.net.${id}`)}</div>
                 <div className="text-[10px] leading-tight text-casino-muted">
                   {m.chainLine} · {symbol}
                 </div>
                 <div className="mt-1 text-sm font-bold tabular-nums text-white">{bal}</div>
                 {remaining && (
                   <div className="text-[10px] tabular-nums text-red-400">
-                    After withdrawal: {remaining}
+                    {t('wallet.afterWithdrawal')} {remaining}
                   </div>
                 )}
               </div>
@@ -312,11 +318,13 @@ export function UsdAmountField({
   onChange: (v: string) => void
   minUsd?: number
 }) {
+  const { t } = useTranslation()
   const min = minUsd ?? 10
   return (
     <div className="mb-3">
       <label className="mb-1 block text-xs font-medium text-casino-foreground">
-        Amount (USD)<span className="font-normal text-casino-muted"> · min {min}</span>
+        {t('wallet.amountMinUsd')}
+        <span className="font-normal text-casino-muted">{t('wallet.amountMinSuffix', { min })}</span>
       </label>
       <div className="flex gap-1.5">
         <input
@@ -327,7 +335,7 @@ export function UsdAmountField({
           className="min-w-0 flex-1 rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary"
         />
         <div className="flex items-center rounded-lg border border-casino-border bg-casino-elevated px-2.5 text-xs font-semibold text-casino-muted">
-          USD
+          {t('wallet.currencyUsd')}
         </div>
       </div>
     </div>
@@ -341,20 +349,19 @@ export function DepositWrongChainWarning({
   symbol: DepositAssetSymbol
   networkLabel: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-2.5 text-xs leading-snug text-amber-100/95">
-      <p>
-        Send only <strong className="text-white">{symbol}</strong> on <strong className="text-white">{networkLabel}</strong>.
-        Wrong asset or chain can mean <strong className="text-white">permanent loss</strong>.
-      </p>
+      <p>{t('wallet.depositWrongChain', { symbol, network: networkLabel })}</p>
     </div>
   )
 }
 
 export function ChooseAssetNetworkHint() {
+  const { t } = useTranslation()
   return (
     <p className="mb-2 text-[11px] text-casino-muted">
-      Match the asset and chain to the wallet you send from.
+      {t('wallet.matchAssetDepositHint')}
     </p>
   )
 }
@@ -362,7 +369,8 @@ export function ChooseAssetNetworkHint() {
 /** Human label for instructions header / summary */
 export function depositNetworkTitle(id: DepositNetworkId): string {
   const m = NETWORK_META[id]
-  return `${m.title} (${m.chainLine})`
+  const title = i18n.t(`wallet.net.${id}`)
+  return `${title} (${m.chainLine})`
 }
 
 export function InstructionsNetworkStrip({
@@ -376,16 +384,17 @@ export function InstructionsNetworkStrip({
   envBadge?: string
   logoUrls?: Record<string, string>
 }) {
+  const { t } = useTranslation()
   const m = NETWORK_META[network]
-  const badge = envBadge?.trim() || 'Staging'
+  const badge = envBadge?.trim() || t('wallet.stagingBadge')
   return (
     <div>
-      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">Network</p>
+      <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">{t('wallet.networkSection')}</p>
       <div className="flex items-center gap-2 rounded-lg border border-casino-border bg-casino-elevated/40 p-2">
         <NetworkGlyph id={network} logoUrl={logoUrls?.[NETWORK_CHAIN_LOGO[network]]} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-semibold text-casino-foreground">{m.title}</span>
+            <span className="text-xs font-semibold text-casino-foreground">{t(`wallet.net.${network}`)}</span>
             <span className="rounded bg-casino-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase text-casino-muted">
               {badge}
             </span>
@@ -405,6 +414,7 @@ export function InstructionsCryptoFiatChrome({
   children: ReactNode
   onBack: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="space-y-2">
       <button
@@ -412,7 +422,7 @@ export function InstructionsCryptoFiatChrome({
         onClick={onBack}
         className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-casino-border bg-casino-bg py-2 text-xs font-medium text-casino-foreground hover:bg-casino-elevated"
       >
-        ← Back
+        {t('wallet.back')}
       </button>
       {children}
     </div>
@@ -420,24 +430,25 @@ export function InstructionsCryptoFiatChrome({
 }
 
 export function DepositAmountSummary({ amountUsdText }: { amountUsdText: string }) {
+  const { t } = useTranslation()
   return (
     <p className="text-center text-xs text-casino-foreground">
-      <span className="text-casino-muted">Reference </span>
-      <span className="font-semibold text-white">{amountUsdText}</span>
-      <span className="text-casino-muted"> USD</span>
+      {t('wallet.referenceUsd', { amount: amountUsdText })}
     </p>
   )
 }
 
 export function FiatEstimateNote({ symbol }: { symbol: DepositAssetSymbol }) {
+  const { t } = useTranslation()
   return (
     <p className="text-center text-[10px] leading-snug text-casino-muted">
-      Send only {symbol} on this network; on-chain amount may differ.
+      {t('wallet.fiatEstimateNote', { symbol })}
     </p>
   )
 }
 
 export function CopyAddressButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
@@ -446,7 +457,7 @@ export function CopyAddressButton({ onClick, disabled }: { onClick: () => void; 
       className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-b from-red-600 to-red-700 py-2.5 text-sm font-bold text-white shadow-md shadow-red-900/25 transition hover:brightness-110 disabled:opacity-50"
     >
       <IconCopy size={16} aria-hidden />
-      Copy address
+      {t('wallet.copyAddress')}
     </button>
   )
 }

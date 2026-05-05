@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthModal } from '../authModalContext'
 import { usePlayerAuth } from '../playerAuth'
@@ -46,6 +47,7 @@ export default function PlayerMobileBottomNav({
   onOpenDeposit,
   showCasinoSearch,
 }: PlayerMobileBottomNavProps) {
+  const { t } = useTranslation()
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const { isAuthenticated } = usePlayerAuth()
@@ -100,7 +102,7 @@ export default function PlayerMobileBottomNav({
   const nav = (
     <nav
       className="casino-shell-mobile-nav pointer-events-auto fixed inset-x-0 bottom-0 z-[205] box-border flex min-h-[56px] flex-col justify-center border-t border-white/[0.08] bg-[#0f0d14] py-1 pb-[max(6px,env(safe-area-inset-bottom,0px))] pt-1.5 shadow-[0_-6px_24px_rgba(0,0,0,0.45)]"
-      aria-label="Main"
+      aria-label={t('mobileNav.ariaMain')}
     >
       <div className="mx-auto flex min-h-[44px] w-full max-w-full min-w-0 items-end justify-between gap-0 px-0.5">
         <button
@@ -110,7 +112,7 @@ export default function PlayerMobileBottomNav({
           aria-current={menuHighlighted ? 'page' : undefined}
         >
           <IconMenu size={20} className={menuHighlighted ? iconActive : iconInactive} aria-hidden />
-          <span className={labelClass(menuHighlighted)}>Menu</span>
+          <span className={labelClass(menuHighlighted)}>{t('mobileNav.menu')}</span>
         </button>
 
         <button
@@ -120,7 +122,7 @@ export default function PlayerMobileBottomNav({
           aria-current={searchHighlighted ? 'page' : undefined}
         >
           <IconSearch size={20} className={searchHighlighted ? iconActive : iconInactive} aria-hidden />
-          <span className={labelClass(searchHighlighted)}>Search</span>
+          <span className={labelClass(searchHighlighted)}>{t('mobileNav.search')}</span>
         </button>
 
         <button
@@ -130,7 +132,7 @@ export default function PlayerMobileBottomNav({
           aria-current={depositHighlighted ? 'page' : undefined}
         >
           <IconBanknote size={22} className={depositHighlighted ? iconActive : iconInactive} aria-hidden />
-          <span className={labelClass(depositHighlighted)}>Deposit</span>
+          <span className={labelClass(depositHighlighted)}>{t('mobileNav.deposit')}</span>
         </button>
 
         <button
@@ -140,7 +142,7 @@ export default function PlayerMobileBottomNav({
           aria-current={bonusesHighlighted ? 'page' : undefined}
         >
           <IconGift size={20} className={bonusesHighlighted ? iconActive : iconInactive} aria-hidden />
-          <span className={labelClass(bonusesHighlighted)}>Bonuses</span>
+          <span className={labelClass(bonusesHighlighted)}>{t('mobileNav.bonuses')}</span>
         </button>
 
         <NavLink
@@ -150,7 +152,7 @@ export default function PlayerMobileBottomNav({
           aria-current={casinoHighlighted ? 'page' : undefined}
         >
           <IconDices size={20} className={casinoHighlighted ? iconActive : iconInactive} aria-hidden />
-          <span className={labelClass(casinoHighlighted)}>Casino</span>
+          <span className={labelClass(casinoHighlighted)}>{t('mobileNav.casino')}</span>
         </NavLink>
       </div>
     </nav>

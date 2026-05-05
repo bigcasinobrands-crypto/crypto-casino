@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
@@ -13,6 +14,7 @@ import {
   IconTarget,
 } from './icons'
 import type { CasinoNavCategory } from '../lib/casinoNav'
+import { translateNavItemLabel } from '../lib/navI18n'
 import {
   casinoNavRoute,
   casinoNavSubLinkUsesAuth,
@@ -62,6 +64,7 @@ type Props = {
  * Casino catalog subsection — shared by desktop sidebar and mobile (`<768px`) drawer so URLs and labels stay aligned.
  */
 export default function CasinoNavCasinoLinks({ items, variant, iconSize }: Props) {
+  const { t } = useTranslation()
   const { pathname, hash } = useLocation()
   const vc = variantClasses[variant]
 
@@ -73,12 +76,13 @@ export default function CasinoNavCasinoLinks({ items, variant, iconSize }: Props
       {items.map((item) => {
         const route = casinoNavRoute(item.id)
         const key = item.id
+        const label = translateNavItemLabel(t, 'casino', item)
 
         if (!route || item.coming_soon) {
           return (
-            <span key={key} className={vc.disabled} title={item.coming_soon ? 'Coming soon' : undefined}>
+            <span key={key} className={vc.disabled} title={item.coming_soon ? t('sidebar.comingSoon') : undefined}>
               {iconEl(item.id, iconSize)}
-              {item.label}
+              {label}
             </span>
           )
         }
@@ -92,7 +96,7 @@ export default function CasinoNavCasinoLinks({ items, variant, iconSize }: Props
               className={`${vc.link} ${hotNowActive ? vc.active : ''}`}
             >
               {iconEl(item.id, iconSize)}
-              {item.label}
+              {label}
             </NavLink>
           )
         }
@@ -101,7 +105,7 @@ export default function CasinoNavCasinoLinks({ items, variant, iconSize }: Props
           return (
             <NavLink key={key} to={route} className={`${vc.link} ${providersActive ? vc.active : ''}`}>
               {iconEl(item.id, iconSize)}
-              {item.label}
+              {label}
             </NavLink>
           )
         }
@@ -114,7 +118,7 @@ export default function CasinoNavCasinoLinks({ items, variant, iconSize }: Props
               className={({ isActive }) => `${vc.link} ${isActive ? vc.active : ''}`}
             >
               {iconEl(item.id, iconSize)}
-              {item.label}
+              {label}
             </RequireAuthNavLink>
           )
         }
@@ -122,7 +126,7 @@ export default function CasinoNavCasinoLinks({ items, variant, iconSize }: Props
         return (
           <NavLink key={key} to={route} className={({ isActive }) => `${vc.link} ${isActive ? vc.active : ''}`}>
             {iconEl(item.id, iconSize)}
-            {item.label}
+            {label}
           </NavLink>
         )
       })}

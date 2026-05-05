@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import AcceptedCurrenciesStrip from './AcceptedCurrenciesStrip'
+import type { TFunction } from 'i18next'
 import { useState, type FC } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSiteContent } from '../hooks/useSiteContent'
 
 const linkMuted = 'text-[10px] font-medium leading-snug text-casino-muted transition hover:text-casino-primary'
@@ -16,28 +18,25 @@ type SeoBlock = {
   sub?: { heading: string; paragraphs: string[] }
 }
 
-const FALLBACK_SEO_TITLE = 'Play Online Casino Games for Real Money at vybebet'
-const FALLBACK_SEO_BLOCKS = [
-  {
-    heading: 'The best online casino you will come across in 2026',
-    paragraphs: [
-      'vybebet is a fast-growing crypto casino built for players who want to play online casino games for real money using cryptocurrency. With thousands of games available, the platform delivers a complete real money crypto casino experience focused on performance, variety, and transparent gameplay.',
-      'We support a wide range of immersive crypto casino games, including slots, table games, live dealers, and more.',
+function buildLocalizedSeoFallback(t: TFunction): { title: string; blocks: SeoBlock[] } {
+  return {
+    title: t('footer.seoFallbackTitle'),
+    blocks: [
+      {
+        heading: t('footer.seo.block1Heading'),
+        paragraphs: [t('footer.seo.block1p1'), t('footer.seo.block1p2')],
+      },
+      {
+        heading: null,
+        paragraphs: [t('footer.seo.block2p1')],
+        sub: {
+          heading: t('footer.seo.block2subHeading'),
+          paragraphs: [t('footer.seo.block2subp1')],
+        },
+      },
     ],
-  },
-  {
-    heading: null,
-    paragraphs: [
-      'Shows include Crazy Time, Monopoly Live, Sweet Bonanza, and many more, offering dynamic gameplay for players looking for a unique crypto casino games experience.',
-    ],
-    sub: {
-      heading: 'Saga Games',
-      paragraphs: [
-        'vybebet features an exciting collection of games from top studios in the industry. These titles are designed to offer engaging mechanics and high-quality gameplay.',
-      ],
-    },
-  },
-]
+  }
+}
 
 /** Paths match `LobbyPage` `/casino/:section` sections + catalog anchors. */
 const FALLBACK_GAMES_LINKS: FooterLink[] = [
@@ -65,43 +64,69 @@ const FALLBACK_SOCIAL: SocialLink[] = [
   { label: 'Instagram' },
 ]
 
-function renderLinkList(links: FooterLink[]) {
+function translateFooterLinkLabel(t: TFunction, lk: FooterLink): string {
+  const d = lk.label
+  if (lk.to === '/casino/slots') return t('footer.slots', { defaultValue: d })
+  if (lk.to === '/casino/bonus-buys') return t('footer.bonusBuys', { defaultValue: d })
+  if (lk.to === '/casino/challenges') return t('footer.challenges', { defaultValue: d })
+  if (lk.to === '/casino/favourites') return t('footer.favourites', { defaultValue: d })
+  if (lk.to === '/casino/studios') return t('footer.studios', { defaultValue: d })
+  if (lk.to === '/casino/live') return t('footer.liveCasino', { defaultValue: d })
+  if (lk.to === '/vip') return t('footer.vipProgram', { defaultValue: d })
+  if (lk.to === '/bonuses') return t('footer.myBonuses', { defaultValue: d })
+  if (lk.to === '/terms') return t('footer.terms', { defaultValue: d })
+  if (lk.to === '/responsible-gambling') return t('footer.responsibleGaming', { defaultValue: d })
+  if (lk.to === '/privacy') return t('footer.privacy', { defaultValue: d })
+  if (lk.to === '/aml') return t('footer.aml', { defaultValue: d })
+  if (!lk.to && d.toLowerCase().includes('affiliate')) return t('footer.affiliate', { defaultValue: d })
+  return d
+}
+
+function renderLinkList(links: FooterLink[], t: TFunction) {
   return (
     <ul className="flex flex-col gap-1">
-      {links.map((lk) => (
-        <li key={lk.label}>
-          {lk.href ? (
-            <a href={lk.href} target="_blank" rel="noreferrer" className={linkMuted}>
-              {lk.label}
-            </a>
-          ) : lk.to && lk.requireAuth ? (
-            <RequireAuthLink className={linkMuted} to={lk.to}>
-              {lk.label}
-            </RequireAuthLink>
-          ) : lk.to ? (
-            <Link className={linkMuted} to={lk.to}>
-              {lk.label}
-            </Link>
-          ) : (
-            <span className={linkMuted}>{lk.label}</span>
-          )}
-        </li>
-      ))}
+      {links.map((lk) => {
+        const label = translateFooterLinkLabel(t, lk)
+        return (
+          <li key={lk.label}>
+            {lk.href ? (
+              <a href={lk.href} target="_blank" rel="noreferrer" className={linkMuted}>
+                {label}
+              </a>
+            ) : lk.to && lk.requireAuth ? (
+              <RequireAuthLink className={linkMuted} to={lk.to}>
+                {label}
+              </RequireAuthLink>
+            ) : lk.to ? (
+              <Link className={linkMuted} to={lk.to}>
+                {label}
+              </Link>
+            ) : (
+              <span className={linkMuted}>{label}</span>
+            )}
+          </li>
+        )
+      })}
     </ul>
   )
 }
 
 const SiteFooter: FC = () => {
   const [seoOpen, setSeoOpen] = useState(false)
+  const { t } = useTranslation()
   const { getContent } = useSiteContent()
   const siteLabel = (getContent<string>('branding.site_name', '') ?? '').trim() || 'vybebet'
 
-  const seoTitle = getContent<string>('footer.seo_title', FALLBACK_SEO_TITLE)
-  const seoBlocks = getContent('footer.seo_blocks', FALLBACK_SEO_BLOCKS)
+  const localizedSeo = buildLocalizedSeoFallback(t)
+  const seoTitle = getContent<string>('footer.seo_title', localizedSeo.title)
+  const seoBlocks = getContent('footer.seo_blocks', localizedSeo.blocks)
   const copyrightBrand =
     (getContent<string>('branding.copyright_brand', '') ?? '').trim() ||
     (siteLabel.toLowerCase() === 'vybebet' ? 'Vybe Bet' : siteLabel || 'Vybe Bet')
-  const defaultCopyright = `© ${new Date().getFullYear()} ${copyrightBrand}. All rights reserved.`
+  const defaultCopyright = t('footer.copyrightTemplate', {
+    year: new Date().getFullYear(),
+    brand: copyrightBrand,
+  })
   const copyright = getContent<string>('footer.copyright', defaultCopyright)
 
   const gamesLinks = getContent<FooterLink[]>('links.games', FALLBACK_GAMES_LINKS)
@@ -153,7 +178,7 @@ const SiteFooter: FC = () => {
               aria-controls="footer-seo-panel"
               onClick={() => setSeoOpen(true)}
             >
-              Show more
+              {t('footer.showMore')}
             </button>
           </div>
         ) : (
@@ -165,7 +190,7 @@ const SiteFooter: FC = () => {
               aria-controls="footer-seo-panel"
               onClick={() => setSeoOpen(false)}
             >
-              Show less
+              {t('footer.showLess')}
             </button>
           </div>
         )}
@@ -181,18 +206,18 @@ const SiteFooter: FC = () => {
           </Link>
           <nav
             className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-5 sm:gap-x-4 md:grid-cols-3 md:gap-x-5 min-[1280px]:flex min-[1280px]:min-w-0 min-[1280px]:flex-1 min-[1280px]:flex-row min-[1280px]:flex-wrap min-[1280px]:items-start min-[1280px]:justify-end min-[1280px]:gap-x-5 min-[1280px]:gap-y-4 min-[1536px]:gap-x-6"
-            aria-label="Footer"
+            aria-label={t('footer.navAriaLabel')}
           >
             <div className="flex flex-col min-[1280px]:shrink-0">
-              <div className={colTitle}>Games</div>
-              {renderLinkList(gamesLinks)}
+              <div className={colTitle}>{t('footer.colGames')}</div>
+              {renderLinkList(gamesLinks, t)}
             </div>
             <div className="flex flex-col min-[1280px]:shrink-0">
-              <div className={colTitle}>About Us</div>
-              {renderLinkList(aboutLinks)}
+              <div className={colTitle}>{t('footer.colAbout')}</div>
+              {renderLinkList(aboutLinks, t)}
             </div>
             <div className="flex flex-col min-[1280px]:shrink-0">
-              <div className={colTitle}>Communities</div>
+              <div className={colTitle}>{t('footer.colCommunities')}</div>
               <ul className="flex flex-col gap-1">
                 {socials.map((s) => (
                   <li key={s.label}>
@@ -216,7 +241,7 @@ const SiteFooter: FC = () => {
           <div
             className="inline-flex min-h-[3.25rem] min-w-[3.25rem] shrink-0 items-center justify-center rounded-[4px] bg-casino-surface px-4 py-3"
             role="img"
-            aria-label="18+ only"
+            aria-label={t('footer.ageRatingAria')}
           >
             <span className="text-[11px] font-bold tabular-nums tracking-tight text-casino-foreground">18+</span>
           </div>

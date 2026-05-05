@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
@@ -37,6 +38,7 @@ export function WithdrawFormPanel({
   onSuccess,
   splitFooter = false,
 }: WithdrawFormPanelProps) {
+  const { t } = useTranslation()
   const { apiFetch, refreshProfile, balanceMinor } = usePlayerAuth()
   const logoUrls = useCryptoLogoUrlMap()
   const [amount, setAmount] = useState('10')
@@ -53,11 +55,11 @@ export function WithdrawFormPanel({
     setErr(null)
     const amt = Math.round(Number(amount) * 100)
     if (!Number.isFinite(amt) || amt < 1) {
-      setErr('Enter a valid amount.')
+      setErr(t('wallet.errEnterValidAmount'))
       return
     }
     if (!destination.trim()) {
-      setErr('Enter a destination address.')
+      setErr(t('wallet.errEnterDestination'))
       return
     }
     setBusy(true)
@@ -84,7 +86,7 @@ export function WithdrawFormPanel({
         const parsed = await readApiError(res)
         const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
         toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/withdraw', rid)
-        setErr(parsed?.message ?? 'Withdraw failed')
+        setErr(parsed?.message ?? t('wallet.errWithdrawFailed'))
         return
       }
       const j = (await res.json()) as { withdrawal_id?: string }
@@ -95,7 +97,7 @@ export function WithdrawFormPanel({
       }
     } catch {
       toastPlayerNetworkError('Network error.', 'POST /v1/wallet/withdraw')
-      setErr('Network error.')
+      setErr(t('wallet.errWithdrawNetwork'))
     } finally {
       setBusy(false)
     }
@@ -105,7 +107,8 @@ export function WithdrawFormPanel({
     <>
       <div className="mb-3">
         <label className="mb-1 block text-xs font-medium text-casino-foreground">
-          Amount (USD)<span className="font-normal text-casino-muted"> · e.g. 10.00</span>
+          {t('wallet.amountMinUsd')}
+          <span className="font-normal text-casino-muted">{t('wallet.withdrawAmountExampleSuffix')}</span>
         </label>
         <div className="flex gap-1.5">
           <input
@@ -116,16 +119,18 @@ export function WithdrawFormPanel({
             className="min-w-0 flex-1 rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary"
           />
           <div className="flex items-center rounded-lg border border-casino-border bg-casino-elevated px-2.5 text-xs font-semibold text-casino-muted">
-            USD
+            {t('wallet.currencyUsd')}
           </div>
         </div>
       </div>
 
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[11px] text-casino-muted">
-          Match the asset and network to your destination wallet.
+          {t('wallet.withdrawMatchDestinationHint')}
         </p>
-        <span className="text-[11px] font-medium text-casino-foreground">Bal: ${balanceLabel}</span>
+        <span className="text-[11px] font-medium text-casino-foreground">
+          {t('wallet.withdrawBalanceLabel', { amount: `$${balanceLabel}` })}
+        </span>
       </div>
 
       <AssetToggleRow symbol={symbol} onSymbol={onSymbol} searchFilter="" logoUrls={logoUrls} />
@@ -140,11 +145,11 @@ export function WithdrawFormPanel({
       />
 
       <label className="mb-3 mt-2 block">
-        <span className="mb-1 block text-xs font-medium text-casino-foreground">Destination</span>
+        <span className="mb-1 block text-xs font-medium text-casino-foreground">{t('wallet.withdrawDestinationLabel')}</span>
         <input
           value={destination}
           onChange={(e) => setDestination(e.target.value)}
-          placeholder={`${symbol} · ${network} address`}
+          placeholder={t('wallet.withdrawAddrPlaceholder', { symbol, network })}
           className="w-full rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary"
         />
       </label>
@@ -168,7 +173,7 @@ export function WithdrawFormPanel({
       onClick={() => void submit()}
       className="w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110 disabled:opacity-50"
     >
-      {busy ? 'Processing…' : 'Withdraw'}
+      {busy ? t('wallet.withdrawProcessing') : t('wallet.withdraw')}
     </button>
   )
 

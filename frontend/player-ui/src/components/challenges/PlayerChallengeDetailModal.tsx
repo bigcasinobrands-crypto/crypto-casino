@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useAuthModal } from '../../authModalContext'
 import { readApiError } from '../../api/errors'
@@ -45,6 +46,7 @@ export function PlayerChallengeDetailModal({
   onAfterEnter,
   onAfterClaim,
 }: Props) {
+  const { t } = useTranslation()
   const { apiFetch, isAuthenticated } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const [modalDetail, setModalDetail] = useState<PlayerChallengeListItem | null>(null)
@@ -99,7 +101,7 @@ export function PlayerChallengeDetailModal({
     if (!acceptTerms) return
     const preEntry = modalDetail ?? (fallbackChallenge?.id === challengeId ? fallbackChallenge : null)
     if (preEntry?.my_entry) {
-      toast.message('Already entered', { description: 'You are already in this challenge.' })
+      toast.message(t('challenges.modal.alreadyEnteredTitle'), { description: t('challenges.modal.alreadyEnteredBody') })
       onClose()
       return
     }
@@ -113,7 +115,7 @@ export function PlayerChallengeDetailModal({
       if (!res.ok) {
         const err = await readApiError(res)
         if (res.status === 409 && err?.code === 'already_entered') {
-          toast.message('Already entered', { description: 'You are already in this challenge.' })
+          toast.message(t('challenges.modal.alreadyEnteredTitle'), { description: t('challenges.modal.alreadyEnteredBody') })
           await onAfterEnter()
           await refreshModalDetail()
           onClose()
@@ -127,7 +129,7 @@ export function PlayerChallengeDetailModal({
       await refreshModalDetail()
       onClose()
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST enter challenge')
+      toastPlayerNetworkError(t('common.networkError'), 'POST enter challenge')
     } finally {
       setEnterBusy(false)
     }
@@ -147,11 +149,11 @@ export function PlayerChallengeDetailModal({
         toastPlayerApiError(err, res.status, 'POST challenge claim')
         return
       }
-      toast.success('Prize claimed', { description: 'Funds were added to your cash wallet.' })
+      toast.success(t('challenges.modal.prizeClaimedTitle'), { description: t('challenges.modal.prizeClaimedBody') })
       await onAfterClaim()
       await refreshModalDetail()
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST challenge claim')
+      toastPlayerNetworkError(t('common.networkError'), 'POST challenge claim')
     } finally {
       setClaimBusy(false)
     }
@@ -217,6 +219,11 @@ export function PlayerChallengeDetailModal({
 
   if (!challengeId || !modalChallenge) return null
 
+  const entryStatusRaw = modalChallenge.my_entry?.status ?? ''
+  const entryStatusLabel = entryStatusRaw
+    ? t(`challenges.entryStatus.${entryStatusRaw}`, { defaultValue: entryStatusRaw })
+    : ''
+
   return (
     <div
       className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-end justify-center bg-black/60 p-4 backdrop-blur-[6px] sm:items-center`}
@@ -248,16 +255,20 @@ export function PlayerChallengeDetailModal({
         </div>
 
         <div className="flex shrink-0 gap-1 border-b border-white/10 px-4 sm:px-5">
-          {(['overview', 'rules', 'terms'] as const).map((t) => (
+          {(['overview', 'rules', 'terms'] as const).map((tab) => (
             <button
-              key={t}
+              key={tab}
               type="button"
               className={`rounded-t-casino-sm px-3 py-2.5 text-[12px] font-bold capitalize transition-colors sm:px-4 ${
-                modalTab === t ? 'bg-white/10 text-casino-foreground' : 'text-slate-500 hover:text-slate-300'
+                modalTab === tab ? 'bg-white/10 text-casino-foreground' : 'text-slate-500 hover:text-slate-300'
               }`}
-              onClick={() => setModalTab(t)}
+              onClick={() => setModalTab(tab)}
             >
-              {t}
+              {tab === 'overview'
+                ? t('challenges.modal.tabOverview')
+                : tab === 'rules'
+                  ? t('challenges.modal.tabRules')
+                  : t('challenges.modal.tabTerms')}
             </button>
           ))}
         </div>
@@ -277,8 +288,8 @@ export function PlayerChallengeDetailModal({
                     onClick={() => onOpenLinkedGame(modalChallenge)}
                     aria-label={
                       firstCatalogGameId(modalChallenge.game_ids)
-                        ? `Open game: ${modalChallenge.title}`
-                        : `${modalChallenge.title} — artwork`
+                        ? t('challenges.ariaOpenGame', { title: modalChallenge.title })
+                        : t('challenges.modal.artworkAria', { title: modalChallenge.title })
                     }
                   >
                     <ChallengeThumbBadgeStack challenge={modalChallenge} vipTiers={vipTiers} />
@@ -295,7 +306,7 @@ export function PlayerChallengeDetailModal({
                       />
                     ) : (
                       <div className="flex size-full items-center justify-center bg-gradient-to-br from-casino-primary/15 to-transparent px-2 text-center text-[11px] font-bold leading-snug text-slate-500">
-                        No artwork
+                        {t('challenges.modal.noArtwork')}
                       </div>
                     )}
                   </button>
@@ -305,10 +316,12 @@ export function PlayerChallengeDetailModal({
                   <p className="leading-relaxed text-slate-300 sm:pt-0.5">{modalChallenge.description || '—'}</p>
 
                   <div className="rounded-casino-md border border-white/[0.08] bg-white/[0.02] px-4 py-4 sm:px-5 sm:py-5">
-                    <p className="mb-4 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">At a glance</p>
+                    <p className="mb-4 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                      {t('challenges.modal.atAGlance')}
+                    </p>
                     <dl className="grid grid-cols-1 gap-x-6 gap-y-4 text-[12px] sm:grid-cols-2">
                       <div>
-                        <dt className="text-slate-500">Prize</dt>
+                        <dt className="text-slate-500">{t('challenges.prize')}</dt>
                         <dd className="mt-1 flex items-center gap-2 font-semibold text-casino-foreground">
                           {modalPrizeInfo?.cash ? (
                             <PrizeRailLogoMark
@@ -322,7 +335,7 @@ export function PlayerChallengeDetailModal({
                       </div>
                       {formatPayoutRail(modalChallenge.prize_payout_asset_key) ? (
                         <div>
-                          <dt className="text-slate-500">Payout</dt>
+                          <dt className="text-slate-500">{t('challenges.modal.payout')}</dt>
                           <dd className="mt-1 flex items-center gap-2 font-medium text-slate-200">
                             <PrizeRailLogoMark
                               assetKey={modalChallenge.prize_payout_asset_key}
@@ -335,20 +348,22 @@ export function PlayerChallengeDetailModal({
                       ) : null}
                       {typeof modalChallenge.target_multiplier === 'number' ? (
                         <div>
-                          <dt className="text-slate-500">Target multiplier</dt>
+                          <dt className="text-slate-500">{t('challenges.modal.targetMultiplier')}</dt>
                           <dd className="mt-1 font-medium text-slate-200">{modalChallenge.target_multiplier}×</dd>
                         </div>
                       ) : null}
                       {typeof modalChallenge.target_wager_amount_minor === 'number' ? (
                         <div>
-                          <dt className="text-slate-500">Target wager</dt>
+                          <dt className="text-slate-500">{t('challenges.modal.targetWager')}</dt>
                           <dd className="mt-1 font-medium text-slate-200">
                             {formatUsdMinor(modalChallenge.target_wager_amount_minor)}
                           </dd>
                         </div>
                       ) : null}
                       <div className="sm:col-span-2">
-                        <dt className="text-slate-500">{modalEndsLiveCountdown ? 'Ends in' : 'Ends'}</dt>
+                        <dt className="text-slate-500">
+                          {modalEndsLiveCountdown ? t('challenges.endsIn') : t('challenges.ends')}
+                        </dt>
                         <dd
                           className={`mt-1 font-medium text-slate-200 ${modalEndsLiveCountdown ? 'font-mono tabular-nums' : ''}`}
                           title={new Date(modalChallenge.ends_at).toLocaleString()}
@@ -366,27 +381,36 @@ export function PlayerChallengeDetailModal({
               <div className="border-t border-white/[0.1] pt-6">
                 {modalChallenge.my_entry ? (
                   <div className="rounded-casino-md border border-casino-primary/25 bg-casino-primary/10 p-4 sm:p-5">
-                    <div className="text-[11px] font-bold uppercase text-casino-primary">Your entry</div>
-                    <div className="mt-1.5 text-sm font-semibold text-casino-foreground">Status: {modalChallenge.my_entry.status}</div>
+                    <div className="text-[11px] font-bold uppercase text-casino-primary">{t('challenges.modal.yourEntry')}</div>
+                    <div className="mt-1.5 text-sm font-semibold text-casino-foreground">
+                      {t('challenges.modal.statusLine', { status: entryStatusLabel })}
+                    </div>
                     {typeof modalChallenge.my_entry.best_multiplier === 'number' ? (
                       <div className="mt-2 text-[12px] text-slate-300">
-                        Best multiplier: {modalChallenge.my_entry.best_multiplier}×
-                        {typeof modalChallenge.target_multiplier === 'number'
-                          ? ` / ${modalChallenge.target_multiplier}×`
-                          : ''}
+                        {t('challenges.modal.bestMultiplier', {
+                          best: modalChallenge.my_entry.best_multiplier,
+                          targetSuffix:
+                            typeof modalChallenge.target_multiplier === 'number'
+                              ? ` / ${modalChallenge.target_multiplier}×`
+                              : '',
+                        })}
                       </div>
                     ) : null}
                     {typeof modalChallenge.my_entry.total_wagered_minor === 'number' &&
                     typeof modalChallenge.target_wager_amount_minor === 'number' ? (
                       <div className="mt-2 text-[12px] text-slate-300">
-                        Wagered {formatUsdMinor(modalChallenge.my_entry.total_wagered_minor)} /{' '}
-                        {formatUsdMinor(modalChallenge.target_wager_amount_minor)}
+                        {t('challenges.modal.wageredLine', {
+                          current: formatUsdMinor(modalChallenge.my_entry.total_wagered_minor),
+                          target: formatUsdMinor(modalChallenge.target_wager_amount_minor),
+                        })}
                       </div>
                     ) : null}
                     {typeof modalChallenge.my_entry.prize_awarded_minor === 'number' &&
                     modalChallenge.my_entry.prize_awarded_minor > 0 ? (
                       <div className="mt-3 text-[12px] font-bold text-casino-success">
-                        Prize paid: {formatUsdMinor(modalChallenge.my_entry.prize_awarded_minor)}
+                        {t('challenges.modal.prizePaid', {
+                          amount: formatUsdMinor(modalChallenge.my_entry.prize_awarded_minor),
+                        })}
                       </div>
                     ) : null}
                     {modalChallenge.my_entry.can_claim_prize ? (
@@ -396,7 +420,7 @@ export function PlayerChallengeDetailModal({
                         className="mt-4 flex h-11 w-full items-center justify-center rounded-casino-sm bg-amber-400 text-xs font-extrabold text-black transition-opacity hover:opacity-95 disabled:opacity-40"
                         onClick={() => void onClaim()}
                       >
-                        {claimBusy ? 'Claiming…' : 'Claim prize to wallet'}
+                        {claimBusy ? t('challenges.modal.claimingPrize') : t('challenges.modal.claimPrizeToWallet')}
                       </button>
                     ) : null}
                     {modalChallenge.my_entry.status === 'completed' &&
@@ -406,8 +430,8 @@ export function PlayerChallengeDetailModal({
                       modalChallenge.my_entry.prize_awarded_minor <= 0) ? (
                       <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
                         {modalChallenge.require_claim_for_prize === false
-                          ? 'When you finish, the prize is credited to your wallet automatically.'
-                          : 'Prize crediting may be pending review or already processed—check your wallet balance.'}
+                          ? t('challenges.modal.prizeAutoCredit')
+                          : t('challenges.modal.prizePendingReview')}
                       </p>
                     ) : null}
                   </div>
@@ -418,13 +442,13 @@ export function PlayerChallengeDetailModal({
                         className="flex min-h-[5.5rem] flex-col items-center justify-center rounded-casino-sm border border-white/10 bg-white/[0.04] px-4 py-5 text-center"
                         aria-live="polite"
                       >
-                        <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">Challenge starts in</span>
+                        <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                          {t('challenges.modal.challengeStartsIn')}
+                        </span>
                         <span className="mt-2 font-mono text-lg font-black tabular-nums text-casino-foreground">
                           {formatStartsInCountdown(msUntilStart(modalChallenge, nowTick))}
                         </span>
-                        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-                          You can accept the terms and enter once the countdown finishes. Opening times are enforced on the server.
-                        </p>
+                        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{t('challenges.modal.preStartHint')}</p>
                       </div>
                     ) : (
                       <>
@@ -436,10 +460,7 @@ export function PlayerChallengeDetailModal({
                             onChange={(e) => setAcceptTerms(e.target.checked)}
                             disabled={!modalCanJoin}
                           />
-                          <span className="text-slate-300">
-                            I confirm I have read the rules and terms for this challenge and accept them. I am playing within my
-                            limits.
-                          </span>
+                          <span className="text-slate-300">{t('challenges.modal.acceptTerms')}</span>
                         </label>
                         <button
                           type="button"
@@ -448,12 +469,12 @@ export function PlayerChallengeDetailModal({
                           onClick={() => void onEnter()}
                         >
                           {!isAuthenticated
-                            ? 'Sign in to enter'
+                            ? t('challenges.modal.signInToEnter')
                             : !modalCanJoin
-                              ? 'Not open for entry'
+                              ? t('challenges.modal.notOpenForEntry')
                               : enterBusy
-                                ? 'Entering…'
-                                : 'Enter challenge'}
+                                ? t('challenges.modal.entering')
+                                : t('challenges.modal.enterChallenge')}
                         </button>
                       </>
                     )}
@@ -463,10 +484,14 @@ export function PlayerChallengeDetailModal({
             </div>
           ) : null}
           {modalTab === 'rules' ? (
-            <div className="whitespace-pre-wrap leading-relaxed">{modalChallenge.rules?.trim() || 'No rules provided.'}</div>
+            <div className="whitespace-pre-wrap leading-relaxed">
+              {modalChallenge.rules?.trim() || t('challenges.modal.noRules')}
+            </div>
           ) : null}
           {modalTab === 'terms' ? (
-            <div className="whitespace-pre-wrap leading-relaxed">{modalChallenge.terms?.trim() || 'No terms provided.'}</div>
+            <div className="whitespace-pre-wrap leading-relaxed">
+              {modalChallenge.terms?.trim() || t('challenges.modal.noTerms')}
+            </div>
           ) : null}
         </div>
       </div>

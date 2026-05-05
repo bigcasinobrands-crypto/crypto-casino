@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FC } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router-dom'
 import { usePlayerAuth } from '../playerAuth'
 import { useAuthModal } from '../authModalContext'
@@ -133,6 +134,7 @@ function AssetLogo({
 type PanelTab = 'crypto' | 'fiat'
 
 const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowActive = false }) => {
+  const { t } = useTranslation()
   const { pathname } = useLocation()
   const onDepositRoute = pathname.startsWith('/wallet/deposit')
   const depositNavActive = onDepositRoute || depositFlowActive
@@ -289,8 +291,8 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
     <button
       type="button"
       onClick={onDeposit}
-      title="Deposit"
-      aria-label="Deposit"
+      title={t('header.deposit')}
+      aria-label={t('header.depositAriaLabel')}
       aria-current={depositNavActive ? 'page' : undefined}
       className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-none text-white transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:mx-0.5 md:mb-0.5 md:mt-0.5 md:w-auto md:rounded-xl md:px-3 md:py-2 md:text-xs md:font-bold md:shadow-none max-[1279px]:md:px-2.5 max-[1279px]:md:py-1.5 min-[1280px]:md:px-4 min-[1280px]:md:py-2 min-[1280px]:md:text-sm bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:aspect-square max-[1000px]:min-[768px]:md:min-h-0 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:px-0 max-[1000px]:min-[768px]:md:py-0 ${
         depositNavActive
@@ -299,7 +301,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
       }`}
     >
       <IconBanknote size={15} className="hidden shrink-0 max-[1000px]:min-[768px]:md:inline min-[1001px]:md:hidden" aria-hidden />
-      <span className="max-[1000px]:min-[768px]:md:sr-only min-[1001px]:md:inline">Deposit</span>
+      <span className="max-[1000px]:min-[768px]:md:sr-only min-[1001px]:md:inline">{t('header.deposit')}</span>
     </button>
   )
 
@@ -350,7 +352,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
             Desktop (lg+): full viewport dim.
           */}
           <div
-            className="fixed z-[199] bg-black/40 backdrop-blur-sm max-[767px]:left-0 max-[767px]:right-0 max-[767px]:top-[calc(64px+env(safe-area-inset-top,0px))] max-[767px]:bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] min-[768px]:max-[1279px]:left-0 min-[768px]:max-[1279px]:right-0 min-[768px]:max-[1279px]:bottom-0 min-[768px]:max-[1279px]:top-[calc(var(--casino-header-h-tablet)+env(safe-area-inset-top,0px))] min-[1280px]:inset-0"
+            className="fixed z-[199] bg-black/40 backdrop-blur-sm max-[767px]:left-0 max-[767px]:right-0 max-[767px]:top-[calc(64px+env(safe-area-inset-top,0px))] max-[767px]:bottom-[var(--casino-mobile-nav-offset)] min-[768px]:max-[1279px]:left-0 min-[768px]:max-[1279px]:right-0 min-[768px]:max-[1279px]:bottom-0 min-[768px]:max-[1279px]:top-[calc(var(--casino-header-h-tablet)+env(safe-area-inset-top,0px))] min-[1280px]:inset-0"
             onClick={() => setOpen(false)}
             aria-hidden
           />
