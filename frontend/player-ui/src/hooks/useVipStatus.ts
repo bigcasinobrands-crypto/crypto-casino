@@ -44,33 +44,66 @@ export type VipStatusPayload = {
   tier_perks?: VipTierPerk[]
 }
 
+const VIP_STATUS_CACHE_TTL_MS = 20_000
+let vipStatusCacheData: VipStatusPayload | null = null
+let vipStatusCacheAt = 0
+let vipStatusInFlight: Promise<VipStatusPayload | null> | null = null
+
 export function useVipStatus() {
   const { apiFetch, isAuthenticated } = usePlayerAuth()
-  const [data, setData] = useState<VipStatusPayload | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<VipStatusPayload | null>(() => vipStatusCacheData)
+  const [loading, setLoading] = useState(() => isAuthenticated && vipStatusCacheData == null)
   const [err, setErr] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!isAuthenticated) {
       setData(null)
       setLoading(false)
+      vipStatusCacheData = null
+      vipStatusCacheAt = 0
       return
     }
-    setLoading(true)
+    const now = Date.now()
+    const cacheFresh = vipStatusCacheData != null && now - vipStatusCacheAt < VIP_STATUS_CACHE_TTL_MS
+    if (cacheFresh) {
+      setData(vipStatusCacheData)
+      setLoading(false)
+      setErr(null)
+      return
+    }
+    if (vipStatusInFlight) {
+      setLoading(vipStatusCacheData == null)
+      const shared = await vipStatusInFlight
+      setData(shared)
+      setLoading(false)
+      return
+    }
+    setLoading(vipStatusCacheData == null)
     setErr(null)
-    try {
+    vipStatusInFlight = (async () => {
       const res = await apiFetch('/v1/vip/status')
       if (!res.ok) {
-        setErr('Could not load VIP status')
-        setData(null)
-        return
+        return null
       }
       const j = (await res.json()) as VipStatusPayload
-      setData(j)
+      return j
+    })()
+    try {
+      const next = await vipStatusInFlight
+      if (next) {
+        vipStatusCacheData = next
+        vipStatusCacheAt = Date.now()
+        setData(next)
+        setErr(null)
+      } else {
+        setErr('Could not load VIP status')
+        if (vipStatusCacheData == null) setData(null)
+      }
     } catch {
       setErr('Network error')
-      setData(null)
+      if (vipStatusCacheData == null) setData(null)
     } finally {
+      vipStatusInFlight = null
       setLoading(false)
     }
   }, [apiFetch, isAuthenticated])

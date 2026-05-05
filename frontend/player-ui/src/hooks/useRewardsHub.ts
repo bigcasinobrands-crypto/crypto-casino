@@ -211,6 +211,11 @@ const emptyHubPayload: RewardsHubPayload = {
   aggregates: { bonus_locked_minor: 0, wagering_remaining_minor: 0, lifetime_promo_minor: 0 },
 }
 
+const REWARDS_HUB_CACHE_TTL_MS = 20_000
+let rewardsHubCacheData: RewardsHubPayload | null = null
+let rewardsHubCacheAt = 0
+let rewardsHubInFlight: Promise<RewardsHubPayload | null> | null = null
+
 export function normalizeRewardsHubPayload(raw: unknown): RewardsHubPayload {
   if (raw == null || typeof raw !== 'object') {
     return emptyHubPayload
@@ -228,31 +233,60 @@ export function normalizeRewardsHubPayload(raw: unknown): RewardsHubPayload {
 
 export function useRewardsHub() {
   const { apiFetch, isAuthenticated } = usePlayerAuth()
-  const [data, setData] = useState<RewardsHubPayload | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState<RewardsHubPayload | null>(() => rewardsHubCacheData)
+  const [loading, setLoading] = useState(() => isAuthenticated && rewardsHubCacheData == null)
   const [err, setErr] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     if (!isAuthenticated) {
       setData(null)
       setLoading(false)
+      rewardsHubCacheData = null
+      rewardsHubCacheAt = 0
       return
     }
-    setLoading(true)
+    const now = Date.now()
+    const cacheFresh =
+      rewardsHubCacheData != null && now - rewardsHubCacheAt < REWARDS_HUB_CACHE_TTL_MS
+    if (cacheFresh) {
+      setData(rewardsHubCacheData)
+      setLoading(false)
+      setErr(null)
+      return
+    }
+    if (rewardsHubInFlight) {
+      setLoading(rewardsHubCacheData == null)
+      const shared = await rewardsHubInFlight
+      setData(shared)
+      setLoading(false)
+      return
+    }
+    setLoading(rewardsHubCacheData == null)
     setErr(null)
-    try {
+    rewardsHubInFlight = (async () => {
       const res = await apiFetch('/v1/rewards/hub?calendar_days=7')
       if (!res.ok) {
-        setErr('Could not load rewards')
-        setData(null)
-        return
+        return null
       }
       const j = await res.json()
-      setData(normalizeRewardsHubPayload(j))
+      return normalizeRewardsHubPayload(j)
+    })()
+    try {
+      const next = await rewardsHubInFlight
+      if (next) {
+        rewardsHubCacheData = next
+        rewardsHubCacheAt = Date.now()
+        setData(next)
+        setErr(null)
+      } else {
+        setErr('Could not load rewards')
+        if (rewardsHubCacheData == null) setData(null)
+      }
     } catch {
       setErr('Network error')
-      setData(null)
+      if (rewardsHubCacheData == null) setData(null)
     } finally {
+      rewardsHubInFlight = null
       setLoading(false)
     }
   }, [apiFetch, isAuthenticated])

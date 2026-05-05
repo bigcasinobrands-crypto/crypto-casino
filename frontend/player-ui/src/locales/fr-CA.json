@@ -401,6 +401,8 @@
     "listAria": "Liste des notifications",
     "couldNotLoad": "Impossible de charger les notifications",
     "noneYet": "Aucune notification pour le moment.",
+    "clearAll": "Tout effacer",
+    "clearing": "Effacement…",
     "newBadge": "Nouveau",
     "markAsRead": "Marquer comme lu",
     "marking": "Marquage…",
@@ -411,6 +413,29 @@
     "daysAgo": "Il y a {{count}} j",
     "ariaDefault": "Notifications",
     "ariaRakebackLive": "Notifications, boost de rakeback actif"
+  },
+  "chat": {
+    "title": "Clavardage global",
+    "closeAria": "Fermer le clavardage",
+    "muteSoundAria": "Couper le son",
+    "enableSoundAria": "Activer le son",
+    "reconnecting": "Reconnexion...",
+    "empty": "Aucun message pour le moment. Dites bonjour!",
+    "newMessages_one": "{{count}} nouveau message",
+    "newMessages_other": "{{count}} nouveaux messages",
+    "signInToChat": "Connectez-vous pour clavarder",
+    "typePlaceholder": "Écrivez un message...",
+    "emojiAria": "Emoji",
+    "sendMessageAria": "Envoyer le message",
+    "send": "Envoyer",
+    "muteUserAria": "Masquer l'utilisateur",
+    "unmuteUserAria": "Réafficher l'utilisateur",
+    "time": {
+      "now": "maintenant",
+      "minutes": "{{count}} min",
+      "hours": "{{count}} h",
+      "days": "{{count}} j"
+    }
   },
   "gameLobby": {
     "backToGames": "Retour aux jeux",

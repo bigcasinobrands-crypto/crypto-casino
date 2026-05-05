@@ -86,6 +86,15 @@ type PlayerWalletStats = {
   net_profit: number
 }
 
+const REWARDS_DROPDOWN_CACHE_TTL_MS = 20_000
+let rewardsDropdownHubCache: RewardsHubPayload | null = null
+let rewardsDropdownStatsCache: PlayerWalletStats | null = null
+let rewardsDropdownCacheAt = 0
+let rewardsDropdownInFlight: Promise<{
+  hub: RewardsHubPayload | null
+  stats: PlayerWalletStats | null
+}> | null = null
+
 function RewardsSnapshotPanel({
   setOpen,
   loading,
@@ -313,36 +322,63 @@ export default function RewardsHeaderDropdown({
 
   const load = useCallback(async () => {
     if (!isAuthenticated) return
+    const now = Date.now()
+    const cacheFresh = now - rewardsDropdownCacheAt < REWARDS_DROPDOWN_CACHE_TTL_MS
+    if (cacheFresh && rewardsDropdownHubCache) {
+      setHub(rewardsDropdownHubCache)
+      setStats(rewardsDropdownStatsCache)
+      setLoadErr(null)
+      setLoading(false)
+      return
+    }
+    if (rewardsDropdownInFlight) {
+      setLoading(rewardsDropdownHubCache == null)
+      const shared = await rewardsDropdownInFlight
+      if (shared.hub) setHub(shared.hub)
+      if (shared.stats) setStats(shared.stats)
+      setLoading(false)
+      return
+    }
     setLoadErr(null)
-    setLoading(true)
+    setLoading(rewardsDropdownHubCache == null)
     try {
-      const [rHub, rStats] = await Promise.all([
+      rewardsDropdownInFlight = (async () => {
+        const [rHub, rStats] = await Promise.all([
         apiFetch('/v1/rewards/hub?calendar_days=7'),
         apiFetch('/v1/wallet/stats'),
       ])
-      if (!rHub.ok) {
-        setLoadErr(t('rewards.couldNotLoad'))
-        setHub(null)
-        return
-      }
-      const j = await rHub.json()
-      setHub(normalizeRewardsHubPayload(j))
-      if (!rStats.ok) {
-        setStats(null)
-      } else {
-        const s = (await rStats.json()) as PlayerWalletStats
-        setStats({
+        if (!rHub.ok) return { hub: null, stats: null }
+        const j = await rHub.json()
+        const hub = normalizeRewardsHubPayload(j)
+        let stats: PlayerWalletStats | null = null
+        if (rStats.ok) {
+          const s = (await rStats.json()) as PlayerWalletStats
+          stats = {
           total_wagered: typeof s?.total_wagered === 'number' ? s.total_wagered : 0,
           total_bets: typeof s?.total_bets === 'number' ? s.total_bets : 0,
           total_won: typeof s?.total_won === 'number' ? s.total_won : 0,
           highest_win: typeof s?.highest_win === 'number' ? s.highest_win : 0,
           net_profit: typeof s?.net_profit === 'number' ? s.net_profit : 0,
-        })
+          }
+        }
+        return { hub, stats }
+      })()
+      const next = await rewardsDropdownInFlight
+      if (!next.hub) {
+        setLoadErr(t('rewards.couldNotLoad'))
+        if (!rewardsDropdownHubCache) setHub(null)
+        return
       }
+      rewardsDropdownHubCache = next.hub
+      rewardsDropdownStatsCache = next.stats
+      rewardsDropdownCacheAt = Date.now()
+      setHub(next.hub)
+      setStats(next.stats)
     } catch {
       setLoadErr(t('rewards.couldNotLoad'))
-      setHub(null)
+      if (!rewardsDropdownHubCache) setHub(null)
     } finally {
+      rewardsDropdownInFlight = null
       setLoading(false)
     }
   }, [isAuthenticated, apiFetch, t])

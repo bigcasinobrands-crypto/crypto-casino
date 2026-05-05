@@ -4,6 +4,7 @@ import { playerApiUrl } from '../lib/playerApiUrl'
 import { sanitizeChatRichLine } from '../lib/sanitizeHtml'
 import { usePlayerAuth } from '../playerAuth'
 import { useAuthModal } from '../authModalContext'
+import { useTranslation } from 'react-i18next'
 import {
   IconArrowDownToLine,
   IconCloudRain,
@@ -42,15 +43,15 @@ function getInitials(username: string) {
   return username.slice(0, 2).toUpperCase()
 }
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, t: (key: string, options?: Record<string, unknown>) => string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const secs = Math.floor(diff / 1000)
-  if (secs < 60) return 'now'
+  if (secs < 60) return t('chat.time.now')
   const mins = Math.floor(secs / 60)
-  if (mins < 60) return `${mins}m`
+  if (mins < 60) return t('chat.time.minutes', { count: mins })
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h`
-  return `${Math.floor(hrs / 24)}d`
+  if (hrs < 24) return t('chat.time.hours', { count: hrs })
+  return t('chat.time.days', { count: Math.floor(hrs / 24) })
 }
 
 const vipColorMap: Record<string, string> = {
@@ -72,6 +73,7 @@ const LS_SOUND_KEY = 'chat_sound_enabled'
 const LS_MUTED_USERS_KEY = 'chat_muted_users'
 
 export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
+  const { t } = useTranslation()
   const { isAuthenticated, me } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const {
@@ -265,7 +267,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
       {/* Mobile backdrop */}
       <button
         type="button"
-        aria-label="Close chat"
+        aria-label={t('chat.closeAria')}
         className={`fixed inset-0 z-[235] bg-black/60 backdrop-blur-[2px] transition-opacity lg:hidden ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
@@ -276,17 +278,18 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
       <aside
         className={`
           chat-drawer-aside fixed right-0 bottom-0 z-[236] flex shrink-0 flex-col overflow-hidden
-          border-l border-white/[0.04] bg-casino-sidebar
+          border-l border-white/[0.06] bg-casino-sidebar
+          md:rounded-l-xl md:shadow-[-8px_0_28px_rgba(0,0,0,0.35)]
           transition-[width] duration-200 ease-out
           max-md:box-border max-md:pb-[var(--casino-mobile-nav-offset)]
           ${open ? 'min-w-0 w-[var(--shell-chat-panel-w)]' : 'w-0'}
         `}
       >
         {/* Header */}
-        <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-white/[0.04] px-4 max-md:box-border max-md:h-auto max-md:min-h-[calc(60px+env(safe-area-inset-top,0px))] max-md:pt-[env(safe-area-inset-top,0px)]">
+        <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-white/[0.06] bg-black/20 px-4 max-md:box-border max-md:h-auto max-md:min-h-[calc(60px+env(safe-area-inset-top,0px))] max-md:pt-[env(safe-area-inset-top,0px)]">
           <div className="flex items-center gap-2.5">
             <span className="h-2 w-2 shrink-0 rounded-full bg-casino-success shadow-[0_0_6px_theme(colors.casino-success)]" />
-            <span className="text-[14px] font-extrabold text-casino-foreground">Global Chat</span>
+            <span className="text-[14px] font-extrabold text-casino-foreground">{t('chat.title')}</span>
             <span className="rounded-casino-sm bg-white/[0.06] px-2 py-0.5 text-[11px] font-bold text-casino-muted">
               {onlineCount.toLocaleString()}
             </span>
@@ -296,7 +299,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
               type="button"
               className="inline-flex h-8 w-8 items-center justify-center rounded-casino-sm text-casino-muted transition hover:bg-casino-primary-dim hover:text-white"
               onClick={toggleSound}
-              aria-label={soundOn ? 'Mute sound' : 'Enable sound'}
+              aria-label={soundOn ? t('chat.muteSoundAria') : t('chat.enableSoundAria')}
             >
               {soundOn ? <IconVolume2 size={16} /> : <IconVolumeX size={16} />}
             </button>
@@ -304,7 +307,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
               type="button"
               className="inline-flex h-8 w-8 items-center justify-center rounded-casino-sm text-casino-muted transition hover:bg-casino-primary-dim hover:text-white"
               onClick={onClose}
-              aria-label="Close chat"
+              aria-label={t('chat.closeAria')}
             >
               <IconX size={18} />
             </button>
@@ -317,7 +320,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
           {!connected && open && (
             <div className="flex shrink-0 items-center gap-2 bg-casino-warning/10 px-4 py-1.5 text-[11px] font-semibold text-casino-warning">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-casino-warning" />
-              Reconnecting...
+              {t('chat.reconnecting')}
             </div>
           )}
 
@@ -336,7 +339,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
               className="scrollbar-chat flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-y-contain px-4 py-4"
             >
               {filteredMessages.length === 0 && (
-                <p className="py-10 text-center text-[13px] text-casino-muted">No messages yet. Say hello!</p>
+                <p className="py-10 text-center text-[13px] text-casino-muted">{t('chat.empty')}</p>
               )}
               {filteredMessages.map(msg => (
                 <ChatMessageRow
@@ -346,6 +349,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                   currentUsername={me?.username}
                   isMuted={!!msg.participant_id && mutedUsers.has(msg.participant_id)}
                   onMuteUser={toggleMuteUser}
+                  t={t}
                 />
               ))}
             </div>
@@ -359,7 +363,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                   className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-casino-primary px-3 py-1.5 text-[11px] font-bold text-white shadow-lg transition hover:brightness-110"
                 >
                   <IconArrowDownToLine size={12} />
-                  {newMsgCount} new {newMsgCount === 1 ? 'message' : 'messages'}
+                  {t('chat.newMessages', { count: newMsgCount })}
                 </button>
               </div>
             )}
@@ -412,7 +416,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                       className="min-w-0 flex-1 py-0.5 text-left text-[13px] font-medium text-white/30 max-md:text-[12px]"
                       onClick={() => openAuth('login')}
                     >
-                      Sign in to chat
+                      {t('chat.signInToChat')}
                     </button>
                   ) : (
                     <input
@@ -421,7 +425,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                       value={inputVal}
                       onChange={handleInputChange}
                       onKeyDown={handleKeyDown}
-                      placeholder="Type a message..."
+                      placeholder={t('chat.typePlaceholder')}
                       maxLength={500}
                       className="min-h-0 min-w-0 flex-1 bg-transparent py-1 text-[13px] font-medium leading-tight text-white placeholder:text-white/30 outline-none max-md:py-0.5 max-md:text-[12px]"
                       enterKeyHint="send"
@@ -431,7 +435,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                     type="button"
                     className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-casino-sm bg-white/[0.04] text-casino-muted transition hover:text-casino-foreground max-md:h-7 max-md:w-7"
                     onClick={() => setShowEmoji(e => !e)}
-                    aria-label="Emoji"
+                    aria-label={t('chat.emojiAria')}
                   >
                     <IconSmile size={14} aria-hidden />
                   </button>
@@ -440,7 +444,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                     className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-casino-sm bg-casino-primary text-white transition hover:brightness-110 disabled:opacity-40 md:inline-flex"
                     onClick={handleSend}
                     disabled={!isAuthenticated || !inputVal.trim()}
-                    aria-label="Send message"
+                    aria-label={t('chat.sendMessageAria')}
                   >
                     <IconSend size={14} aria-hidden />
                   </button>
@@ -454,7 +458,7 @@ export default function ChatDrawer({ open, onClose, chat }: ChatDrawerProps) {
                     disabled={!inputVal.trim()}
                   >
                     <IconSend size={15} aria-hidden />
-                    Send
+                    {t('chat.send')}
                   </button>
                 ) : null}
               </div>
@@ -474,9 +478,10 @@ type ChatMessageRowProps = {
   currentUsername?: string
   isMuted: boolean
   onMuteUser: (participantId: string) => void
+  t: (key: string, options?: Record<string, unknown>) => string
 }
 
-function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: ChatMessageRowProps) {
+function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser, t }: ChatMessageRowProps) {
   if (msg.msg_type === 'system') {
     return (
       <div className="flex items-center gap-3 rounded-casino-md border-l-[3px] border-casino-primary bg-casino-primary/[0.08] p-3">
@@ -499,7 +504,11 @@ function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: Ch
   const avatarSrc = msg.avatar_url ? playerApiUrl(msg.avatar_url) : null
 
   return (
-    <div className={`flex gap-3 ${isOwn ? 'bg-casino-primary/[0.04] -mx-2 rounded-casino-md px-2 py-1' : ''}`}>
+    <div
+      className={`flex gap-3 rounded-casino-md border border-white/[0.04] px-2.5 py-2 ${
+        isOwn ? 'bg-casino-primary/[0.08] border-casino-primary/20' : 'bg-white/[0.02]'
+      }`}
+    >
       {avatarSrc ? (
         <img
           src={avatarSrc}
@@ -528,13 +537,15 @@ function ChatMessageRow({ msg, isOwn, currentUsername, isMuted, onMuteUser }: Ch
                   : 'text-casino-muted/50 hover:text-casino-destructive'
               }`}
               onClick={() => onMuteUser(msg.participant_id)}
-              aria-label={isMuted ? 'Unmute user' : 'Mute user'}
-              title={isMuted ? 'Unmute user' : 'Mute user'}
+              aria-label={isMuted ? t('chat.unmuteUserAria') : t('chat.muteUserAria')}
+              title={isMuted ? t('chat.unmuteUserAria') : t('chat.muteUserAria')}
             >
               {isMuted ? <IconVolumeX size={11} /> : <IconVolume2 size={11} />}
             </button>
           )}
-          <span className="shrink-0 text-[11px] font-semibold text-casino-muted">{relativeTime(msg.created_at)}</span>
+          <span className="shrink-0 text-[11px] font-semibold text-casino-muted">
+            {relativeTime(msg.created_at, t)}
+          </span>
         </div>
         <p className="break-words text-[13px] font-medium leading-[1.45] text-white/75">
           {renderBody(msg.body, currentUsername)}

@@ -401,6 +401,8 @@
     "listAria": "Notifications list",
     "couldNotLoad": "Could not load notifications",
     "noneYet": "No notifications yet.",
+    "clearAll": "Clear all",
+    "clearing": "Clearing…",
     "newBadge": "New",
     "markAsRead": "Mark as read",
     "marking": "Marking…",
@@ -411,6 +413,29 @@
     "daysAgo": "{{count}}d ago",
     "ariaDefault": "Notifications",
     "ariaRakebackLive": "Notifications, rakeback boost is live"
+  },
+  "chat": {
+    "title": "Global Chat",
+    "closeAria": "Close chat",
+    "muteSoundAria": "Mute sound",
+    "enableSoundAria": "Enable sound",
+    "reconnecting": "Reconnecting...",
+    "empty": "No messages yet. Say hello!",
+    "newMessages_one": "{{count}} new message",
+    "newMessages_other": "{{count}} new messages",
+    "signInToChat": "Sign in to chat",
+    "typePlaceholder": "Type a message...",
+    "emojiAria": "Emoji",
+    "sendMessageAria": "Send message",
+    "send": "Send",
+    "muteUserAria": "Mute user",
+    "unmuteUserAria": "Unmute user",
+    "time": {
+      "now": "now",
+      "minutes": "{{count}}m",
+      "hours": "{{count}}h",
+      "days": "{{count}}d"
+    }
   },
   "gameLobby": {
     "backToGames": "Back to games",

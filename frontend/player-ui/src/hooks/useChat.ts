@@ -36,7 +36,7 @@ const RECONNECT_MAX = 30000
 export function useChat(
   accessToken: string | null,
   isAuthenticated: boolean,
-  enabled: boolean,
+  panelOpen: boolean,
 ): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [connected, setConnected] = useState(false)
@@ -45,15 +45,17 @@ export function useChat(
   const [error, setError] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
-  const enabledRef = useRef(enabled)
+  const panelOpenRef = useRef(panelOpen)
+  const authRef = useRef(isAuthenticated)
   const tokenRef = useRef(accessToken)
   const pendingMessages = useRef<ChatMessage[]>([])
   const rafId = useRef<number | null>(null)
 
   useEffect(() => {
-    enabledRef.current = enabled
+    panelOpenRef.current = panelOpen
+    authRef.current = isAuthenticated
     tokenRef.current = accessToken
-  }, [enabled, accessToken])
+  }, [panelOpen, isAuthenticated, accessToken])
 
   const resetUnread = useCallback(() => setUnreadCount(0), [])
 
@@ -66,7 +68,7 @@ export function useChat(
       const next = [...prev, ...batch]
       return next.length > MAX_MESSAGES ? next.slice(next.length - MAX_MESSAGES) : next
     })
-    if (!enabledRef.current) {
+    if (!panelOpenRef.current) {
       setUnreadCount(c => c + batch.length)
     }
   }, [])
@@ -78,7 +80,7 @@ export function useChat(
   }, [flushPending])
 
   useEffect(() => {
-    if (!enabled || !isAuthenticated) return
+    if (!isAuthenticated) return
 
     let disposed = false
     let delay = RECONNECT_BASE
@@ -188,7 +190,7 @@ export function useChat(
         ws.onclose = () => {
           setConnected(false)
           wsRef.current = null
-          if (!disposed && enabledRef.current && tokenRef.current) {
+          if (!disposed && authRef.current && tokenRef.current) {
             timer = setTimeout(() => {
               delay = Math.min(delay * 2, RECONNECT_MAX)
               openConnection()
@@ -211,7 +213,7 @@ export function useChat(
       wsRef.current?.close()
       wsRef.current = null
     }
-  }, [enabled, isAuthenticated, accessToken, scheduleFlush])
+  }, [isAuthenticated, accessToken, scheduleFlush])
 
   const sendMessage = useCallback((body: string) => {
     const trimmed = body.trim()

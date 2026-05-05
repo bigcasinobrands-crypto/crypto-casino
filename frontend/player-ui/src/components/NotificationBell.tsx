@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -61,12 +62,15 @@ type NotificationBellProps = {
   openClassName?: string
   /** Rewards hub from shell (rakeback boost live indicator). */
   rewardsHub?: RewardsHubPayload | null
+  /** Header icon size to match sibling icon buttons. */
+  iconSize?: number
 }
 
 export default function NotificationBell({
   className = '',
   openClassName = defaultOpenClass,
   rewardsHub = null,
+  iconSize = 18,
 }: NotificationBellProps) {
   const { t, i18n } = useTranslation()
   const { pathname } = useLocation()
@@ -76,6 +80,8 @@ export default function NotificationBell({
   const [initialLoading, setInitialLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [markingId, setMarkingId] = useState<number | null>(null)
+  const [clearingAll, setClearingAll] = useState(false)
+  const [mobileChrome, setMobileChrome] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
   const fetchNotifications = useCallback(async () => {
@@ -123,13 +129,22 @@ export default function NotificationBell({
 
   useEffect(() => {
     if (!open) return
+    if (mobileChrome) return
     function onDoc(e: MouseEvent) {
       const el = rootRef.current
       if (el && !el.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+  }, [open, mobileChrome])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const sync = () => setMobileChrome(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   useEffect(() => {
     const close = () => setOpen(false)
@@ -186,6 +201,26 @@ export default function NotificationBell({
     }
   }
 
+  const clearAll = async () => {
+    const unread = notifications.filter((n) => !n.read)
+    if (unread.length === 0) return
+    setClearingAll(true)
+    try {
+      await Promise.all(
+        unread.map((n) =>
+          apiFetch('/v1/notifications/read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notification_id: n.id }),
+          }),
+        ),
+      )
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+    } finally {
+      setClearingAll(false)
+    }
+  }
+
   if (!isAuthenticated) return null
 
   const triggerClasses = `${className} ${open ? openClassName : ''}`.trim()
@@ -200,7 +235,7 @@ export default function NotificationBell({
         aria-haspopup="true"
         onClick={() => setOpen((o) => !o)}
       >
-        <IconBell size={18} aria-hidden />
+        <IconBell size={iconSize} aria-hidden />
         {rakebackBoostLive ? (
           <span
             className="pointer-events-none absolute bottom-0 right-0 z-[1] h-2.5 w-2.5 rounded-full bg-casino-segment shadow-[0_0_10px_rgba(0,230,118,0.65)] ring-2 ring-casino-bg animate-pulse"
@@ -214,10 +249,18 @@ export default function NotificationBell({
         )}
       </button>
 
-      {open ? (
+      {open && !mobileChrome ? (
         <div className={panelClass} role="region" aria-label={t('notifications.listAria')}>
-          <div className="border-b border-casino-border bg-casino-surface/40 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 border-b border-casino-border bg-casino-surface/40 px-3 py-2.5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-casino-muted">{t('notifications.title')}</p>
+            <button
+              type="button"
+              className="rounded-md border border-white/[0.12] bg-white/[0.04] px-2 py-1 text-[10px] font-semibold text-casino-foreground transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={unreadCount === 0 || clearingAll || markingId !== null}
+              onClick={() => void clearAll()}
+            >
+              {clearingAll ? t('notifications.clearing') : t('notifications.clearAll')}
+            </button>
           </div>
           <div className="scrollbar-chat max-h-[min(70vh-2.5rem,22rem)] overflow-y-auto">
             {rakebackBoostLive && rakebackBoostLine ? (
@@ -304,6 +347,120 @@ export default function NotificationBell({
           </div>
         </div>
       ) : null}
+
+      {open && mobileChrome
+        ? createPortal(
+            <>
+              <div
+                className="fixed z-[228] bg-black/40 backdrop-blur-sm left-0 right-0 top-[calc(64px+env(safe-area-inset-top,0px))] bottom-[var(--casino-mobile-nav-offset)]"
+                onClick={() => setOpen(false)}
+                aria-hidden
+              />
+              <div
+                className="fixed z-[232] left-1/2 top-[calc(64px+env(safe-area-inset-top,0px))] h-[min(28vh,18rem)] w-[min(24rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto overflow-x-hidden rounded-casino-lg border border-white/[0.1] bg-casino-elevated text-casino-foreground shadow-[0_24px_64px_rgba(0,0,0,0.55),0_0_0_1px_rgba(123,97,255,0.12)] scrollbar-casino overscroll-y-contain"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t('notifications.listAria')}
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-casino-border bg-casino-surface/40 px-3 py-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-casino-muted">{t('notifications.title')}</p>
+                  <button
+                    type="button"
+                    className="rounded-md border border-white/[0.12] bg-white/[0.04] px-2 py-1 text-[10px] font-semibold text-casino-foreground transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={unreadCount === 0 || clearingAll || markingId !== null}
+                    onClick={() => void clearAll()}
+                  >
+                    {clearingAll ? t('notifications.clearing') : t('notifications.clearAll')}
+                  </button>
+                </div>
+                <div className="scrollbar-chat h-[calc(100%-2.5rem)] overflow-y-auto">
+                  {rakebackBoostLive && rakebackBoostLine ? (
+                    <div className="border-b border-emerald-500/30 bg-emerald-500/[0.09] px-3 py-3">
+                      <Link
+                        to="/vip"
+                        className="block rounded-lg text-left no-underline outline-none ring-casino-primary transition hover:bg-emerald-500/10 focus-visible:ring-2"
+                        onClick={() => setOpen(false)}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span
+                            className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-base ring-1 ring-white/10"
+                            aria-hidden
+                          >
+                            ⚡
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-200/95">
+                              {t('rewards.rakebackBoostTitle')}
+                            </p>
+                            <p className="mt-1 text-sm font-semibold leading-snug text-casino-foreground">
+                              {rakebackBoostLine}
+                            </p>
+                            <p className="mt-1 text-[11px] font-medium text-emerald-100/80">{t('rewards.openVipRewards')}</p>
+                          </div>
+                        </div>
+                      </Link>
+                    </div>
+                  ) : null}
+                  {initialLoading && notifications.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-casino-muted">{t('common.loading')}</p>
+                  ) : error && notifications.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-casino-destructive">{error}</p>
+                  ) : notifications.length === 0 ? (
+                    <p className="px-3 py-4 text-sm text-casino-muted">{t('notifications.noneYet')}</p>
+                  ) : (
+                    <ul className="divide-y divide-casino-border">
+                      {notifications.map((n) => (
+                        <li
+                          key={n.id}
+                          className={`px-3 py-3 transition-colors ${
+                            n.read
+                              ? 'opacity-90'
+                              : 'bg-casino-primary/[0.07] shadow-[inset_0_0_0_1px_rgba(123,97,255,0.12)]'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="truncate text-sm font-semibold text-casino-foreground">{n.title}</span>
+                                {!n.read && (
+                                  <span className="shrink-0 rounded-full bg-gradient-to-b from-casino-primary to-casino-primary-dim px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm shadow-casino-primary/25">
+                                    {t('notifications.newBadge')}
+                                  </span>
+                                )}
+                              </div>
+                              {n.body ? (
+                                <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-casino-muted">
+                                  {n.body}
+                                </p>
+                              ) : null}
+                              <p className="mt-1.5 text-[11px] text-casino-muted/80">
+                                {formatNotificationTime(n.created_at, t, i18n.language)}
+                                {n.kind ? ` · ${n.kind}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          {!n.read ? (
+                            <button
+                              type="button"
+                              className="mt-2.5 rounded-lg border border-casino-border bg-casino-surface px-3 py-1.5 text-xs font-semibold text-casino-foreground shadow-sm transition hover:border-casino-primary/45 hover:bg-casino-elevated focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:opacity-50"
+                              disabled={markingId === n.id || clearingAll}
+                              onClick={() => void markRead(n.id)}
+                            >
+                              {markingId === n.id ? t('notifications.marking') : t('notifications.markAsRead')}
+                            </button>
+                          ) : (
+                            <p className="mt-2 text-[11px] font-medium text-casino-muted">{t('notifications.read')}</p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </>,
+            document.body,
+          )
+      : null}
     </div>
   )
 }

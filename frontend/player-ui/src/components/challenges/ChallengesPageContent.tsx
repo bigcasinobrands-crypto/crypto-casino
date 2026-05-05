@@ -77,7 +77,7 @@ function ChallengeCard({
   const playGameId = useMemo(() => firstCatalogGameId(challenge.game_ids), [challenge.game_ids])
 
   const heroAreaClass =
-    'relative aspect-[5/6] w-full shrink-0 overflow-hidden bg-black transition-[filter] duration-200 motion-reduce:transition-none'
+    'relative aspect-square w-full shrink-0 overflow-hidden bg-black transition-[filter] duration-200 motion-reduce:transition-none sm:aspect-[5/6]'
   const heroInteractiveClass = playGameId
     ? 'cursor-pointer hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-casino-primary focus-visible:ring-offset-2 focus-visible:ring-offset-casino-surface'
     : ''
@@ -407,7 +407,7 @@ export default function ChallengesPageContent() {
         {loading ? (
           <p className="text-center text-sm text-casino-muted">{t('challenges.loading')}</p>
         ) : (
-          <ul className="grid grid-cols-3 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 md:gap-4 xl:grid-cols-5 2xl:grid-cols-6">
+          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 md:gap-4 xl:grid-cols-5 2xl:grid-cols-6">
             {visible.map((c) => (
               <li key={c.id}>
                 <ChallengeCard

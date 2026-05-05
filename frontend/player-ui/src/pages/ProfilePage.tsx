@@ -821,14 +821,17 @@ export default function ProfilePage() {
       </div>
 
       {/* Tabs */}
-      <div className="scrollbar-none flex gap-6 overflow-x-auto border-b-2 border-white/[0.06] sm:gap-8" role="tablist">
+      <div
+        className="scrollbar-none -mx-1 flex gap-5 overflow-x-auto border-b-2 border-white/[0.06] px-1 [scrollbar-width:none] snap-x snap-mandatory sm:mx-0 sm:gap-8 sm:px-0"
+        role="tablist"
+      >
         {tabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
             role="tab"
             aria-selected={activeTab === tab.key}
-            className={`-mb-[2px] shrink-0 border-b-2 pb-3.5 text-[14px] font-bold transition sm:text-[15px] ${
+            className={`-mb-[2px] shrink-0 snap-start whitespace-nowrap border-b-2 pb-3.5 text-[14px] font-bold transition sm:text-[15px] ${
               activeTab === tab.key
                 ? 'border-casino-primary text-casino-foreground'
                 : 'border-transparent text-casino-muted hover:text-casino-foreground'

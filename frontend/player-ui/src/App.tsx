@@ -413,7 +413,11 @@ function AppShell() {
                         </span>
                       )}
                     </button>
-                    <NotificationBell className={`${iconBtnTablet} relative inline-flex`} rewardsHub={rewardsHub.data} />
+                    <NotificationBell
+                      className={`${iconBtnTablet} relative inline-flex`}
+                      rewardsHub={rewardsHub.data}
+                      iconSize={16}
+                    />
                     <RewardsHeaderDropdown className={`${rewardsHeaderBtn} relative inline-flex`} />
                     <HeaderProfileIcon />
                   </>
