@@ -209,6 +209,8 @@
     "accountHelp": "Aide au compte",
     "resetPassword": "Réinitialiser le mot de passe",
     "resetSubtitle": "Nous enverrons un lien de réinitialisation si cette adresse est associée à un compte.",
+    "desktopVisualNotice": "En continuant, vous confirmez être en âge légal et accepter les Conditions et la Politique de confidentialité.",
+    "desktopVisualAlt": "Panneau visuel promotionnel d'authentification",
     "acceptTermsError": "Veuillez accepter les conditions et la politique de confidentialité",
     "registerAcceptTerms": "J'accepte les conditions d'utilisation.",
     "registerAcceptPrivacy": "J'accepte la politique de confidentialité.",

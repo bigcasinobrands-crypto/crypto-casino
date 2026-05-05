@@ -147,7 +147,7 @@ export function LoginForm({
       {err ? <AuthError>{err}</AuthError> : null}
       <form
         onSubmit={(e) => void onSubmit(e)}
-        className="rounded-casino-md border border-white/[0.08] bg-black/20 p-3 sm:p-3.5 flex flex-col gap-2.5 sm:gap-3"
+        className="rounded-casino-md border border-white/[0.08] bg-black/20 p-3 sm:p-3.5 flex flex-col gap-2.5 sm:gap-3 md:gap-2 md:p-3"
       >
         <div className="flex flex-col gap-1 sm:gap-1.5">
           <FieldLabel htmlFor={`${idPrefix}-login-email`}>{t('auth.login.emailOrUsername')}</FieldLabel>
@@ -420,7 +420,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         to={loginTo}
         replace
         aria-label={t('auth.registerForm.signInAria')}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 border-t border-white/[0.08] pt-3 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 border-t border-white/[0.08] pt-3 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs md:mt-1.5 md:pt-2"
       >
         <span>{t('auth.registerForm.alreadyHaveAccount')}</span>
         <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">

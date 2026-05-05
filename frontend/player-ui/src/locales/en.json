@@ -209,6 +209,8 @@
     "accountHelp": "Account help",
     "resetPassword": "Reset password",
     "resetSubtitle": "We'll email a reset link if that address has an account.",
+    "desktopVisualNotice": "By continuing, you confirm you are of legal age and accept the Terms and Privacy Policy.",
+    "desktopVisualAlt": "Promotional authentication visual panel",
     "acceptTermsError": "Please accept the terms and privacy policy",
     "registerAcceptTerms": "I accept the Terms of Service.",
     "registerAcceptPrivacy": "I accept the Privacy Policy.",
