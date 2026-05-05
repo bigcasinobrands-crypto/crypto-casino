@@ -92,6 +92,9 @@
  */
 .chat-drawer-aside {
   top: 0;
+  right: max(env(safe-area-inset-right, 0px), 0px);
+  max-width: calc(100vw - max(env(safe-area-inset-right, 0px), 0px));
+  box-sizing: border-box;
 }
 
 @media (min-width: 768px) and (max-width: 1279px) {
