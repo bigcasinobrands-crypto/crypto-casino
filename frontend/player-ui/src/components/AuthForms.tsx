@@ -38,7 +38,7 @@ function InputRow({
 }) {
   return (
     <div
-      className="flex min-h-9 items-center gap-1.5 rounded-casino-md border border-white/[0.12] bg-casino-elevated px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_1px_2px_rgba(0,0,0,0.2)] transition-[box-shadow,border-color,background-color] focus-within:border-casino-primary/40 focus-within:bg-casino-elevated focus-within:shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_0_1px_rgba(123,97,255,0.22),0_2px_8px_rgba(123,97,255,0.08)] sm:min-h-10 sm:gap-2 sm:px-3"
+      className="flex min-h-10 items-center gap-2 rounded-casino-md border border-white/[0.16] bg-[#24252c] px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_2px_6px_rgba(0,0,0,0.28)] transition-[box-shadow,border-color,background-color] hover:border-white/[0.24] focus-within:border-casino-primary/60 focus-within:bg-[#272833] focus-within:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_0_1px_rgba(123,97,255,0.3),0_4px_14px_rgba(123,97,255,0.14)] sm:min-h-11 sm:px-3.5"
     >
       {children}
       {right ? <div className="flex shrink-0 items-center">{right}</div> : null}
@@ -47,10 +47,10 @@ function InputRow({
 }
 
 const authInputClass =
-  'min-w-0 flex-1 bg-transparent py-1 text-[12px] text-casino-foreground caret-casino-primary outline-none placeholder:text-casino-muted/85 sm:py-1.5 sm:text-[13px]'
+  'min-w-0 flex-1 bg-transparent py-1.5 text-[12px] text-casino-foreground caret-casino-primary outline-none placeholder:text-casino-muted/85 sm:text-[13px]'
 
 const authPrimaryBtnClass =
-  'flex min-h-9 w-full items-center justify-center rounded-casino-md bg-casino-primary text-[13px] font-semibold text-white shadow-md transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50 sm:min-h-10 sm:text-sm'
+  'flex min-h-10 w-full items-center justify-center rounded-casino-md bg-gradient-to-b from-casino-primary to-casino-primary-dim text-[13px] font-semibold text-white shadow-[0_8px_20px_rgba(123,97,255,0.32)] transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-50 sm:min-h-11 sm:text-sm'
 
 function CheckLine({
   checked,
@@ -145,7 +145,10 @@ export function LoginForm({
         </AuthError>
       ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2.5 sm:gap-3">
+      <form
+        onSubmit={(e) => void onSubmit(e)}
+        className="rounded-casino-md border border-white/[0.08] bg-black/20 p-3 sm:p-3.5 flex flex-col gap-2.5 sm:gap-3"
+      >
         <div className="flex flex-col gap-1 sm:gap-1.5">
           <FieldLabel htmlFor={`${idPrefix}-login-email`}>{t('auth.login.emailOrUsername')}</FieldLabel>
           <InputRow>
@@ -234,7 +237,7 @@ export function LoginForm({
         to={registerTo}
         replace
         aria-label={t('auth.login.registerAria')}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 py-0.5 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 border-t border-white/[0.08] pt-3 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
       >
         <span>{t('auth.login.noAccount')}</span>
         <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">
@@ -310,7 +313,10 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         </AuthError>
       ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2.5 sm:gap-3">
+      <form
+        onSubmit={(e) => void onSubmit(e)}
+        className="rounded-casino-md border border-white/[0.08] bg-black/20 p-3 sm:p-3.5 flex flex-col gap-2.5 sm:gap-3"
+      >
         <div className="flex flex-col gap-1 sm:gap-1.5">
           <FieldLabel htmlFor={`${idPrefix}-reg-email`}>{t('auth.registerForm.email')}</FieldLabel>
           <InputRow>
@@ -414,7 +420,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
         to={loginTo}
         replace
         aria-label={t('auth.registerForm.signInAria')}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 py-0.5 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 border-t border-white/[0.08] pt-3 text-[11px] text-casino-muted transition hover:text-casino-foreground sm:mt-3 sm:text-xs"
       >
         <span>{t('auth.registerForm.alreadyHaveAccount')}</span>
         <span className="font-semibold text-casino-foreground underline-offset-2 hover:underline">
@@ -466,7 +472,10 @@ export function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="flex flex-col gap-2 sm:gap-2.5">
-      <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-2.5 sm:gap-3">
+      <form
+        onSubmit={(e) => void onSubmit(e)}
+        className="rounded-casino-md border border-white/[0.08] bg-black/20 p-3 sm:p-3.5 flex flex-col gap-2.5 sm:gap-3"
+      >
         <div className="flex flex-col gap-1 sm:gap-1.5">
           <FieldLabel htmlFor="m-forgot-email">{t('auth.forgotForm.email')}</FieldLabel>
           <InputRow>
