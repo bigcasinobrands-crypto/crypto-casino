@@ -1,6 +1,6 @@
 package bonus
 
-// PaymentSettled is emitted after a deposit ledger credit succeeds (Fystack path).
+// PaymentSettled is emitted after a deposit ledger credit succeeds (PassimPay / ledger path).
 type PaymentSettled struct {
 	UserID             string `json:"user_id"`
 	AmountMinor        int64  `json:"amount_minor"`

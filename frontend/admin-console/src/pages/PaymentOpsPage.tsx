@@ -72,7 +72,6 @@ export default function PaymentOpsPage() {
   const [flags, setFlags] = useState<PaymentFlags | null>(null)
   const [depositAssets, setDepositAssets] = useState<DepositAssetsPayload | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
   const [flagBusyKey, setFlagBusyKey] = useState<string | null>(null)
 
   const { data: kpis, loading: kpisLoading } = useDashboardKPIs()
@@ -187,24 +186,6 @@ export default function PaymentOpsPage() {
     }
   }
 
-  const reconcile = async () => {
-    setBusy(true)
-    setErr(null)
-    try {
-      const res = await apiFetch('/v1/admin/ops/reconcile-fystack', { method: 'POST' })
-      if (!res.ok) {
-        setErr(`Reconcile failed (${res.status})`)
-        return
-      }
-      await load()
-      toast.success('Reconciliation started')
-    } catch {
-      setErr('Reconcile request failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const processMetrics = summary?.process_metrics as Record<string, unknown> | undefined
   const summaryForTable = useMemo(() => {
     if (!summary) return null
@@ -220,7 +201,7 @@ export default function PaymentOpsPage() {
       <PageMeta title="Finance · Admin" description="Deposits, withdrawals, liquidity, and payment controls" />
       <PageBreadcrumb
         pageTitle="Finance overview"
-        subtitle="Cash movement, pipeline health, Fystack configuration, and payment switches"
+        subtitle="Cash movement, pipeline health, PassimPay / ledger configuration, and payment switches"
       />
 
       <DataTimeframeBar
@@ -439,9 +420,6 @@ export default function PaymentOpsPage() {
           <Link to="/ledger" className="btn btn-outline-primary btn-sm">
             Ledger
           </Link>
-          <Link to="/finance/fystack-webhooks" className="btn btn-outline-secondary btn-sm">
-            Fystack webhooks
-          </Link>
           <Link to="/withdrawal-approvals" className="btn btn-outline-secondary btn-sm">
             Withdrawal approvals
           </Link>
@@ -575,11 +553,11 @@ export default function PaymentOpsPage() {
               ) : (
                 <>
                   <MetricRow
-                    label="Fystack webhooks pending"
+                    label="Payment callbacks pending"
                     value={String(summaryForTable.webhook_deliveries_pending ?? '—')}
                     subValue={
-                      <Link to="/finance/fystack-webhooks" className="link-primary small">
-                        Open inbox
+                      <Link to="/finance" className="link-primary small">
+                        Finance overview
                       </Link>
                     }
                     trailing={
@@ -598,11 +576,6 @@ export default function PaymentOpsPage() {
                         Withdrawals table
                       </Link>
                     }
-                  />
-                  <MetricRow
-                    label="Users missing Fystack wallet"
-                    value={String(summaryForTable.users_missing_fystack_wallet ?? '—')}
-                    subValue="Provisioning gap"
                   />
                   <MetricRow
                     label="Ledger entries (total rows)"
@@ -685,7 +658,7 @@ export default function PaymentOpsPage() {
         <div className="card-header">
           <h3 className="card-title mb-0 fs-6">On-chain deposit asset keys</h3>
           <p className="text-secondary small mb-0 mt-1">
-            Fystack deposit slots configured in the environment (read-only)
+            PassimPay currency rows (payment_currencies) — canonical keys for cashier / challenges (read-only)
           </p>
         </div>
         <div className="card-body p-0">
@@ -773,31 +746,6 @@ export default function PaymentOpsPage() {
         </div>
       </div>
 
-      {isSuper ? (
-        <div className="card shadow-sm mb-4">
-          <div className="card-header">
-            <h3 className="card-title mb-0 fs-6">Fystack reconciliation</h3>
-            <p className="text-secondary small mb-0 mt-1">Replay stale webhook deliveries (idempotent)</p>
-          </div>
-          <div className="card-body">
-            <button
-              type="button"
-              disabled={busy}
-              className="btn btn-dark"
-              onClick={() => void reconcile()}
-            >
-              {busy ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden />
-                  Running…
-                </>
-              ) : (
-                'Run reconcile'
-              )}
-            </button>
-          </div>
-        </div>
-      ) : null}
     </>
   )
 }

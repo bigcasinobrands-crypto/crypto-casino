@@ -1157,7 +1157,7 @@ export function ChallengeEditModal({
               </div>
               <div className="col-md-8">
                 <label className="form-label small text-secondary mb-1">
-                  Payout asset &amp; chain (Fystack)
+                  Payout asset &amp; chain (PassimPay)
                 </label>
                 <PayoutAssetDropdown
                   options={depositAssets}

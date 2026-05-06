@@ -9,7 +9,6 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
-	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/passhash"
 	"github.com/crypto-casino/core/internal/pii"
 	"github.com/crypto-casino/core/internal/playerauth"
@@ -71,13 +70,6 @@ func main() {
 	`, userID)
 	if err != nil {
 		log.Fatalf("player_vip_state: %v", err)
-	}
-	if cfg.FystackConfigured() {
-		fs := fystack.NewClient(cfg.FystackBaseURL, cfg.FystackAPIKey, cfg.FystackAPISecret, cfg.FystackWorkspaceID)
-		p := &fystack.WalletProvisioner{Pool: pool, Client: fs}
-		if err := p.Provision(ctx, userID); err != nil {
-			log.Printf("fystack wallet provision (will retry via reconciler): %v", err)
-		}
 	}
 	log.Printf("created player: %s", email)
 }

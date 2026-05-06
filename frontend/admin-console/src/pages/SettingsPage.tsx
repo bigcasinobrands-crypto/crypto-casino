@@ -902,10 +902,10 @@ function WithdrawalLimitsPanel({
 function IntegrationStatusPanel({ settings }: { settings: SettingsMap }) {
   const integrations = [
     {
-      name: 'Fystack',
-      status: getSettingVal(settings, 'integrations', 'fystack_configured', false) as boolean,
-      detail: getSettingVal(settings, 'integrations', 'fystack_configured', false)
-        ? 'API key configured'
+      name: 'PassimPay',
+      status: getSettingVal(settings, 'integrations', 'passimpay_configured', false) as boolean,
+      detail: getSettingVal(settings, 'integrations', 'passimpay_configured', false)
+        ? 'Platform + API key configured'
         : 'Not configured',
     },
     {

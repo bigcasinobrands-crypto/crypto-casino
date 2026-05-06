@@ -3,6 +3,7 @@ package wallet
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/crypto-casino/core/internal/playerapi"
@@ -11,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// WithdrawalGetHandler returns one withdrawal for the authenticated player only.
+// WithdrawalGetHandler returns one PassimPay withdrawal for the authenticated player only.
 func WithdrawalGetHandler(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
@@ -24,13 +25,18 @@ func WithdrawalGetHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "withdrawal id required")
 			return
 		}
-		var userID, status, currency, destination string
+		var status, currency, destination, network, providerPaymentID string
 		var amount int64
-		var raw []byte
+		var meta []byte
 		err := pool.QueryRow(r.Context(), `
-			SELECT user_id::text, status, amount_minor, currency, COALESCE(destination,''), COALESCE(raw, '{}'::jsonb)
-			FROM fystack_withdrawals WHERE id = $1
-		`, id).Scan(&userID, &status, &amount, &currency, &destination, &raw)
+			SELECT status, amount_minor, currency, COALESCE(destination_address,''),
+			       COALESCE(UPPER(TRIM(network)),''), COALESCE(provider_payment_id,''),
+			       COALESCE(metadata,'{}'::jsonb)
+			FROM payment_withdrawals
+			WHERE provider = 'passimpay' AND user_id = $2::uuid
+			  AND (withdrawal_id::text = $1 OR id::text = $1 OR provider_order_id = $1)
+			LIMIT 1
+		`, id, uid).Scan(&status, &amount, &currency, &destination, &network, &providerPaymentID, &meta)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				playerapi.WriteError(w, http.StatusNotFound, "not_found", "withdrawal not found")
@@ -39,13 +45,8 @@ func WithdrawalGetHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "query failed")
 			return
 		}
-		if userID != uid {
-			playerapi.WriteError(w, http.StatusNotFound, "not_found", "withdrawal not found")
-			return
-		}
-		txHash, explorerURL, errorMsg := extractWithdrawalTxFromRaw(raw, status)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		txHash, explorerURL, errorMsg := extractWithdrawalTxFromRaw(meta, status)
+		out := map[string]any{
 			"id":            id,
 			"status":        status,
 			"amount_minor":  amount,
@@ -54,7 +55,20 @@ func WithdrawalGetHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			"tx_hash":       txHash,
 			"explorer_url":  explorerURL,
 			"error_message": errorMsg,
-		})
+			"provider":      "passimpay",
+		}
+		if network != "" {
+			out["network"] = network
+		}
+		if providerPaymentID != "" {
+			if pid, err := strconv.Atoi(strings.TrimSpace(providerPaymentID)); err == nil && pid > 0 {
+				out["payment_id"] = pid
+			} else {
+				out["payment_id_raw"] = providerPaymentID
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }
 
@@ -79,9 +93,14 @@ func extractWithdrawalTxFromRaw(raw []byte, status string) (txHash, explorerURL,
 			}
 		}
 	}
-	if status == "provider_error" || status == "failed" {
+	if status == "FAILED" || strings.EqualFold(status, "provider_error") {
 		if pr, ok := m["provider_response"].(map[string]any); ok {
 			errorMsg = firstNonEmptyStringInMap(pr, "message", "error_message", "error")
+		}
+		if errorMsg == "" {
+			if fr, ok := m["failure_reason"].(string); ok {
+				errorMsg = strings.TrimSpace(fr)
+			}
 		}
 		if errorMsg == "" {
 			errorMsg = firstNonEmptyStringInMap(m, "message", "err", "error_message")

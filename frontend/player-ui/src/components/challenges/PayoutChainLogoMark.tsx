@@ -9,7 +9,7 @@ const GLYPH: Record<DepositNetworkId, { accent: string; ch: string }> = {
   TRC20: { accent: 'bg-[#EB0029]', ch: 'T' },
 }
 
-/** Parses Fystack-style keys like USDC_ERC20 → ERC20 (suffix after last _). */
+/** Parses SYMBOL_NETWORK-style keys like USDC_ERC20 → ERC20 (suffix after last _). */
 export function depositNetworkFromPayoutAssetKey(key?: string | null): DepositNetworkId | null {
   const k = key?.trim()
   if (!k) return null

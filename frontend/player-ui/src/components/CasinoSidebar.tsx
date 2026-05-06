@@ -12,6 +12,7 @@ import {
 } from '../lib/casinoNav'
 import { translateNavItemLabel } from '../lib/navI18n'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
+import CasinoNavEsportsSection from './CasinoNavEsportsSection'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
 import { LanguageMenu } from './LanguageMenu'
 import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
@@ -287,7 +288,13 @@ export default function CasinoSidebar({
             ) : null}
           </div>
 
-          {extraItems.filter((x) => x.id !== 'sports').map(renderTopItem('extras'))}
+          {extraItems.map((item) =>
+            item.id === 'sports' ? (
+              <CasinoNavEsportsSection key={item.id} variant="sidebar" collapsed={collapsed} />
+            ) : (
+              renderTopItem('extras')(item)
+            ),
+          )}
 
           <div className={`my-2.5 h-px bg-casino-border ${collapsed ? 'w-full' : ''}`} role="separator" />
 

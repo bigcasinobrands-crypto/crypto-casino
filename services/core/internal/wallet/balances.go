@@ -19,7 +19,7 @@ func BalancesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		rows, err := pool.Query(r.Context(), `
 			SELECT currency, pocket, COALESCE(SUM(amount_minor), 0)::bigint AS balance_minor
 			FROM ledger_entries
-			WHERE user_id = $1::uuid AND pocket IN ('cash', 'bonus_locked')
+			WHERE user_id = $1::uuid AND pocket IN ('cash', 'bonus_locked', 'pending_withdrawal')
 			GROUP BY currency, pocket
 			ORDER BY currency, pocket
 		`, uid)
@@ -30,7 +30,7 @@ func BalancesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		defer rows.Close()
 
 		type agg struct {
-			cash, bonus int64
+			cash, bonus, pendingWD int64
 		}
 		byCcy := map[string]*agg{}
 		for rows.Next() {
@@ -47,6 +47,8 @@ func BalancesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			switch pocket {
 			case "bonus_locked":
 				a.bonus += bal
+			case "pending_withdrawal":
+				a.pendingWD += bal
 			default:
 				a.cash += bal
 			}
@@ -54,18 +56,22 @@ func BalancesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		var wallets []map[string]any
 		for ccy, a := range byCcy {
 			wallets = append(wallets, map[string]any{
-				"currency":           ccy,
-				"cash_minor":         a.cash,
-				"bonus_locked_minor": a.bonus,
-				"balance_minor":      a.cash + a.bonus,
+				"currency":                  ccy,
+				"cash_minor":                a.cash,
+				"bonus_locked_minor":        a.bonus,
+				"pending_withdrawal_minor":  a.pendingWD,
+				"balance_minor":             a.cash + a.bonus,
+				"playable_balance_minor":    a.cash + a.bonus,
 			})
 		}
 		if _, ok := byCcy["USDT"]; !ok {
 			wallets = append(wallets, map[string]any{
-				"currency":           "USDT",
-				"cash_minor":         int64(0),
-				"bonus_locked_minor": int64(0),
-				"balance_minor":      int64(0),
+				"currency":                   "USDT",
+				"cash_minor":                 int64(0),
+				"bonus_locked_minor":         int64(0),
+				"pending_withdrawal_minor":   int64(0),
+				"balance_minor":              int64(0),
+				"playable_balance_minor":     int64(0),
 			})
 		}
 		if wallets == nil {

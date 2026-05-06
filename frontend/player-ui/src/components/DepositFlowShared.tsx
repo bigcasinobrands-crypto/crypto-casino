@@ -313,18 +313,26 @@ export function UsdAmountField({
   value,
   onChange,
   minUsd,
+  tone = 'default',
 }: {
   value: string
   onChange: (v: string) => void
   minUsd?: number
+  /** Banani-style wallet chrome (dark panels + field wells) */
+  tone?: 'default' | 'wallet'
 }) {
   const { t } = useTranslation()
   const min = minUsd ?? 10
+  const wallet = tone === 'wallet'
   return (
     <div className="mb-3">
-      <label className="mb-1 block text-xs font-medium text-casino-foreground">
+      <label
+        className={`mb-2 block text-xs ${wallet ? 'text-casino-muted' : 'font-medium text-casino-foreground'}`}
+      >
         {t('wallet.amountMinUsd')}
-        <span className="font-normal text-casino-muted">{t('wallet.amountMinSuffix', { min })}</span>
+        <span className={wallet ? 'font-normal text-casino-muted/90' : 'font-normal text-casino-muted'}>
+          {t('wallet.amountMinSuffix', { min })}
+        </span>
       </label>
       <div className="flex gap-1.5">
         <input
@@ -332,9 +340,19 @@ export function UsdAmountField({
           onChange={(e) => onChange(e.target.value)}
           type="text"
           inputMode="decimal"
-          className="min-w-0 flex-1 rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary"
+          className={
+            wallet
+              ? 'min-w-0 flex-1 rounded-lg border border-casino-border bg-wallet-field px-4 py-3 text-sm font-medium text-white outline-none focus-visible:ring-2 focus-visible:ring-casino-primary/45'
+              : 'min-w-0 flex-1 rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary'
+          }
         />
-        <div className="flex items-center rounded-lg border border-casino-border bg-casino-elevated px-2.5 text-xs font-semibold text-casino-muted">
+        <div
+          className={
+            wallet
+              ? 'flex items-center rounded-lg border border-casino-border bg-casino-elevated px-3 text-xs font-semibold text-casino-muted'
+              : 'flex items-center rounded-lg border border-casino-border bg-casino-elevated px-2.5 text-xs font-semibold text-casino-muted'
+          }
+        >
           {t('wallet.currencyUsd')}
         </div>
       </div>
@@ -346,7 +364,7 @@ export function DepositWrongChainWarning({
   symbol,
   networkLabel,
 }: {
-  symbol: DepositAssetSymbol
+  symbol: string
   networkLabel: string
 }) {
   const { t } = useTranslation()

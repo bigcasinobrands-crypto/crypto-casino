@@ -23,12 +23,15 @@ func BalanceHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		cash, _ := ledger.BalanceCash(r.Context(), pool, id)
 		bonus, _ := ledger.BalanceBonusLocked(r.Context(), pool, id)
+		pendingWD, _ := ledger.BalancePendingWithdrawal(r.Context(), pool, id)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"balance_minor":          sum,
-			"cash_minor":             cash,
-			"bonus_locked_minor":     bonus,
-			"currency":               "USDT",
+			"balance_minor":               sum,
+			"cash_minor":                  cash,
+			"bonus_locked_minor":          bonus,
+			"pending_withdrawal_minor":    pendingWD,
+			"playable_balance_minor":      sum,
+			"currency":                    "USDT",
 		})
 	}
 }

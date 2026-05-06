@@ -230,6 +230,7 @@ SELECT COUNT(*) FROM sportsbook_provider_requests
 WHERE provider = 'ODDIN' AND (status = 'ERROR' OR status = 'REJECT' OR error_code IS NOT NULL)
 `).Scan(&opErrs)
 	out["operator_endpoint_errors"] = opErrs
+	out["esports_nav_configured"] = EsportsNavConfigured(cfg)
 
 	return out, nil
 }

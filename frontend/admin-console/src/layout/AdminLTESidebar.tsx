@@ -78,7 +78,6 @@ const AdminLTESidebar: FC = () => {
         return false
       }
       if (path === '/global-chat') return p.startsWith('/global-chat')
-      if (path === '/finance/fystack-webhooks') return p === '/finance/fystack-webhooks'
       if (path === '/finance/casino-analytics') return p === '/finance/casino-analytics'
       if (path === '/finance/crypto-performance') return p === '/finance/crypto-performance'
       if (path === '/system/staff-users') return p === '/system/staff-users'

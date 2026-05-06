@@ -265,24 +265,25 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if err != nil {
 			return bal, "500", err
 		}
-		fromBonus := amount
+		// Cash-first: spend withdrawable cash before bonus_locked (enterprise promo policy).
+		fromCash := amount
+		if fromCash > cashBal {
+			fromCash = cashBal
+		}
+		fromBonus := amount - fromCash
 		if fromBonus > bonusBal {
-			fromBonus = bonusBal
-		}
-		fromCash := amount - fromBonus
-		if cashBal < fromCash {
 			return bal, "402", nil
-		}
-		if fromBonus > 0 {
-			idemB := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID)
-			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
-			if err != nil {
-				return bal, "500", err
-			}
 		}
 		if fromCash > 0 {
 			idemC := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, txnID)
 			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta)
+			if err != nil {
+				return bal, "500", err
+			}
+		}
+		if fromBonus > 0 {
+			idemB := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID)
+			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
 			if err != nil {
 				return bal, "500", err
 			}

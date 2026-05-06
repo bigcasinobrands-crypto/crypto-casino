@@ -70,15 +70,9 @@ paths:
       responses:
         "202":
           description: Accepted
-  /v1/webhooks/fystack:
+  /v1/webhooks/passimpay:
     post:
-      summary: Fystack webhook (HMAC optional)
-      responses:
-        "202":
-          description: Accepted
-  /v1/webhooks/fystack/workspace:
-    post:
-      summary: Fystack workspace webhook (same handler and verification as `/v1/webhooks/fystack`)
+      summary: PassimPay webhook (signature verification when PASSIMPAY_WEBHOOK_SECRET is set)
       responses:
         "202":
           description: Accepted
@@ -113,12 +107,14 @@ paths:
     get:
       security: [{ staffBearer: [] }]
       summary: List BlueOcean events
-  /v1/admin/integrations/fystack/payments:
+  /v1/admin/integrations/payments/deposit-intents:
     get:
       security: [{ staffBearer: [] }]
-  /v1/admin/integrations/fystack/withdrawals:
+      summary: PassimPay / payment deposit intents (operational mirror)
+  /v1/admin/integrations/payments/withdrawals:
     get:
       security: [{ staffBearer: [] }]
+      summary: PassimPay / payment withdrawals (operational mirror)
   /v1/auth/register:
     post:
       summary: Player register (accept_terms, accept_privacy, optional captcha_token; password 12+ chars)
@@ -847,8 +843,8 @@ paths:
       security:
         - playerBearer: []
         - playerCookieAccess: []
-      summary: Create hosted checkout / deposit session (Fystack)
-      description: Cookie sessions require `X-CSRF-Token`.
+      summary: Legacy deposit session endpoint (returns 410 Gone — use GET /v1/wallet/deposit-address for PassimPay H2H)
+      description: Cookie sessions require `X-CSRF-Token`. Hosted checkout was removed; clients must use deposit-address flow.
   /v1/wallet/withdraw:
     post:
       security:

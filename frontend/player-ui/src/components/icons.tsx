@@ -235,6 +235,16 @@ export function IconBanknote(props: IconProps) {
   )
 }
 
+/** Crypto rail (wallet flows) */
+export function IconBitcoin(props: IconProps) {
+  const b = base(props)
+  return (
+    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11.767 19.089c4.924.868 6.14-6.025 1.216-6.894m-1.216 6.894L5.86 18.047m5.908 1.042-.347 1.97m.708-4.028c2.925.559 4.003-4.809 1.08-5.367m0 0-.698-3.985m1.218 6.352 5.598-.863m-5.559.863v.019m0 0-.692 3.97m.692-3.97-.004-.019m-.004.019-.96 5.494" />
+    </svg>
+  )
+}
+
 export function IconRadio(props: IconProps) {
   const b = base(props)
   return (

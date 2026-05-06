@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"errors"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
-	"github.com/crypto-casino/core/internal/safepath"
 	"github.com/crypto-casino/core/internal/bonus"
+	"github.com/crypto-casino/core/internal/safepath"
+	"github.com/jackc/pgx/v5"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -146,7 +149,20 @@ func (h *Handler) UploadContentImage(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "fs_error", "read failed")
+		return
+	}
+	if len(fileBytes) == 0 {
+		adminapi.WriteError(w, http.StatusBadRequest, "empty_file", "file is empty")
+		return
+	}
 	ct := header.Header.Get("Content-Type")
+	sniffed := http.DetectContentType(fileBytes)
+	if sniffed != "" {
+		ct = sniffed
+	}
 	if !allowedImageTypes[ct] {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_type", "only image files are accepted")
 		return
@@ -158,31 +174,88 @@ func (h *Handler) UploadContentImage(w http.ResponseWriter, r *http.Request) {
 	}
 	filename := fmt.Sprintf("%d_%s%s", time.Now().UnixMilli(), staffID[:8], ext)
 
-	uploadDir := filepath.Join(h.Cfg.DataDir, "uploads")
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
-		adminapi.WriteError(w, http.StatusInternalServerError, "fs_error", "cannot create upload directory")
-		return
-	}
-
-	fullPath := filepath.Join(uploadDir, filename)
-	if !safepath.Within(uploadDir, fullPath) {
-		adminapi.WriteError(w, http.StatusBadRequest, "invalid_path", "invalid upload path")
-		return
-	}
-	dst, err := os.Create(fullPath) // #nosec G703 -- fullPath checked via safepath.Within(uploadDir,*); filename server-generated
+	_, err = h.Pool.Exec(r.Context(), `
+		INSERT INTO cms_uploaded_assets (id, content_type, data, created_by)
+		VALUES ($1, $2, $3, $4::uuid)
+		ON CONFLICT (id) DO UPDATE
+		SET content_type = EXCLUDED.content_type,
+		    data = EXCLUDED.data,
+		    created_by = EXCLUDED.created_by,
+		    created_at = now()
+	`, filename, ct, fileBytes, staffID)
 	if err != nil {
-		adminapi.WriteError(w, http.StatusInternalServerError, "fs_error", "cannot create file")
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "cannot store upload")
 		return
 	}
-	defer dst.Close()
 
-	if _, err := io.Copy(dst, file); err != nil {
-		adminapi.WriteError(w, http.StatusInternalServerError, "fs_error", "write failed")
-		return
+	// Legacy disk write for backwards compatibility with existing operational tooling.
+	uploadDir := filepath.Join(h.Cfg.DataDir, "uploads")
+	_ = os.MkdirAll(uploadDir, 0o755)
+	fullPath := filepath.Join(uploadDir, filename)
+	if safepath.Within(uploadDir, fullPath) {
+		_ = os.WriteFile(fullPath, fileBytes, 0o644)
 	}
 
 	out := "/v1/uploads/" + filename
 	writeJSON(w, map[string]any{"url": bonus.PublicizeStoredAssetURL(out)})
+}
+
+func (h *Handler) ServeUploadedContent(w http.ResponseWriter, r *http.Request) {
+	fileID := strings.TrimSpace(chi.URLParam(r, "*"))
+	fileID = strings.TrimPrefix(fileID, "/")
+	fileID = path.Base(fileID)
+	if fileID == "" || fileID == "." || fileID == ".." {
+		http.NotFound(w, r)
+		return
+	}
+
+	var contentType string
+	var data []byte
+	err := h.Pool.QueryRow(r.Context(), `
+		SELECT content_type, data
+		FROM cms_uploaded_assets
+		WHERE id = $1
+	`, fileID).Scan(&contentType, &data)
+	if err == nil {
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(data)
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		http.Error(w, "upload read error", http.StatusInternalServerError)
+		return
+	}
+
+	// Fallback for older uploads that exist only on disk.
+	uploadDir := filepath.Join(h.Cfg.DataDir, "uploads")
+	fullPath := filepath.Join(uploadDir, fileID)
+	if !safepath.Within(uploadDir, fullPath) {
+		http.NotFound(w, r)
+		return
+	}
+	fileBytes, readErr := os.ReadFile(fullPath)
+	if readErr != nil || len(fileBytes) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	legacyContentType := http.DetectContentType(fileBytes)
+	if !allowedImageTypes[legacyContentType] {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Auto-backfill legacy disk asset into DB so future deploys/restarts remain safe.
+	_, _ = h.Pool.Exec(r.Context(), `
+		INSERT INTO cms_uploaded_assets (id, content_type, data, created_by)
+		VALUES ($1, $2, $3, NULL)
+		ON CONFLICT (id) DO NOTHING
+	`, fileID, legacyContentType, fileBytes)
+
+	w.Header().Set("Content-Type", legacyContentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(fileBytes)
 }
 
 func (h *Handler) ContentBundle(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +280,7 @@ func (h *Handler) ContentBundle(w http.ResponseWriter, r *http.Request) {
 		bundle[key] = parsed
 	}
 
-	w.Header().Set("Cache-Control", "public, max-age=60")
+	w.Header().Set("Cache-Control", "no-store, must-revalidate")
 	writeJSON(w, bundle)
 }
 
@@ -230,6 +303,6 @@ func (h *Handler) ContentByKeyPublic(w http.ResponseWriter, r *http.Request) {
 		parsed = string(content)
 	}
 
-	w.Header().Set("Cache-Control", "public, max-age=60")
+	w.Header().Set("Cache-Control", "no-store, must-revalidate")
 	writeJSON(w, map[string]any{"key": key, "content": parsed})
 }

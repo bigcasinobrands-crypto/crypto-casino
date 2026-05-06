@@ -52,9 +52,9 @@ func RunFraudChecks(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config,
 	if cfg.WithdrawDailyCountLimit > 0 {
 		var count int
 		err := pool.QueryRow(ctx, `
-			SELECT COUNT(*) FROM fystack_withdrawals
-			WHERE user_id = $1::uuid AND created_at > NOW() - INTERVAL '24 hours'
-			AND status NOT IN ('provider_error', 'failed', 'cancelled')
+			SELECT COUNT(*) FROM payment_withdrawals
+			WHERE provider = 'passimpay' AND user_id = $1::uuid AND created_at > NOW() - INTERVAL '24 hours'
+			AND status NOT IN ('FAILED')
 		`, userID).Scan(&count)
 		if err == nil && count >= cfg.WithdrawDailyCountLimit {
 			return FraudCheckResult{
@@ -67,9 +67,9 @@ func RunFraudChecks(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config,
 	if cfg.WithdrawDailyLimitCents > 0 {
 		var totalToday int64
 		err := pool.QueryRow(ctx, `
-			SELECT COALESCE(SUM(amount_minor), 0) FROM fystack_withdrawals
-			WHERE user_id = $1::uuid AND created_at > NOW() - INTERVAL '24 hours'
-			AND status NOT IN ('provider_error', 'failed', 'cancelled')
+			SELECT COALESCE(SUM(amount_minor), 0) FROM payment_withdrawals
+			WHERE provider = 'passimpay' AND user_id = $1::uuid AND created_at > NOW() - INTERVAL '24 hours'
+			AND status NOT IN ('FAILED')
 		`, userID).Scan(&totalToday)
 		if err == nil && (totalToday+amountCents) > cfg.WithdrawDailyLimitCents {
 			remaining := cfg.WithdrawDailyLimitCents - totalToday

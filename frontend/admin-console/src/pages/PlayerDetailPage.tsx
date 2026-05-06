@@ -24,7 +24,7 @@ type EconomicTimelinePayload = {
   balances?: EconomicTimelineBalances
   ledger?: Record<string, unknown>[]
   bonus_instances?: Record<string, unknown>[]
-  fystack_webhooks_guess?: Record<string, unknown>[]
+  payment_callbacks_guess?: Record<string, unknown>[]
 }
 
 type RiskDecisionRow = {
@@ -704,7 +704,7 @@ export default function PlayerDetailPage() {
       <ComponentCard
         className="mt-6"
         title="Economic Timeline"
-        desc="FR-OPS-02 · Ledger, bonus instances, and Fystack webhook hints"
+        desc="FR-OPS-02 · Ledger, bonus instances, and payment callback hints"
       >
         <div className="flex flex-col gap-4">
           <button
@@ -848,7 +848,7 @@ export default function PlayerDetailPage() {
 
               <details className="rounded-lg border border-gray-200 dark:border-gray-700" open>
                 <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
-                  Fystack webhooks
+                  Payment callbacks
                 </summary>
                 <div className="border-t border-gray-200 p-2 dark:border-gray-700">
                   <div className={tableWrapClass}>
@@ -863,7 +863,7 @@ export default function PlayerDetailPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                        {(economicTimeline.fystack_webhooks_guess ?? []).map((row, i) => (
+                        {(economicTimeline.payment_callbacks_guess ?? []).map((row, i) => (
                           <tr key={`${row.dedupe_key ?? i}-${i}`}>
                             <td className="max-w-[14rem] break-all px-3 py-2 font-mono text-xs">
                               {String(row.dedupe_key ?? '—')}

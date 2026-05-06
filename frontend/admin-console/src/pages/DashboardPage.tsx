@@ -220,10 +220,10 @@ export default function DashboardPage() {
     const wHook = systemHealth?.webhook_deliveries_pending ?? 0
     if (wHook > 0) {
       rows.push({
-        key: 'fystack-webhook',
-        title: 'Fystack webhook backlog',
-        detail: `${wHook} delivery row(s) not processed yet.`,
-        href: '/finance/fystack-webhooks',
+        key: 'payment-callback-backlog',
+        title: 'Payment callbacks backlog',
+        detail: `${wHook} deposit callback row(s) awaiting processing.`,
+        href: '/finance',
       })
     }
     const failedJobs = systemHealth?.worker_failed_jobs_unresolved ?? 0
@@ -251,15 +251,6 @@ export default function DashboardPage() {
         title: 'Bonus risk queue',
         detail: `${riskQ} decision(s) awaiting staff review.`,
         href: '/bonushub/risk',
-      })
-    }
-    const missingWallet = systemHealth?.users_missing_fystack_wallet ?? 0
-    if (missingWallet > 0 && role === 'superadmin') {
-      rows.push({
-        key: 'missing-wallet',
-        title: 'Players missing Fystack wallet',
-        detail: `${missingWallet} account(s) may block deposits — check payment ops.`,
-        href: '/finance',
       })
     }
     const chFlag = challengesSummary?.flagged_pending ?? 0
@@ -785,11 +776,11 @@ export default function DashboardPage() {
               Queue depths and job health. Follow links to clear backlogs.
             </div>
             <MetricRow
-              label="Fystack webhooks pending"
+              label="Payment callbacks pending"
               value={String(systemHealth?.webhook_deliveries_pending ?? '—')}
               subValue={
-                <Link to="/finance/fystack-webhooks" className="link-primary">
-                  Open inbox
+                <Link to="/finance" className="link-primary">
+                  Finance overview
                 </Link>
               }
               trailing={
@@ -815,11 +806,6 @@ export default function DashboardPage() {
                   dot
                 />
               }
-            />
-            <MetricRow
-              label="Users missing Fystack wallet"
-              value={String(systemHealth?.users_missing_fystack_wallet ?? '—')}
-              subValue="Provisioning gap"
             />
             <MetricRow
               label="Redis job queue depth"

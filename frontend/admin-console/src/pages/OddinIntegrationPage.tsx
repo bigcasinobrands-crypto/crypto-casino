@@ -98,6 +98,9 @@ export default function OddinIntegrationPage() {
     const oe = pickNum(data, 'operator_endpoint_errors')
     if (oe !== undefined) push('Operator callback errors (audit)', String(oe))
 
+    const enc = pickBool(data, 'esports_nav_configured')
+    if (enc !== undefined) push('E-Sports nav (operator JSON)', enc ? 'Yes' : 'No')
+
     return r
   }, [data])
 

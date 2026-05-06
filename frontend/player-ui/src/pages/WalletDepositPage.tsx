@@ -1,16 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
-import {
-  AssetToggleRow,
-  ChooseAssetNetworkHint,
-  DepositWrongChainWarning,
-  NetworkCardGrid,
-  UsdAmountField,
-  depositNetworkTitle,
-  parseDepositNetworkParam,
-  type DepositAssetSymbol,
-  type DepositNetworkId,
-} from '../components/DepositFlowShared'
+import { useTranslation } from 'react-i18next'
+import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
+import { passimpayNetworkLabel } from '../lib/paymentCurrencies'
+import type { PassimpayCurrency } from '../lib/paymentCurrencies'
 import {
   DepositAddressPanel,
   DepositSentPanel,
@@ -18,17 +11,20 @@ import {
   effectiveWalletDepositPhase,
   validAddressStepParams,
 } from '../components/walletDepositPanels'
-import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
+import { WalletDepositPickStep } from '../components/wallet/WalletDepositPickStep'
 import { usePlayerAuth } from '../playerAuth'
 
 const MIN_USD = 10
 
 export default function WalletDepositPage() {
-  const { isAuthenticated, balanceMinor } = usePlayerAuth()
-  const logoUrls = useCryptoLogoUrlMap()
+  const { t } = useTranslation()
+  const { isAuthenticated } = usePlayerAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const phase = effectiveWalletDepositPhase(searchParams)
+
+  const { currencies, loading: currenciesLoading, error: currenciesError, reload: reloadCurrencies } =
+    usePassimpayCurrencies(isAuthenticated)
 
   const [amountUsd, setAmountUsd] = useState(() => {
     const a = searchParams.get('amount_usd')
@@ -37,15 +33,7 @@ export default function WalletDepositPage() {
   })
   const [amountErr, setAmountErr] = useState<string | null>(null)
 
-  const [symbol, setSymbol] = useState<DepositAssetSymbol>(() => {
-    const s = (searchParams.get('symbol') || '').toUpperCase()
-    if (s === 'USDC' || s === 'ETH' || s === 'TRX') return s as DepositAssetSymbol
-    return 'ETH'
-  })
-  const [network, setNetwork] = useState<DepositNetworkId>(() => {
-    const raw = searchParams.get('network')
-    return raw ? parseDepositNetworkParam(raw) : 'BEP20'
-  })
+  const [selected, setSelected] = useState<PassimpayCurrency | null>(null)
 
   useEffect(() => {
     if (searchParams.get('step') === 'address' && !validAddressStepParams(searchParams)) {
@@ -55,36 +43,48 @@ export default function WalletDepositPage() {
     }
   }, [searchParams, setSearchParams])
 
-  const balanceLabel = useMemo(() => {
-    if (balanceMinor == null) return '0.00'
-    return (balanceMinor / 100).toFixed(2)
-  }, [balanceMinor])
+  useEffect(() => {
+    const pid = Number(searchParams.get('payment_id'))
+    if (!Number.isFinite(pid) || pid < 1 || !currencies.length) return
+    const row = currencies.find((c) => c.payment_id === pid)
+    if (row) setSelected(row)
+  }, [currencies, searchParams])
 
-  const symbolForStep = useMemo((): DepositAssetSymbol => {
-    if (phase === 'form') return symbol
-    const s = (searchParams.get('symbol') || 'ETH').toUpperCase()
-    if (s === 'USDC' || s === 'ETH' || s === 'TRX' || s === 'USDT') return s as DepositAssetSymbol
-    return 'ETH'
-  }, [phase, searchParams, symbol])
+  const paymentIdFromUrl = useMemo(() => {
+    const pid = Number(searchParams.get('payment_id'))
+    return Number.isFinite(pid) && pid >= 1 ? pid : null
+  }, [searchParams])
 
-  const networkForStep = useMemo((): DepositNetworkId => {
-    if (phase === 'form') return network
-    return parseDepositNetworkParam(searchParams.get('network'))
-  }, [phase, searchParams, network])
+  const symbolForStep = useMemo(() => {
+    if (phase === 'form') return selected?.symbol ?? ''
+    return searchParams.get('symbol')?.trim() ?? ''
+  }, [phase, searchParams, selected?.symbol])
+
+  const networkForStep = useMemo(() => {
+    if (phase === 'form') return selected?.network ?? ''
+    return searchParams.get('network')?.trim() ?? ''
+  }, [phase, searchParams, selected?.network])
 
   const amountUsdForAddress = useMemo(() => amountUsdTextFromSearchParams(searchParams), [searchParams])
+
+  const sentNetworkLabel = useMemo(() => passimpayNetworkLabel(networkForStep), [networkForStep])
 
   const continueToAddress = () => {
     setAmountErr(null)
     const parsed = Number(amountUsd.replace(',', '.'))
     if (!Number.isFinite(parsed) || parsed < MIN_USD) {
-      setAmountErr(`Enter at least ${MIN_USD} USD.`)
+      setAmountErr(t('wallet.enterMinUsd', { min: MIN_USD }))
+      return
+    }
+    if (!selected) {
+      setAmountErr(t('wallet.passimpayPickCurrency'))
       return
     }
     const cents = Math.round(parsed * 100)
     const next = new URLSearchParams(searchParams)
-    next.set('symbol', symbol)
-    next.set('network', network)
+    next.set('payment_id', String(selected.payment_id))
+    next.set('symbol', selected.symbol)
+    next.set('network', selected.network)
     next.set('amount_minor', String(cents))
     next.set('amount_usd', parsed.toFixed(2))
     next.set('step', 'address')
@@ -107,74 +107,70 @@ export default function WalletDepositPage() {
     const next = new URLSearchParams(searchParams)
     next.delete('step')
     next.delete('tx_hash')
+    next.delete('payment_id')
     setSearchParams(next, { replace: true })
   }
 
   if (!isAuthenticated) return <Navigate to="/?auth=login" replace />
 
-  if (phase === 'address') {
-    return (
-      <div className="mx-auto max-w-md p-3 pb-8 sm:p-4">
-        <h1 className="mb-3 text-base font-semibold text-casino-primary">Deposit</h1>
+  const shell = (children: ReactNode) => (
+    <div className="min-h-[min(100dvh,880px)] bg-wallet-backdrop px-4 py-10 pb-16 sm:py-14">
+      <div className="mx-auto w-full max-w-[440px] rounded-2xl border border-casino-border bg-wallet-modal p-6 shadow-[0_32px_64px_rgba(0,0,0,0.55)]">
+        {children}
+      </div>
+    </div>
+  )
+
+  if (phase === 'address' && paymentIdFromUrl != null) {
+    return shell(
+      <>
+        <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <DepositAddressPanel
+          paymentId={paymentIdFromUrl}
           symbol={symbolForStep}
           network={networkForStep}
           amountUsdText={amountUsdForAddress}
           onBack={backFromAddress}
           onSent={markSent}
         />
-      </div>
+      </>,
     )
   }
 
   if (phase === 'sent') {
     const txHash = searchParams.get('tx_hash')?.trim() ?? ''
-    const netLabel =
-      networkForStep === 'BEP20' ? 'BEP20' : networkForStep === 'TRC20' ? 'TRC20' : 'ERC20'
-    return (
-      <div className="mx-auto max-w-md p-3 pb-8 sm:p-4">
-        <h1 className="mb-3 text-base font-semibold text-casino-primary">Deposit</h1>
+    return shell(
+      <>
+        <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <DepositSentPanel
-          symbol={symbolForStep}
-          network={netLabel}
+          symbol={symbolForStep || '—'}
+          network={sentNetworkLabel}
           txHash={txHash}
           onDepositAgain={depositAgain}
           showGamesLink
+          showHeader={false}
         />
-      </div>
+      </>,
     )
   }
 
-  return (
-    <div className="mx-auto max-w-md space-y-0 p-3 pb-8 sm:p-4">
-      <h1 className="mb-3 text-base font-semibold text-casino-primary">Deposit</h1>
-
-      <UsdAmountField value={amountUsd} onChange={setAmountUsd} minUsd={MIN_USD} />
-      {amountErr ? (
-        <p className="mb-2 text-xs text-red-400" role="alert">
-          {amountErr}
-        </p>
-      ) : null}
-      <ChooseAssetNetworkHint />
-      <AssetToggleRow symbol={symbol} onSymbol={setSymbol} searchFilter="" logoUrls={logoUrls} />
-      <NetworkCardGrid
-        symbol={symbol}
-        network={network}
-        onNetwork={setNetwork}
-        balanceLabel={balanceLabel}
-        depositAmountInput={amountUsd}
-        logoUrls={logoUrls}
+  return shell(
+    <>
+      <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
+      <WalletDepositPickStep
+        amountUsd={amountUsd}
+        onAmountUsd={setAmountUsd}
+        amountErr={amountErr}
+        minUsd={MIN_USD}
+        onContinue={continueToAddress}
+        continueLabel={t('wallet.continue')}
+        currencies={currencies}
+        currenciesLoading={currenciesLoading}
+        currenciesError={currenciesError}
+        onRetryCurrencies={() => void reloadCurrencies()}
+        selected={selected}
+        onSelect={setSelected}
       />
-      <div className="mt-2">
-        <DepositWrongChainWarning symbol={symbol} networkLabel={depositNetworkTitle(network)} />
-      </div>
-      <button
-        type="button"
-        onClick={continueToAddress}
-        className="mt-3 w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110"
-      >
-        Continue
-      </button>
-    </div>
+    </>,
   )
 }

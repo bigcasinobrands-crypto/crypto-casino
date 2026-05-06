@@ -16,7 +16,7 @@ const TOKEN_LOGOS: Record<string, string> = {
   avax: 'https://assets.coingecko.com/coins/images/12559/small/coin-round-red.png',
 }
 
-/** By numeric chain_id (string) or legacy network key from Fystack-style asset keys. */
+/** By numeric chain_id (string) or network suffix from SYMBOL_NETWORK asset keys. */
 const CHAIN_LOGOS: Record<string, string> = {
   '1': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
   '5': 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
@@ -28,7 +28,7 @@ const CHAIN_LOGOS: Record<string, string> = {
   '42161': 'https://assets.coingecko.com/asset_platforms/images/33/small/ARB.png',
   '10': 'https://assets.coingecko.com/asset_platforms/images/41/small/optimism.png',
   '43114': 'https://assets.coingecko.com/coins/images/12559/small/coin-round-red.png',
-  // text network suffixes from FYSTACK_DEPOSIT_ASSETS_JSON keys
+  // text network suffixes from SYMBOL_NETWORK-style payout asset keys (e.g. USDC_ERC20)
   ERC20: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
   BEP20: 'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
   TRC20: 'https://assets.coingecko.com/coins/images/1094/small/tron-logo.png',

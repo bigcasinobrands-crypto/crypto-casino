@@ -1,4 +1,5 @@
 import type { TFunction } from 'i18next'
+import type { EsportsNavItem } from './oddin/esportsNavCatalog'
 import type { CasinoNavCategory } from './casinoNav'
 
 export type NavSection = 'casino' | 'promo' | 'extras'
@@ -9,4 +10,8 @@ export function translateNavItemLabel(
   item: CasinoNavCategory,
 ): string {
   return t(`nav.${section}.${item.id}`, { defaultValue: item.label })
+}
+
+export function translateEsportsNavLabel(t: TFunction, item: EsportsNavItem): string {
+  return t(`nav.esports.${item.id}`, { defaultValue: item.label })
 }

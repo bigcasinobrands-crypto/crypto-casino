@@ -1168,26 +1168,27 @@ func (h *Handler) userEconomicTimeline(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	fsRows, err := h.Pool.Query(ctx, `
-		SELECT dedupe_key, event_type, resource_id, processed, created_at FROM fystack_webhook_deliveries
-		WHERE raw::text ILIKE '%' || $1 || '%' ORDER BY id DESC LIMIT 30
+	cbRows, err := h.Pool.Query(ctx, `
+		SELECT provider, COALESCE(provider_event_id,''), processing_status, created_at
+		FROM payment_deposit_callbacks
+		WHERE payload::text ILIKE '%' || $1 || '%'
+		ORDER BY created_at DESC LIMIT 30
 	`, uid)
 	if err != nil {
-		fsRows = nil
+		cbRows = nil
 	}
-	var fystack []map[string]any
-	if fsRows != nil {
-		defer fsRows.Close()
-		for fsRows.Next() {
-			var dk, et, rid string
-			var proc bool
+	var paymentCallbacks []map[string]any
+	if cbRows != nil {
+		defer cbRows.Close()
+		for cbRows.Next() {
+			var prov, peid, proc string
 			var ct time.Time
-			if err := fsRows.Scan(&dk, &et, &rid, &proc, &ct); err != nil {
+			if err := cbRows.Scan(&prov, &peid, &proc, &ct); err != nil {
 				continue
 			}
-			fystack = append(fystack, map[string]any{
-				"kind": "fystack_webhook", "dedupe_key": dk, "event_type": et, "resource_id": rid,
-				"processed": proc, "at": ct.UTC().Format(time.RFC3339),
+			paymentCallbacks = append(paymentCallbacks, map[string]any{
+				"kind": "payment_deposit_callback", "provider": prov, "provider_event_id": peid,
+				"processing_status": proc, "at": ct.UTC().Format(time.RFC3339),
 			})
 		}
 	}
@@ -1201,7 +1202,7 @@ func (h *Handler) userEconomicTimeline(w http.ResponseWriter, r *http.Request) {
 		"balances":               map[string]any{"cash_minor": cash, "bonus_locked_minor": bon, "playable_minor": play},
 		"ledger":                 ledgerLines,
 		"bonus_instances":        bonuses,
-		"fystack_webhooks_guess": fystack,
+		"payment_callbacks_guess": paymentCallbacks,
 	})
 }
 

@@ -22,11 +22,11 @@ Maps plan requirement IDs to implementation artifacts. Update each release.
 | FR-BONUS-05: Automation rules | `bonus/automation.go` | GET/POST/PATCH `.../automation-rules` | BonusHub → Automation tab | — | — |
 | FR-BONUS-06: BlueOcean allocator | `webhooks/blueocean_wallet.go` | — | — | — | — |
 | FR-DATA-04: Idempotency keys | `docs/idempotency-keys.md` | — | — | — | — |
-| FR-INT-01: Fystack → bonus | `webhooks/fystack_webhook.go` | — | — | — | — |
+| FR-INT-01: PassimPay deposit → bonus | `webhooks/passimpay_webhook.go` | — | — | — | — |
 | FR-INT-02: Outbound events | `bonus/events.go` | — | — | — | — |
 | FR-OPS-01: Kill switches | `bonus/flags.go`, `paymentflags/` | PATCH `.../promotions/{id}`, PATCH `/ops/payment-flags` | BonusHub → Promotions (pause toggle), PaymentOps | — | — |
 | FR-OPS-02: Economic timeline | `adminops/bonushub.go` (userEconomicTimeline) | GET `/users/{id}/economic-timeline` | PlayerDetail → Economic Timeline | — | — |
-| FR-OPS-03: Runbooks | `docs/bonus-runbooks.md`, `docs/fystack-runbooks.md` | — | — | — | — |
+| FR-OPS-03: Runbooks | `docs/bonus-runbooks.md`, `docs/passimpay-runbooks.md` | — | — | — | — |
 | FR-OPS-04: Dry-run / simulate | `adminops/bonushub_ops.go` | POST `.../simulate-payment-settled` | BonusHub → Simulate tab | — | — |
 | FR-OPS-05: Risk explanation | `adminops/user_compliance.go` (UserBonusRiskDecisions) | GET `/users/{id}/bonus-risk` | PlayerDetail → Risk Decisions | — | — |
 | FR-OPS-06: Compliance export | `adminops/user_compliance.go` (ComplianceExportUser) | GET `/users/{id}/compliance-export` | PlayerDetail → Download button | — | — |
@@ -68,7 +68,7 @@ Maps plan requirement IDs to implementation artifacts. Update each release.
 |-------|-------|-------------|
 | Dashboard | `/` | `AppSidebar.tsx` |
 | Players | `/users`, `/support` | `AppSidebar.tsx` |
-| Finance | `/ledger`, `/payments-ops`, `/fystack`, `/fystack-wd` | `AppSidebar.tsx` |
+| Finance | `/ledger`, `/payments-ops`, `/deposits`, `/withdrawals` | `AppSidebar.tsx` |
 | Games | `/games`, `/game-launches`, `/game-disputes`, `/bog`, `/blueocean` | `AppSidebar.tsx` |
 | Engagement | `/bonushub`, `/global-chat` | `AppSidebar.tsx` |
 | Operations | `/logs`, `/settings` | `AppSidebar.tsx` |

@@ -14,7 +14,6 @@ const TrafficSourcesPage = lazy(() => import('./pages/TrafficSourcesPage'))
 const PaymentOpsPage = lazy(() => import('./pages/PaymentOpsPage'))
 const FinanceCryptoPerformancePage = lazy(() => import('./pages/FinanceCryptoPerformancePage'))
 const FinanceGeoByCountryPage = lazy(() => import('./pages/FinanceGeoByCountryPage'))
-const FystackWebhookInboxPage = lazy(() => import('./pages/FystackWebhookInboxPage'))
 const DataTablePage = lazy(() => import('./pages/DataTablePage'))
 const WithdrawalApprovalPage = lazy(() => import('./pages/WithdrawalApprovalPage'))
 const PlayersPage = lazy(() => import('./pages/PlayersPage'))
@@ -50,6 +49,7 @@ const WebAuthnSecurityPage = lazy(() => import('./pages/WebAuthnSecurityPage'))
 const BonusCampaignStatsPage = lazy(() => import('./pages/BonusCampaignStatsPage'))
 const BonusHubCompliancePage = lazy(() => import('./pages/BonusHubCompliancePage'))
 const BonusHubRiskPage = lazy(() => import('./pages/BonusHubRiskPage'))
+const ContentCmsPage = lazy(() => import('./pages/ContentCmsPage'))
 
 export default function App() {
   return (
@@ -86,30 +86,27 @@ export default function App() {
               <Route path="/finance/casino-analytics" element={<Navigate to="/finance" replace />} />
               <Route path="/finance/crypto-performance" element={<FinanceCryptoPerformancePage />} />
               <Route path="/finance/by-country" element={<FinanceGeoByCountryPage />} />
-              <Route path="/finance/fystack-webhooks" element={<FystackWebhookInboxPage />} />
               <Route path="/payments-ops" element={<Navigate to="/finance" replace />} />
               <Route
                 path="/deposits"
                 element={
                   <DataTablePage
                     title="Deposits"
-                    path="/v1/admin/integrations/fystack/payments"
+                    path="/v1/admin/integrations/payments/deposit-intents"
                     refreshIntervalMs={10000}
                   />
                 }
               />
-              <Route path="/fystack" element={<Navigate to="/deposits" replace />} />
               <Route
                 path="/withdrawals"
                 element={
                   <DataTablePage
                     title="Withdrawals"
-                    path="/v1/admin/integrations/fystack/withdrawals"
+                    path="/v1/admin/integrations/payments/withdrawals"
                     refreshIntervalMs={10000}
                   />
                 }
               />
-              <Route path="/fystack-wd" element={<Navigate to="/withdrawals" replace />} />
               <Route path="/withdrawal-approvals" element={<WithdrawalApprovalPage />} />
               <Route
                 path="/ledger"
@@ -176,6 +173,7 @@ export default function App() {
               <Route path="/diagnostics" element={<LogsPage />} />
               <Route path="/logs" element={<Navigate to="/diagnostics" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/content-cms" element={<ContentCmsPage />} />
               <Route path="/system/security-keys" element={<WebAuthnSecurityPage />} />
               <Route path="/system/staff-users" element={<StaffUsersPage />} />
             </Route>

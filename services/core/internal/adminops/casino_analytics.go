@@ -106,8 +106,8 @@ WITH user_window AS (
 ),
 checkouts_window AS (
 	SELECT c.user_id, c.created_at
-	FROM fystack_checkouts c
-	WHERE ` + windowClause + `
+	FROM payment_deposit_intents c
+	WHERE c.provider = 'passimpay' AND ` + windowClause + `
 ),
 ledger_credits AS (
 	SELECT le.user_id, le.created_at, le.amount_minor
@@ -276,25 +276,25 @@ func (h *Handler) DashboardCryptoChainSummary(w http.ResponseWriter, r *http.Req
 	q := `
 WITH dep AS (
 	SELECT
-		COALESCE(NULLIF(p.raw->>'chain',''), NULLIF(p.raw->>'network',''), 'unknown') AS chain,
-		COALESCE(NULLIF(c.currency,''), NULLIF(p.raw->>'asset',''), 'unknown') AS asset,
+		COALESCE(NULLIF(le.metadata->>'network',''), NULLIF(le.metadata->>'chain',''), le.currency, 'unknown') AS chain,
+		COALESCE(le.currency, 'unknown') AS asset,
 		COUNT(*)::bigint AS dep_count,
-		COUNT(DISTINCT p.user_id)::bigint AS dep_users,
-		SUM(COALESCE(c.amount_minor,0))::bigint AS dep_volume_minor
-	FROM fystack_payments p
-	LEFT JOIN fystack_checkouts c ON c.id = p.checkout_id
-	WHERE p.status='settled' AND ` + clauseWithAlias(all, "p", start, end) + `
+		COUNT(DISTINCT le.user_id)::bigint AS dep_users,
+		SUM(COALESCE(le.amount_minor,0))::bigint AS dep_volume_minor
+	FROM ledger_entries le
+	WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0
+	  AND ` + clauseWithAlias(all, "le", start, end) + `
 	GROUP BY 1,2
 ),
 wd AS (
 	SELECT
-		COALESCE(NULLIF(w.raw->>'chain',''), NULLIF(w.raw->>'network',''), 'unknown') AS chain,
-		COALESCE(NULLIF(w.currency,''), NULLIF(w.raw->>'asset',''), 'unknown') AS asset,
+		COALESCE(NULLIF(w.network,''), w.currency, 'unknown') AS chain,
+		COALESCE(w.currency, 'unknown') AS asset,
 		COUNT(*)::bigint AS wd_count,
 		COUNT(DISTINCT w.user_id)::bigint AS wd_users,
 		SUM(COALESCE(w.amount_minor,0))::bigint AS wd_volume_minor
-	FROM fystack_withdrawals w
-	WHERE w.status='completed' AND ` + clauseWithAlias(all, "w", start, end) + `
+	FROM payment_withdrawals w
+	WHERE w.provider = 'passimpay' AND w.status <> 'FAILED' AND ` + clauseWithAlias(all, "w", start, end) + `
 	GROUP BY 1,2
 )
 SELECT

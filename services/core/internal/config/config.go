@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -89,24 +88,23 @@ type Config struct {
 	LogoDevPublishableKey string
 	// Logo.dev secret (Bearer) for search/describe APIs only — never expose to clients; optional until you use those APIs.
 	LogoDevSecretKey string
-	// Fystack (MPC wallets, checkout, withdrawals) — HMAC auth per docs.fystack.io/authentication
-	FystackBaseURL     string
-	FystackAPIKey      string
-	FystackAPISecret   string
-	FystackWorkspaceID string
-	// Ed25519 public key hex for the configured workspace (sandbox vs prod each has its own); when set, webhook verify skips API key fetch.
-	FystackWebhookVerificationKey string
-	// Outbound withdrawals (treasury wallet on Fystack)
-	FystackTreasuryWalletID      string
-	FystackWithdrawAssetID       string
-	FystackWithdrawAssetDecimals int // default 6
-	// Hosted checkout (USD-priced)
-	FystackCheckoutSuccessURL string
-	FystackCheckoutCancelURL  string
-	FystackCheckoutAssets     string // comma-separated e.g. USDC:1,ETH:1
-	FystackDepositAssetID     string // optional: default deposit address asset
-	// FystackDepositAssets maps keys like USDT_ERC20 → Fystack asset UUID (from FYSTACK_DEPOSIT_ASSETS_JSON).
-	FystackDepositAssets map[string]string
+	// PAYMENT_PROVIDER must be passimpay (empty defaults to passimpay for dev).
+	PaymentProvider  string
+	PassimpayEnabled bool
+	PassimpayAPIBaseURL    string // default https://api.passimpay.io
+	PassimpayPlatformID    int
+	PassimpaySecretKey     string // outbound API signing (never expose to clients)
+	PassimpayWebhookSecret string // verifies inbound webhook x-signature (often same as API key — set explicitly)
+	PassimpayCallbackPublicBase string // public API origin PassimPay will call back (staff configures exact URL in dashboard)
+	PassimpayDepositMethod      string // h2h | invoice (invoice link path not wired yet — use h2h)
+	PassimpayDefaultInvoiceExpiry int    // minutes; placeholder until invoice endpoints are added
+	PassimpayWithdrawalsEnabled bool
+	PassimpayRequestTimeoutMs     int
+	PassimpayFailClosed           bool // when true (default prod), webhook without valid signature rejects
+
+	// LedgerHouseUserID — UUID of synthetic house user for clearing_deposit / clearing_withdrawal_out mirror legs (default migration 00069).
+	LedgerHouseUserID string
+
 	// Data directory for uploads and other local files
 	DataDir string
 	// BlueOceanBonusSyncEnabled logs dry-run mapping for promotion sync (no dual-grant without full integration).
@@ -152,10 +150,12 @@ type Config struct {
 	OddinHashSecret          string // optional HMAC secret for operator request bodies
 	OddinTokenTTLSeconds     int
 	OddinOperatorIPAllowlist []string // when non-empty, restrict operator callbacks to these IPs (comma-separated in env)
+	// OddinEsportsNavJSON — optional JSON array for E-Sports sidebar (id, label, page, logoUrl); list + Oddin-hosted logo URLs from integration docs.
+	OddinEsportsNavJSON string
 }
 
-// FystackDepositAssetCanonicalKeys are the standard on-chain deposit combinations we surface in admin UI.
-func FystackDepositAssetCanonicalKeys() []string {
+// DepositAssetCanonicalKeys are standard symbol_network combinations surfaced in admin UI (aligned with payment_currencies.symbol/network).
+func DepositAssetCanonicalKeys() []string {
 	return []string{"USDT_ERC20", "USDT_TRC20", "USDT_BEP20", "USDC_ERC20", "USDC_TRC20", "USDC_BEP20"}
 }
 
@@ -302,45 +302,58 @@ func Load() (Config, error) {
 	}
 	c.LogoDevPublishableKey = strings.TrimSpace(os.Getenv("LOGO_DEV_PUBLISHABLE_KEY"))
 	c.LogoDevSecretKey = strings.TrimSpace(os.Getenv("LOGO_DEV_SECRET_KEY"))
-	c.FystackBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("FYSTACK_BASE_URL")), "/")
-	c.FystackAPIKey = strings.TrimSpace(os.Getenv("FYSTACK_API_KEY"))
-	c.FystackAPISecret = strings.TrimSpace(os.Getenv("FYSTACK_API_SECRET"))
-	c.FystackWorkspaceID = strings.TrimSpace(os.Getenv("FYSTACK_WORKSPACE_ID"))
-	c.FystackWebhookVerificationKey = strings.TrimSpace(os.Getenv("FYSTACK_WEBHOOK_VERIFICATION_KEY"))
-	c.FystackTreasuryWalletID = strings.TrimSpace(os.Getenv("FYSTACK_TREASURY_WALLET_ID"))
-	c.FystackWithdrawAssetID = strings.TrimSpace(os.Getenv("FYSTACK_WITHDRAW_ASSET_ID"))
-	c.FystackWithdrawAssetDecimals = 6
-	if s := strings.TrimSpace(os.Getenv("FYSTACK_WITHDRAW_ASSET_DECIMALS")); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n >= 0 && n <= 18 {
-			c.FystackWithdrawAssetDecimals = n
+
+	c.PaymentProvider = strings.ToLower(strings.TrimSpace(os.Getenv("PAYMENT_PROVIDER")))
+	if c.PaymentProvider == "" {
+		c.PaymentProvider = "passimpay"
+	}
+
+	c.PassimpayEnabled = parseBoolEnv(os.Getenv("PASSIMPAY_ENABLED"))
+	if strings.TrimSpace(os.Getenv("PASSIMPAY_ENABLED")) == "" {
+		c.PassimpayEnabled = strings.EqualFold(c.PaymentProvider, "passimpay")
+	}
+	c.PassimpayAPIBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("PASSIMPAY_API_BASE_URL")), "/")
+	if c.PassimpayAPIBaseURL == "" {
+		c.PassimpayAPIBaseURL = "https://api.passimpay.io"
+	}
+	if s := strings.TrimSpace(os.Getenv("PASSIMPAY_PLATFORM_ID")); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			c.PassimpayPlatformID = n
 		}
 	}
-	c.FystackCheckoutSuccessURL = strings.TrimSpace(os.Getenv("FYSTACK_CHECKOUT_SUCCESS_URL"))
-	if c.FystackCheckoutSuccessURL == "" {
-		c.FystackCheckoutSuccessURL = strings.TrimSuffix(c.PublicPlayerURL, "/") + "/wallet/deposit/submitted?checkout=success"
+	c.PassimpaySecretKey = strings.TrimSpace(os.Getenv("PASSIMPAY_SECRET_KEY"))
+	if c.PassimpaySecretKey == "" {
+		c.PassimpaySecretKey = strings.TrimSpace(os.Getenv("PASSIMPAY_API_KEY")) // common alias per dashboard naming
 	}
-	c.FystackCheckoutCancelURL = strings.TrimSpace(os.Getenv("FYSTACK_CHECKOUT_CANCEL_URL"))
-	if c.FystackCheckoutCancelURL == "" {
-		c.FystackCheckoutCancelURL = strings.TrimSuffix(c.PublicPlayerURL, "/") + "/wallet/deposit?checkout=cancel"
+	c.PassimpayWebhookSecret = strings.TrimSpace(os.Getenv("PASSIMPAY_WEBHOOK_SECRET"))
+	if c.PassimpayWebhookSecret == "" {
+		c.PassimpayWebhookSecret = c.PassimpaySecretKey
 	}
-	c.FystackCheckoutAssets = strings.TrimSpace(os.Getenv("FYSTACK_CHECKOUT_SUPPORTED_ASSETS"))
-	if c.FystackCheckoutAssets == "" {
-		c.FystackCheckoutAssets = "USDC:1,ETH:1,ETH:8453"
+	c.PassimpayCallbackPublicBase = strings.TrimSuffix(strings.TrimSpace(os.Getenv("PASSIMPAY_CALLBACK_BASE_URL")), "/")
+	c.PassimpayDepositMethod = strings.ToLower(strings.TrimSpace(os.Getenv("PASSIMPAY_DEPOSIT_METHOD")))
+	if c.PassimpayDepositMethod == "" {
+		c.PassimpayDepositMethod = "h2h"
 	}
-	c.FystackDepositAssetID = strings.TrimSpace(os.Getenv("FYSTACK_DEPOSIT_ASSET_ID"))
-	if raw := strings.TrimSpace(os.Getenv("FYSTACK_DEPOSIT_ASSETS_JSON")); raw != "" {
-		var m map[string]string
-		if err := json.Unmarshal([]byte(raw), &m); err == nil && len(m) > 0 {
-			c.FystackDepositAssets = make(map[string]string, len(m))
-			for k, v := range m {
-				k = strings.ToUpper(strings.TrimSpace(k))
-				v = strings.TrimSpace(v)
-				if k != "" && v != "" {
-					c.FystackDepositAssets[k] = v
-				}
-			}
+	c.PassimpayDefaultInvoiceExpiry = 30
+	if s := strings.TrimSpace(os.Getenv("PASSIMPAY_DEFAULT_INVOICE_EXPIRY_MINUTES")); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			c.PassimpayDefaultInvoiceExpiry = n
 		}
 	}
+	if strings.TrimSpace(os.Getenv("PASSIMPAY_WITHDRAWALS_ENABLED")) != "" {
+		c.PassimpayWithdrawalsEnabled = parseBoolEnv(os.Getenv("PASSIMPAY_WITHDRAWALS_ENABLED"))
+	} else {
+		c.PassimpayWithdrawalsEnabled = true
+	}
+	c.PassimpayRequestTimeoutMs = int(parseIntEnv(os.Getenv("PASSIMPAY_REQUEST_TIMEOUT_MS"), 15000))
+	if strings.TrimSpace(os.Getenv("PASSIMPAY_FAIL_CLOSED")) != "" {
+		c.PassimpayFailClosed = parseBoolEnv(os.Getenv("PASSIMPAY_FAIL_CLOSED"))
+	} else {
+		appPeek := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		c.PassimpayFailClosed = appPeek == "production"
+	}
+	c.LedgerHouseUserID = strings.TrimSpace(os.Getenv("LEDGER_HOUSE_USER_ID"))
+
 	c.DataDir = strings.TrimSpace(os.Getenv("DATA_DIR"))
 	if c.DataDir == "" {
 		c.DataDir = "./data"
@@ -411,6 +424,7 @@ func Load() (Config, error) {
 			}
 		}
 	}
+	c.OddinEsportsNavJSON = strings.TrimSpace(os.Getenv("ODDIN_ESPORTS_NAV_JSON"))
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
 	}
@@ -458,7 +472,28 @@ func (c *Config) ValidateProduction() error {
 	if c.RequireFingerprintPlayerAuth && !c.FingerprintConfigured() {
 		return fmt.Errorf("APP_ENV=production: REQUIRE_FINGERPRINT_PLAYER_AUTH needs FINGERPRINT_SECRET_API_KEY (Fingerprint Server API) for identification enrichment and risk signals")
 	}
+	if strings.EqualFold(c.AppEnv, "production") {
+		if strings.TrimSpace(c.PaymentProvider) == "" || !strings.EqualFold(strings.TrimSpace(c.PaymentProvider), "passimpay") {
+			return fmt.Errorf("APP_ENV=production: PAYMENT_PROVIDER must be passimpay")
+		}
+		if !c.PassimPayConfigured() {
+			return fmt.Errorf("APP_ENV=production: configure PASSIMPAY_PLATFORM_ID and PASSIMPAY_SECRET_KEY (or PASSIMPAY_API_KEY)")
+		}
+	}
 	return nil
+}
+
+// UsesPassimpay is true when PAYMENT_PROVIDER=passimpay (case-insensitive).
+func (c *Config) UsesPassimpay() bool {
+	return c != nil && strings.EqualFold(strings.TrimSpace(c.PaymentProvider), "passimpay")
+}
+
+// PassimPayConfigured is true when outbound API calls can be authenticated.
+func (c *Config) PassimPayConfigured() bool {
+	if c == nil {
+		return false
+	}
+	return strings.TrimSpace(c.PassimpaySecretKey) != "" && c.PassimpayPlatformID != 0 && strings.TrimSpace(c.PassimpayAPIBaseURL) != ""
 }
 
 // SecurityCSPEffectiveMode returns off, report, or enforce for API Content-Security-Policy headers.
@@ -482,14 +517,6 @@ func (c *Config) SecurityCSPEffectiveMode() string {
 	}
 }
 
-// FystackConfigured is true when base URL, API key, secret, and workspace id are set (server-side Fystack calls).
-func (c *Config) FystackConfigured() bool {
-	if c == nil {
-		return false
-	}
-	return c.FystackBaseURL != "" && c.FystackAPIKey != "" && c.FystackAPISecret != "" && c.FystackWorkspaceID != ""
-}
-
 // normalizeFingerprintBaseURL defaults to the US Server API and prepends https:// when the scheme is omitted
 // (e.g. plain eu.api.fpjs.io from a dashboard copy-paste), so GET /events requests hit a valid URL.
 func normalizeFingerprintBaseURL(raw string) string {
@@ -509,33 +536,6 @@ func (c *Config) FingerprintConfigured() bool {
 		return false
 	}
 	return strings.TrimSpace(c.FingerprintSecretAPIKey) != ""
-}
-
-// FystackWithdrawConfigured is true when treasury + asset are set for on-chain payouts.
-func (c *Config) FystackWithdrawConfigured() bool {
-	if c == nil || !c.FystackConfigured() {
-		return false
-	}
-	return c.FystackTreasuryWalletID != "" && c.FystackWithdrawAssetID != ""
-}
-
-// FystackCheckoutAssetList parses FYSTACK_CHECKOUT_SUPPORTED_ASSETS into tokens like USDC:1.
-func (c *Config) FystackCheckoutAssetList() []string {
-	def := []string{"USDC:1", "ETH:1", "ETH:8453"}
-	if c == nil || strings.TrimSpace(c.FystackCheckoutAssets) == "" {
-		return def
-	}
-	var out []string
-	for _, p := range strings.Split(c.FystackCheckoutAssets, ",") {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	if len(out) == 0 {
-		return def
-	}
-	return out
 }
 
 func parseBoolEnv(s string) bool {
@@ -626,34 +626,3 @@ func (c *Config) OddinOperatorIPAllowed(ip string) bool {
 	return false
 }
 
-// DepositAssetKeyConfigured is true when FYSTACK_DEPOSIT_ASSETS_JSON contains a non-empty UUID for the canonical key.
-func (c *Config) DepositAssetKeyConfigured(key string) bool {
-	if c == nil || c.FystackDepositAssets == nil {
-		return false
-	}
-	return strings.TrimSpace(c.FystackDepositAssets[strings.ToUpper(strings.TrimSpace(key))]) != ""
-}
-
-// IsTrustedFystackHTTPSURL rejects open redirects from checkout responses (https only, Fystack-hosted hosts).
-func (c *Config) IsTrustedFystackHTTPSURL(raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return false
-	}
-	host := strings.ToLower(u.Host)
-	if strings.HasSuffix(host, ".fystack.io") || host == "fystack.io" {
-		return true
-	}
-	if c != nil && c.FystackBaseURL != "" {
-		if bu, err := url.Parse(c.FystackBaseURL); err == nil && bu.Host != "" {
-			if strings.EqualFold(host, bu.Host) {
-				return true
-			}
-		}
-	}
-	return false
-}

@@ -7,5 +7,9 @@
  *
  * Blocking modals (auth, wallet flow, etc.) must use {@link PLAYER_MODAL_OVERLAY_Z} so they
  * never paint under lobby tiles or headers.
+ *
+ * Full-viewport boot / preload (covers entire app on hard refresh until shell is ready)
+ * must sit above modals so no chrome flashes through.
  */
+export const PLAYER_BOOT_OVERLAY_Z = 'z-[400]'
 export const PLAYER_MODAL_OVERLAY_Z = 'z-[270]'

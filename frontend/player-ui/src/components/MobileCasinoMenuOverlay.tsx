@@ -16,6 +16,8 @@ import { useSiteContent } from '../hooks/useSiteContent'
 import { translateNavItemLabel } from '../lib/navI18n'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import CasinoNavDrawerPromo from './CasinoNavDrawerPromo'
+import CasinoNavEsportsSection from './CasinoNavEsportsSection'
+import { RequireAuthNavLink } from './RequireAuthNavLink'
 import { LanguageMenu } from './LanguageMenu'
 import {
   IconChevronDown,
@@ -23,7 +25,6 @@ import {
   IconFileText,
   IconHeadphones,
   IconMessageSquare,
-  IconTrophy,
   IconX,
 } from './icons'
 
@@ -125,31 +126,35 @@ export default function MobileCasinoMenuOverlay({
             </div>
           ) : null}
 
+          {extraItems.map((item) => {
+            if (item.id === 'sports') {
+              return <CasinoNavEsportsSection key={item.id} variant="drawer" collapsed={false} onNavigate={onClose} />
+            }
+            const to = casinoNavRoute(item.id)
+            if (!to || item.coming_soon) {
+              return (
+                <span
+                  key={item.id}
+                  className={`${row} cursor-default opacity-45`}
+                  title={item.coming_soon ? t('sidebar.comingSoon') : undefined}
+                >
+                  {translateNavItemLabel(t, 'extras', item)}
+                </span>
+              )
+            }
+            const cls = ({ isActive }: { isActive: boolean }) =>
+              `${row} ${isActive ? 'bg-casino-primary/22 text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary' : ''}`
+            const label = translateNavItemLabel(t, 'extras', item)
+            return (
+              <RequireAuthNavLink key={item.id} to={to} className={cls}>
+                {label}
+              </RequireAuthNavLink>
+            )
+          })}
+
           <div className="my-2 h-px bg-casino-border" role="separator" />
 
           <CasinoNavDrawerPromo promoItems={promoItems} />
-
-          <div className="my-2 h-px bg-casino-border" role="separator" />
-
-          {extraItems
-            .filter((x) => x.id === 'sports')
-            .map((item) => {
-              const to = casinoNavRoute(item.id)
-              if (!to) return null
-              const label = translateNavItemLabel(t, 'extras', item)
-              return (
-                <NavLink
-                  key={item.id}
-                  to={to}
-                  className={({ isActive }) =>
-                    `${row} ${isActive ? 'bg-casino-primary/22 text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary' : ''}`
-                  }
-                >
-                  <IconTrophy size={17} aria-hidden />
-                  {label}
-                </NavLink>
-              )
-            })}
 
           <div className="my-2 h-px bg-casino-border" role="separator" />
 

@@ -11,12 +11,12 @@ import (
 
 func (h *Handler) ListPendingWithdrawals(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT w.id, w.user_id::text, COALESCE(u.email,''), w.amount_minor,
+		SELECT w.withdrawal_id::text, w.user_id::text, COALESCE(u.email,''), w.amount_minor,
 		       COALESCE(w.currency,''), w.status, w.created_at
-		FROM fystack_withdrawals w
+		FROM payment_withdrawals w
 		LEFT JOIN users u ON u.id = w.user_id
-		WHERE w.status IN ('pending','pending_approval')
-		   OR w.amount_minor > 100000
+		WHERE w.provider = 'passimpay'
+		  AND w.status IN ('LEDGER_LOCKED','SUBMITTED_TO_PROVIDER')
 		ORDER BY w.created_at ASC
 	`)
 	if err != nil {
@@ -63,10 +63,16 @@ func (h *Handler) ApproveWithdrawal(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	ctx := r.Context()
+	metaPatch := map[string]any{"admin_decision": "approved", "reason": body.Reason}
+	metaBytes, _ := json.Marshal(metaPatch)
 	tag, err := h.Pool.Exec(ctx, `
-		UPDATE fystack_withdrawals SET status = 'approved'
-		WHERE id = $1 AND status IN ('pending','pending_approval')
-	`, wdID)
+		UPDATE payment_withdrawals SET
+			metadata = COALESCE(metadata,'{}'::jsonb) || $2::jsonb,
+			updated_at = now()
+		WHERE provider = 'passimpay'
+		  AND withdrawal_id::text = $1
+		  AND status IN ('LEDGER_LOCKED','SUBMITTED_TO_PROVIDER')
+	`, wdID, metaBytes)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "update failed")
 		return
@@ -79,7 +85,7 @@ func (h *Handler) ApproveWithdrawal(w http.ResponseWriter, r *http.Request) {
 	meta, _ := json.Marshal(map[string]any{"reason": body.Reason})
 	_, _ = h.Pool.Exec(ctx, `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
-		VALUES ($1::uuid, 'withdrawal.approve', 'fystack_withdrawals', $2, $3)
+		VALUES ($1::uuid, 'withdrawal.approve', 'payment_withdrawals', $2, $3)
 	`, staffID, wdID, meta)
 
 	writeJSON(w, map[string]any{"ok": true})
@@ -106,10 +112,16 @@ func (h *Handler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	metaPatch := map[string]any{"admin_decision": "rejected", "reason": body.Reason}
+	metaBytes, _ := json.Marshal(metaPatch)
 	tag, err := h.Pool.Exec(ctx, `
-		UPDATE fystack_withdrawals SET status = 'rejected'
-		WHERE id = $1 AND status IN ('pending','pending_approval')
-	`, wdID)
+		UPDATE payment_withdrawals SET
+			metadata = COALESCE(metadata,'{}'::jsonb) || $2::jsonb,
+			updated_at = now()
+		WHERE provider = 'passimpay'
+		  AND withdrawal_id::text = $1
+		  AND status IN ('LEDGER_LOCKED','SUBMITTED_TO_PROVIDER')
+	`, wdID, metaBytes)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "update failed")
 		return
@@ -122,7 +134,7 @@ func (h *Handler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
 	meta, _ := json.Marshal(map[string]any{"reason": body.Reason})
 	_, _ = h.Pool.Exec(ctx, `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
-		VALUES ($1::uuid, 'withdrawal.reject', 'fystack_withdrawals', $2, $3)
+		VALUES ($1::uuid, 'withdrawal.reject', 'payment_withdrawals', $2, $3)
 	`, staffID, wdID, meta)
 
 	writeJSON(w, map[string]any{"ok": true})

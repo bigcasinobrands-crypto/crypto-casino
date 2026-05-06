@@ -95,7 +95,7 @@ export default function BonusRecommendationsPage() {
 
       <OpsToolbar
         title="Recommendations"
-        subtitle="Deposit-match bonuses run on the Fystack deposit path (bonus_payment_settled worker), not on Blue Ocean game callbacks."
+        subtitle="Deposit-match bonuses run on the cashier deposit path (bonus_payment_settled worker), not on Blue Ocean game callbacks."
         actions={
           <button type="button" className="btn btn-sm btn-outline-primary" disabled={loading} onClick={() => void load()}>
             {loading ? 'Refreshing…' : 'Refresh'}

@@ -25,7 +25,6 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
 	"github.com/crypto-casino/core/internal/fingerprint"
-	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/games"
 	"github.com/crypto-casino/core/internal/jtiredis"
 	"github.com/crypto-casino/core/internal/jwtissuer"
@@ -91,6 +90,10 @@ func main() {
 	if err := db.ValidateCoreAuthSchema(ctx, pool); err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL database schema: %v\n", err)
 		log.Fatalf("database schema: %v", err)
+	}
+	if err := validateDurabilityReadiness(ctx, pool, &cfg, skipMig); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL durability readiness: %v\n", err)
+		log.Fatalf("durability readiness: %v", err)
 	}
 
 	if cfg.BlueOceanCatalogSnapshotOnStartup && strings.TrimSpace(cfg.BlueOceanCatalogSnapshotPath) != "" {
@@ -168,12 +171,10 @@ func main() {
 	cmcTickers := market.NewCryptoTickers(cfg.CoinMarketCapAPIKey)
 
 	mailSender := mail.ChooseSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
-	var fsClient *fystack.Client
-	if cfg.FystackConfigured() {
-		fsClient = fystack.NewClient(cfg.FystackBaseURL, cfg.FystackAPIKey, cfg.FystackAPISecret, cfg.FystackWorkspaceID)
-		log.Printf("fystack: connected to %s (workspace %s)", cfg.FystackBaseURL, cfg.FystackWorkspaceID)
+	if cfg.UsesPassimpay() {
+		log.Printf("payments: PassimPay rail active")
 	} else {
-		log.Printf("WARNING: Fystack not configured — deposit addresses, wallet provisioning, and withdrawals are disabled. Set FYSTACK_BASE_URL, FYSTACK_API_KEY, FYSTACK_API_SECRET, and FYSTACK_WORKSPACE_ID in .env")
+		log.Printf("WARNING: PAYMENT_PROVIDER=%q — wallet deposits/withdrawals expect passimpay", strings.TrimSpace(cfg.PaymentProvider))
 	}
 	var fpClient *fingerprint.Client
 	if cfg.FingerprintConfigured() {
@@ -182,14 +183,11 @@ func main() {
 	} else {
 		log.Printf("fingerprint: FINGERPRINT_SECRET_API_KEY not set — withdrawal ledger metadata will omit Server API enrichment")
 	}
-	if cfg.FystackDepositAssetID == "" && len(cfg.FystackDepositAssets) == 0 {
-		log.Printf("WARNING: No deposit assets configured — set FYSTACK_DEPOSIT_ASSET_ID or FYSTACK_DEPOSIT_ASSETS_JSON in .env")
-	}
-	bonus.ConfigureCashPayoutRuntime(&cfg, fsClient, cmcTickers)
+	bonus.ConfigureCashPayoutRuntime(&cfg)
 	chatHub := chat.NewHub(pool)
 	go chatHub.Run()
 
-	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fystack: fsClient, Fingerprint: fpClient, ChatHub: chatHub}
+	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fingerprint: fpClient, ChatHub: chatHub}
 	oddinH := &oddin.Handler{Pool: pool, Cfg: &cfg}
 	oddinOp := &oddin.OperatorHandler{Pool: pool, Cfg: &cfg}
 	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH, WA: wa}
@@ -213,9 +211,6 @@ func main() {
 		EmailLookupSecret: cfg.PIIEmailLookupSecret,
 		Fingerprint:       fpClient,
 		Cfg:               &cfg,
-	}
-	if fsClient != nil {
-		playerSvc.Fystack = &fystack.WalletProvisioner{Pool: pool, Client: fsClient}
 	}
 	if cfg.HIBPCheckPasswords {
 		playerSvc.Pwned = pwnedpasswords.NewChecker()
@@ -309,9 +304,9 @@ func main() {
 		r.Get("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg, rdb))
 
 		r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
-		fystackHMAC := strings.TrimSpace(os.Getenv("WEBHOOK_FYSTACK_SECRET"))
-		r.Post("/v1/webhooks/fystack", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
-		r.Post("/v1/webhooks/fystack/workspace", webhooks.HandleFystackWebhook(pool, rdb, fsClient, fystackHMAC, cfg.FystackWebhookVerificationKey))
+		if cfg.UsesPassimpay() {
+			r.Post("/v1/webhooks/passimpay", webhooks.HandlePassimpayWebhook(pool, &cfg, rdb))
+		}
 
 		r.Route("/v1", func(r chi.Router) {
 			r.Use(playerCORS.Handler)
@@ -325,14 +320,13 @@ func main() {
 				r.With(httprate.LimitByIP(120, time.Minute), playerapi.OptionalBearerMiddleware(jwtIss, jtiRev, playerAccessCookie)).
 					Post("/sportsbook/oddin/client-event", oddinH.ClientEvent)
 				r.Get("/vip/program", wallet.VIPProgramHandler(pool))
-				uploadsRoot := filepath.Join(cfg.DataDir, "uploads")
-				_ = os.MkdirAll(uploadsRoot, 0o755) // #nosec G703 -- trusted DATA_DIR from env; path fixed under cfg.DataDir
-				r.Get("/uploads/*", http.StripPrefix("/v1/uploads/", http.FileServer(http.Dir(uploadsRoot))).ServeHTTP)
+				r.Get("/uploads/*", adminH.ServeUploadedContent)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(httprate.LimitByIP(180, time.Minute))
 				r.Get("/games", gameSrv.ListHandler())
 				r.Get("/sportsbook/context", gameSrv.SportsbookContextHandler())
+				r.Get("/sportsbook/oddin/esports-nav", oddinH.EsportsNav)
 				r.Get("/market/crypto-tickers", cmcTickers.ServeHTTP)
 				r.Get("/market/crypto-logo-urls", market.CryptoLogoURLsHandler(&cfg))
 				avatarRoot := filepath.Join(dataDir, "avatars")
@@ -395,12 +389,13 @@ func main() {
 				r.Get("/wallet/game-history", wallet.GameHistoryHandler(pool))
 				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
 				r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
-				r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, fsClient, cmcTickers, fpClient))
+				r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, cmcTickers, fpClient))
 				r.With(httprate.LimitByIP(30, time.Minute)).Post("/sportsbook/oddin/session-token", oddinH.SessionToken)
 				r.Group(func(r chi.Router) {
 					r.Use(httprate.LimitByIP(60, time.Minute))
-					r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg, fsClient))
-					r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg, fsClient))
+					r.Get("/wallet/payment-currencies", wallet.PaymentCurrenciesHandler(pool, &cfg))
+					r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg))
+					r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg))
 				})
 			})
 			r.Group(func(r chi.Router) {
@@ -439,6 +434,32 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
 	}
+}
+
+func validateDurabilityReadiness(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, skipMigrations bool) error {
+	isProd := strings.EqualFold(strings.TrimSpace(cfg.AppEnv), "production")
+	if isProd && skipMigrations {
+		return fmt.Errorf("SKIP_DB_MIGRATIONS_ON_START cannot be enabled in production")
+	}
+
+	requiredTables := []string{
+		"users",
+		"staff_users",
+		"site_content",
+		"site_settings",
+		"cms_uploaded_assets",
+	}
+	for _, tableName := range requiredTables {
+		var exists bool
+		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "public."+tableName).Scan(&exists); err != nil {
+			return fmt.Errorf("cannot verify table %s: %w", tableName, err)
+		}
+		if !exists {
+			return fmt.Errorf("required table missing: %s (run migrations)", tableName)
+		}
+	}
+
+	return nil
 }
 
 func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.Client) http.HandlerFunc {

@@ -1,4 +1,4 @@
-/** Display / grant currencies aligned with typical Fystack + fiat ops. */
+/** Display / grant currencies aligned with typical crypto cashier + fiat ops. */
 export const ADMIN_CURRENCY_OPTIONS: { value: string; label: string }[] = [
   { value: 'USD', label: 'USD — US Dollar' },
   { value: 'EUR', label: 'EUR — Euro' },

@@ -39,6 +39,7 @@ import { useChat } from './hooks/useChat'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
 import { PlayerLayoutProvider } from './context/PlayerLayoutContext'
 import { PersistentMiniPlayerProvider } from './context/PersistentMiniPlayerContext'
+import PlayerBootOverlay from './components/PlayerBootOverlay'
 import { SiteContentProvider } from './hooks/useSiteContent'
 import { dismissPlayerCatalogSyncToast, toastPlayerCatalogSyncWarning } from './notifications/playerToast'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
@@ -119,6 +120,7 @@ export default function App() {
 
   return (
     <SiteContentProvider>
+      <PlayerBootOverlay />
       <PlayerAuthProvider>
         <AuthModalProvider>
           <InitialAppLoadProvider>

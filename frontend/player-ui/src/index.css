@@ -29,6 +29,16 @@
   --radius-casino-sm: 4px;
   --radius-casino-md: 6px;
   --radius-casino-lg: 8px;
+
+  /* Wallet modal — aligned with casino cards (#1c1c1c surface, purple CTAs) */
+  --color-wallet-backdrop: rgb(0 0 0 / 0.82);
+  --color-wallet-modal: #1c1c1c;
+  --color-wallet-panel: #242424;
+  --color-wallet-field: #1c1c1c;
+  --color-wallet-tab-well: #141414;
+  --color-wallet-tab-pill: rgba(123, 97, 255, 0.22);
+  --color-wallet-subtext: #94949e;
+  --color-wallet-accent: #7b61ff;
 }
 
 @layer base {
@@ -176,6 +186,30 @@ body {
   }
   .scrollbar-chat::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  /* E-Sports submenu: 2px thumb, mostly invisible until hover — avoids heavy system / casino scrollbar. */
+  .scrollbar-esports {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.07) transparent;
+  }
+  .scrollbar-esports::-webkit-scrollbar {
+    width: 2px;
+  }
+  .scrollbar-esports::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 9999px;
+  }
+  .scrollbar-esports::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .scrollbar-esports:hover {
+      scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+    }
+    .scrollbar-esports:hover::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.13);
+    }
   }
 
   /* Modals & panels: visible thumb using brand primary (violet) — not system default. */

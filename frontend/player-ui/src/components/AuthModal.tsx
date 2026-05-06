@@ -1,10 +1,11 @@
-import { useEffect, useId, useMemo } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuthModal, type AuthPanel } from '../authModalContext'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { useSiteContent } from '../hooks/useSiteContent'
 import { usePlayerAuth } from '../playerAuth'
+import { contentImageUrl } from '../lib/contentImageUrl'
 import { ForgotPasswordForm, LoginForm, RegisterForm } from './AuthForms'
 import { IconShieldCheck } from './icons'
 
@@ -16,6 +17,8 @@ export function AuthModal() {
   const { isAuthenticated } = usePlayerAuth()
   const { getContent } = useSiteContent()
   const siteLabel = (getContent<string>('branding.site_name', '') ?? '').trim() || 'vybebet'
+  const authDesktopVisualImage = contentImageUrl(getContent<string>('auth_desktop_visual_image', '') ?? '') ?? '/auth-side-visual.png'
+  const [resolvedAuthDesktopVisualImage, setResolvedAuthDesktopVisualImage] = useState('/auth-side-visual.png')
   const titleId = useId()
   const descId = useId()
 
@@ -61,6 +64,25 @@ export function AuthModal() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [panel, closeAuth])
+
+  useEffect(() => {
+    if (!authDesktopVisualImage) {
+      setResolvedAuthDesktopVisualImage('/auth-side-visual.png')
+      return
+    }
+    let cancelled = false
+    const preloader = new Image()
+    preloader.onload = () => {
+      if (!cancelled) setResolvedAuthDesktopVisualImage(authDesktopVisualImage)
+    }
+    preloader.onerror = () => {
+      if (!cancelled) setResolvedAuthDesktopVisualImage('/auth-side-visual.png')
+    }
+    preloader.src = authDesktopVisualImage
+    return () => {
+      cancelled = true
+    }
+  }, [authDesktopVisualImage])
 
   if (!panel || !copy) return null
 
@@ -121,7 +143,7 @@ export function AuthModal() {
 
         <aside className="relative hidden md:flex md:w-[38%] md:min-w-[260px] md:flex-col md:justify-between md:overflow-hidden md:border-l md:border-white/[0.08] lg:w-[40%]">
           <img
-            src="/auth-side-visual.png"
+            src={resolvedAuthDesktopVisualImage}
             alt={t('auth.desktopVisualAlt')}
             className="absolute inset-0 h-full w-full object-cover"
           />

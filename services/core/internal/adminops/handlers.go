@@ -12,7 +12,6 @@ import (
 	"github.com/crypto-casino/core/internal/chat"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fingerprint"
-	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,7 +23,6 @@ type Handler struct {
 	BOG         *blueocean.Client
 	Cfg         *config.Config
 	Redis       *redis.Client
-	Fystack     *fystack.Client
 	Fingerprint *fingerprint.Client
 	ChatHub     *chat.Hub
 }
@@ -61,15 +59,15 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/users/{id}/bonus-risk", h.UserBonusRiskDecisions)
 	r.Get("/ledger", h.ListLedger)
 	r.Get("/events/blueocean", h.ListBlueOcean)
-	r.Get("/integrations/fystack/payments", h.ListFystackPayments)
-	r.Get("/integrations/fystack/withdrawals", h.ListFystackWithdrawals)
+	r.Get("/integrations/payments/deposit-intents", h.ListPaymentDepositIntents)
+	r.Get("/integrations/payments/withdrawals", h.ListPaymentWithdrawals)
 	r.Post("/integrations/blueocean/sync-catalog", h.SyncBlueOceanCatalog)
 	r.Get("/integrations/blueocean/status", h.BlueOceanStatus)
 	r.Get("/system/operational-flags", h.OperationalFlags)
 	r.Get("/ops/risk-assessments", h.ListRiskAssessments)
 	r.Get("/ops/reconciliation-alerts", h.ListReconciliationAlerts)
 	r.Get("/ops/summary", h.OpsSummary)
-	r.Get("/ops/fystack-webhook-deliveries", h.ListFystackWebhookDeliveries)
+	r.Get("/ops/content-health", h.ContentHealth)
 	r.Get("/ops/payment-flags", h.GetPaymentFlags)
 	r.Get("/ops/deposit-assets", h.GetDepositAssets)
 	r.Post("/client-logs", h.IngestClientLog)
@@ -77,7 +75,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/client-logs/count", h.CountClientLogsSince)
 	r.Get("/games", h.ListGamesAdmin)
 	r.Get("/payments/deposit-assets", h.ListDepositAssets)
-	// Same payload as deposit-assets: Fystack keys / chains shown to players for prizes (not only deposits).
+	// Same payload as deposit-assets: PassimPay currency keys / chains for prizes (not only deposits).
 	r.Get("/payments/payout-options", h.ListDepositAssets)
 	r.Get("/game-providers", h.ListGameProviders)
 	r.Get("/game-launches", h.ListGameLaunches)
@@ -118,9 +116,6 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Patch("/games/{id}/thumbnail-override", h.PatchGameThumbnailOverride)
 		r.Patch("/game-providers/lobby-hidden", h.PatchProviderLobbyHidden)
 		r.Patch("/ops/payment-flags", h.PatchPaymentFlags)
-		r.Post("/ops/reconcile-fystack", h.PostOpsReconcileFystack)
-		r.Post("/ops/fystack-webhook-deliveries/{id}/reprocess", h.PostReprocessFystackWebhookDelivery)
-		r.Post("/ops/provision-fystack-wallet", h.PostOpsProvisionFystackWallet)
 		r.Post("/withdrawals/{id}/approve", h.ApproveWithdrawal)
 		r.Post("/compliance/player-erasure", h.EnqueuePlayerErasure)
 		r.Route("/security/break-glass", func(sr chi.Router) {
@@ -246,10 +241,13 @@ func (h *Handler) ListBlueOcean(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"events": list})
 }
 
-func (h *Handler) ListFystackPayments(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ListPaymentDepositIntents(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 100)
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT id, user_id::text, status, created_at FROM fystack_payments ORDER BY created_at DESC NULLS LAST LIMIT $1
+		SELECT id::text, user_id::text, status, COALESCE(currency,''), COALESCE(provider_order_id,''), created_at
+		FROM payment_deposit_intents
+		WHERE provider = 'passimpay'
+		ORDER BY created_at DESC NULLS LAST LIMIT $1
 	`, limit)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")
@@ -258,25 +256,26 @@ func (h *Handler) ListFystackPayments(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	var list []map[string]any
 	for rows.Next() {
-		var id, status string
-		var uid *string
+		var id, uid, status, ccy, orderID string
 		var ct time.Time
-		if err := rows.Scan(&id, &uid, &status, &ct); err != nil {
+		if err := rows.Scan(&id, &uid, &status, &ccy, &orderID, &ct); err != nil {
 			continue
 		}
-		m := map[string]any{"id": id, "status": status, "created_at": ct.UTC().Format(time.RFC3339)}
-		if uid != nil {
-			m["user_id"] = *uid
-		}
-		list = append(list, m)
+		list = append(list, map[string]any{
+			"id": id, "user_id": uid, "status": status, "currency": ccy,
+			"provider_order_id": orderID, "created_at": ct.UTC().Format(time.RFC3339),
+		})
 	}
 	writeJSON(w, map[string]any{"payments": list})
 }
 
-func (h *Handler) ListFystackWithdrawals(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ListPaymentWithdrawals(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 100)
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT id, user_id::text, status, amount_minor, currency, created_at FROM fystack_withdrawals ORDER BY created_at DESC LIMIT $1
+		SELECT withdrawal_id::text, user_id::text, status, amount_minor, currency, created_at
+		FROM payment_withdrawals
+		WHERE provider = 'passimpay'
+		ORDER BY created_at DESC LIMIT $1
 	`, limit)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "query failed")

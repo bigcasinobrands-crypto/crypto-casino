@@ -193,7 +193,7 @@ export function dummyBonusStats() {
 export function dummyDashboardSystem() {
   return {
     webhook_deliveries_pending: 2,
-    users_missing_fystack_wallet: 5,
+    users_missing_payment_wallet: 5,
     withdrawals_in_flight: 4,
     worker_failed_jobs_unresolved: 0,
     bonus_outbox_pending_delivery: 1,

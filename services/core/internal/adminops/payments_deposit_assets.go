@@ -2,7 +2,6 @@ package adminops
 
 import (
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,18 +51,7 @@ func defaultCheckoutAssetTokens() []string {
 	return []string{"USDC:1", "ETH:1", "ETH:8453"}
 }
 
-func (h *Handler) fystackAPICanQuery() bool {
-	if h.Fystack == nil {
-		return false
-	}
-	fs := h.Fystack
-	return strings.TrimSpace(fs.BaseURL) != "" &&
-		strings.TrimSpace(fs.APIKey) != "" &&
-		strings.TrimSpace(fs.APISecret) != "" &&
-		strings.TrimSpace(fs.WorkspaceID) != ""
-}
-
-func appendCheckoutToken(add func(keyRaw, sym, net, label, fystackAssetID string), tok string) {
+func appendCheckoutToken(add func(keyRaw, sym, net, label, providerPaymentID string), tok string) {
 	tok = strings.TrimSpace(tok)
 	if tok == "" {
 		return
@@ -79,14 +67,12 @@ func appendCheckoutToken(add func(keyRaw, sym, net, label, fystackAssetID string
 	add(key, sym, chID, label, "")
 }
 
-// ListDepositAssets returns payment / chain options for admin (e.g. challenge payout selector).
-// Sources: FYSTACK_DEPOSIT_ASSETS_JSON, FYSTACK_CHECKOUT_SUPPORTED_ASSETS, live Fystack GET /api/v1/assets
-// (whitelisted), then hardcoded defaults so the UI is never empty in dev.
+// ListDepositAssets returns payment / chain options for admin (PassimPay currencies + sensible defaults).
 func (h *Handler) ListDepositAssets(w http.ResponseWriter, r *http.Request) {
 	seen := make(map[string]struct{})
 	list := make([]map[string]any, 0, 64)
 
-	add := func(keyRaw, sym, net, label, fystackAssetID string) {
+	add := func(keyRaw, sym, net, label, providerPaymentID string) {
 		k := strings.ToUpper(strings.TrimSpace(keyRaw))
 		if k == "" {
 			return
@@ -101,64 +87,48 @@ func (h *Handler) ListDepositAssets(w http.ResponseWriter, r *http.Request) {
 			"network": net,
 			"label":   label,
 		}
-		if strings.TrimSpace(fystackAssetID) != "" {
-			row["fystack_asset_id"] = strings.TrimSpace(fystackAssetID)
+		if strings.TrimSpace(providerPaymentID) != "" {
+			row["provider_payment_id"] = strings.TrimSpace(providerPaymentID)
 		}
 		list = append(list, row)
 	}
 
-	c := h.Cfg
-	if c != nil {
-		for _, key := range sortedMapKeys(c.FystackDepositAssets) {
-			sym, net := splitSymbolNetworkKey(key)
-			label := sym
-			if net != "" {
-				label = sym + " · " + net
+	rows, err := h.Pool.Query(r.Context(), `
+		SELECT symbol, COALESCE(network,''), provider_payment_id::text,
+		       COALESCE(metadata->>'label','')
+		FROM payment_currencies
+		WHERE provider = 'passimpay' AND deposit_enabled = true
+		ORDER BY symbol ASC, network ASC NULLS LAST
+	`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var sym, net, payID, labelMeta string
+			if err := rows.Scan(&sym, &net, &payID, &labelMeta); err != nil {
+				continue
 			}
-			add(key, sym, net, label, "")
-		}
-
-		for _, tok := range c.FystackCheckoutAssetList() {
-			appendCheckoutToken(add, tok)
-		}
-
-		if strings.TrimSpace(c.FystackDepositAssetID) != "" && len(c.FystackDepositAssets) == 0 {
-			key := strings.TrimSpace(os.Getenv("FYSTACK_DEPOSIT_ASSET_KEY"))
-			if key == "" {
-				key = "USDT_ERC20"
+			sym = strings.ToUpper(strings.TrimSpace(sym))
+			net = strings.TrimSpace(net)
+			key := sym + "_" + net
+			if net == "" {
+				key = sym
 			}
-			key = strings.ToUpper(key)
-			if _, dup := seen[key]; !dup {
-				sym, net := splitSymbolNetworkKey(key)
-				label := sym + " (deposit asset)"
-				if net != "" {
-					label = sym + " · " + net + " (deposit asset)"
+			label := strings.TrimSpace(labelMeta)
+			if label == "" {
+				if _, err := strconv.Atoi(net); err == nil && net != "" {
+					label = sym + " · " + chainIDToNetworkLabel(net)
+				} else if net != "" {
+					label = sym + " · " + net
+				} else {
+					label = sym
 				}
-				add(key, sym, net, label, "")
 			}
-		}
-	} else {
-		for _, tok := range defaultCheckoutAssetTokens() {
-			appendCheckoutToken(add, tok)
+			add(key, sym, net, label, payID)
 		}
 	}
 
-	if h.fystackAPICanQuery() {
-		if assets, err := h.Fystack.ListWhitelistedAssets(r.Context(), 400); err == nil {
-			for _, a := range assets {
-				sym := strings.ToUpper(strings.TrimSpace(a.Symbol))
-				if sym == "" {
-					continue
-				}
-				ch := strconv.FormatInt(a.ChainID, 10)
-				key := sym + "_" + ch
-				label := sym + " · " + chainIDToNetworkLabel(ch)
-				if a.NetworkName != "" {
-					label = sym + " · " + a.NetworkName
-				}
-				add(key, sym, ch, label, a.ID)
-			}
-		}
+	for _, tok := range defaultCheckoutAssetTokens() {
+		appendCheckoutToken(add, tok)
 	}
 
 	if len(list) == 0 {
@@ -174,16 +144,4 @@ func (h *Handler) ListDepositAssets(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, map[string]any{"assets": list})
-}
-
-func sortedMapKeys(m map[string]string) []string {
-	if len(m) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

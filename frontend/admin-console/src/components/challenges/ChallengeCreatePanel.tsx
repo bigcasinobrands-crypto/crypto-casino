@@ -803,7 +803,7 @@ export function ChallengeCreatePanel({
               </div>
               <div className="col-md-8">
                 <label className="form-label small text-secondary mb-1">
-                  Payout asset &amp; chain (Fystack — same rails as wallet / checkout)
+                  Payout asset &amp; chain (PassimPay / cashier — same rails as wallet deposits)
                 </label>
                 <PayoutAssetDropdown
                   options={depositAssets}
@@ -813,7 +813,7 @@ export function ChallengeCreatePanel({
                 />
                 <p className="text-secondary small mt-1 mb-0">
                   Shown on player challenge cards (which crypto they receive on-chain). Prize is still booked in the
-                  ledger as <strong>{prizeCurrency}</strong>; align this key with your Fystack workspace assets.
+                  ledger as <strong>{prizeCurrency}</strong>; align this key with your PassimPay currency rows.
                 </p>
               </div>
             </div>

@@ -1,26 +1,13 @@
-import { useEffect, useId, useMemo, useState, type FC } from 'react'
+import { useEffect, useId, useState, type FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
-import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
-import { usePlayerAuth } from '../playerAuth'
-import {
-  AssetToggleRow,
-  ChooseAssetNetworkHint,
-  DEPOSIT_ASSET_OPTIONS,
-  DepositWrongChainWarning,
-  NetworkCardGrid,
-  UsdAmountField,
-  depositNetworkTitle,
-  type DepositAssetSymbol,
-  type DepositNetworkId,
-} from './DepositFlowShared'
+import { passimpayNetworkLabel } from '../lib/paymentCurrencies'
+import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
+import type { PassimpayCurrency } from '../lib/paymentCurrencies'
 import { DepositAddressPanel, DepositSentPanel } from './walletDepositPanels'
-import {
-  WithdrawFormPanel,
-  WithdrawSuccessPanel,
-  type WithdrawPanelNetwork,
-  type WithdrawPanelSymbol,
-} from './walletWithdrawPanels'
+import { WithdrawFormPanel, WithdrawSuccessPanel } from './walletWithdrawPanels'
+import { WalletDepositPickStep } from './wallet/WalletDepositPickStep'
+import { WalletCloseButton, WalletMainTabs } from './wallet/WalletShell'
 
 export type WalletMainTab = 'deposit' | 'withdraw'
 
@@ -35,13 +22,16 @@ const MIN_USD = 10
 const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }) => {
   const { t } = useTranslation()
   const titleId = useId()
-  const { balanceMinor } = usePlayerAuth()
-  const logoUrls = useCryptoLogoUrlMap()
   const [mainTab, setMainTab] = useState<WalletMainTab>(initialTab)
   const [amountUsd, setAmountUsd] = useState('10.00')
   const [amountErr, setAmountErr] = useState<string | null>(null)
-  const [symbol, setSymbol] = useState<DepositAssetSymbol>('ETH')
-  const [network, setNetwork] = useState<DepositNetworkId>('ERC20')
+
+  const { currencies, loading: currenciesLoading, error: currenciesError, reload: reloadCurrencies } =
+    usePassimpayCurrencies(open)
+
+  const [depositPick, setDepositPick] = useState<PassimpayCurrency | null>(null)
+  const [withdrawPick, setWithdrawPick] = useState<PassimpayCurrency | null>(null)
+  const [committedDeposit, setCommittedDeposit] = useState<PassimpayCurrency | null>(null)
 
   const [depositFlowStep, setDepositFlowStep] = useState<'pick' | 'address' | 'sent'>('pick')
   const [committedAmountUsd, setCommittedAmountUsd] = useState('10.00')
@@ -49,16 +39,10 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
   const [withdrawFlowStep, setWithdrawFlowStep] = useState<'form' | 'success'>('form')
   const [withdrawCtx, setWithdrawCtx] = useState<{
     id: string
-    network: WithdrawPanelNetwork
-    symbol: WithdrawPanelSymbol
+    symbol: string
+    network: string
+    payment_id?: number
   } | null>(null)
-  const [wdNetwork, setWdNetwork] = useState<WithdrawPanelNetwork>('ERC20')
-  const [wdSymbol, setWdSymbol] = useState<WithdrawPanelSymbol>('ETH')
-
-  const balanceLabel = useMemo(() => {
-    if (balanceMinor == null) return '0.00'
-    return (balanceMinor / 100).toFixed(2)
-  }, [balanceMinor])
 
   useEffect(() => {
     if (!open) return
@@ -66,26 +50,20 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
     setDepositFlowStep('pick')
     setWithdrawFlowStep('form')
     setWithdrawCtx(null)
+    setCommittedDeposit(null)
+    setDepositPick(null)
+    setWithdrawPick(null)
   }, [open, initialTab])
+
+  useEffect(() => {
+    if (!currencies.length) return
+    setDepositPick((prev) => prev ?? currencies.find((c) => c.deposit_enabled) ?? null)
+    setWithdrawPick((prev) => prev ?? currencies.find((c) => c.withdraw_enabled) ?? null)
+  }, [currencies])
 
   useEffect(() => {
     if (mainTab !== 'deposit') setDepositFlowStep('pick')
   }, [mainTab])
-
-  useEffect(() => {
-    const def = DEPOSIT_ASSET_OPTIONS.find((a) => a.symbol === symbol)
-    if (def && !def.networks.includes(network)) {
-      setNetwork(def.networks[0])
-    }
-  }, [symbol, network])
-
-  useEffect(() => {
-    if (!open || mainTab !== 'withdraw') return
-    if (withdrawFlowStep === 'success') return
-    const symMap: Record<string, WithdrawPanelSymbol> = { ETH: 'ETH', USDC: 'USDC', USDT: 'USDT', TRX: 'TRX' }
-    setWdSymbol(symMap[symbol] ?? 'ETH')
-    setWdNetwork(network === 'TRC20' ? 'TRC20' : 'ERC20')
-  }, [open, mainTab, withdrawFlowStep, symbol, network])
 
   useEffect(() => {
     if (!open) return
@@ -112,11 +90,19 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
       setAmountErr(t('wallet.enterMinUsd', { min: MIN_USD }))
       return
     }
+    if (!depositPick) {
+      setAmountErr(t('wallet.passimpayPickCurrency'))
+      return
+    }
     setCommittedAmountUsd(parsed.toFixed(2))
+    setCommittedDeposit(depositPick)
     setDepositFlowStep('address')
   }
 
   if (!open) return null
+
+  const depositSentNetworkLabel =
+    committedDeposit != null ? passimpayNetworkLabel(committedDeposit.network) : ''
 
   return (
     <div
@@ -125,7 +111,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        className="absolute inset-0 bg-wallet-backdrop backdrop-blur-sm"
         aria-label={t('wallet.close')}
         onClick={onClose}
       />
@@ -133,8 +119,9 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative flex max-h-[min(90dvh,640px)] w-full max-w-md flex-col overflow-hidden rounded-t-xl border border-casino-border bg-casino-surface shadow-2xl sm:max-h-[min(90vh,640px)] sm:rounded-xl"
+        className="relative flex max-h-[min(90dvh,720px)] w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border border-casino-border bg-wallet-modal shadow-[0_32px_64px_rgba(0,0,0,0.55)] sm:max-h-[min(90vh,720px)] sm:rounded-2xl"
       >
+        <WalletCloseButton label={t('wallet.close')} onClick={onClose} />
         <h2 id={titleId} className="sr-only">
           {mainTab === 'deposit'
             ? depositFlowStep === 'address'
@@ -146,114 +133,83 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
               ? t('wallet.srWithdrawStatus')
               : t('wallet.srWithdrawFunds')}
         </h2>
-        <div className="flex shrink-0 items-stretch border-b border-casino-border">
-          <button
-            type="button"
-            className={`flex-1 py-2.5 text-xs font-bold transition ${
-              mainTab === 'deposit'
-                ? 'bg-casino-elevated text-white'
-                : 'text-casino-muted hover:text-casino-foreground'
-            }`}
-            onClick={() => setMainTab('deposit')}
-          >
-            {t('wallet.deposit')}
-          </button>
-          <button
-            type="button"
-            className={`flex-1 py-2.5 text-xs font-bold transition ${
-              mainTab === 'withdraw'
-                ? 'bg-casino-elevated text-white'
-                : 'text-casino-muted hover:text-casino-foreground'
-            }`}
-            onClick={() => setMainTab('withdraw')}
-          >
-            {t('wallet.withdraw')}
-          </button>
-          <button
-            type="button"
-            className="flex w-10 shrink-0 items-center justify-center text-base text-casino-muted hover:text-casino-foreground"
-            onClick={onClose}
-            aria-label={t('wallet.close')}
-          >
-            ×
-          </button>
-        </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {mainTab === 'deposit' ? (
-            depositFlowStep === 'pick' ? (
-              <>
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
-                  <UsdAmountField value={amountUsd} onChange={setAmountUsd} minUsd={MIN_USD} />
-                  {amountErr ? (
-                    <p className="mb-1 text-xs text-red-400" role="alert">
-                      {amountErr}
-                    </p>
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-6">
+          <WalletMainTabs
+            active={mainTab}
+            onChange={setMainTab}
+            depositLabel={t('wallet.deposit')}
+            withdrawLabel={t('wallet.withdraw')}
+          />
+
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {mainTab === 'deposit' ? (
+              depositFlowStep === 'pick' ? (
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth scrollbar-casino">
+                  <WalletDepositPickStep
+                    amountUsd={amountUsd}
+                    onAmountUsd={setAmountUsd}
+                    amountErr={amountErr}
+                    minUsd={MIN_USD}
+                    onContinue={continueToAddressInModal}
+                    continueLabel={t('wallet.continue')}
+                    currencies={currencies}
+                    currenciesLoading={currenciesLoading}
+                    currenciesError={currenciesError}
+                    onRetryCurrencies={() => void reloadCurrencies()}
+                    selected={depositPick}
+                    onSelect={setDepositPick}
+                  />
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth scrollbar-casino">
+                  {depositFlowStep === 'address' && committedDeposit ? (
+                    <DepositAddressPanel
+                      paymentId={committedDeposit.payment_id}
+                      symbol={committedDeposit.symbol}
+                      network={committedDeposit.network}
+                      amountUsdText={committedAmountUsd}
+                      onBack={() => setDepositFlowStep('pick')}
+                      onSent={() => setDepositFlowStep('sent')}
+                    />
+                  ) : depositFlowStep === 'sent' && committedDeposit ? (
+                    <DepositSentPanel
+                      symbol={committedDeposit.symbol}
+                      network={depositSentNetworkLabel}
+                      onDepositAgain={() => setDepositFlowStep('pick')}
+                    />
                   ) : null}
-                  <ChooseAssetNetworkHint />
-                  <AssetToggleRow symbol={symbol} onSymbol={setSymbol} searchFilter="" logoUrls={logoUrls} />
-                  <NetworkCardGrid
-                    symbol={symbol}
-                    network={network}
-                    onNetwork={setNetwork}
-                    balanceLabel={balanceLabel}
-                    depositAmountInput={amountUsd}
-                    logoUrls={logoUrls}
-                  />
-                  <div className="mt-2">
-                    <DepositWrongChainWarning symbol={symbol} networkLabel={depositNetworkTitle(network)} />
-                  </div>
                 </div>
-                <div className="shrink-0 border-t border-casino-border bg-casino-surface px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
-                  <button
-                    type="button"
-                    onClick={continueToAddressInModal}
-                    className="w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110"
-                  >
-                    {t('wallet.continue')}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
-                {depositFlowStep === 'address' ? (
-                  <DepositAddressPanel
-                    symbol={symbol}
-                    network={network}
-                    amountUsdText={committedAmountUsd}
-                    onBack={() => setDepositFlowStep('pick')}
-                    onSent={() => setDepositFlowStep('sent')}
-                  />
-                ) : (
-                  <DepositSentPanel symbol={symbol} network={network} onDepositAgain={() => setDepositFlowStep('pick')} />
-                )}
-              </div>
-            )
-          ) : withdrawFlowStep === 'form' ? (
-            <WithdrawFormPanel
-              splitFooter
-              network={wdNetwork}
-              symbol={wdSymbol}
-              onNetwork={setWdNetwork}
-              onSymbol={setWdSymbol}
-              onSuccess={(p) => {
-                setWithdrawCtx(p)
-                setWithdrawFlowStep('success')
-              }}
-            />
-          ) : withdrawCtx ? (
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
-              <WithdrawSuccessPanel
-                id={withdrawCtx.id}
-                network={withdrawCtx.network}
-                symbol={withdrawCtx.symbol}
-                onAnother={() => {
-                  setWithdrawFlowStep('form')
-                  setWithdrawCtx(null)
+              )
+            ) : withdrawFlowStep === 'form' ? (
+              <WithdrawFormPanel
+                splitFooter
+                currencies={currencies}
+                currenciesLoading={currenciesLoading}
+                currenciesError={currenciesError}
+                onRetryCurrencies={() => void reloadCurrencies()}
+                selected={withdrawPick}
+                onSelect={setWithdrawPick}
+                onSuccess={(p) => {
+                  setWithdrawCtx(p)
+                  setWithdrawFlowStep('success')
                 }}
               />
-            </div>
-          ) : null}
+            ) : withdrawCtx ? (
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth scrollbar-casino">
+                <WithdrawSuccessPanel
+                  id={withdrawCtx.id}
+                  network={withdrawCtx.network}
+                  symbol={withdrawCtx.symbol}
+                  paymentId={withdrawCtx.payment_id}
+                  onAnother={() => {
+                    setWithdrawFlowStep('form')
+                    setWithdrawCtx(null)
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

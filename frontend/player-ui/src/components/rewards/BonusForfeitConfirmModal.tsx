@@ -25,7 +25,7 @@ export const BonusForfeitConfirmModal: FC<Props> = ({
   const heading = isIntent ? 'Cancel this activated offer?' : 'Forfeit this bonus?'
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-end justify-center sm:items-center sm:p-4" role="presentation">
+    <div className="fixed inset-0 z-[280] flex items-end justify-center sm:items-center sm:p-4" role="presentation">
       <button type="button" className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-label="Close" onClick={onCancel} />
       <div
         role="dialog"

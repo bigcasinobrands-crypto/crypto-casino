@@ -15,7 +15,7 @@ func (h *Handler) listVIPRewardPayoutLog(w http.ResponseWriter, r *http.Request)
 		limit = 500
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	status := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status")))
+	_ = strings.TrimSpace(strings.ToLower(r.URL.Query().Get("status"))) // legacy query param (ignored — ledger-only rewards)
 	entryType := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("entry_type")))
 	userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
 
@@ -30,30 +30,25 @@ func (h *Handler) listVIPRewardPayoutLog(w http.ResponseWriter, r *http.Request)
 			le.currency,
 			le.idempotency_key,
 			REPLACE(le.idempotency_key, 'reward.cash:', '') AS reward_idempotency_key,
-			COALESCE(fw.id, ''),
-			COALESCE(fw.status, ''),
-			COALESCE(fw.provider_withdrawal_id, ''),
-			COALESCE(fw.destination, '')
+			'',
+			'',
+			'',
+			''
 		FROM ledger_entries le
 		LEFT JOIN users u ON u.id = le.user_id
-		LEFT JOIN fystack_withdrawals fw
-			ON fw.idempotency_key = REPLACE(le.idempotency_key, 'reward.cash:', '')
 		WHERE le.entry_type IN ('promo.rakeback', 'promo.daily_hunt_cash', 'vip.level_up_cash')
 			AND ($1 = '' OR le.user_id::text = $1)
 			AND ($2 = '' OR le.entry_type = $2)
-			AND ($3 = '' OR COALESCE(fw.status, '') = $3)
 			AND (
-				$4 = '' OR
-				le.user_id::text ILIKE '%' || $4 || '%' OR
-				COALESCE(u.email, '') ILIKE '%' || $4 || '%' OR
-				le.entry_type ILIKE '%' || $4 || '%' OR
-				REPLACE(le.idempotency_key, 'reward.cash:', '') ILIKE '%' || $4 || '%' OR
-				COALESCE(fw.id, '') ILIKE '%' || $4 || '%' OR
-				COALESCE(fw.provider_withdrawal_id, '') ILIKE '%' || $4 || '%'
+				$3 = '' OR
+				le.user_id::text ILIKE '%' || $3 || '%' OR
+				COALESCE(u.email, '') ILIKE '%' || $3 || '%' OR
+				le.entry_type ILIKE '%' || $3 || '%' OR
+				REPLACE(le.idempotency_key, 'reward.cash:', '') ILIKE '%' || $3 || '%'
 			)
 		ORDER BY le.id DESC
-		LIMIT $5
-	`, userID, entryType, status, q, limit)
+		LIMIT $4
+	`, userID, entryType, q, limit)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "payout log query failed")
 		return

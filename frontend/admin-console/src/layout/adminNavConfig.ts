@@ -26,7 +26,6 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
       { name: 'Overview', path: '/finance' },
       { name: 'Crypto performance', path: '/finance/crypto-performance', new: true },
       { name: 'By country (ledger)', path: '/finance/by-country', new: true },
-      { name: 'Fystack webhooks', path: '/finance/fystack-webhooks', new: true },
       { name: 'Deposits', path: '/deposits' },
       { name: 'Withdrawals', path: '/withdrawals' },
       { name: 'Withdrawal approvals', path: '/withdrawal-approvals', new: true },
@@ -71,6 +70,13 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
       { name: 'Rewards map', path: '/bonushub/player-layout' },
       { name: 'Smart suggestions', path: '/bonushub/recommendations' },
       { name: 'Compliance trail', path: '/bonushub/bonus-audit', new: true },
+    ],
+  },
+  {
+    name: 'CMS',
+    iconClass: 'bi bi-columns-gap',
+    subItems: [
+      { name: 'Content overview', path: '/content-cms', new: true },
     ],
   },
   {

@@ -38,7 +38,7 @@ func (h *Handler) bonusHubRecommendations(w http.ResponseWriter, r *http.Request
 		"active_wr_bonuses":   activeBonuses,
 		"generated_at":        time.Now().UTC().Format(time.RFC3339),
 		"payments_integrated": true,
-		"blueocean_note":      "Game wallet (Blue Ocean) is separate from Fystack deposit bonuses; deposit-match runs on deposit.credit / bonus_payment_settled.",
+		"blueocean_note":      "Game wallet (Blue Ocean) is separate from fiat/crypto cashier bonuses; deposit-match runs on deposit.credit / bonus_payment_settled.",
 	}
 
 	recs := []map[string]any{}

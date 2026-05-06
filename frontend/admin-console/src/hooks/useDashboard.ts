@@ -250,7 +250,7 @@ export function useBonusStats() {
 
 export interface DashboardSystem {
   webhook_deliveries_pending: number
-  users_missing_fystack_wallet: number
+  users_missing_payment_wallet: number
   withdrawals_in_flight: number
   worker_failed_jobs_unresolved: number
   /** Rows the worker will still try to deliver */

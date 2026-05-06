@@ -14,7 +14,7 @@ func TestPlayerCookieCSRFMiddleware_webhooksExempt(t *testing.T) {
 	h := PlayerCookieCSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
-	req := httptest.NewRequest(http.MethodPost, "/v1/webhooks/fystack", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/webhooks/passimpay", nil)
 	req.AddCookie(&http.Cookie{Name: playercookies.AccessCookieName, Value: "tok"})
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)

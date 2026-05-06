@@ -9,11 +9,11 @@ import { formatCurrency, formatCompact } from '../lib/format'
 
 type Props = { title: string; path: string; refreshIntervalMs?: number }
 
-function FystackStatCards({ path }: { path: string }) {
+function PaymentPipelineStatCards({ path }: { path: string }) {
   const { data: kpis } = useDashboardKPIs()
   if (!kpis) return null
 
-  const isWithdrawal = path.includes('withdrawals') && path.includes('fystack')
+  const isWithdrawal = path.includes('withdrawals') && path.includes('payments')
 
   if (isWithdrawal) {
     return (
@@ -78,11 +78,11 @@ function FystackStatCards({ path }: { path: string }) {
 
 export default function DataTablePage({ title, path, refreshIntervalMs }: Props) {
   const { apiFetch } = useAdminAuth()
-  const showStats = path.includes('fystack') || path.includes('integrations/fystack')
+  const showStats = path.includes('integrations/payments') || path.includes('payments/')
   const subtitle =
     path.includes('game-launches') || path.includes('game-disputes')
       ? 'Live rows from the admin API — search, sort, and export from the toolbar.'
-      : path.includes('fystack') || path.includes('ledger')
+      : path.includes('payments') || path.includes('ledger')
         ? 'Live payment and ledger rows — refreshes on an interval when configured.'
         : undefined
 
@@ -90,7 +90,7 @@ export default function DataTablePage({ title, path, refreshIntervalMs }: Props)
     <>
       <PageMeta title={`${title} · Admin`} description={`Admin data: ${title}`} />
       <PageBreadcrumb pageTitle={title} subtitle={subtitle} />
-      {showStats && <FystackStatCards path={path} />}
+      {showStats && <PaymentPipelineStatCards path={path} />}
       <ComponentCard title={title} desc="Live data from the admin API. Search, sort, and export from the toolbar.">
         <AdminDataTable apiPath={path} apiFetch={apiFetch} refreshIntervalMs={refreshIntervalMs} />
       </ComponentCard>

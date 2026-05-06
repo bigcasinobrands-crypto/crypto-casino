@@ -14,9 +14,7 @@ import (
 	"github.com/crypto-casino/core/internal/compliance"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
-	"github.com/crypto-casino/core/internal/fystack"
 	"github.com/crypto-casino/core/internal/jobs"
-	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/obs"
 	"github.com/crypto-casino/core/internal/redisx"
 	"github.com/crypto-casino/core/internal/webhooks"
@@ -50,12 +48,7 @@ func main() {
 	defer cancel()
 
 	bog := blueocean.NewClient(&cfg)
-	var fsClient *fystack.Client
-	if cfg.FystackConfigured() {
-		fsClient = fystack.NewClient(cfg.FystackBaseURL, cfg.FystackAPIKey, cfg.FystackAPISecret, cfg.FystackWorkspaceID)
-	}
-	cmcTickers := market.NewCryptoTickers(cfg.CoinMarketCapAPIKey)
-	bonus.ConfigureCashPayoutRuntime(&cfg, fsClient, cmcTickers)
+	bonus.ConfigureCashPayoutRuntime(&cfg)
 
 	go func() {
 		t := time.NewTicker(12 * time.Second)
@@ -90,24 +83,6 @@ func main() {
 					log.Printf("bonus outbox: %v", err)
 				} else if n > 0 {
 					log.Printf("bonus outbox: delivered %d", n)
-				}
-			}
-		}
-	}()
-
-	go func() {
-		t := time.NewTicker(3 * time.Minute)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				n, err := webhooks.ReconcileStaleFystackDeliveries(context.Background(), pool)
-				if err != nil {
-					log.Printf("fystack reconcile: %v", err)
-				} else if n > 0 {
-					log.Printf("fystack reconcile: processed %d deliveries", n)
 				}
 			}
 		}
@@ -237,36 +212,6 @@ func main() {
 		case "blueocean_event":
 			if err := webhooks.ProcessBlueOceanEvent(ctx, pool, j.ID); err != nil {
 				log.Printf("blueocean %d: %v", j.ID, err)
-			}
-		case "fystack_payment":
-			var m map[string]string
-			_ = json.Unmarshal(j.Data, &m)
-			if err := webhooks.ProcessFystackPayment(ctx, pool, m["id"]); err != nil {
-				log.Printf("fystack %s: %v", m["id"], err)
-			}
-		case "fystack_webhook":
-			var wrap struct {
-				DeliveryID int64 `json:"delivery_id"`
-			}
-			_ = json.Unmarshal(j.Data, &wrap)
-			if wrap.DeliveryID == 0 {
-				log.Printf("fystack_webhook: missing delivery_id")
-				continue
-			}
-			settled, err := webhooks.ProcessFystackWebhookDelivery(ctx, pool, wrap.DeliveryID)
-			if err != nil {
-				log.Printf("fystack webhook delivery %d: %v", wrap.DeliveryID, err)
-			} else if settled != nil {
-				rawBonus, _ := json.Marshal(settled)
-				if err := jobs.Enqueue(ctx, rdb, jobs.Job{Type: "bonus_payment_settled", Data: rawBonus}); err != nil {
-					if evErr := bonus.EvaluatePaymentSettled(ctx, pool, *settled); evErr != nil {
-						obs.IncBonusEvalError()
-						_, _ = pool.Exec(ctx, `
-							INSERT INTO worker_failed_jobs (job_type, payload, error_text, attempts)
-							VALUES ($1, $2::jsonb, $3, 1)
-						`, "bonus_payment_settled", rawBonus, evErr.Error())
-					}
-				}
 			}
 		case challenges.JobBODebit:
 			var p challenges.BODebitPayload

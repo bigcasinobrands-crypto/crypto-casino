@@ -87,19 +87,19 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
 				AND created_at > now()-interval '30 days'), 0),
 
-			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_withdrawals
-				WHERE status='completed' AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_withdrawals
-				WHERE status='completed' AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_withdrawals
-				WHERE status='completed' AND created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
+				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
+				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
+				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '30 days'), 0),
 
-			COALESCE((SELECT COUNT(*) FROM fystack_withdrawals
-				WHERE status='completed' AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT COUNT(*) FROM fystack_withdrawals
-				WHERE status='completed' AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT COUNT(*) FROM fystack_withdrawals
-				WHERE status='completed' AND created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT COUNT(*) FROM ledger_entries
+				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT COUNT(*) FROM ledger_entries
+				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT COUNT(*) FROM ledger_entries
+				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
 				WHERE entry_type = 'game.debit' AND created_at > now()-interval '24 hours'), 0),
@@ -132,10 +132,10 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 				WHERE entry_type IN ('promo.rakeback','vip.level_up_cash','promo.daily_hunt_cash') AND amount_minor > 0 AND pocket = 'cash'
 				AND created_at > now()-interval '30 days'), 0),
 
-			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM fystack_withdrawals
-				WHERE status IN ('pending','submitted','pending_approval','executed')), 0),
-			COALESCE((SELECT COUNT(*) FROM fystack_withdrawals
-				WHERE status IN ('pending','submitted','pending_approval','executed')), 0),
+			COALESCE((SELECT SUM(COALESCE(amount_minor,0)) FROM payment_withdrawals
+				WHERE provider='passimpay' AND status IN ('LEDGER_LOCKED','SUBMITTED_TO_PROVIDER')), 0),
+			COALESCE((SELECT COUNT(*) FROM payment_withdrawals
+				WHERE provider='passimpay' AND status IN ('LEDGER_LOCKED','SUBMITTED_TO_PROVIDER')), 0),
 
 			COALESCE((SELECT COUNT(*) FROM users), 0),
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
@@ -204,7 +204,7 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 			"reward_expense": "ledger_entries: promo.rakeback, vip.level_up_cash, promo.daily_hunt_cash (cash pocket)",
 			"ngr":            "GGR - bonus grant expense - cash reward expense (period); affiliate/provider fees in phase 2",
 			"active_players": "distinct user_id with game.debit in window (ledger-backed wagering)",
-			"pending_wd":     "fystack_withdrawals operational statuses (until ledger lock liability wired)",
+			"pending_wd":     "payment_withdrawals (PassimPay) in LEDGER_LOCKED / SUBMITTED_TO_PROVIDER",
 		},
 	})
 }
@@ -220,7 +220,9 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	depByDay := make([]map[string]any, 0)
 	depRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(COALESCE(amount_minor,0)),0), COUNT(*)
-		FROM fystack_payments WHERE status='settled' AND created_at >= $1 AND created_at <= $2
+		FROM ledger_entries
+		WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+		  AND created_at >= $1 AND created_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
@@ -238,8 +240,9 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 
 	wdByDay := make([]map[string]any, 0)
 	wdRows, err := h.Pool.Query(ctx, `
-		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(COALESCE(amount_minor,0)),0), COUNT(*)
-		FROM fystack_withdrawals WHERE status='completed' AND created_at >= $1 AND created_at <= $2
+		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(ABS(amount_minor)),0), COUNT(*)
+		FROM ledger_entries
+		WHERE entry_type = 'withdrawal.debit' AND created_at >= $1 AND created_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
@@ -429,7 +432,7 @@ func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
 			COALESCE((SELECT COUNT(*) FROM users), 0),
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM fystack_payments WHERE status='settled'), 0),
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0), 0),
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM game_launches WHERE created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM game_launches WHERE created_at > now()-interval '30 days'), 0)
 	`).Scan(&totalReg, &totalWithDep, &active7d, &active30d)
@@ -446,19 +449,22 @@ func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 	var avgLTV int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(AVG(dep_total - COALESCE(wd_total, 0))::bigint, 0) FROM (
-			SELECT fp.user_id, SUM(COALESCE(fp.amount_minor,0)) AS dep_total
-			FROM fystack_payments fp WHERE fp.status='settled' GROUP BY fp.user_id
+			SELECT user_id, SUM(COALESCE(amount_minor,0)) AS dep_total
+			FROM ledger_entries
+			WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+			GROUP BY user_id
 		) dep LEFT JOIN (
-			SELECT user_id, SUM(COALESCE(amount_minor,0)) AS wd_total
-			FROM fystack_withdrawals WHERE status='completed' GROUP BY user_id
+			SELECT user_id, SUM(ABS(amount_minor)) AS wd_total
+			FROM ledger_entries WHERE entry_type = 'withdrawal.debit'
+			GROUP BY user_id
 		) wd ON wd.user_id = dep.user_id
 	`).Scan(&avgLTV)
 
 	topDepositors := make([]map[string]any, 0)
 	depRows, err := h.Pool.Query(ctx, `
-		SELECT u.id::text, u.email, COALESCE(SUM(COALESCE(fp.amount_minor,0)),0) AS total
-		FROM fystack_payments fp JOIN users u ON u.id = fp.user_id
-		WHERE fp.status='settled'
+		SELECT u.id::text, u.email, COALESCE(SUM(COALESCE(le.amount_minor,0)),0) AS total
+		FROM ledger_entries le JOIN users u ON u.id = le.user_id
+		WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0
 		GROUP BY u.id, u.email ORDER BY total DESC LIMIT 10`)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "top depositors query failed")
@@ -585,9 +591,9 @@ func (h *Handler) DashboardSystem(w http.ResponseWriter, r *http.Request) {
 	var bonusOutboxPending, bonusOutboxDLQ int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT
-			(SELECT COUNT(*)::bigint FROM fystack_webhook_deliveries WHERE processed = false),
-			(SELECT COUNT(*)::bigint FROM users u WHERE NOT EXISTS (SELECT 1 FROM fystack_wallets w WHERE w.user_id = u.id)),
-			(SELECT COUNT(*)::bigint FROM fystack_withdrawals WHERE status IN ('pending','submitted','pending_approval','executed')),
+			(SELECT COUNT(*)::bigint FROM processed_callbacks WHERE processed_at IS NULL),
+			(SELECT 0::bigint),
+			(SELECT COUNT(*)::bigint FROM payment_withdrawals WHERE provider='passimpay' AND status IN ('LEDGER_LOCKED','SUBMITTED_TO_PROVIDER')),
 			(SELECT COUNT(*)::bigint FROM worker_failed_jobs WHERE resolved_at IS NULL),
 			(SELECT COUNT(*)::bigint FROM bonus_outbox WHERE processed_at IS NULL AND dlq_at IS NULL),
 			(SELECT COUNT(*)::bigint FROM bonus_outbox WHERE processed_at IS NULL AND dlq_at IS NOT NULL)
@@ -595,7 +601,7 @@ func (h *Handler) DashboardSystem(w http.ResponseWriter, r *http.Request) {
 
 	out := map[string]any{
 		"webhook_deliveries_pending":    whPending,
-		"users_missing_fystack_wallet":  missingWallet,
+		"users_missing_payment_wallet":  missingWallet,
 		"withdrawals_in_flight":         wdOpen,
 		"worker_failed_jobs_unresolved": wfJobs,
 		"bonus_outbox_pending_delivery": bonusOutboxPending,

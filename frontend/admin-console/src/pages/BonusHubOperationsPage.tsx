@@ -407,7 +407,7 @@ export default function BonusHubOperationsPage() {
       {tab === 'simulate' ? (
         <ComponentCard
           title="Simulate payment settled"
-          desc="Superadmin. Models the Fystack deposit → bonus_payment_settled path (not Blue Ocean game wallet). Use dry_run first; set country to test geo targeting. Uncheck dry_run to actually grant (respects risk + idempotency)."
+          desc="Superadmin. Models the deposit.credit → bonus_payment_settled path (not Blue Ocean game wallet). Use dry_run first; set country to test geo targeting. Uncheck dry_run to actually grant (respects risk + idempotency)."
         >
           {!isSuper ? (
             <p className="mb-3 text-xs text-amber-700 dark:text-amber-400">Superadmin only.</p>

@@ -31,11 +31,6 @@ var ErrSessionPersist = errors.New("session persist failed")
 // ErrSessionNotFound is returned when revoking a session that does not exist or belongs to another user.
 var ErrSessionNotFound = errors.New("session not found")
 
-// FystackWalletProvisioner creates a custodial wallet after signup (optional).
-type FystackWalletProvisioner interface {
-	Provision(ctx context.Context, userID string) error
-}
-
 // PwnedPasswordChecker optionally rejects passwords present in the HIBP corpus (k-anonymity range API).
 type PwnedPasswordChecker interface {
 	IsCompromised(ctx context.Context, password string) (bool, error)
@@ -50,7 +45,6 @@ type Service struct {
 	PublicPlayerURL string
 	TermsVersion    string
 	PrivacyVersion  string
-	Fystack         FystackWalletProvisioner
 	Pwned           PwnedPasswordChecker
 	DataDir         string
 	// EmailLookupSecret — when non-empty, writes users.email_hmac on register and backfills on login (PII_EMAIL_LOOKUP_SECRET).
@@ -149,13 +143,6 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 			_ = s.sendVerificationEmail(ctx, uid, em)
 		}(id, email)
 	}
-	if s.Fystack != nil {
-		go func(uid string) {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			_ = s.Fystack.Provision(ctx, uid)
-		}(id)
-	}
 	return accessToken, refreshToken, exp, nil
 }
 
@@ -188,13 +175,6 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string, s
 	}
 	if err := s.assertUserPlayAllowed(ctx, id); err != nil {
 		return "", "", 0, err
-	}
-	if s.Fystack != nil {
-		go func(uid string) {
-			pctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			_ = s.Fystack.Provision(pctx, uid)
-		}(id)
 	}
 	return s.issueSession(ctx, id, sc)
 }

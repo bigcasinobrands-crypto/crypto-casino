@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { STUDIO_MARQUEE_LOGOS } from '../lib/studioMarqueeLogos'
+import { useSiteContent } from '../hooks/useSiteContent'
+import { contentImageUrl } from '../lib/contentImageUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { IconBuilding2, IconChevronRight } from './icons'
 
@@ -54,7 +56,30 @@ function StudioMarqueeCard({
  */
 export default function StudioMarqueeSection() {
   const reduceMotion = usePrefersReducedMotion()
-  const loop = reduceMotion ? [...STUDIO_MARQUEE_LOGOS] : [...STUDIO_MARQUEE_LOGOS, ...STUDIO_MARQUEE_LOGOS]
+  const { getContent } = useSiteContent()
+  const cmsStudios = getContent<Array<{
+    id: string
+    label: string
+    providerQuery: string
+    src: string
+    active?: boolean
+    sortOrder?: number
+  }> | null>('home_studios', null)
+  const sourceLogos =
+    Array.isArray(cmsStudios) && cmsStudios.length > 0
+      ? cmsStudios
+          .filter((item) => item.active !== false)
+          .slice()
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+          .map((item) => ({
+            id: item.id,
+            label: item.label,
+            providerQuery: item.providerQuery || item.label.toLowerCase().replace(/\s+/g, ''),
+            src: contentImageUrl(item.src) ?? item.src,
+            forceWhiteFilter: true,
+          }))
+      : [...STUDIO_MARQUEE_LOGOS]
+  const loop = reduceMotion ? sourceLogos : [...sourceLogos, ...sourceLogos]
 
   return (
     <section className="mb-5" id="studios">

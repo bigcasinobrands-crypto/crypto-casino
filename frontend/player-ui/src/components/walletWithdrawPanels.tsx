@@ -3,26 +3,34 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
+import { DepositWrongChainWarning } from './DepositFlowShared'
 import {
-  AssetToggleRow,
-  DepositWrongChainWarning,
-  WithdrawNetworkCardGrid,
-  depositNetworkTitle,
-} from './DepositFlowShared'
-import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
+  WalletAmountCurrencyRow,
+  WalletFeeSummary,
+  WalletInfoTrigger,
+  WalletNativeSelectRow,
+  WalletPanel,
+  WalletPrimaryButton,
+  WalletTextField,
+} from './wallet/WalletShell'
 import { transactionExplorerUrl } from '../lib/walletExplorer'
 import { getFingerprintForAction } from '../lib/fingerprintClient'
 import { usePlayerAuth } from '../playerAuth'
-
-export type WithdrawPanelNetwork = 'ERC20' | 'TRC20'
-export type WithdrawPanelSymbol = 'ETH' | 'USDT' | 'USDC' | 'TRX'
+import {
+  type PassimpayCurrency,
+  currencyOptionLabel,
+  formatMinorHint,
+  passimpayNetworkLabel,
+} from '../lib/paymentCurrencies'
 
 type WithdrawFormPanelProps = {
-  network: WithdrawPanelNetwork
-  symbol: WithdrawPanelSymbol
-  onNetwork: (n: WithdrawPanelNetwork) => void
-  onSymbol: (s: WithdrawPanelSymbol) => void
-  onSuccess: (p: { id: string; network: WithdrawPanelNetwork; symbol: WithdrawPanelSymbol }) => void
+  currencies: PassimpayCurrency[]
+  currenciesLoading: boolean
+  currenciesError: string | null
+  onRetryCurrencies?: () => void
+  selected: PassimpayCurrency | null
+  onSelect: (c: PassimpayCurrency) => void
+  onSuccess: (p: { id: string; symbol: string; network: string; payment_id?: number }) => void
   /**
    * When true (e.g. wallet modal on mobile), primary action is pinned in a footer below a scroll area
    * so the submit button stays visible above the home indicator / bottom nav.
@@ -31,16 +39,17 @@ type WithdrawFormPanelProps = {
 }
 
 export function WithdrawFormPanel({
-  network,
-  symbol,
-  onNetwork,
-  onSymbol,
+  currencies,
+  currenciesLoading,
+  currenciesError,
+  onRetryCurrencies,
+  selected,
+  onSelect,
   onSuccess,
   splitFooter = false,
 }: WithdrawFormPanelProps) {
   const { t } = useTranslation()
   const { apiFetch, refreshProfile, balanceMinor } = usePlayerAuth()
-  const logoUrls = useCryptoLogoUrlMap()
   const [amount, setAmount] = useState('10')
   const [destination, setDestination] = useState('')
   const [busy, setBusy] = useState(false)
@@ -51,9 +60,32 @@ export function WithdrawFormPanel({
     return (balanceMinor / 100).toFixed(2)
   }, [balanceMinor])
 
+  const parsedAmountUsd = useMemo(() => {
+    const n = Number(amount.replace(',', '.'))
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }, [amount])
+
+  const withdrawList = useMemo(() => currencies.filter((c) => c.withdraw_enabled), [currencies])
+
+  const selectOpts = useMemo(
+    () =>
+      withdrawList.map((c) => ({
+        value: String(c.payment_id),
+        label: currencyOptionLabel(c),
+      })),
+    [withdrawList],
+  )
+
+  const minFmt = selected ? formatMinorHint(selected.symbol, selected.min_withdraw_minor) : null
+  const minHint = minFmt ? `${minFmt} · ${t('wallet.minWithdrawHint')}` : t('wallet.minWithdrawHint')
+
   const submit = async () => {
     setErr(null)
-    const amt = Math.round(Number(amount) * 100)
+    if (!selected) {
+      setErr(t('wallet.passimpayPickCurrency'))
+      return
+    }
+    const amt = Math.round(Number(amount.replace(',', '.')) * 100)
     if (!Number.isFinite(amt) || amt < 1) {
       setErr(t('wallet.errEnterValidAmount'))
       return
@@ -67,9 +99,10 @@ export function WithdrawFormPanel({
       const fp = await getFingerprintForAction()
       const payload: Record<string, unknown> = {
         amount_minor: amt,
-        currency: symbol,
-        network,
+        currency: selected.symbol,
+        network: selected.network,
         destination: destination.trim(),
+        payment_id: selected.payment_id,
       }
       if (fp?.requestId) {
         payload.fingerprint_request_id = fp.requestId
@@ -93,7 +126,12 @@ export function WithdrawFormPanel({
       await refreshProfile()
       const id = j.withdrawal_id
       if (id) {
-        onSuccess({ id, network, symbol })
+        onSuccess({
+          id,
+          symbol: selected.symbol,
+          network: selected.network,
+          payment_id: selected.payment_id,
+        })
       }
     } catch {
       toastPlayerNetworkError('Network error.', 'POST /v1/wallet/withdraw')
@@ -103,78 +141,112 @@ export function WithdrawFormPanel({
     }
   }
 
+  const netLabel = selected ? passimpayNetworkLabel(selected.network) : ''
+
   const fields = (
     <>
-      <div className="mb-3">
-        <label className="mb-1 block text-xs font-medium text-casino-foreground">
-          {t('wallet.amountMinUsd')}
-          <span className="font-normal text-casino-muted">{t('wallet.withdrawAmountExampleSuffix')}</span>
-        </label>
-        <div className="flex gap-1.5">
-          <input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            type="text"
-            inputMode="decimal"
-            className="min-w-0 flex-1 rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary"
-          />
-          <div className="flex items-center rounded-lg border border-casino-border bg-casino-elevated px-2.5 text-xs font-semibold text-casino-muted">
-            {t('wallet.currencyUsd')}
-          </div>
+      {currenciesLoading ? (
+        <p className="mb-2 text-xs text-casino-muted">{t('wallet.passimpayCurrenciesLoading')}</p>
+      ) : null}
+      {currenciesError ? (
+        <div className="mb-2 rounded-lg border border-casino-border bg-casino-elevated/80 px-3 py-2.5" role="alert">
+          <p className="text-xs text-red-400">{currenciesError}</p>
+          {onRetryCurrencies ? (
+            <button
+              type="button"
+              onClick={onRetryCurrencies}
+              className="mt-2 rounded-[10px] bg-casino-primary px-3 py-1.5 text-xs font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition hover:brightness-110"
+            >
+              {t('wallet.passimpayRetry')}
+            </button>
+          ) : null}
         </div>
-      </div>
-
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[11px] text-casino-muted">
-          {t('wallet.withdrawMatchDestinationHint')}
-        </p>
-        <span className="text-[11px] font-medium text-casino-foreground">
-          {t('wallet.withdrawBalanceLabel', { amount: `$${balanceLabel}` })}
-        </span>
-      </div>
-
-      <AssetToggleRow symbol={symbol} onSymbol={onSymbol} searchFilter="" logoUrls={logoUrls} />
-
-      <WithdrawNetworkCardGrid
-        symbol={symbol}
-        network={network}
-        onNetwork={onNetwork}
-        balanceLabel={balanceLabel}
-        withdrawAmountInput={amount}
-        logoUrls={logoUrls}
-      />
-
-      <label className="mb-3 mt-2 block">
-        <span className="mb-1 block text-xs font-medium text-casino-foreground">{t('wallet.withdrawDestinationLabel')}</span>
-        <input
-          value={destination}
-          onChange={(e) => setDestination(e.target.value)}
-          placeholder={t('wallet.withdrawAddrPlaceholder', { symbol, network })}
-          className="w-full rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary"
-        />
-      </label>
-
-      <div className="mb-3">
-        <DepositWrongChainWarning symbol={symbol} networkLabel={depositNetworkTitle(network)} />
-      </div>
-
-      {err ? (
-        <p className="mb-2 text-xs text-red-400" role="alert">
-          {err}
+      ) : null}
+      {!currenciesLoading && !currenciesError && withdrawList.length === 0 ? (
+        <p className="mb-2 text-xs text-amber-200/90" role="status">
+          {t('wallet.passimpayNoWithdrawCurrencies')}
         </p>
       ) : null}
+
+      <WalletPanel className="mb-4">
+        <div className="mb-2 flex items-center justify-between gap-2 text-[13px] font-semibold text-white">
+          <span>{t('wallet.availableToWithdraw')}</span>
+          <WalletInfoTrigger
+            label={t('wallet.availableToWithdrawInfo')}
+            title={t('wallet.availableToWithdrawTitle')}
+          />
+        </div>
+        <div className="text-2xl font-bold tabular-nums tracking-tight text-white">${balanceLabel}</div>
+      </WalletPanel>
+
+      <WalletPanel className="mb-0">
+        <WalletAmountCurrencyRow
+          amount={amount}
+          onAmountChange={setAmount}
+          currencyLabel={t('wallet.currencyUsd')}
+          hint={minHint}
+        />
+
+        <WalletNativeSelectRow
+          label={t('wallet.passimpayCurrency')}
+          value={selected ? String(selected.payment_id) : ''}
+          onChange={(v) => {
+            const row = withdrawList.find((c) => String(c.payment_id) === v)
+            if (row) onSelect(row)
+          }}
+          options={selectOpts}
+        />
+
+        {selected ? (
+          <p className="mb-3 text-[11px] leading-snug text-casino-muted">
+            {t('wallet.passimpayProviderNote', {
+              id: selected.payment_id,
+              sym: selected.symbol,
+              net: selected.network || '—',
+            })}
+            {selected.requires_tag ? ` ${t('wallet.passimpayRequiresTag')}` : ''}
+          </p>
+        ) : null}
+
+        <WalletTextField
+          label={t('wallet.withdrawDestinationLabel')}
+          value={destination}
+          onChange={setDestination}
+          placeholder={
+            selected
+              ? t('wallet.withdrawAddrPlaceholder', {
+                  symbol: selected.symbol,
+                  network: netLabel,
+                })
+              : t('wallet.withdrawDestinationPlaceholderGeneric')
+          }
+        />
+
+        <div className="mb-3">
+          {selected ? (
+            <DepositWrongChainWarning symbol={selected.symbol} networkLabel={netLabel} />
+          ) : null}
+        </div>
+
+        <WalletFeeSummary
+          lines={[{ label: `${t('wallet.processingFee')}:`, value: t('wallet.feeNotApplicable') }]}
+          totalLabel={`${t('wallet.total')}:`}
+          totalValue={parsedAmountUsd != null ? `$${parsedAmountUsd.toFixed(2)}` : '—'}
+        />
+
+        {err ? (
+          <p className="mb-2 mt-3 text-xs text-red-400" role="alert">
+            {err}
+          </p>
+        ) : null}
+      </WalletPanel>
     </>
   )
 
   const submitBtn = (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={() => void submit()}
-      className="w-full rounded-lg bg-gradient-to-b from-casino-primary to-casino-primary-dim py-2.5 text-sm font-bold text-white shadow-md shadow-casino-primary/15 transition hover:brightness-110 disabled:opacity-50"
-    >
+    <WalletPrimaryButton disabled={busy || !selected || withdrawList.length === 0} onClick={() => void submit()}>
       {busy ? t('wallet.withdrawProcessing') : t('wallet.withdraw')}
-    </button>
+    </WalletPrimaryButton>
   )
 
   if (splitFooter) {
@@ -183,7 +255,7 @@ export function WithdrawFormPanel({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-3 sm:p-4 scrollbar-casino">
           {fields}
         </div>
-        <div className="shrink-0 border-t border-casino-border bg-casino-surface px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
+        <div className="shrink-0 border-t border-casino-border bg-wallet-modal px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4">
           {submitBtn}
         </div>
       </>
@@ -207,12 +279,16 @@ type WithdrawalRow = {
   tx_hash?: string
   explorer_url?: string
   error_message?: string
+  network?: string
+  payment_id?: number
+  provider?: string
 }
 
 type WithdrawSuccessPanelProps = {
   id: string
   network: string
   symbol: string
+  paymentId?: number
   onAnother: () => void
   showGamesLink?: boolean
 }
@@ -282,7 +358,7 @@ function StatusIcon({ phase }: { phase: StatusPhase }) {
   )
 }
 
-export function WithdrawSuccessPanel({ id, network, symbol, onAnother, showGamesLink }: WithdrawSuccessPanelProps) {
+export function WithdrawSuccessPanel({ id, network, symbol, paymentId, onAnother, showGamesLink }: WithdrawSuccessPanelProps) {
   const { apiFetch, refreshProfile } = usePlayerAuth()
   const [row, setRow] = useState<WithdrawalRow | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -322,10 +398,14 @@ export function WithdrawSuccessPanel({ id, network, symbol, onAnother, showGames
   const cfg = phaseConfig[phase]
 
   const tx = row?.tx_hash?.trim() ?? ''
+  const explorerNetwork = (row?.network ?? network).trim()
   const explorer =
-    row?.explorer_url?.trim() || (tx ? transactionExplorerUrl(network, tx) : null) || null
+    row?.explorer_url?.trim() || (tx ? transactionExplorerUrl(explorerNetwork, tx) : null) || null
 
   const amountLabel = row?.amount_minor != null ? `$${(row.amount_minor / 100).toFixed(2)}` : null
+
+  const displaySym = row?.currency?.trim() || symbol
+  const displayNetLabel = passimpayNetworkLabel(row?.network ?? network)
 
   return (
     <div className="space-y-4">
@@ -345,7 +425,10 @@ export function WithdrawSuccessPanel({ id, network, symbol, onAnother, showGames
         <StatusIcon phase={phase} />
         <span className={`text-lg font-bold ${cfg.color}`}>{cfg.label}</span>
         {amountLabel ? (
-          <span className="text-sm text-casino-foreground">{amountLabel} <span className="text-casino-muted">via</span> {symbol} <span className="text-casino-muted">on</span> {network}</span>
+          <span className="text-sm text-casino-foreground">
+            {amountLabel} <span className="text-casino-muted">via</span> {displaySym}{' '}
+            <span className="text-casino-muted">on</span> {displayNetLabel}
+          </span>
         ) : null}
         {phase === 'processing' ? (
           <p className="mt-1 text-center text-[11px] text-casino-muted">
@@ -363,6 +446,20 @@ export function WithdrawSuccessPanel({ id, network, symbol, onAnother, showGames
           <div>
             <p className="text-[10px] uppercase tracking-wide text-casino-muted">To</p>
             <p className="mt-0.5 break-all font-mono text-[10px] text-casino-foreground">{row.destination}</p>
+          </div>
+        ) : null}
+        {row?.payment_id != null || paymentId != null ? (
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-casino-muted">PassimPay ID</p>
+              <p className="mt-0.5 font-mono text-[10px] text-casino-foreground">{row?.payment_id ?? paymentId}</p>
+            </div>
+            {(row?.network ?? network).trim() ? (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-casino-muted">Network</p>
+                <p className="mt-0.5 text-[10px] text-casino-foreground">{displayNetLabel}</p>
+              </div>
+            ) : null}
           </div>
         ) : null}
         <div>

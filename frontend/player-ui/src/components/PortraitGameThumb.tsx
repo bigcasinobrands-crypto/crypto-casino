@@ -19,6 +19,12 @@ export const PortraitGameThumb: FC<{
     setBad(false)
   }, [src])
 
+  /** Warm decode/cache immediately while skeleton shows (`loading="lazy"` may defer `<img>` fetch). Kept deliberately — do not remove. */
+  useEffect(() => {
+    const preload = new Image()
+    preload.src = src
+  }, [src])
+
   const ready = !bad && loadedSrc === src
   const showShimmer = !bad && !ready
 
