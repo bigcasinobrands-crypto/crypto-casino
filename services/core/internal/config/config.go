@@ -88,7 +88,7 @@ type Config struct {
 	LogoDevPublishableKey string
 	// Logo.dev secret (Bearer) for search/describe APIs only — never expose to clients; optional until you use those APIs.
 	LogoDevSecretKey string
-	// PAYMENT_PROVIDER must be passimpay (empty defaults to passimpay for dev).
+	// PAYMENT_PROVIDER: empty defaults to passimpay in Load(); use none to disable PassimPay (wallet returns 503 for passimpay routes until configured).
 	PaymentProvider  string
 	PassimpayEnabled bool
 	PassimpayAPIBaseURL    string // default https://api.passimpay.io
@@ -472,13 +472,8 @@ func (c *Config) ValidateProduction() error {
 	if c.RequireFingerprintPlayerAuth && !c.FingerprintConfigured() {
 		return fmt.Errorf("APP_ENV=production: REQUIRE_FINGERPRINT_PLAYER_AUTH needs FINGERPRINT_SECRET_API_KEY (Fingerprint Server API) for identification enrichment and risk signals")
 	}
-	if strings.EqualFold(c.AppEnv, "production") {
-		if strings.TrimSpace(c.PaymentProvider) == "" || !strings.EqualFold(strings.TrimSpace(c.PaymentProvider), "passimpay") {
-			return fmt.Errorf("APP_ENV=production: PAYMENT_PROVIDER must be passimpay")
-		}
-		if !c.PassimPayConfigured() {
-			return fmt.Errorf("APP_ENV=production: configure PASSIMPAY_PLATFORM_ID and PASSIMPAY_SECRET_KEY (or PASSIMPAY_API_KEY)")
-		}
+	if c.UsesPassimpay() && !c.PassimPayConfigured() {
+		return fmt.Errorf("APP_ENV=production: PAYMENT_PROVIDER=passimpay requires PASSIMPAY_PLATFORM_ID and PASSIMPAY_SECRET_KEY (or PASSIMPAY_API_KEY); or set PAYMENT_PROVIDER=none to start without crypto cashier")
 	}
 	return nil
 }

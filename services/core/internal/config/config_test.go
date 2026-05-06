@@ -139,6 +139,44 @@ func TestLoad_blueOceanUserIDNoHyphens(t *testing.T) {
 	})
 }
 
+func TestValidateProduction_passimpayRequiresCredentials(t *testing.T) {
+	base := &Config{
+		AppEnv:        "production",
+		JWTSecret:     strings.Repeat("y", 32),
+		RedisURL:      "redis://localhost:6379",
+		JWTRSAKeyFile: "/path/to/key.pem",
+		PaymentProvider: "passimpay",
+		// PassimPay not configured
+		PassimpayPlatformID: 0,
+		PassimpaySecretKey:  "",
+		PassimpayAPIBaseURL: "https://api.passimpay.io",
+	}
+	if err := base.ValidateProduction(); err == nil {
+		t.Fatal("expected error when passimpay selected but not configured")
+	}
+	base.PassimpayPlatformID = 1
+	base.PassimpaySecretKey = "secret"
+	if err := base.ValidateProduction(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateProduction_paymentProviderNoneSkipsPassimpay(t *testing.T) {
+	c := &Config{
+		AppEnv:            "production",
+		JWTSecret:         strings.Repeat("y", 32),
+		RedisURL:          "redis://localhost:6379",
+		JWTRSAKeyFile:     "/path/to/key.pem",
+		PaymentProvider:   "none",
+		PassimpayPlatformID: 0,
+		PassimpaySecretKey:  "",
+		PassimpayAPIBaseURL: "https://api.passimpay.io",
+	}
+	if err := c.ValidateProduction(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidateProduction_requiresFingerprintSecretWhenMandatory(t *testing.T) {
 	c := &Config{
 		AppEnv:                       "production",
