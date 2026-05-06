@@ -21,3 +21,17 @@ export function playerApiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`
   return base ? `${base}${p}` : p
 }
+
+/**
+ * When the browser resolves API calls to an absolute URL, returns that origin (scheme + host).
+ * Used in connection-error copy so operators can confirm they are not hitting the static host by mistake.
+ */
+export function playerApiConfiguredOrigin(): string | undefined {
+  try {
+    const u = playerApiUrl('/v1/health')
+    if (u.startsWith('/')) return undefined
+    return new URL(u).origin
+  } catch {
+    return undefined
+  }
+}

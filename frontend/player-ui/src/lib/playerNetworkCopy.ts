@@ -1,4 +1,4 @@
-import { playerApiOriginConfigured } from './playerApiUrl'
+import { playerApiConfiguredOrigin, playerApiOriginConfigured } from './playerApiUrl'
 
 /**
  * When `fetch` throws (HTTP 0 / no response): branch dev vs prod and whether the API base is baked in.
@@ -12,7 +12,12 @@ export function messageCannotReachApi(): string {
   if (!playerApiOriginConfigured()) {
     return 'Cannot reach API. Set VITE_PLAYER_API_ORIGIN on your host (e.g. Vercel) to your public core API URL and redeploy.'
   }
-  return 'Cannot reach API. The API base is set but the browser could not connect. Check the core API is up, PLAYER_CORS_ORIGINS includes this player origin, HTTPS is consistent, and nothing blocks the request.'
+  const hint = playerApiConfiguredOrigin()
+  const suffix = hint ? ` Request URL starts at: ${hint}.` : ''
+  return (
+    'Cannot reach API. The browser got no response (not HTTP 4xx/5xx). Check the core API is up, PLAYER_CORS_ORIGINS includes this page’s exact origin (https + host, with or without www), HTTPS matches the player page, and mixed content is not blocked.' +
+    suffix
+  )
 }
 
 /** Lobby/catalog list fetch failed in the catch path (network). */
@@ -23,7 +28,12 @@ export function messageLobbyCatalogNetwork(): string {
   if (!playerApiOriginConfigured()) {
     return 'Network error — set VITE_PLAYER_API_ORIGIN to your public API URL and redeploy so /v1 requests hit the core API.'
   }
-  return 'Network error — could not reach the API. Check deployment health, CORS (PLAYER_CORS_ORIGINS), and SSL.'
+  const hint = playerApiConfiguredOrigin()
+  const suffix = hint ? ` Request URL starts at: ${hint}.` : ''
+  return (
+    'Network error — could not reach the API. Check deployment health, CORS (PLAYER_CORS_ORIGINS), and SSL. In DevTools → Network, failed preflight/request often means the Origin is missing from PLAYER_CORS_ORIGINS or the API is down.' +
+    suffix
+  )
 }
 
 /** HTTP status hints for game list failures (non-catch). */
