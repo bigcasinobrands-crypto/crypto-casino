@@ -14,7 +14,18 @@ export function measureShellHeaderOffsetPx(): number {
   return maxBottom > 0 ? Math.round(maxBottom) : 64
 }
 
+function measureMobileBottomNavInsetPx(): number {
+  if (typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches) return 0
+  const el = document.querySelector('.casino-shell-mobile-nav')
+  if (!(el instanceof HTMLElement)) return 0
+  const r = el.getBoundingClientRect()
+  if (r.height <= 0 || r.top <= 0) return 0
+  return Math.max(0, Math.round(window.innerHeight - r.top))
+}
+
 export function bifrostHeightPx(): number {
   if (typeof window === 'undefined') return 720
-  return Math.max(320, window.innerHeight - measureShellHeaderOffsetPx())
+  const top = measureShellHeaderOffsetPx()
+  const bottom = measureMobileBottomNavInsetPx()
+  return Math.max(320, window.innerHeight - top - bottom)
 }

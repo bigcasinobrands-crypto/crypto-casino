@@ -95,7 +95,7 @@ function OddinSportsbookPageReady({ publicConfig }: { publicConfig: OddinPublicC
   if (phase === 'loading') {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <SportsbookLoadingState label={isAuthenticated ? 'Securing sportsbook session…' : 'Loading sportsbook…'} />
+        <SportsbookLoadingState />
       </div>
     )
   }

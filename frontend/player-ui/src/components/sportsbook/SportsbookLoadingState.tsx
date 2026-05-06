@@ -1,15 +1,15 @@
-export default function SportsbookLoadingState({ label = 'Loading sportsbook…' }: { label?: string }) {
+import PlayerBootPreloadVisual from '../PlayerBootPreloadVisual'
+
+/** Same brand preload as app boot — covers Oddin bootstrap while iframe mounts. */
+export default function SportsbookLoadingState() {
   return (
     <div
-      className="flex min-h-[200px] flex-1 flex-col items-center justify-center gap-2 px-4 py-10 text-center"
+      className="flex h-full min-h-0 w-full flex-1 flex-col bg-[#07090f]"
       role="status"
       aria-live="polite"
+      aria-busy="true"
     >
-      <div
-        className="h-9 w-9 animate-spin rounded-full border-2 border-casino-primary/30 border-t-casino-primary"
-        aria-hidden
-      />
-      <p className="text-sm font-medium text-white/90">{label}</p>
+      <PlayerBootPreloadVisual className="min-h-0 flex-1" />
     </div>
   )
 }

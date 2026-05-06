@@ -63,7 +63,7 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
     onResize()
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [phase, instanceRef])
+  }, [phase, instanceRef, pageRoute])
 
   const showLoader = phase === 'loading_script' || phase === 'bootstrap' || (phase === 'ready' && !iframeReady)
   const errMsg = shellError || loadMessage

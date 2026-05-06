@@ -37,6 +37,7 @@ import MobileCasinoMenuOverlay from './components/MobileCasinoMenuOverlay'
 import { PullToRefreshOverlay } from './components/PullToRefresh'
 import { useChat } from './hooks/useChat'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
+import { useMobilePlayerChrome } from './hooks/useMobilePlayerChrome'
 import { PlayerLayoutProvider } from './context/PlayerLayoutContext'
 import { PersistentMiniPlayerProvider } from './context/PersistentMiniPlayerContext'
 import PlayerBootOverlay from './components/PlayerBootOverlay'
@@ -150,8 +151,9 @@ function AppShell() {
 
   const location = useLocation()
   const { pathname } = location
-  /** Oddin iframe fills the main column — hide outer scroll + bottom nav (same path as sidebar “Sports”). */
+  /** Oddin iframe: hide outer scroll on narrow viewports; phones keep bottom nav (see `showBottomNav`). */
   const oddinBifrostShell = oddinIframeEnabled() && pathname.startsWith('/casino/sports')
+  const isMobileChrome = useMobilePlayerChrome()
   const [searchParams, setSearchParams] = useSearchParams()
   const catalogSearchQ = searchParams.get('q') ?? ''
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -287,11 +289,16 @@ function AppShell() {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams, closeHeaderDropdowns])
 
-  /** Embed routes stay chromeless; game lobby uses the same bottom nav + scroll inset as the catalog on phones. */
-  const showBottomNav = !pathname.startsWith('/embed/') && !oddinBifrostShell
+  /**
+   * Oddin iframe previously hid the mobile bottom nav — on phones we show it so Menu / Search / Deposit
+   * stay reachable while browsing E-Sports (tablet/desktop unchanged).
+   */
+  const showBottomNav = !pathname.startsWith('/embed/') && (!oddinBifrostShell || isMobileChrome)
 
   const mainScrollRef = useRef<HTMLDivElement>(null)
   const pullToRefreshEnabled = !pathname.startsWith('/embed/') && !oddinBifrostShell
+  /** Logged-in mobile E-Sports: rely on bottom nav + centered wallet; drop noisy header icon cluster. */
+  const hideMobileHeaderActions = oddinBifrostShell && isMobileChrome && isAuthenticated
 
   return (
     <PlayerLayoutProvider chatOpen={chatOpen}>
@@ -319,8 +326,10 @@ function AppShell() {
                   </div>
                 </div>
               ) : null}
-              {/* Mobile shell: Rewards + profile only (search/chat via lobby & bottom nav / sidebar) */}
-              <div className="relative z-[2] ml-auto flex shrink-0 items-center gap-0.5">
+              {/* Mobile shell: Rewards + profile (search/chat via bottom nav); hidden on logged-in E-Sports phones. */}
+              <div
+                className={`relative z-[2] ml-auto flex shrink-0 items-center gap-0.5 ${hideMobileHeaderActions ? 'hidden' : ''}`}
+              >
                 {!showBottomNav ? (
                   <button
                     type="button"
