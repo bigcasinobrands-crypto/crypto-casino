@@ -24,6 +24,11 @@ type PlayerMobileBottomNavProps = {
   onOpenGameSearch: () => void
   onOpenDeposit: () => void
   showCasinoSearch: boolean
+  /**
+   * Extra classes on the fixed nav (e.g. `casino-shell-mobile-nav--esports-tablet` to force visibility
+   * between 768–1279px where the bar is normally hidden).
+   */
+  navClassName?: string
 }
 
 /** Labels always visible; active = purple icon + brighter label (vybebet-style). */
@@ -46,6 +51,7 @@ export default function PlayerMobileBottomNav({
   onOpenGameSearch,
   onOpenDeposit,
   showCasinoSearch,
+  navClassName = '',
 }: PlayerMobileBottomNavProps) {
   const { t } = useTranslation()
   const { pathname } = useLocation()
@@ -101,7 +107,7 @@ export default function PlayerMobileBottomNav({
 
   const nav = (
     <nav
-      className="casino-shell-mobile-nav pointer-events-auto fixed inset-x-0 bottom-0 z-[205] box-border flex min-h-[56px] flex-col justify-center border-t border-white/[0.08] bg-[#0f0d14] py-1 pb-[max(6px,env(safe-area-inset-bottom,0px))] pt-1.5 shadow-[0_-6px_24px_rgba(0,0,0,0.45)]"
+      className={`casino-shell-mobile-nav pointer-events-auto fixed inset-x-0 bottom-0 z-[205] box-border flex min-h-[56px] flex-col justify-center border-t border-white/[0.08] bg-[#0f0d14] py-1 pb-[max(6px,env(safe-area-inset-bottom,0px))] pt-1.5 shadow-[0_-6px_24px_rgba(0,0,0,0.45)] ${navClassName}`.trim()}
       aria-label={t('mobileNav.ariaMain')}
     >
       <div className="mx-auto flex min-h-[44px] w-full max-w-full min-w-0 items-end justify-between gap-0 px-0.5">

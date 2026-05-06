@@ -38,6 +38,7 @@ import { PullToRefreshOverlay } from './components/PullToRefresh'
 import { useChat } from './hooks/useChat'
 import { useOperationalHealth } from './hooks/useOperationalHealth'
 import { useMobilePlayerChrome } from './hooks/useMobilePlayerChrome'
+import { useSubDesktopPlayerChrome } from './hooks/useSubDesktopPlayerChrome'
 import { PlayerLayoutProvider } from './context/PlayerLayoutContext'
 import { PersistentMiniPlayerProvider } from './context/PersistentMiniPlayerContext'
 import PlayerBootOverlay from './components/PlayerBootOverlay'
@@ -151,9 +152,11 @@ function AppShell() {
 
   const location = useLocation()
   const { pathname } = location
-  /** Oddin iframe: hide outer scroll on narrow viewports; phones keep bottom nav (see `showBottomNav`). */
-  const oddinBifrostShell = oddinIframeEnabled() && pathname.startsWith('/casino/sports')
+  /** Oddin iframe: hide outer scroll below desktop; phones/tablets keep bottom nav on `/casino/sports`. */
+  const onEsportsRoute = pathname.startsWith('/casino/sports')
+  const oddinBifrostShell = oddinIframeEnabled() && onEsportsRoute
   const isMobileChrome = useMobilePlayerChrome()
+  const isSubDesktop = useSubDesktopPlayerChrome()
   const [searchParams, setSearchParams] = useSearchParams()
   const catalogSearchQ = searchParams.get('q') ?? ''
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -290,15 +293,21 @@ function AppShell() {
   }, [searchParams, setSearchParams, closeHeaderDropdowns])
 
   /**
-   * Oddin iframe previously hid the mobile bottom nav — on phones we show it so Menu / Search / Deposit
-   * stay reachable while browsing E-Sports (tablet/desktop unchanged).
+   * Bottom nav on E-Sports for all sub-desktop viewports (phones + tablets): Oddin-only mobile branch
+   * (`oddinBifrostShell && !isMobileChrome`) previously dropped the bar on 768–1279px.
    */
-  const showBottomNav = !pathname.startsWith('/embed/') && (!oddinBifrostShell || isMobileChrome)
+  const showBottomNav =
+    !pathname.startsWith('/embed/') &&
+    (!oddinBifrostShell || isMobileChrome || (onEsportsRoute && isSubDesktop))
 
   const mainScrollRef = useRef<HTMLDivElement>(null)
   const pullToRefreshEnabled = !pathname.startsWith('/embed/') && !oddinBifrostShell
-  /** Logged-in mobile E-Sports: rely on bottom nav + centered wallet; drop noisy header icon cluster. */
-  const hideMobileHeaderActions = oddinBifrostShell && isMobileChrome && isAuthenticated
+  /** Any `/casino/sports` on a phone — not only when Oddin iframe is enabled (avoids “coming soon” gap). */
+  const hideMobileHeaderActions = onEsportsRoute && isMobileChrome && isAuthenticated
+  /** Tablet / small laptop: same trim while logged in on E-Sports (bottom nav replaces header actions). */
+  const hideTabletEsportsChrome = onEsportsRoute && isSubDesktop && isAuthenticated
+  const esportsTabletBottomBar =
+    onEsportsRoute && isSubDesktop && !isMobileChrome ? 'casino-shell-mobile-nav--esports-tablet' : ''
 
   return (
     <PlayerLayoutProvider chatOpen={chatOpen}>
@@ -398,7 +407,9 @@ function AppShell() {
                   </div>
                 </div>
               ) : null}
-              <div className="relative z-[2] ml-auto flex shrink-0 items-center justify-end gap-0.5 md:gap-1">
+              <div
+                className={`relative z-[2] ml-auto flex shrink-0 items-center justify-end gap-0.5 md:gap-1 ${hideTabletEsportsChrome ? 'hidden' : ''}`}
+              >
                 {showCasinoSearch ? (
                   <button
                     type="button"
@@ -580,6 +591,7 @@ function AppShell() {
                 onOpenGameSearch={openGameSearchExclusive}
                 onOpenDeposit={() => openWallet('deposit')}
                 showCasinoSearch={showCasinoSearch}
+                navClassName={esportsTabletBottomBar}
               />
             ) : null}
           </div>

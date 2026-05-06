@@ -138,6 +138,11 @@
   .casino-shell-mobile-nav {
     display: none !important;
   }
+
+  /* E-Sports on tablet: bottom bar is primary chrome (Menu / Search / Deposit / …). */
+  .casino-shell-mobile-nav.casino-shell-mobile-nav--esports-tablet {
+    display: flex !important;
+  }
 }
 
 /* ----- Mobile top header (< 768px only) — hamburger, logo, wallet, actions ----- */
