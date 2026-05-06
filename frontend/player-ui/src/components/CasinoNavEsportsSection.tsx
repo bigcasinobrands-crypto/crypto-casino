@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useOddinEsportsNav } from '../hooks/useOddinEsportsNav'
 import { translateEsportsNavLabel } from '../lib/navI18n'
 import type { EsportsNavItem } from '../lib/oddin/esportsNavCatalog'
@@ -72,12 +72,16 @@ type Props = {
 export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate }: Props) {
   const { t } = useTranslation()
   const { pathname, search } = useLocation()
+  const navigate = useNavigate()
   const { items, labelsFromOperator } = useOddinEsportsNav()
-  const [open, setOpen] = useState(() => pathname.startsWith('/casino/sports'))
+  const segmentActive = pathname.startsWith('/casino/sports')
+  const [open, setOpen] = useState(() => segmentActive)
 
+  /** Top header toggle switches shell (Casino vs E-Sports) — keep accordions in sync with the route. */
   useEffect(() => {
-    if (pathname.startsWith('/casino/sports')) setOpen(true)
-  }, [pathname])
+    if (segmentActive) setOpen(true)
+    else setOpen(false)
+  }, [segmentActive])
 
   const showAccordion = oddinIframeEnabled()
   const sportsLabel = t('nav.extras.sports')
@@ -120,10 +124,13 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
   }
 
   const sectionHeaderBtn =
-    'flex w-full items-center justify-between rounded-2xl px-3.5 py-3 text-left text-[13px] font-bold text-white transition'
+    'flex w-full items-center justify-between rounded-2xl px-3.5 py-3 text-left text-[13px] font-bold transition'
   const sectionOpen =
-    'bg-casino-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:brightness-110'
-  const sectionClosed = 'bg-casino-primary-dim hover:bg-casino-primary'
+    'bg-casino-primary text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:brightness-110'
+  const sectionClosed = 'bg-casino-primary-dim text-white hover:bg-casino-primary'
+  /** Inactive shell segment (browsing Casino) — gray track; tap jumps to E-Sports. */
+  const sectionInactiveShell =
+    'border border-white/[0.08] bg-casino-segment-track text-casino-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:bg-white/[0.06] hover:text-white/90'
 
   const subWrap =
     variant === 'sidebar' ? 'mb-2 ml-2 mt-1 border-l border-casino-primary/22 pl-3' : 'mb-1'
@@ -133,22 +140,37 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
       ? 'scrollbar-esports flex min-h-0 max-h-[min(24rem,55dvh)] flex-col gap-0.5 overflow-y-auto overscroll-y-contain py-0.5 pr-0.5'
       : 'scrollbar-esports flex min-h-0 max-h-[min(32rem,70dvh)] flex-col gap-0.5 overflow-y-auto overscroll-y-contain py-0.5 pr-0.5'
 
+  const headerChevronClass = segmentActive
+    ? `shrink-0 transition ${open ? 'rotate-180 text-white/90' : 'text-white/90'}`
+    : 'icon-chevron shrink-0 text-casino-muted/90 transition'
+
   return (
     <div>
       <button
         type="button"
-        className={`${sectionHeaderBtn} ${open ? sectionOpen : sectionClosed}`}
+        className={`${sectionHeaderBtn} ${segmentActive ? (open ? sectionOpen : sectionClosed) : sectionInactiveShell}`}
         onClick={(e) => {
           e.stopPropagation()
+          if (!segmentActive) {
+            navigate(sportsbookPlayerPath())
+            onNavigate?.()
+            return
+          }
           setOpen((o) => !o)
         }}
-        aria-expanded={open}
+        aria-expanded={segmentActive ? open : false}
       >
-        <span className="flex min-w-0 items-center gap-2.5 text-white">
-          <IconTrophy size={15} className="shrink-0 text-white/90" aria-hidden />
+        <span
+          className={`flex min-w-0 items-center gap-2.5 ${segmentActive ? 'text-white' : 'text-inherit'}`}
+        >
+          <IconTrophy
+            size={15}
+            className={`shrink-0 ${segmentActive ? 'text-white/90' : 'text-casino-muted'}`}
+            aria-hidden
+          />
           {sportsLabel}
         </span>
-        <IconChevronDown size={15} className={`shrink-0 text-white/90 transition ${open ? 'rotate-180' : ''}`} aria-hidden />
+        <IconChevronDown size={15} className={headerChevronClass} aria-hidden />
       </button>
 
       {open ? (

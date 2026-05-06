@@ -1,9 +1,9 @@
 /**
  * Left drawer menu (<1280px). Same nav targets as desktop `CasinoSidebar` — driven by `lib/casinoNav` + CMS.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
 import {
   CASINO_NAV_FALLBACK_CATEGORIES,
@@ -40,8 +40,10 @@ type Props = {
 const row =
   'flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13px] font-semibold text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground [&_svg]:shrink-0 [&_svg]:text-casino-primary'
 
-const casinoHeaderBtn =
+const casinoHeaderBtnActive =
   'flex w-full items-center justify-between rounded-2xl bg-casino-primary px-3.5 py-3 text-left text-[13px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)]'
+const casinoHeaderInactive =
+  'flex w-full items-center justify-between rounded-2xl border border-white/[0.08] bg-casino-segment-track px-3.5 py-3 text-left text-[13px] font-bold text-casino-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:bg-white/[0.06] hover:text-white/90 no-underline'
 
 export default function MobileCasinoMenuOverlay({
   open,
@@ -50,9 +52,16 @@ export default function MobileCasinoMenuOverlay({
   chatOpen = false,
   chatUnreadCount = 0,
 }: Props) {
-  const [casinoOpen, setCasinoOpen] = useState(true)
+  const { pathname } = useLocation()
+  const onSports = pathname.startsWith('/casino/sports')
+  const [casinoOpen, setCasinoOpen] = useState(() => !onSports)
   const { t } = useTranslation()
   const { getContent } = useSiteContent()
+
+  useEffect(() => {
+    if (onSports) setCasinoOpen(false)
+    else setCasinoOpen(true)
+  }, [onSports])
 
   const casinoItems = getContent<CasinoNavCategory[]>('nav.categories.casino', CASINO_NAV_FALLBACK_CATEGORIES).filter(
     (c) => c.enabled !== false,
@@ -100,27 +109,41 @@ export default function MobileCasinoMenuOverlay({
           className="scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain px-3 pt-3 max-md:pb-[calc(var(--casino-mobile-nav-offset)+16px)] md:pb-8"
           onClick={() => onClose()}
         >
-          <button
-            type="button"
-            className={casinoHeaderBtn}
-            aria-expanded={casinoOpen}
-            onClick={(e) => {
-              e.stopPropagation()
-              setCasinoOpen((o) => !o)
-            }}
-          >
-            <span className="flex min-w-0 items-center gap-2.5">
-              <IconDices size={15} className="shrink-0 text-white/90" aria-hidden />
-              {t('sidebar.casino')}
-            </span>
-            <IconChevronDown
-              size={15}
-              className={`shrink-0 text-white/90 transition ${casinoOpen ? 'rotate-180' : ''}`}
-              aria-hidden
-            />
-          </button>
+          {onSports ? (
+            <Link
+              to="/casino/games"
+              className={casinoHeaderInactive}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <IconDices size={15} className="shrink-0 text-casino-muted" aria-hidden />
+                {t('sidebar.casino')}
+              </span>
+              <IconChevronDown size={15} className="shrink-0 text-casino-muted/90" aria-hidden />
+            </Link>
+          ) : (
+            <button
+              type="button"
+              className={casinoHeaderBtnActive}
+              aria-expanded={casinoOpen}
+              onClick={(e) => {
+                e.stopPropagation()
+                setCasinoOpen((o) => !o)
+              }}
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <IconDices size={15} className="shrink-0 text-white/90" aria-hidden />
+                {t('sidebar.casino')}
+              </span>
+              <IconChevronDown
+                size={15}
+                className={`shrink-0 text-white/90 transition ${casinoOpen ? 'rotate-180' : ''}`}
+                aria-hidden
+              />
+            </button>
+          )}
 
-          {casinoOpen ? (
+          {!onSports && casinoOpen ? (
             <div className="mb-1 ml-2 mt-1 flex flex-col gap-0.5 border-l border-casino-primary/22 pl-3">
               <CasinoNavCasinoLinks items={casinoItems} variant="drawer" iconSize={17} />
             </div>

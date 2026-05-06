@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, Link } from 'react-router-dom'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
 import { useSiteContent } from '../hooks/useSiteContent'
 import {
@@ -79,8 +79,14 @@ export default function CasinoSidebar({
 }: CasinoSidebarProps) {
   const [casinoOpen, setCasinoOpen] = useState(true)
   const { pathname, hash } = useLocation()
+  const onSports = pathname.startsWith('/casino/sports')
   const { t } = useTranslation()
   const { getContent } = useSiteContent()
+
+  useEffect(() => {
+    if (onSports) setCasinoOpen(false)
+    else setCasinoOpen(true)
+  }, [onSports])
 
   const casinoItems = getContent<CasinoNavCategory[]>('nav.categories.casino', CASINO_NAV_FALLBACK_CATEGORIES)
     .filter((c) => c.enabled !== false)
@@ -105,6 +111,8 @@ export default function CasinoSidebar({
   const navItemActive =
     'bg-casino-primary/22 text-white hover:bg-casino-primary/30 [&_svg]:text-casino-primary'
 
+  const casinoSectionHeaderInactive =
+    'flex w-full items-center justify-between rounded-2xl border border-white/[0.08] bg-casino-segment-track px-3.5 py-3 text-left text-[13px] font-bold text-casino-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:bg-white/[0.06] hover:text-white/90 no-underline'
   const casinoSectionHeaderBtn =
     'flex w-full items-center justify-between rounded-2xl px-3.5 py-3 text-left text-[13px] font-bold text-white transition'
   const casinoSectionHeaderOpen =
@@ -259,6 +267,18 @@ export default function CasinoSidebar({
               >
                 <IconDices size={15} className="shrink-0" aria-hidden />
               </NavLink>
+            ) : onSports ? (
+              <Link
+                to="/casino/games"
+                className={casinoSectionHeaderInactive}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <IconDices size={15} className="shrink-0 text-casino-muted" aria-hidden />
+                  {t('sidebar.casino')}
+                </span>
+                <IconChevronDown size={15} className="shrink-0 text-casino-muted/90" aria-hidden />
+              </Link>
             ) : (
               <button
                 type="button"
@@ -281,7 +301,7 @@ export default function CasinoSidebar({
               </button>
             )}
 
-            {!collapsed && casinoOpen ? (
+            {!collapsed && casinoOpen && !onSports ? (
               <div className="mb-2 ml-2 mt-1 flex flex-col gap-0.5 border-l border-casino-primary/22 pl-3">
                 <CasinoNavCasinoLinks items={casinoItems} variant="sidebar" iconSize={15} />
               </div>
