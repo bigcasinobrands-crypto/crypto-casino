@@ -136,7 +136,7 @@ type Config struct {
 	// Fingerprint Pro Server API (https://docs.fingerprint.com/reference/server-api-get-event) — Auth-API-Key; never exposed to clients.
 	FingerprintSecretAPIKey string
 	FingerprintAPIBaseURL   string
-	// RequireFingerprintPlayerAuth — when true (default), login/register/refresh and traffic ingest require fingerprint_request_id; production also requires FINGERPRINT_SECRET_API_KEY.
+	// RequireFingerprintPlayerAuth — when true (default in production), Sign-in and traffic would require fingerprint_request_id; APP_ENV=development never enforces — see PlayerFingerprintAuthRequired().
 	RequireFingerprintPlayerAuth bool
 	// WithdrawRequireFingerprint — when true, POST /v1/wallet/withdraw must include fingerprint_request_id (enforced before ledger).
 	WithdrawRequireFingerprint bool
@@ -531,6 +531,19 @@ func (c *Config) FingerprintConfigured() bool {
 		return false
 	}
 	return strings.TrimSpace(c.FingerprintSecretAPIKey) != ""
+}
+
+// PlayerFingerprintAuthRequired is true when player auth and aligned routes must receive fingerprint_request_id.
+// APP_ENV=development never requires it so local core works without VITE_FINGERPRINT_PUBLIC_KEY; use APP_ENV=staging
+// to mirror production fingerprint rules on a local API.
+func (c *Config) PlayerFingerprintAuthRequired() bool {
+	if c == nil {
+		return false
+	}
+	if strings.TrimSpace(strings.ToLower(c.AppEnv)) == "development" {
+		return false
+	}
+	return c.RequireFingerprintPlayerAuth
 }
 
 func parseBoolEnv(s string) bool {

@@ -11,7 +11,7 @@ import {
 
 import { apiErrFromResponse, type ApiErr } from './api/errors'
 import { cachePlayerAvatarUrl, readCachedPlayerAvatarUrl } from './lib/avatarCache'
-import { getAuthFingerprintPayload } from './lib/authFingerprint'
+import { augmentFingerprintRequiredError, getAuthFingerprintPayload } from './lib/authFingerprint'
 import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './lib/playerFetch'
 import { messageCannotReachApi } from './lib/playerNetworkCopy'
 import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
@@ -324,11 +324,13 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
           (res.status === 404 || res.status === 405)
         return {
           ok: false,
-          error: await apiErrFromResponse(
-            res,
-            missingOrigin
-              ? 'Sign-in hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel to your core API https origin and redeploy; add this player URL to PLAYER_CORS_ORIGINS on the API.'
-              : undefined,
+          error: augmentFingerprintRequiredError(
+            await apiErrFromResponse(
+              res,
+              missingOrigin
+                ? 'Sign-in hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel to your core API https origin and redeploy; add this player URL to PLAYER_CORS_ORIGINS on the API.'
+                : undefined,
+            ),
           ),
         }
       }
@@ -416,11 +418,13 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
           (res.status === 404 || res.status === 405)
         return {
           ok: false,
-          error: await apiErrFromResponse(
-            res,
-            missingOrigin
-              ? 'Register hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel and redeploy.'
-              : undefined,
+          error: augmentFingerprintRequiredError(
+            await apiErrFromResponse(
+              res,
+              missingOrigin
+                ? 'Register hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel and redeploy.'
+                : undefined,
+            ),
           ),
         }
       }

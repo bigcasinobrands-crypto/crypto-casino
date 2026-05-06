@@ -1,3 +1,4 @@
+import type { ApiErr } from '../api/errors'
 import {
   FINGERPRINT_AUTH_TIMEOUT_MS,
   getIdentificationWithTimeout,
@@ -7,6 +8,20 @@ import {
 export type AuthFingerprintPayloadResult =
   | { ok: true; extra: Record<string, string> }
   | { ok: false; message: string }
+
+/**
+ * When the API requires Fingerprint but this build has no public key, the server returns
+ * fingerprint_required with an empty body field — add context for local / misconfigured clients.
+ */
+export function augmentFingerprintRequiredError(err: ApiErr): ApiErr {
+  if (err.code !== 'fingerprint_required') return err
+  if (isFingerprintEnabled()) return err
+  const hint = import.meta.env.DEV
+    ? " Local dev: your API expects browser identification. Either set VITE_FINGERPRINT_PUBLIC_KEY (and VITE_FINGERPRINT_REGION) in .env.development, or point DEV_API_PROXY at http://127.0.0.1:9090 and run core with APP_ENV=development / REQUIRE_FINGERPRINT_PLAYER_AUTH unset."
+    : ' Configure VITE_FINGERPRINT_PUBLIC_KEY and VITE_FINGERPRINT_REGION for this deploy; allow this origin in the Fingerprint dashboard.'
+  const base = err.message?.trim() || 'fingerprint_request_id is required.'
+  return { ...err, message: `${base}${hint}` }
+}
 
 /**
  * Fields for login/register/refresh. When the player build has VITE_FINGERPRINT_PUBLIC_KEY,

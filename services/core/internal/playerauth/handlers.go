@@ -63,7 +63,7 @@ type regReq struct {
 	AcceptTerms   bool   `json:"accept_terms"`
 	AcceptPrivacy bool   `json:"accept_privacy"`
 	CaptchaToken  string `json:"captcha_token"`
-	// Fingerprint Pro — required when RequireFingerprintPlayerAuth (default).
+	// Fingerprint Pro — forwarded when present; enforced only outside APP_ENV=development — see config.PlayerFingerprintAuthRequired().
 	FingerprintRequestID string `json:"fingerprint_request_id"`
 	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
 }
@@ -123,7 +123,7 @@ func sessionContextFromRequest(r *http.Request, fpReq, fpVid string) *SessionCon
 
 // rejectIfFingerprintMissing writes 400 fingerprint_required and returns true when the request must be stopped.
 func (h *Handler) rejectIfFingerprintMissing(w http.ResponseWriter, fpReqID string) bool {
-	if h.CookieCfg == nil || !h.CookieCfg.RequireFingerprintPlayerAuth {
+	if h.CookieCfg == nil || !h.CookieCfg.PlayerFingerprintAuthRequired() {
 		return false
 	}
 	if strings.TrimSpace(fpReqID) != "" {

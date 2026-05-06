@@ -68,7 +68,7 @@ func withdrawalPassimpay(
 		playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "amount and destination required")
 		return
 	}
-	if (cfg.WithdrawRequireFingerprint || cfg.RequireFingerprintPlayerAuth) && strings.TrimSpace(body.FingerprintRequestID) == "" {
+	if (cfg.WithdrawRequireFingerprint || cfg.PlayerFingerprintAuthRequired()) && strings.TrimSpace(body.FingerprintRequestID) == "" {
 		playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "fingerprint_request_id required for withdrawals")
 		return
 	}

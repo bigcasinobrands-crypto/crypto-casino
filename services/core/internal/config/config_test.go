@@ -65,7 +65,7 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 	t.Setenv("PLAYER_JWT_SECRET", "")
 	t.Setenv("REQUIRE_FINGERPRINT_PLAYER_AUTH", "")
 
-	t.Run("development_unset_requires_false", func(t *testing.T) {
+		t.Run("development_unset_requires_false", func(t *testing.T) {
 		t.Setenv("APP_ENV", "development")
 		c, err := Load()
 		if err != nil {
@@ -73,6 +73,24 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 		}
 		if c.RequireFingerprintPlayerAuth {
 			t.Fatal("expected RequireFingerprintPlayerAuth false when APP_ENV=development and env unset (local dev without VITE FP)")
+		}
+		if c.PlayerFingerprintAuthRequired() {
+			t.Fatal("expected PlayerFingerprintAuthRequired false in development")
+		}
+	})
+
+	t.Run("development_explicit_true_still_no_request_enforcement", func(t *testing.T) {
+		t.Setenv("APP_ENV", "development")
+		t.Setenv("REQUIRE_FINGERPRINT_PLAYER_AUTH", "true")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !c.RequireFingerprintPlayerAuth {
+			t.Fatal("expected RequireFingerprintPlayerAuth true when explicitly true")
+		}
+		if c.PlayerFingerprintAuthRequired() {
+			t.Fatal("expected PlayerFingerprintAuthRequired false in development so local sign-in works without Fingerprint")
 		}
 	})
 
@@ -85,6 +103,9 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 		if !c.RequireFingerprintPlayerAuth {
 			t.Fatal("expected RequireFingerprintPlayerAuth true when APP_ENV=production and env unset")
 		}
+		if !c.PlayerFingerprintAuthRequired() {
+			t.Fatal("expected PlayerFingerprintAuthRequired true in production when flag true")
+		}
 	})
 
 	t.Run("production_explicit_false", func(t *testing.T) {
@@ -96,6 +117,9 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 		}
 		if c.RequireFingerprintPlayerAuth {
 			t.Fatal("expected RequireFingerprintPlayerAuth false when explicitly false")
+		}
+		if c.PlayerFingerprintAuthRequired() {
+			t.Fatal("expected PlayerFingerprintAuthRequired false when flag false in production")
 		}
 	})
 }
