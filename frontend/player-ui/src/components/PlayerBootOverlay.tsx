@@ -23,7 +23,7 @@ export default function PlayerBootOverlay() {
 
   return (
     <div
-      className={`fixed inset-0 ${PLAYER_BOOT_OVERLAY_Z} flex flex-col overflow-hidden transition-opacity ease-out`}
+      className={`fixed inset-0 ${PLAYER_BOOT_OVERLAY_Z} flex min-h-dvh h-dvh w-full max-w-[100vw] flex-col overflow-hidden transition-opacity ease-out`}
       style={{
         transitionDuration: `${FADE_MS}ms`,
         opacity: fade ? 0 : 1,

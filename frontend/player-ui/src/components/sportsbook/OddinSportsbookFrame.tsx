@@ -47,6 +47,7 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
     },
   )
 
+  // Keep deps stable: height comes from `bifrostHeightPx()` (viewport + shell chrome), not Oddin `page`.
   useEffect(() => {
     if (phase === 'idle' || phase === 'loading_script') return
     const inst = instanceRef.current
@@ -63,7 +64,7 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
     onResize()
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [phase, instanceRef, pageRoute])
+  }, [phase, instanceRef])
 
   const showLoader = phase === 'loading_script' || phase === 'bootstrap' || (phase === 'ready' && !iframeReady)
   const errMsg = shellError || loadMessage
@@ -79,7 +80,7 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
       }`}
     >
       {showLoader ? (
-        <div className="absolute inset-0 z-[1] flex bg-casino-bg/90 backdrop-blur-[2px]">
+        <div className="absolute inset-0 z-[1] flex min-h-0 min-w-0 bg-casino-bg/90 backdrop-blur-[2px]">
           <SportsbookLoadingState />
         </div>
       ) : null}
