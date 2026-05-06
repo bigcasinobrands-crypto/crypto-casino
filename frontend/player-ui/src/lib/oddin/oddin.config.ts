@@ -67,3 +67,14 @@ export function validateOddinPublicConfig(cfg: OddinPublicConfig): { ok: true } 
   }
   return { ok: true }
 }
+
+/**
+ * True when Bifrost should mount: feature flag on and all public fields validate.
+ * If `VITE_ODDIN_ENABLED` is set but brand token or URLs are missing, returns false so the shell shows “coming soon” instead of a configuration error.
+ */
+export function oddinBifrostUsable(): boolean {
+  if (!oddinIframeEnabled()) return false
+  const cfg = readOddinPublicConfig()
+  if (!cfg) return false
+  return validateOddinPublicConfig(cfg).ok
+}
