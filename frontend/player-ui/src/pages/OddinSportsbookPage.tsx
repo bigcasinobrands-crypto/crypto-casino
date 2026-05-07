@@ -81,27 +81,34 @@ function OddinSportsbookPageReady({ publicConfig }: { publicConfig: OddinPublicC
     let cancelled = false
     setPhase('loading')
     ;(async () => {
-      const res = await apiFetch('/v1/sportsbook/oddin/session-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currency, language }),
-      })
-      if (cancelled) return
-      if (res.ok) {
-        const j = (await res.json()) as { token?: string }
-        setSessionToken(typeof j.token === 'string' ? j.token : null)
-        setSessionError(null)
-        setPhase('ready')
-        return
+      try {
+        const res = await apiFetch('/v1/sportsbook/oddin/session-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currency, language }),
+        })
+        if (cancelled) return
+        if (res.ok) {
+          const j = (await res.json()) as { token?: string }
+          setSessionToken(typeof j.token === 'string' ? j.token : null)
+          setSessionError(null)
+          setPhase('ready')
+          return
+        }
+        setSessionToken(null)
+        const err = await res.json().catch(() => null)
+        const msg =
+          err && typeof err === 'object' && 'message' in err && typeof (err as { message?: string }).message === 'string'
+            ? (err as { message: string }).message
+            : 'Could not issue sportsbook session.'
+        setSessionError(msg)
+        setPhase('error')
+      } catch {
+        if (cancelled) return
+        setSessionToken(null)
+        setSessionError('Could not reach the API for a sportsbook session.')
+        setPhase('error')
       }
-      setSessionToken(null)
-      const err = await res.json().catch(() => null)
-      const msg =
-        err && typeof err === 'object' && 'message' in err && typeof (err as { message?: string }).message === 'string'
-          ? (err as { message: string }).message
-          : 'Could not issue sportsbook session.'
-      setSessionError(msg)
-      setPhase('error')
     })()
     return () => {
       cancelled = true

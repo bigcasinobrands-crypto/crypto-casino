@@ -225,44 +225,48 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
   )
 
   const refreshProfile = useCallback(async () => {
-    const t = localStorage.getItem(ACCESS)
-    if (!t && !playerCredentialsMode) return
-    const m = await apiFetch('/v1/auth/me')
-    if (m.ok) {
-      const j = (await m.json()) as MeResponse
-      setMe((prev) => {
-        const sameUser = prev?.id === j.id
-        let avatar = typeof j.avatar_url === 'string' ? j.avatar_url.trim() : ''
-        if (!avatar) {
-          avatar = sameUser && prev?.avatar_url ? prev.avatar_url.trim() : ''
-        }
-        if (!avatar) {
-          const cached = readCachedPlayerAvatarUrl(j.id)
-          if (cached) avatar = cached
-        }
-        const merged: MeResponse = {
-          ...j,
-          ...(avatar ? { avatar_url: avatar } : {}),
-        }
-        if (merged.avatar_url) {
-          cachePlayerAvatarUrl(merged.id, merged.avatar_url)
-        }
-        return merged
-      })
-    } else if (m.status === 401) {
-      setMe(null)
-    }
-    const bal = await apiFetch('/v1/wallet/balance')
-    if (bal.ok) {
-      const j = (await bal.json()) as {
-        balance_minor: number
-        cash_minor?: number
-        bonus_locked_minor?: number
+    try {
+      const t = localStorage.getItem(ACCESS)
+      if (!t && !playerCredentialsMode) return
+      const m = await apiFetch('/v1/auth/me')
+      if (m.ok) {
+        const j = (await m.json()) as MeResponse
+        setMe((prev) => {
+          const sameUser = prev?.id === j.id
+          let avatar = typeof j.avatar_url === 'string' ? j.avatar_url.trim() : ''
+          if (!avatar) {
+            avatar = sameUser && prev?.avatar_url ? prev.avatar_url.trim() : ''
+          }
+          if (!avatar) {
+            const cached = readCachedPlayerAvatarUrl(j.id)
+            if (cached) avatar = cached
+          }
+          const merged: MeResponse = {
+            ...j,
+            ...(avatar ? { avatar_url: avatar } : {}),
+          }
+          if (merged.avatar_url) {
+            cachePlayerAvatarUrl(merged.id, merged.avatar_url)
+          }
+          return merged
+        })
+      } else if (m.status === 401) {
+        setMe(null)
       }
-      setBal(j.balance_minor)
-      const cash = typeof j.cash_minor === 'number' ? j.cash_minor : j.balance_minor
-      const bonus = typeof j.bonus_locked_minor === 'number' ? j.bonus_locked_minor : 0
-      setBalanceBreakdown({ cashMinor: cash, bonusLockedMinor: bonus })
+      const bal = await apiFetch('/v1/wallet/balance')
+      if (bal.ok) {
+        const j = (await bal.json()) as {
+          balance_minor: number
+          cash_minor?: number
+          bonus_locked_minor?: number
+        }
+        setBal(j.balance_minor)
+        const cash = typeof j.cash_minor === 'number' ? j.cash_minor : j.balance_minor
+        const bonus = typeof j.bonus_locked_minor === 'number' ? j.bonus_locked_minor : 0
+        setBalanceBreakdown({ cashMinor: cash, bonusLockedMinor: bonus })
+      }
+    } catch {
+      // fetch / json can throw; never leak unhandled rejections (Oddin calls onRefreshBalance with void).
     }
   }, [apiFetch])
 

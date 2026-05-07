@@ -109,7 +109,7 @@ export function useOddinBifrost(
           break
         case 'REQUEST_REFRESH_BALANCE':
           void postClientEvent('REQUEST_REFRESH_BALANCE', {})
-          void o.onRefreshBalance?.()
+          void Promise.resolve(o.onRefreshBalance?.()).catch(() => {})
           break
         case 'ROUTE_CHANGE': {
           const route = routeFromOddinEvent(ev)
@@ -198,7 +198,13 @@ export function useOddinBifrost(
       }
     }
 
-    void run()
+    void run().catch((e) => {
+      if (cancelled || destroyedRef.current) return
+      const msg = e instanceof Error ? e.message : 'Oddin initialization failed.'
+      setPhase('error')
+      setLoadMessage(msg)
+      optsRef.current.onError?.(msg)
+    })
 
     return () => {
       cancelled = true
