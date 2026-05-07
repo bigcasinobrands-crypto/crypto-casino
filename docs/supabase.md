@@ -54,6 +54,26 @@ Copy placeholders from **[`docs/env/render-core.env.template`](./env/render-core
 
 `REDIS_URL` is still used for parts of the stack (queues, some auth flows). Supabase does not replace Redis. For a small cloud setup, a free [Upstash](https://upstash.com) Redis URL is a common choice, or keep using local Redis via Docker when developing.
 
+## 8. Cursor: Supabase MCP (this repo)
+
+The project includes **`.cursor/mcp.json`** so Cursor loads the [official hosted Supabase MCP server](https://supabase.com/docs/guides/getting-started/mcp) for this workspace.
+
+1. **Restart Cursor** (or reload the window) after pulling so the config is picked up.
+2. Open **Settings → Cursor Settings → Tools & MCP**, find **supabase**, and complete **Sign in** (browser OAuth to Supabase). Pick the org that owns your database project.
+3. **Verify:** in Agent chat, ask for something concrete (e.g. “List tables in my Supabase project via MCP”) and approve the tool call when prompted.
+
+**Current URL** (in `.cursor/mcp.json`): `read_only=true` so `execute_sql` runs as a read‑only role when possible — safer for assistants. Schema changes should stay in repo migrations (`npm run migrate:core`) or be reviewed carefully if you temporarily switch to read/write.
+
+**Optional tightening:** add your project ref so tools only see that project (disables broad account tools):
+
+- Replace the `url` with  
+  `https://mcp.supabase.com/mcp?project_ref=<YOUR_PROJECT_REF>&read_only=true`  
+  (`<YOUR_PROJECT_REF>` is the short id in the dashboard URL, e.g. `abcdefghijklmnop`).
+
+**CI / no browser:** use a [personal access token](https://supabase.com/dashboard/account/tokens) and headers as in Supabase docs (not stored in this repo).
+
+**Security:** Treat MCP like developer access to the database — prefer a **non‑production** branch/project when experimenting; review every tool approval. See Supabase’s [MCP security notes](https://supabase.com/docs/guides/getting-started/mcp).
+
 ## Troubleshooting
 
 - **Render / deploy: `network is unreachable` dialing `[ipv6]:5432` to `db.*.supabase.co`:** your host has **no IPv6 route** to Supabase’s direct endpoint. Fix: set **`DATABASE_URL`** to the **Session pooler** connection string from **Connect** (pooler hostname, often `*.pooler.supabase.com`). Alternatively enable Supabase **IPv4 add-on** for the direct connection (paid).
