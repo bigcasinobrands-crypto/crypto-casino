@@ -34,17 +34,31 @@ Oddin will also specify **which Bifrost host** to use (e.g. `bifrost.integration
 
 | Endpoint | Purpose (typical) | This repo |
 |----------|-------------------|-----------|
-| `POST /v1/oddin/userDetails` | Authenticate token + return user (id, currency, language, balance) | **Implemented** — looks up `sportsbook_sessions` (token issued by `POST /v1/sportsbook/oddin/session-token`) and returns `{ errorCode: "OK", userId, currency, language, balance, balanceMinor }`. Failure paths return `INVALID_TOKEN` / `TOKEN_EXPIRED` / `TOKEN_REVOKED` / `OPERATOR_UNAVAILABLE` (HTTP 200 with `errorCode` in body — Oddin's authenticator parses this). |
-| `POST /v1/oddin/debitUser` | Stake / reserve funds | **Stub** — returns `OPERATOR_NOT_READY` until the wallet ledger contract is wired. |
-| `POST /v1/oddin/creditUser` | Payout / return funds | **Stub** — `OPERATOR_NOT_READY` |
+| `POST /v1/oddin/userDetails` | Authenticate token + return user (id, currency, language, balance) | **Implemented** — looks up `sportsbook_sessions` (token issued by `POST /v1/sportsbook/oddin/session-token`) and returns `{ errorCode: 0, errorMessage: "", userId, currency, language, balance, balanceMinor }`. Failure paths return integer codes `100` invalid token, `101` expired, `102` revoked, `901` operator error (db/etc.). HTTP **200** with `errorCode` in body — Oddin's authenticator parses an **int**. |
+| `POST /v1/oddin/debitUser` | Stake / reserve funds | **Stub** — returns `errorCode: 900` ("operator wallet not ready") until the wallet ledger contract is wired. |
+| `POST /v1/oddin/creditUser` | Payout / return funds | **Stub** — `errorCode: 900`. |
 | `POST /userDetails` | Root alias (Oddin default callback URL) | **Same handler** as `/v1/oddin/userDetails`. |
-| `POST /debitUser` | Root alias | **Stub** — `OPERATOR_NOT_READY` |
-| `POST /creditUser` | Root alias | **Stub** — `OPERATOR_NOT_READY` |
+| `POST /debitUser` | Root alias | **Stub** — `errorCode: 900`. |
+| `POST /creditUser` | Root alias | **Stub** — `errorCode: 900`. |
 | `POST …/*/` variants | Trailing slash on any of the above paths | **Same handlers** (Oddin dashboards sometimes append `/`). |
 
-The token field in the request body is read in this order: **`token`**, `userToken`, `playerToken`, `accessToken`, `session_token`, `sessionToken` — first non-empty wins. **All operator responses are HTTP 200**; success/failure is signaled by **`errorCode`** so the Bifrost authenticator can parse instead of treating non-2xx as a transport failure.
+The token field in the request body is read in this order: **`token`**, `userToken`, `playerToken`, `accessToken`, `session_token`, `sessionToken` — first non-empty wins. **All operator responses are HTTP 200**; success/failure is signaled by an **integer `errorCode`** (Oddin's authenticator parses an `int`; a string like `"OK"` triggers `unexpected character: \"`). Each response also carries `errorMessage` (and a duplicate `message`) for human context.
 
-**Token validation is live**: Oddin's `Authenticator.ParseRequest` will resolve a player from a Bifrost session token. Until **debit/credit** are wired to the casino ledger (still stubs returning `OPERATOR_NOT_READY`), bet placement will fail server-side even though sign-in/balance refresh succeed; implement ledger debits/credits per Oddin's contract and replace the stubs in `services/core/internal/oddin/handler_operator.go`.
+**Error code catalog** (defined in `services/core/internal/oddin/handler_operator.go` — keep stable):
+
+| Code | Meaning |
+|------|---------|
+| `0` | OK |
+| `100` | Invalid / unknown token |
+| `101` | Token expired |
+| `102` | Token revoked / session not active |
+| `103` | User not found |
+| `104` | User disabled |
+| `200` | Insufficient funds (debit) |
+| `900` | Operator not ready (debit/credit stubs) |
+| `901` | Operator-side error (database unavailable, etc.) |
+
+**Token validation is live**: Oddin's `Authenticator.ParseRequest` resolves a player from a Bifrost session token. Until **debit/credit** are wired to the casino ledger (still stubs returning `errorCode: 900`), bet placement will fail server-side even though sign-in/balance refresh succeed; implement ledger debits/credits per Oddin's contract and replace the stubs in `services/core/internal/oddin/handler_operator.go`.
 
 ## Environment variables (quick map)
 

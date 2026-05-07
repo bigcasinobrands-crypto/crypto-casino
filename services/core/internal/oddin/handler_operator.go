@@ -20,11 +20,28 @@ import (
 
 // OperatorHandler serves Oddin operator (S2S) callbacks. `userDetails` validates Bifrost session
 // tokens issued by `POST /v1/sportsbook/oddin/session-token`; `debitUser` / `creditUser` are
-// stubs until the wallet → ledger contract is wired (responses use Oddin-style `errorCode`).
+// stubs until the wallet → ledger contract is wired.
+//
+// Response shape: HTTP **200** + JSON body with **integer** `errorCode` (Oddin parses an int,
+// not a string). 0 = OK; non-zero = recoverable, parseable error. `errorMessage` is human text.
 type OperatorHandler struct {
 	Pool *pgxpool.Pool
 	Cfg  *config.Config
 }
+
+// Operator error codes (Oddin/seamless-wallet style: int). Keep stable — Oddin maps these.
+const (
+	ErrCodeOK                int = 0
+	ErrCodeUnknown           int = 1   // generic / fallback
+	ErrCodeInvalidToken      int = 100 // token missing or not recognized
+	ErrCodeTokenExpired      int = 101
+	ErrCodeTokenRevoked      int = 102
+	ErrCodeUserNotFound      int = 103
+	ErrCodeUserDisabled      int = 104
+	ErrCodeInsufficientFunds int = 200
+	ErrCodeOperatorNotReady  int = 900 // wallet endpoints stubbed
+	ErrCodeOperatorError     int = 901 // unexpected operator-side failure (db, etc.)
+)
 
 type operatorLog struct {
 	Endpoint   string
@@ -59,6 +76,16 @@ func (h *OperatorHandler) logRequest(ctx context.Context, ep string, body map[st
 	var ec *int
 	if log.ErrCode != nil {
 		ec = log.ErrCode
+	} else if log.BodyOut != nil {
+		// Best-effort: derive numeric error_code from BodyOut so audit columns stay consistent.
+		switch v := log.BodyOut["errorCode"].(type) {
+		case int:
+			c := v
+			ec = &c
+		case float64:
+			c := int(v)
+			ec = &c
+		}
 	}
 	_, _ = h.Pool.Exec(ctx, `
 INSERT INTO sportsbook_provider_requests (provider, endpoint, provider_transaction_id, ticket_id, user_id, request_body, response_body, status, error_code)
@@ -80,11 +107,21 @@ func ClientIP(r *http.Request) string {
 }
 
 // writeOperatorJSON returns HTTP 200 + JSON body. Operator callbacks always return 200; outcome
-// is signaled in the body via `errorCode` so Oddin's authenticator can parse the response.
+// is signaled in the body via integer `errorCode` so Oddin's authenticator can parse the response.
 func writeOperatorJSON(w http.ResponseWriter, body map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// errorBody builds the standard error envelope: integer `errorCode`, human-readable
+// `errorMessage` plus a duplicate `message` for any client that already reads it.
+func errorBody(code int, message string) map[string]any {
+	return map[string]any{
+		"errorCode":    code,
+		"errorMessage": message,
+		"message":      message,
+	}
 }
 
 // hashOperatorToken mirrors hashOpaqueToken in handler_player.go (SHA-256 hex of the plain token).
@@ -110,32 +147,26 @@ func operatorTokenFromBody(body map[string]any) string {
 	return ""
 }
 
-// UserDetails validates a Bifrost session token and returns the user's wallet snapshot. Oddin
-// calls this each time it needs to identify the player behind a token (auth, balance refresh).
-// Returns Oddin-style `errorCode` on failure so the authenticator can parse without falling back
-// to a transport-error path.
+// UserDetails validates a Bifrost session token and returns the user's wallet snapshot.
+// Failure paths return integer `errorCode` so Oddin's authenticator can parse without falling
+// back to a transport-error path.
 func (h *OperatorHandler) UserDetails(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
 	token := operatorTokenFromBody(body)
 	if token == "" {
+		out := errorBody(ErrCodeInvalidToken, "missing token in request body")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
-			BodyOut:  map[string]any{"errorCode": "INVALID_TOKEN"},
+			BodyOut:  out,
 		})
-		writeOperatorJSON(w, map[string]any{
-			"errorCode": "INVALID_TOKEN",
-			"message":   "missing token in request body",
-		})
+		writeOperatorJSON(w, out)
 		return
 	}
 
 	if h.Pool == nil {
-		writeOperatorJSON(w, map[string]any{
-			"errorCode": "OPERATOR_UNAVAILABLE",
-			"message":   "database unavailable",
-		})
+		writeOperatorJSON(w, errorBody(ErrCodeOperatorError, "database unavailable"))
 		return
 	}
 
@@ -156,40 +187,34 @@ ORDER BY created_at DESC
 LIMIT 1
 `, tokHash).Scan(&userID, &currency, &language, &expiresAt, &status)
 	if err != nil || strings.TrimSpace(userID) == "" {
+		out := errorBody(ErrCodeInvalidToken, "token not recognized")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
-			BodyOut:  map[string]any{"errorCode": "INVALID_TOKEN"},
+			BodyOut:  out,
 		})
-		writeOperatorJSON(w, map[string]any{
-			"errorCode": "INVALID_TOKEN",
-			"message":   "token not recognized",
-		})
+		writeOperatorJSON(w, out)
 		return
 	}
 
 	if !strings.EqualFold(status, "ACTIVE") {
+		out := errorBody(ErrCodeTokenRevoked, "session is not active")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
-			BodyOut:  map[string]any{"errorCode": "TOKEN_REVOKED"},
+			BodyOut:  out,
 		})
-		writeOperatorJSON(w, map[string]any{
-			"errorCode": "TOKEN_REVOKED",
-			"message":   "session is not active",
-		})
+		writeOperatorJSON(w, out)
 		return
 	}
 	if !expiresAt.IsZero() && time.Now().UTC().After(expiresAt.UTC()) {
+		out := errorBody(ErrCodeTokenExpired, "session expired")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
-			BodyOut:  map[string]any{"errorCode": "TOKEN_EXPIRED"},
+			BodyOut:  out,
 		})
-		writeOperatorJSON(w, map[string]any{
-			"errorCode": "TOKEN_EXPIRED",
-			"message":   "session expired",
-		})
+		writeOperatorJSON(w, out)
 		return
 	}
 
@@ -211,7 +236,8 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 	}
 
 	out := map[string]any{
-		"errorCode":    "OK",
+		"errorCode":    ErrCodeOK,
+		"errorMessage": "",
 		"userId":       userID,
 		"currency":     currency,
 		"language":     language,
@@ -233,10 +259,7 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 func (h *OperatorHandler) DebitUserStub(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
-	out := map[string]any{
-		"errorCode": "OPERATOR_NOT_READY",
-		"message":   "operator wallet (debit) not enabled",
-	}
+	out := errorBody(ErrCodeOperatorNotReady, "operator wallet (debit) not enabled")
 	h.logRequest(ctx, "debitUser", body, operatorLog{
 		Endpoint: "debitUser",
 		Status:   "STUB_REJECT",
@@ -249,10 +272,7 @@ func (h *OperatorHandler) DebitUserStub(w http.ResponseWriter, r *http.Request) 
 func (h *OperatorHandler) CreditUserStub(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
-	out := map[string]any{
-		"errorCode": "OPERATOR_NOT_READY",
-		"message":   "operator wallet (credit) not enabled",
-	}
+	out := errorBody(ErrCodeOperatorNotReady, "operator wallet (credit) not enabled")
 	h.logRequest(ctx, "creditUser", body, operatorLog{
 		Endpoint: "creditUser",
 		Status:   "STUB",
