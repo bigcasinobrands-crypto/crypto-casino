@@ -1,8 +1,19 @@
 const SCRIPT_ATTR = 'data-oddin-bifrost-script'
 
+/** Last successfully loaded script href (avoids re-injecting the same URL; supports env switch without full page reload). */
+let lastLoadedOddinScriptHref: string | null = null
+
 export type LoadOddinScriptResult =
   | { ok: true }
   | { ok: false; message: string }
+
+function scriptHref(scriptUrl: string): string | null {
+  try {
+    return new URL(scriptUrl, window.location.href).href
+  } catch {
+    return null
+  }
+}
 
 function findInjectedScript(scriptUrl: string): HTMLScriptElement | null {
   const nodes = document.querySelectorAll<HTMLScriptElement>(`script[${SCRIPT_ATTR}]`)
@@ -49,17 +60,32 @@ export async function loadOddinScript(scriptUrl: string, timeoutMs = 25_000): Pr
     return { ok: false, message: 'Missing Oddin script URL.' }
   }
 
-  if (window.oddin?.buildBifrost) {
+  const href = scriptHref(scriptUrl.trim())
+  if (!href) {
+    return { ok: false, message: 'Invalid Oddin script URL.' }
+  }
+
+  if (window.oddin?.buildBifrost && lastLoadedOddinScriptHref === href) {
     return { ok: true }
+  }
+
+  if (lastLoadedOddinScriptHref !== null && lastLoadedOddinScriptHref !== href) {
+    document.querySelectorAll<HTMLScriptElement>(`script[${SCRIPT_ATTR}]`).forEach((s) => s.remove())
+    try {
+      delete (window as unknown as { oddin?: unknown }).oddin
+    } catch {
+      /* ignore */
+    }
+    lastLoadedOddinScriptHref = null
   }
 
   let el = findInjectedScript(scriptUrl)
   if (!el) {
     el = document.createElement('script')
     el.async = true
-    el.src = scriptUrl
+    el.src = scriptUrl.trim()
     el.setAttribute(SCRIPT_ATTR, '1')
-    el.crossOrigin = 'anonymous'
+    // Do not set crossOrigin: Oddin's CDN may not send ACAO; that would block execution in strict CORS mode.
     document.head.appendChild(el)
   }
 
@@ -71,5 +97,9 @@ export async function loadOddinScript(scriptUrl: string, timeoutMs = 25_000): Pr
     )
   })
 
-  return Promise.race([waitForBuildBifrost(timeoutMs), errPromise])
+  const result = await Promise.race([waitForBuildBifrost(timeoutMs), errPromise])
+  if (result.ok) {
+    lastLoadedOddinScriptHref = href
+  }
+  return result
 }

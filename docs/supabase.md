@@ -56,19 +56,18 @@ Copy placeholders from **[`docs/env/render-core.env.template`](./env/render-core
 
 ## 8. Cursor: Supabase MCP (this repo)
 
-The project includes **`.cursor/mcp.json`** so Cursor loads the [official hosted Supabase MCP server](https://supabase.com/docs/guides/getting-started/mcp) for this workspace. The same file also defines **Render** and **Vercel** MCP — see **[`docs/deploy/README.md`](./deploy/README.md)** for setup (API key vs OAuth).
+The project includes **`.cursor/mcp.json`** so Cursor loads the [official hosted Supabase MCP server](https://supabase.com/docs/guides/getting-started/mcp) for this workspace. The same file also defines **Render** and **Vercel** MCP — see **[`docs/deploy/README.md`](./deploy/README.md)** for the full checklist.
 
-1. **Restart Cursor** (or reload the window) after pulling so the config is picked up.
-2. Open **Settings → Cursor Settings → Tools & MCP**, find **supabase**, and complete **Sign in** (browser OAuth to Supabase). Pick the org that owns your database project.
-3. **Verify:** in Agent chat, ask for something concrete (e.g. “List tables in my Supabase project via MCP”) and approve the tool call when prompted.
+1. Set user/OS env **`SUPABASE_MCP_PROJECT_REF`** to your Supabase **Reference ID** (Dashboard → *Project Settings* → *General*, same value as in `db.<ref>.supabase.co`).
+2. **Restart Cursor** after pulling or editing `.cursor/mcp.json` so the config is picked up.
+3. Open **Settings → Cursor Settings → Tools & MCP**, find **supabase**, and complete **Sign in** (browser OAuth).
+4. **Verify:** in Agent chat, ask for something concrete (e.g. “List tables in my Supabase project via MCP”) and approve the tool call when prompted.
 
-**Current URL** (in `.cursor/mcp.json`): `read_only=true` so `execute_sql` runs as a read‑only role when possible — safer for assistants. Schema changes should stay in repo migrations (`npm run migrate:core`) or be reviewed carefully if you temporarily switch to read/write.
+**URL** (in `.cursor/mcp.json`): `read_only=true` plus `project_ref=${env:SUPABASE_MCP_PROJECT_REF}` so tools stay scoped to one project. Schema changes should stay in repo migrations (`npm run migrate:core`) or be reviewed carefully if you temporarily switch to read/write.
 
-**Optional tightening:** add your project ref so tools only see that project (disables broad account tools):
-
-- Replace the `url` with  
-  `https://mcp.supabase.com/mcp?project_ref=<YOUR_PROJECT_REF>&read_only=true`  
-  (`<YOUR_PROJECT_REF>` is the short id in the dashboard URL, e.g. `abcdefghijklmnop`).
+**OAuth-only / multi-project:** if you omit the project ref, use  
+`https://mcp.supabase.com/mcp?read_only=true`  
+in `.cursor/mcp.json` and pick the project when signing in (less strict scoping).
 
 **CI / no browser:** use a [personal access token](https://supabase.com/dashboard/account/tokens) and headers as in Supabase docs (not stored in this repo).
 

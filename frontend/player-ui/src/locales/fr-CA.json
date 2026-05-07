@@ -285,6 +285,12 @@
     "scrollLeft": "Défiler vers la gauche",
     "scrollRight": "Défiler vers la droite",
     "noGamesInRow": "Aucun jeu dans cette rangée pour le moment.",
+    "catalogFaultOrigin":
+      "Impossible de charger le lobby : les requêtes atteignent ce site au lieu de l'API (ou la réponse est du HTML). Dans Vercel → Variables d'environnement, définissez VITE_PLAYER_API_ORIGIN (URL publique de l'API, sans slash final) et redéployez. Sur l'API, ajoutez l'origine du joueur à PLAYER_CORS_ORIGINS (ex. https://*.vercel.app).",
+    "catalogFaultCors":
+      "Impossible de charger le lobby : le navigateur n'a pas pu joindre l'API (souvent CORS ou réseau). Vérifiez VITE_PLAYER_API_ORIGIN. Sur l'API, incluez cette origine dans PLAYER_CORS_ORIGINS (ex. https://*.vercel.app pour les prévisualisations).",
+    "catalogFaultApi":
+      "Impossible de charger le lobby : l'API a renvoyé une erreur ou des données invalides. Vérifiez que le service core est disponible et que GET /v1/games fonctionne avec integration=blueocean.",
     "sectionLiveCasino": "Casino en direct",
     "searchPlaceholder": "Rechercher des titres ou studios",
     "searchAriaLabel": "Rechercher des jeux par titre ou studio",

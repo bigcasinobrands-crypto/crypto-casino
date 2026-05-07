@@ -41,6 +41,18 @@ export function useOddinBifrost(
   const cfgRef = useRef(publicConfig)
   cfgRef.current = publicConfig
 
+  /** When bootstrap merges core `public-config` after first paint, rebuild Bifrost so script/base/token/env stay in sync. */
+  const bifrostConfigKey = [
+    publicConfig.scriptUrl,
+    publicConfig.baseUrl,
+    publicConfig.brandToken,
+    publicConfig.defaultLanguage,
+    publicConfig.defaultCurrency,
+    String(publicConfig.darkMode),
+    publicConfig.theme ?? '',
+    publicConfig.envLabel,
+  ].join('\0')
+
   const postClientEvent = useCallback(async (eventType: string, extra: { action?: string; route?: string; payload?: Record<string, unknown> }) => {
     const uid = optsRef.current.userId
     try {
@@ -198,7 +210,7 @@ export function useOddinBifrost(
       }
       instanceRef.current = null
     }
-  }, [handleIframeEvent])
+  }, [handleIframeEvent, bifrostConfigKey])
 
   useEffect(() => {
     const inst = instanceRef.current

@@ -285,6 +285,12 @@
     "scrollLeft": "Scroll left",
     "scrollRight": "Scroll right",
     "noGamesInRow": "No games in this row yet.",
+    "catalogFaultOrigin":
+      "Lobby could not load games: requests are hitting this site instead of the core API (or the response was HTML, not JSON). In Vercel → Environment Variables set VITE_PLAYER_API_ORIGIN to your public API URL (no trailing slash) and redeploy. On the API host, include your player URL in PLAYER_CORS_ORIGINS (e.g. https://*.vercel.app).",
+    "catalogFaultCors":
+      "Lobby could not load games: the browser could not reach the API (often CORS or network). Confirm VITE_PLAYER_API_ORIGIN points to your live core API. On core, set PLAYER_CORS_ORIGINS to include this origin (e.g. https://*.vercel.app for previews).",
+    "catalogFaultApi":
+      "Lobby could not load games: the API returned an error or invalid data. Check that the core service is healthy and GET /v1/games works for integration=blueocean.",
     "sectionLiveCasino": "Live casino",
     "searchPlaceholder": "Search titles or studios",
     "searchAriaLabel": "Search games by title or studio",

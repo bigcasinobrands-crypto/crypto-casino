@@ -64,23 +64,18 @@ If login returned HTTP **500** with `session` / `family_id` errors, the database
 
 Tests tagged `integration` run against ephemeral Postgres/Redis in GitHub Actions (see `.github/workflows/ci.yml`).
 
-## Cursor: Render MCP
+## Cursor MCP (this repo)
 
-This repo’s **`.cursor/mcp.json`** includes Render’s [hosted MCP server](https://docs.render.com/docs/mcp-server) so agents can list services, read logs/metrics, and (with care) adjust env vars.
+Workspace file: **`.cursor/mcp.json`**. Restart Cursor after editing.
 
-1. Create an API key: [Dashboard → Account → API keys](https://dashboard.render.com/settings#api-keys). Keys are broadly scoped—treat them like root access to your Render workspaces.
-2. Set environment variable **`RENDER_API_KEY`** for your user session (Windows: System Properties → Environment Variables, or set it in the shell profile you use to launch Cursor). **Do not** commit the key; `.cursor/mcp.json` uses `Authorization: Bearer ${env:RENDER_API_KEY}`.
-3. Restart Cursor, open **Settings → Tools & MCP**, confirm **render** connects.
-4. First prompt in chat: set workspace, e.g. `Set my Render workspace to [WORKSPACE_NAME]`, then `List my Render services` (approve tool calls).
+| Server | Purpose | One-time setup |
+|--------|---------|----------------|
+| **supabase** | Schema, read-only SQL, project tools | Set OS/user env **`SUPABASE_MCP_PROJECT_REF`** to your Supabase **Project ID** (Dashboard → *Project Settings* → *General* → *Reference ID*, e.g. the segment in `db.<ref>.supabase.co`). Then **Settings → Tools & MCP → supabase** → **Sign in** (OAuth). The URL uses `read_only=true` for safer assistants. |
+| **render** | Services, logs, metrics, env vars (API) | Create an API key: [Dashboard → Account → API keys](https://dashboard.render.com/settings#api-keys). Set **`RENDER_API_KEY`** on your user/OS environment (same session that launches Cursor). **Do not** commit the key. |
+| **vercel** | Projects, deployments, logs | **Settings → Tools & MCP → vercel** → **Sign in with Vercel** (OAuth). No repo secret. |
 
-Limitations and safety notes are documented on Render’s MCP page (e.g. env updates are the main mutating operation; no deploy triggers via MCP).
+**Oddin / Bifrost** is not an MCP product—verify **`ODDIN_*`** and **`PLAYER_CORS_ORIGINS`** on your Render service (env + logs) or in the dashboard. See **`docs/oddin-iframe-integration.md`**.
 
-## Cursor: Vercel MCP
+If your Cursor build does not expand `${env:SUPABASE_MCP_PROJECT_REF}` in the URL, replace it in `.cursor/mcp.json` with your literal reference ID (keep the value out of git if the file is shared publicly—or keep using the env var only on your machine).
 
-The same **`.cursor/mcp.json`** entry **`vercel`** points at [Vercel’s hosted MCP](https://vercel.com/docs/mcp/vercel-mcp) (`https://mcp.vercel.com`). **No API key in the repo** — Cursor prompts you to **Sign in with Vercel** (OAuth) the first time.
-
-1. Restart Cursor after pulling.
-2. **Settings → Tools & MCP** → **vercel** → complete auth if needed.
-3. Try: “List my Vercel projects” or “Status of latest deployment for this repo” (approve tool calls).
-
-See Vercel’s [Cursor + MCP](https://vercel.com/docs/mcp/vercel-mcp#cursor) docs for capabilities (deployments, logs, projects).
+**Tips:** After connecting **render**, set your Render workspace in chat when prompted, then list services (approve tool calls). Render MCP can update env vars but does not trigger deploys by itself—see [Render MCP](https://docs.render.com/docs/mcp-server). **vercel** capabilities: [Vercel MCP + Cursor](https://vercel.com/docs/mcp/vercel-mcp#cursor).

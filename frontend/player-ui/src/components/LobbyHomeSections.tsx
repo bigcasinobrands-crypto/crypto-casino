@@ -20,12 +20,25 @@ type Game = {
   live?: boolean
 }
 
+type CatalogFault = 'relative' | 'http' | 'network' | 'bad_body'
+
+function worseCatalogFault(a: CatalogFault | null, b: CatalogFault | null): CatalogFault | null {
+  if (!b) return a
+  if (!a) return b
+  const rank: Record<CatalogFault, number> = { http: 1, bad_body: 2, network: 3, relative: 4 }
+  return rank[b] > rank[a] ? b : a
+}
+
 /** Catalog uses plain fetch + `playerApiUrl` only — never Fingerprint or auth fingerprint payloads — so lobby tiles cannot break when security integrations change. */
-async function fetchGames(query: string): Promise<Game[]> {
+async function fetchGames(query: string): Promise<{ games: Game[]; fault?: CatalogFault; status?: number }> {
   const path = `/v1/games?${query}`
   const url = playerApiUrl(path)
+  const isRelative = !(url.startsWith('https://') || url.startsWith('http://'))
+
   try {
     const res = await fetch(url)
+    const text = await res.text()
+
     if (!res.ok) {
       if (import.meta.env.DEV) {
         const hint = !playerApiOriginConfigured()
@@ -33,15 +46,34 @@ async function fetchGames(query: string): Promise<Game[]> {
           : ''
         console.warn(`[catalog] GET ${path} → ${res.status}${hint}`, url)
       }
-      return []
+      return {
+        games: [],
+        fault: isRelative ? 'relative' : 'http',
+        status: res.status,
+      }
     }
-    const j = (await res.json()) as { games?: Game[] }
-    return j.games ?? []
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      if (import.meta.env.DEV) {
+        console.warn('[catalog] GET games returned non-JSON (often index.html when API origin is missing)', url)
+      }
+      return { games: [], fault: isRelative ? 'relative' : 'bad_body', status: res.status }
+    }
+
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { games?: unknown }).games)) {
+      return { games: [], fault: isRelative ? 'relative' : 'bad_body', status: res.status }
+    }
+
+    const rawGames = (parsed as { games: Game[] }).games ?? []
+    return { games: rawGames }
   } catch (e) {
     if (import.meta.env.DEV) {
       console.warn('[catalog] GET games failed (network)', url, e)
     }
-    return []
+    return { games: [], fault: 'network' }
   }
 }
 
@@ -336,6 +368,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
   const [liveLoaded, setLiveLoaded] = useState(false)
   const [bonus, setBonus] = useState<Game[]>([])
   const [bonusLoaded, setBonusLoaded] = useState(false)
+  const [catalogFault, setCatalogFault] = useState<CatalogFault | null>(null)
   const routeKey = `${location.pathname}\u0000${location.key}`
 
   /** Only `routeKey` — periodic catalog sync / visibility must not clear rows or cancel requests (causes skeleton + thumb flash). */
@@ -357,18 +390,22 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
       setNewLoaded(false)
       setLiveLoaded(false)
       setBonusLoaded(false)
+      setCatalogFault(null)
     }
 
-    const apply = (games: Game[], setList: (g: Game[]) => void, setDone: (v: boolean) => void) => {
+    const apply = (
+      result: Awaited<ReturnType<typeof fetchGames>>,
+      setList: (g: Game[]) => void,
+      setDone: (v: boolean) => void,
+    ) => {
       if (gen !== fetchGeneration.current) return
-      setList(dedupeGamesById(games))
+      setCatalogFault((prev) => worseCatalogFault(prev, result.fault ?? null))
+      setList(dedupeGamesById(result.games))
       setDone(true)
     }
 
     void fetchGames(`integration=blueocean&featured=1&limit=${lim}`).then((f) => apply(f, setFeatured, setFeaturedLoaded))
-    void fetchGames(`integration=blueocean&limit=${lim}&sort=new`).then((h) =>
-      apply(h, setHotFallback, setHotFallbackLoaded),
-    )
+    void fetchGames(`integration=blueocean&limit=${lim}&sort=new`).then((h) => apply(h, setHotFallback, setHotFallbackLoaded))
     void fetchGames(`integration=blueocean&category=slots&limit=${lim}`).then((s) => apply(s, setSlots, setSlotsLoaded))
     void fetchGames(`integration=blueocean&category=new&limit=${lim}`).then((n) => apply(n, setNewRel, setNewLoaded))
     void fetchGames(`integration=blueocean&category=live&limit=${lim}`).then((l) => apply(l, setLive, setLiveLoaded))
@@ -380,8 +417,37 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
   const hotRowReady =
     featuredLoaded && (featured.length > 0 || hotFallbackLoaded)
 
+  const allCatalogLoaded =
+    hotRowReady && slotsLoaded && newLoaded && liveLoaded && bonusLoaded
+  const allRowsEmpty =
+    featured.length === 0 &&
+    hotFallback.length === 0 &&
+    slots.length === 0 &&
+    newRel.length === 0 &&
+    live.length === 0 &&
+    bonus.length === 0
+
+  const catalogFaultMessage = useMemo(() => {
+    if (!import.meta.env.PROD || !allCatalogLoaded || !allRowsEmpty || !catalogFault) return null
+    if (!playerApiOriginConfigured() || catalogFault === 'relative') {
+      return t('lobby.catalogFaultOrigin')
+    }
+    if (catalogFault === 'network') {
+      return t('lobby.catalogFaultCors')
+    }
+    return t('lobby.catalogFaultApi')
+  }, [allCatalogLoaded, allRowsEmpty, catalogFault, t])
+
   return (
     <div className="min-w-0">
+      {catalogFaultMessage ? (
+        <div
+          className="mb-4 rounded-lg border border-red-500/35 bg-red-500/10 px-3 py-2.5 text-center text-[11px] font-semibold leading-snug text-red-100/95"
+          role="alert"
+        >
+          {catalogFaultMessage}
+        </div>
+      ) : null}
       <GameSection
         title={t('nav.casino.hot_now')}
         viewAllTo="/casino/challenges"

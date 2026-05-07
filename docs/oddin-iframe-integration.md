@@ -23,8 +23,8 @@ Oddin will also specify **which Bifrost host** to use (e.g. `bifrost.integration
 
 ## How this repo embeds Bifrost (iframe)
 
-1. **Feature flag**: Player route **`/casino/sports`** mounts the real iframe only when `VITE_ODDIN_ENABLED=true` or `1` (see `CasinoSportsPage`).
-2. **Script load**: `loadOddinScript(VITE_ODDIN_SCRIPT_URL)` then `window.oddin.buildBifrost(...)`.
+1. **Feature flag & public config**: **`/casino/sports`** mounts Bifrost when the **merged** public config validates (from **player** `VITE_ODDIN_*` and/or **`GET /v1/sportsbook/oddin/public-config`** when core has `ODDIN_ENABLED` + `ODDIN_BRAND_TOKEN` + `ODDIN_PUBLIC_BASE_URL` + `ODDIN_PUBLIC_SCRIPT_URL`). You can configure Oddin **only on core** (no `VITE_ODDIN_ENABLED`) or **only on the player**, or **both** (Vite values win when set; gaps are filled from the API).
+2. **Script load**: `loadOddinScript(scriptUrl)` then `window.oddin.buildBifrost(...)`.
 3. **Container**: Config uses `contentElement: '#bifrost'` (host page must render that mount point).
 4. **Session token**: Authenticated players obtain an opaque token via **`POST /v1/sportsbook/oddin/session-token`** (requires `ODDIN_ENABLED` on core). The token is passed into Bifrost as `token`; **`brandToken`**, **`baseUrl`**, language, currency, theme, and `darkMode` come from public env (see `readOddinPublicConfig()` / `useOddinBifrost`).
 5. **Height / mobile**: The host supplies `height: () => bifrostHeightPx()` so the iframe fills the viewport under your shell headers (`viewport-fit=cover` and layout helpers in `oddin-layout.ts` support notched / mobile shells — align with Oddin’s guidance on full-height embedding).
@@ -49,6 +49,14 @@ Until these are wired to the **casino ledger**, Oddin cannot complete a real wal
 **Core API** (`services/core/.env` — see `.env.example`):
 
 - `ODDIN_ENABLED`, `ODDIN_ENV`, `ODDIN_PUBLIC_BASE_URL`, `ODDIN_PUBLIC_SCRIPT_URL`, `ODDIN_BRAND_TOKEN` (diagnostics parity), `ODDIN_API_SECURITY_KEY`, `ODDIN_HASH_SECRET`, `ODDIN_TOKEN_TTL_SECONDS`, `ODDIN_OPERATOR_IP_ALLOWLIST`, **`ODDIN_ESPORTS_NAV_JSON`** (optional E-Sports sidebar; see below).
+
+### Split deploy (e.g. Vercel player + Render API)
+
+- **`VITE_PLAYER_API_ORIGIN`** on the player build must point at the public core API (see player `.env.example`). Otherwise `/v1/*` and the Oddin bootstrap request never reach the Go service.
+- **`PLAYER_CORS_ORIGINS`** on core must include every player origin (`https://*.vercel.app` for previews plus your production hostname). Required for `GET /v1/sportsbook/oddin/public-config`, `POST .../session-token`, and `POST .../client-event`.
+- Prefer **HTTPS** Bifrost URLs in production (`ODDIN_PUBLIC_*` / `VITE_ODDIN_*`): `ODDIN_ENV=production`, `ODDIN_PUBLIC_BASE_URL=https://bifrost.oddin.gg`, `ODDIN_PUBLIC_SCRIPT_URL=https://bifrost.oddin.gg/script.js` (exact URLs from Oddin).
+- Give Oddin your **player origin** (`https://…vercel.app` or custom domain) if they allowlist Bifrost hosts per operator.
+- Avoid a **restrictive Content-Security-Policy** on the player static host that blocks `script-src` or `frame-src` to `*.oddin.gg` — the default Vercel static deploy does not add CSP; only add one if you explicitly allow Oddin’s script and iframe origins.
 
 ### E-Sports sidebar (discipline list + logos)
 
