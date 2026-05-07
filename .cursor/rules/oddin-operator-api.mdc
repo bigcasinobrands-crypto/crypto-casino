@@ -8,6 +8,8 @@ alwaysApply: false
 
 - **Canonical (POST):** `/v1/oddin/userDetails`, `/v1/oddin/debitUser`, `/v1/oddin/creditUser`
 - **Trailing slash (POST):** `/userDetails/`, `/v1/oddin/userDetails/`, etc. — same handlers (chi otherwise returned **404** for `…/userDetails/`).
-- **GET** on `/userDetails` returns **405** (use **POST** with JSON body). A **404** from Oddin often means **`POST …/userDetails/`** before this shipped, wrong host, or stale deploy — verify with `POST` to exact URL.
-- Wired in `services/core/cmd/api/main.go`; stubs in `internal/oddin/handler_operator.go` until ledger integration is complete.
-- **MCP:** Render MCP does not “register” HTTP routes — after code change, **redeploy the API** on Render and verify with logs or `GET /health`. Full table: `docs/deploy/README.md` → *Oddin operator routes (verify after API deploy)*.
+- **GET** on `/userDetails` returns **405** (use **POST** with JSON body). A **404** from Oddin often means **`POST …/userDetails/`** before the slash aliases shipped, wrong host, or stale deploy — verify with `POST` to exact URL.
+- All callbacks return **HTTP 200**. Outcome is in the JSON body via **`errorCode`** (Oddin's `Authenticator.ParseRequest` parses `errorCode`, treats non-2xx as transport failure).
+- **`userDetails` is implemented**: validates the token (`token` / `userToken` / `playerToken` / `accessToken` / `session_token`) against `sportsbook_sessions` and returns `{ errorCode: "OK", userId, currency, language, balance, balanceMinor }`. Failure: `INVALID_TOKEN`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `OPERATOR_UNAVAILABLE`.
+- **`debitUser` / `creditUser` are stubs** returning `OPERATOR_NOT_READY` until the ledger contract is wired in `internal/oddin/handler_operator.go`.
+- **MCP:** Render MCP does not "register" HTTP routes — after code change, **redeploy the API** on Render and verify with logs or `GET /health`. Full table: `docs/deploy/README.md` → *Oddin operator routes (verify after API deploy)*.

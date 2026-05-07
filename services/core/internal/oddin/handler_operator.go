@@ -10,13 +10,17 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// OperatorHandler serves Oddin operator callbacks (server-to-server). Stubs only — no ledger mutation.
+// OperatorHandler serves Oddin operator (S2S) callbacks. `userDetails` validates Bifrost session
+// tokens issued by `POST /v1/sportsbook/oddin/session-token`; `debitUser` / `creditUser` are
+// stubs until the wallet → ledger contract is wired (responses use Oddin-style `errorCode`).
 type OperatorHandler struct {
 	Pool *pgxpool.Pool
 	Cfg  *config.Config
@@ -75,50 +79,194 @@ func ClientIP(r *http.Request) string {
 	return host
 }
 
-// stubJSON writes HTTP 200 + JSON body (Oddin expects structured responses with errorCode).
-func stubNotImplemented(w http.ResponseWriter, detail string) {
+// writeOperatorJSON returns HTTP 200 + JSON body. Operator callbacks always return 200; outcome
+// is signaled in the body via `errorCode` so Oddin's authenticator can parse the response.
+func writeOperatorJSON(w http.ResponseWriter, body map[string]any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"errorCode": "NOT_IMPLEMENTED",
-		"message":   detail,
-	})
+	_ = json.NewEncoder(w).Encode(body)
 }
 
-// UserDetailsStub — placeholder until ledger-backed wallet integration.
-func (h *OperatorHandler) UserDetailsStub(w http.ResponseWriter, r *http.Request) {
+// hashOperatorToken mirrors hashOpaqueToken in handler_player.go (SHA-256 hex of the plain token).
+func hashOperatorToken(plain string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(plain)))
+	return hex.EncodeToString(sum[:])
+}
+
+// operatorTokenFromBody picks the token from the most common field names Oddin/SDKs use.
+// Empty string when none present.
+func operatorTokenFromBody(body map[string]any) string {
+	if body == nil {
+		return ""
+	}
+	for _, key := range []string{"token", "userToken", "playerToken", "accessToken", "session_token", "sessionToken"} {
+		if v, ok := body[key].(string); ok {
+			s := strings.TrimSpace(v)
+			if s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// UserDetails validates a Bifrost session token and returns the user's wallet snapshot. Oddin
+// calls this each time it needs to identify the player behind a token (auth, balance refresh).
+// Returns Oddin-style `errorCode` on failure so the authenticator can parse without falling back
+// to a transport-error path.
+func (h *OperatorHandler) UserDetails(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
+	token := operatorTokenFromBody(body)
+	if token == "" {
+		h.logRequest(ctx, "userDetails", body, operatorLog{
+			Endpoint: "userDetails",
+			Status:   "REJECT",
+			BodyOut:  map[string]any{"errorCode": "INVALID_TOKEN"},
+		})
+		writeOperatorJSON(w, map[string]any{
+			"errorCode": "INVALID_TOKEN",
+			"message":   "missing token in request body",
+		})
+		return
+	}
+
+	if h.Pool == nil {
+		writeOperatorJSON(w, map[string]any{
+			"errorCode": "OPERATOR_UNAVAILABLE",
+			"message":   "database unavailable",
+		})
+		return
+	}
+
+	tokHash := hashOperatorToken(token)
+
+	var (
+		userID    string
+		currency  string
+		language  string
+		expiresAt time.Time
+		status    string
+	)
+	err := h.Pool.QueryRow(ctx, `
+SELECT user_id::text, currency, language, expires_at, status
+FROM sportsbook_sessions
+WHERE token_hash = $1 AND provider = 'ODDIN'
+ORDER BY created_at DESC
+LIMIT 1
+`, tokHash).Scan(&userID, &currency, &language, &expiresAt, &status)
+	if err != nil || strings.TrimSpace(userID) == "" {
+		h.logRequest(ctx, "userDetails", body, operatorLog{
+			Endpoint: "userDetails",
+			Status:   "REJECT",
+			BodyOut:  map[string]any{"errorCode": "INVALID_TOKEN"},
+		})
+		writeOperatorJSON(w, map[string]any{
+			"errorCode": "INVALID_TOKEN",
+			"message":   "token not recognized",
+		})
+		return
+	}
+
+	if !strings.EqualFold(status, "ACTIVE") {
+		h.logRequest(ctx, "userDetails", body, operatorLog{
+			Endpoint: "userDetails",
+			Status:   "REJECT",
+			BodyOut:  map[string]any{"errorCode": "TOKEN_REVOKED"},
+		})
+		writeOperatorJSON(w, map[string]any{
+			"errorCode": "TOKEN_REVOKED",
+			"message":   "session is not active",
+		})
+		return
+	}
+	if !expiresAt.IsZero() && time.Now().UTC().After(expiresAt.UTC()) {
+		h.logRequest(ctx, "userDetails", body, operatorLog{
+			Endpoint: "userDetails",
+			Status:   "REJECT",
+			BodyOut:  map[string]any{"errorCode": "TOKEN_EXPIRED"},
+		})
+		writeOperatorJSON(w, map[string]any{
+			"errorCode": "TOKEN_EXPIRED",
+			"message":   "session expired",
+		})
+		return
+	}
+
+	balanceMinor, balErr := ledger.BalanceMinor(ctx, h.Pool, userID)
+	if balErr != nil {
+		balanceMinor = 0
+	}
+	_, _ = h.Pool.Exec(ctx, `
+UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND provider = 'ODDIN'
+`, tokHash)
+
+	currency = strings.TrimSpace(strings.ToUpper(currency))
+	if currency == "" {
+		currency = "USD"
+	}
+	language = strings.TrimSpace(language)
+	if language == "" {
+		language = "en"
+	}
+
+	out := map[string]any{
+		"errorCode":    "OK",
+		"userId":       userID,
+		"currency":     currency,
+		"language":     language,
+		"country":      "",
+		"balance":      float64(balanceMinor) / 100.0,
+		"balanceMinor": balanceMinor,
+	}
 	h.logRequest(ctx, "userDetails", body, operatorLog{
 		Endpoint: "userDetails",
-		Status:   "STUB",
-		BodyOut:  map[string]any{"errorCode": "NOT_IMPLEMENTED"},
+		Status:   "OK",
+		BodyOut:  out,
 	})
-	stubNotImplemented(w, "wallet integration pending")
+	writeOperatorJSON(w, out)
 }
 
-// DebitUserStub — placeholder; must not debit real balances.
+// DebitUserStub — placeholder; must not debit real balances. Returns `OPERATOR_NOT_READY` so
+// Oddin's authenticator parses the response and reports a clear "wallet not ready" error to
+// the player rather than retrying a transport failure.
 func (h *OperatorHandler) DebitUserStub(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
+	out := map[string]any{
+		"errorCode": "OPERATOR_NOT_READY",
+		"message":   "operator wallet (debit) not enabled",
+	}
 	h.logRequest(ctx, "debitUser", body, operatorLog{
 		Endpoint: "debitUser",
 		Status:   "STUB_REJECT",
-		BodyOut:  map[string]any{"errorCode": "NOT_IMPLEMENTED"},
+		BodyOut:  out,
 	})
-	stubNotImplemented(w, "debit not enabled")
+	writeOperatorJSON(w, out)
 }
 
-// CreditUserStub — placeholder.
+// CreditUserStub — placeholder. Returns `OPERATOR_NOT_READY`.
 func (h *OperatorHandler) CreditUserStub(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
+	out := map[string]any{
+		"errorCode": "OPERATOR_NOT_READY",
+		"message":   "operator wallet (credit) not enabled",
+	}
 	h.logRequest(ctx, "creditUser", body, operatorLog{
 		Endpoint: "creditUser",
 		Status:   "STUB",
-		BodyOut:  map[string]any{"errorCode": "NOT_IMPLEMENTED"},
+		BodyOut:  out,
 	})
-	stubNotImplemented(w, "credit not enabled")
+	writeOperatorJSON(w, out)
+}
+
+// UserDetailsStub is kept as a name alias so older route registrations compile. Prefer UserDetails.
+//
+// Deprecated: UserDetailsStub is the legacy entry name; use UserDetails which performs real token
+// validation against `sportsbook_sessions`.
+func (h *OperatorHandler) UserDetailsStub(w http.ResponseWriter, r *http.Request) {
+	h.UserDetails(w, r)
 }
 
 func readJSONBody(r *http.Request) map[string]any {

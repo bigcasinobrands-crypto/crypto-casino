@@ -34,15 +34,17 @@ Oddin will also specify **which Bifrost host** to use (e.g. `bifrost.integration
 
 | Endpoint | Purpose (typical) | This repo |
 |----------|-------------------|-----------|
-| `POST /v1/oddin/userDetails` | Balance / user context for Oddin | **Stub** — responds with `NOT_IMPLEMENTED` (logged to `sportsbook_provider_requests`). |
-| `POST /v1/oddin/debitUser` | Stake / reserve funds | **Stub** |
-| `POST /v1/oddin/creditUser` | Payout / return funds | **Stub** |
-| `POST /userDetails` | Root alias (Oddin default callback URL) | **Stub** — same handler as `/v1/oddin/userDetails`. |
-| `POST /debitUser` | Root alias | **Stub** |
-| `POST /creditUser` | Root alias | **Stub** |
-| `POST …/*/` variants | Trailing slash on any of the above paths | **Stub** — same handlers (Oddin dashboards sometimes append `/`). |
+| `POST /v1/oddin/userDetails` | Authenticate token + return user (id, currency, language, balance) | **Implemented** — looks up `sportsbook_sessions` (token issued by `POST /v1/sportsbook/oddin/session-token`) and returns `{ errorCode: "OK", userId, currency, language, balance, balanceMinor }`. Failure paths return `INVALID_TOKEN` / `TOKEN_EXPIRED` / `TOKEN_REVOKED` / `OPERATOR_UNAVAILABLE` (HTTP 200 with `errorCode` in body — Oddin's authenticator parses this). |
+| `POST /v1/oddin/debitUser` | Stake / reserve funds | **Stub** — returns `OPERATOR_NOT_READY` until the wallet ledger contract is wired. |
+| `POST /v1/oddin/creditUser` | Payout / return funds | **Stub** — `OPERATOR_NOT_READY` |
+| `POST /userDetails` | Root alias (Oddin default callback URL) | **Same handler** as `/v1/oddin/userDetails`. |
+| `POST /debitUser` | Root alias | **Stub** — `OPERATOR_NOT_READY` |
+| `POST /creditUser` | Root alias | **Stub** — `OPERATOR_NOT_READY` |
+| `POST …/*/` variants | Trailing slash on any of the above paths | **Same handlers** (Oddin dashboards sometimes append `/`). |
 
-Until these are wired to the **casino ledger**, Oddin cannot complete a real wallet-backed sportsbook flow even if the iframe loads; implement ledger debits/credits per Oddin’s contract and replace the stubs in `services/core/internal/oddin/handler_operator.go`.
+The token field in the request body is read in this order: **`token`**, `userToken`, `playerToken`, `accessToken`, `session_token`, `sessionToken` — first non-empty wins. **All operator responses are HTTP 200**; success/failure is signaled by **`errorCode`** so the Bifrost authenticator can parse instead of treating non-2xx as a transport failure.
+
+**Token validation is live**: Oddin's `Authenticator.ParseRequest` will resolve a player from a Bifrost session token. Until **debit/credit** are wired to the casino ledger (still stubs returning `OPERATOR_NOT_READY`), bet placement will fail server-side even though sign-in/balance refresh succeed; implement ledger debits/credits per Oddin's contract and replace the stubs in `services/core/internal/oddin/handler_operator.go`.
 
 ## Environment variables (quick map)
 
