@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -210,7 +212,41 @@ WHERE token_hash = $1 AND provider = 'ODDIN'
 ORDER BY created_at DESC
 LIMIT 1
 `, tokHash).Scan(&userID, &currency, &language, &expiresAt, &status)
-	if err != nil || strings.TrimSpace(userID) == "" {
+	if err != nil {
+		// pgx.ErrNoRows is the legitimate "no matching session" case → genuine auth failure.
+		// Any other error (connection drop, scan failure, query error) is an operator-side
+		// problem — surface it as ErrCodeInvalidParams (consistent with the pool-nil branch)
+		// and emit slog so we can distinguish system failures from real auth rejections in
+		// Render logs. Without this split, a transient DB hiccup would log out every player
+		// hitting the sportsbook and pollute the audit trail with false "REJECT" rows.
+		if errors.Is(err, pgx.ErrNoRows) {
+			out := errorBody(ErrCodeAuthFailed, "token not recognized")
+			h.logRequest(ctx, "userDetails", body, operatorLog{
+				Endpoint: "userDetails",
+				Status:   "REJECT",
+				BodyOut:  out,
+			})
+			writeOperatorJSON(w, out)
+			return
+		}
+		out := errorBody(ErrCodeInvalidParams, "operator query error")
+		slog.ErrorContext(ctx, "oddin_operator_query_error",
+			"endpoint", "userDetails",
+			"client_ip", ClientIP(r),
+			"error", err.Error(),
+			"error_code", ErrCodeInvalidParams)
+		h.logRequest(ctx, "userDetails", body, operatorLog{
+			Endpoint: "userDetails",
+			Status:   "ERROR",
+			BodyOut:  out,
+		})
+		writeOperatorJSON(w, out)
+		return
+	}
+	if strings.TrimSpace(userID) == "" {
+		// Defensive: sportsbook_sessions.user_id is NOT NULL UUID so this should be
+		// unreachable, but if a future schema change ever allows blanks we still want a
+		// clean auth-failed response rather than handing Bifrost an empty userId.
 		out := errorBody(ErrCodeAuthFailed, "token not recognized")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
