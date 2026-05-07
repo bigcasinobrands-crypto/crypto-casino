@@ -88,6 +88,8 @@ type TxDisplayType =
   | 'withdrawal'
   | 'bonus'
   | 'bonus_forfeit'
+  /** TTL-expired bonus, semantically distinct from a voluntary forfeit. */
+  | 'bonus_expire'
   | 'bonus_activation'
   | 'bonus_relinquish'
   | 'bonus_release'
@@ -111,6 +113,7 @@ function classifyDisplayType(entryType: string, amountMinor: number): TxDisplayT
   if (entryType === 'promo.activation') return 'bonus_activation'
   if (entryType === 'promo.relinquish') return 'bonus_relinquish'
   if (entryType === 'promo.forfeit') return 'bonus_forfeit'
+  if (entryType === 'promo.expire') return 'bonus_expire'
   if (entryType === 'promo.grant') return 'bonus'
   if (entryType === 'promo.rakeback') return 'bonus'
   if (entryType === 'promo.daily_hunt_cash') return 'bonus'
@@ -162,6 +165,8 @@ function transactionTypeLabel(entryType: string, amountMinor: number, tx: Transa
       return t('tx.bonusCredited')
     case 'promo.forfeit':
       return t('tx.bonusForfeited')
+    case 'promo.expire':
+      return t('tx.bonusExpired')
     case 'promo.activation':
       return t('tx.bonusOfferActivated')
     case 'promo.relinquish':
@@ -1371,6 +1376,10 @@ function TxTypeIcon({ displayType, isPositive }: { displayType: TxDisplayType; i
     bonus_forfeit: {
       bg: 'bg-casino-destructive/10 text-casino-destructive',
       icon: <IconLock size={14} />,
+    },
+    bonus_expire: {
+      bg: 'bg-casino-destructive/10 text-casino-destructive',
+      icon: <IconClock size={14} />,
     },
     bonus_activation: {
       bg: 'bg-casino-primary/15 text-casino-primary',

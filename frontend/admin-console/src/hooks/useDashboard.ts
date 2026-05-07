@@ -133,7 +133,12 @@ interface BonusStats {
   risk_queue_pending: number
   total_bonus_cost_30d: number
   wr_completion_rate: number
+  /** Combined rate of voluntary forfeits + TTL expirations (% of finalized instances). */
   forfeiture_rate: number
+  /** TTL-expired only (subset of forfeiture_rate). */
+  expiration_rate?: number
+  total_forfeited?: number
+  total_expired?: number
   avg_grant_amount_minor: number
   bonus_pct_of_ggr: number
 }

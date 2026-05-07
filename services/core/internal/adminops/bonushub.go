@@ -84,15 +84,22 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 		  AND created_at > now() - interval '30 days'
 	`).Scan(&bonusCost30d)
 
-	var totalCompleted, totalForfeited, totalNonPending int64
+	// Bonus instance turnover: voluntary forfeits (player/admin) AND TTL
+	// expirations both retire an instance without converting to cash. The
+	// `forfeiture_rate` headline metric covers BOTH so it accurately reflects
+	// how much granted bonus value never made it through wagering. The
+	// breakdown counts are exposed alongside so the admin UI can split them.
+	var totalCompleted, totalForfeited, totalExpired, totalNonPending int64
 	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM user_bonus_instances WHERE status = 'completed'`).Scan(&totalCompleted)
 	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM user_bonus_instances WHERE status = 'forfeited'`).Scan(&totalForfeited)
+	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM user_bonus_instances WHERE status = 'expired'`).Scan(&totalExpired)
 	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM user_bonus_instances WHERE status NOT IN ('pending','pending_review')`).Scan(&totalNonPending)
 
-	var wrCompletionRate, forfeitureRate float64
+	var wrCompletionRate, forfeitureRate, expirationRate float64
 	if totalNonPending > 0 {
 		wrCompletionRate = float64(totalCompleted) / float64(totalNonPending) * 100
-		forfeitureRate = float64(totalForfeited) / float64(totalNonPending) * 100
+		forfeitureRate = float64(totalForfeited+totalExpired) / float64(totalNonPending) * 100
+		expirationRate = float64(totalExpired) / float64(totalNonPending) * 100
 	}
 
 	var avgGrantMinor int64
@@ -121,7 +128,10 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 		"risk_queue_pending":      riskPending,
 		"total_bonus_cost_30d":    bonusCost30d,
 		"wr_completion_rate":      wrCompletionRate,
-		"forfeiture_rate":         forfeitureRate,
+		"forfeiture_rate":         forfeitureRate, // includes voluntary forfeits + TTL expirations
+		"expiration_rate":         expirationRate, // TTL-expired only (subset of forfeiture_rate)
+		"total_forfeited":         totalForfeited,
+		"total_expired":           totalExpired,
 		"avg_grant_amount_minor":  avgGrantMinor,
 		"bonus_pct_of_ggr":        bonusPctOfGGR,
 	})
