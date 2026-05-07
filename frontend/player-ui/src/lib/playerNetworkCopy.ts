@@ -18,8 +18,11 @@ export function messageCannotReachApi(): string {
     hint?.includes('onrender.com') && !import.meta.env.DEV
       ? ' Render free/hobby instances sleep: open that URL + /health in a new tab, wait until it returns OK, then retry (first load can take ~1 minute).'
       : ''
+  const corsPreviews =
+    ' Vercel: every preview has a different https://…vercel.app host — add your exact origin to PLAYER_CORS_ORIGINS on the API, or include https://*.vercel.app (supported by go-chi/cors).'
   return (
     'Cannot reach API. The browser got no response (not HTTP 4xx/5xx). Check the core API is up, PLAYER_CORS_ORIGINS on core includes this page’s exact origin (https + host, with or without www — match Vercel preview vs production URLs), HTTPS matches the player page, and mixed content is not blocked.' +
+    corsPreviews +
     suffix +
     renderHint
   )
