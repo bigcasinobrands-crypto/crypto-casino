@@ -76,6 +76,21 @@ Workspace file: **`.cursor/mcp.json`**. Restart Cursor after editing.
 
 **Oddin / Bifrost** is not an MCP product—verify **`ODDIN_*`** and **`PLAYER_CORS_ORIGINS`** on your Render service (env + logs) or in the dashboard. See **`docs/oddin-iframe-integration.md`**.
 
+### Oddin operator routes (verify after API deploy)
+
+Oddin’s servers call your **core API** (e.g. Render), not Vercel. Same handlers, two URL shapes (both **POST**, same `ODDIN_API_SECURITY_KEY` / HMAC / IP allowlist as configured):
+
+| Path | Notes |
+|------|--------|
+| `POST /v1/oddin/userDetails` | **Canonical** — prefer this in new Oddin dashboard config. |
+| `POST /v1/oddin/debitUser` | |
+| `POST /v1/oddin/creditUser` | |
+| `POST /userDetails` | **Alias** — use if Oddin is configured with `https://<api-host>/userDetails` (avoids 404). |
+| `POST /debitUser` | **Alias** at API root. |
+| `POST /creditUser` | **Alias** at API root. |
+
+**Using MCP:** With **Render** connected, redeploy the API service after pull; then ask an agent to confirm deploy health or hit `GET https://<api-host>/health`. An Oddin `userDetails` **404** usually means the running image is **before** the alias commit or the method is not **POST**.
+
 If your Cursor build does not expand `${env:SUPABASE_MCP_PROJECT_REF}` in the URL, replace it in `.cursor/mcp.json` with your literal reference ID (keep the value out of git if the file is shared publicly—or keep using the env var only on your machine).
 
 **Tips:** After connecting **render**, set your Render workspace in chat when prompted, then list services (approve tool calls). Render MCP can update env vars but does not trigger deploys by itself—see [Render MCP](https://docs.render.com/docs/mcp-server). **vercel** capabilities: [Vercel MCP + Cursor](https://vercel.com/docs/mcp/vercel-mcp#cursor).

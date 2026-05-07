@@ -1,0 +1,12 @@
+---
+description: Oddin.gg operator (S2S) wallet routes on the core API — use when debugging 404 on userDetails, Render deploys, or MCP verification
+globs: services/core/**/*.go,services/core/internal/oddin/**,docs/oddin-iframe-integration.md,docs/deploy/README.md
+alwaysApply: false
+---
+
+# Oddin operator callbacks (core API)
+
+- **Canonical (POST):** `/v1/oddin/userDetails`, `/v1/oddin/debitUser`, `/v1/oddin/creditUser`
+- **Root alias (POST, same handlers):** `/userDetails`, `/debitUser`, `/creditUser` — Oddin often configures `https://<api-host>/userDetails` without the `/v1/oddin` prefix.
+- Wired in `services/core/cmd/api/main.go`; stubs in `internal/oddin/handler_operator.go` until ledger integration is complete.
+- **MCP:** Render MCP does not “register” HTTP routes — after code change, **redeploy the API** on Render and verify with logs or `GET /health`. Full table: `docs/deploy/README.md` → *Oddin operator routes (verify after API deploy)*.

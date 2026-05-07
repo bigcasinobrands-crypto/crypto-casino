@@ -15,7 +15,7 @@ Give Oddin a consistent picture of your public surfaces so they can allowlist or
 |------|-----------------|--------|
 | **Player site origin(s)** | HTTPS production URL(s); staging if applicable | Must be allowed for cookies/CORS where you use credentialed API calls (`PLAYER_CORS_ORIGINS` on core). |
 | **API base URL** | Public URL of this Go API (no trailing slash), e.g. `https://api.example.com` | Used for operator callbacks and player session/token routes. |
-| **Operator wallet endpoints** | Base path for Oddin’s server-side calls | This codebase exposes **`POST /v1/oddin/userDetails`**, **`POST /v1/oddin/debitUser`**, **`POST /v1/oddin/creditUser`** (paths are fixed here; Oddin must be configured to hit your host + this prefix). |
+| **Operator wallet endpoints** | Base path for Oddin’s server-side calls | **Canonical:** **`POST /v1/oddin/userDetails`**, **`/debitUser`**, **`/creditUser`**. **Alias (same handlers):** **`POST /userDetails`**, **`POST /debitUser`**, **`POST /creditUser`** on the API host root — use this if Oddin’s dashboard points at `https://<api-host>/userDetails` and you see 404 on `/v1/oddin/userDetails`. |
 | **Security** | Optional **`X-API-Key`** and/or **`X-Signature`** (HMAC-SHA256 over raw body) | Matches `ODDIN_API_SECURITY_KEY` and `ODDIN_HASH_SECRET` in `services/core`. Optional IP allowlist: `ODDIN_OPERATOR_IP_ALLOWLIST`. |
 | **Bifrost (browser)** | **Brand token**, **Bifrost base URL**, **script URL** (integration vs production) | Player SPA: `VITE_ODDIN_BRAND_TOKEN`, `VITE_ODDIN_BASE_URL`, `VITE_ODDIN_SCRIPT_URL`. Core mirrors public URLs for diagnostics: `ODDIN_PUBLIC_BASE_URL`, `ODDIN_PUBLIC_SCRIPT_URL`. |
 
@@ -37,6 +37,9 @@ Oddin will also specify **which Bifrost host** to use (e.g. `bifrost.integration
 | `POST /v1/oddin/userDetails` | Balance / user context for Oddin | **Stub** — responds with `NOT_IMPLEMENTED` (logged to `sportsbook_provider_requests`). |
 | `POST /v1/oddin/debitUser` | Stake / reserve funds | **Stub** |
 | `POST /v1/oddin/creditUser` | Payout / return funds | **Stub** |
+| `POST /userDetails` | Same as `userDetails` when Oddin uses host root | **Stub** — same handler as `/v1/oddin/userDetails` (404 fix for default Oddin callback URL). |
+| `POST /debitUser` | Same at API root | **Stub** — alias of `/v1/oddin/debitUser` |
+| `POST /creditUser` | Same at API root | **Stub** — alias of `/v1/oddin/creditUser` |
 
 Until these are wired to the **casino ledger**, Oddin cannot complete a real wallet-backed sportsbook flow even if the iframe loads; implement ledger debits/credits per Oddin’s contract and replace the stubs in `services/core/internal/oddin/handler_operator.go`.
 
@@ -71,7 +74,10 @@ The player sidebar loads **`GET /v1/sportsbook/oddin/esports-nav`** when Oddin i
 You can send something shaped like:
 
 > Player app: `https://<player-host>/casino/sports` (Bifrost).  
-> API: `https://<api-host>` — operator callbacks: `https://<api-host>/v1/oddin/userDetails`, `debitUser`, `creditUser` (secured with [API key / HMAC / IP allowlist as configured]).  
+> API: `https://<api-host>` — operator callbacks (all **POST**):  
+> **Canonical:** `https://<api-host>/v1/oddin/userDetails`, `/v1/oddin/debitUser`, `/v1/oddin/creditUser`.  
+> **Root alias (Oddin default shape):** `https://<api-host>/userDetails`, `/debitUser`, `/creditUser` — same handlers; use if Oddin’s integration points at `/userDetails` without `/v1/oddin`.  
+> Secured with [API key / HMAC / IP allowlist as configured].  
 > Session token for iframe: `POST https://<api-host>/v1/sportsbook/oddin/session-token` (authenticated player).
 
 Replace placeholders and attach the exact auth headers Oddin should send once `ODDIN_API_SECURITY_KEY` / `ODDIN_HASH_SECRET` are set.

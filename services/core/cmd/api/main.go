@@ -310,6 +310,15 @@ func main() {
 			r.Post("/v1/webhooks/passimpay", webhooks.HandlePassimpayWebhook(pool, &cfg, rdb))
 		}
 
+		// Oddin operator wallet (S2S): canonical routes are POST /v1/oddin/*. Oddin often configures
+		// callback base as API origin + /userDetails (no /v1/oddin prefix) — alias root paths to avoid 404.
+		r.Group(func(r chi.Router) {
+			r.Use(oddin.OperatorSecurityMiddleware(&cfg))
+			r.Post("/userDetails", oddinOp.UserDetailsStub)
+			r.Post("/debitUser", oddinOp.DebitUserStub)
+			r.Post("/creditUser", oddinOp.CreditUserStub)
+		})
+
 		r.Route("/v1", func(r chi.Router) {
 			r.Use(playerCORS.Handler)
 			r.Use(playerapi.PlayerCookieCSRFMiddleware(&cfg))
