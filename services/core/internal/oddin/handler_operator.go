@@ -23,25 +23,34 @@ import (
 // tokens issued by `POST /v1/sportsbook/oddin/session-token`; `debitUser` / `creditUser` are
 // stubs until the wallet → ledger contract is wired.
 //
-// Response shape: HTTP **200** + JSON body with **integer** `errorCode` (Oddin parses an int,
-// not a string). 0 = OK; non-zero = recoverable, parseable error. `errorMessage` is human text.
+// Response shape — seamless wallet convention used by Oddin / EvenBet / similar providers:
+//   - HTTP **200** always.
+//   - Body always carries integer `errorCode` (0 = success).
+//   - Errors include only `errorCode` + `errorDescription`.
+//   - Success (`errorCode: 0`) returns the user/wallet snapshot (no error fields).
 type OperatorHandler struct {
 	Pool *pgxpool.Pool
 	Cfg  *config.Config
 }
 
-// Operator error codes (Oddin/seamless-wallet style: int). Keep stable — Oddin maps these.
+// Operator error codes — small ints per the seamless wallet protocol Oddin uses.
+// Reference: standard mapping shared by EvenBet/Oddin/similar providers (codes 0–7).
+// Keep stable — providers map these to internal failure modes; arbitrary high codes
+// (e.g. 100/200/900) are unrecognized and cause the iframe to surface a generic
+// "Sportsbook reported an error" instead of the specific failure.
 const (
-	ErrCodeOK                int = 0
-	ErrCodeUnknown           int = 1   // generic / fallback
-	ErrCodeInvalidToken      int = 100 // token missing or not recognized
-	ErrCodeTokenExpired      int = 101
-	ErrCodeTokenRevoked      int = 102
-	ErrCodeUserNotFound      int = 103
-	ErrCodeUserDisabled      int = 104
-	ErrCodeInsufficientFunds int = 200
-	ErrCodeOperatorNotReady  int = 900 // wallet endpoints stubbed
-	ErrCodeOperatorError     int = 901 // unexpected operator-side failure (db, etc.)
+	ErrCodeOK                int = 0 // completed successfully
+	ErrCodeInvalidSignature  int = 1
+	ErrCodePlayerNotFound    int = 2
+	ErrCodeInsufficientFunds int = 3
+	ErrCodeInvalidParams     int = 4 // also used for "operator can't process right now"
+	ErrCodeRefNotFound       int = 5
+	ErrCodeRefIncompatible   int = 6
+	ErrCodeAuthFailed        int = 7 // wrong authentication / session expired
+
+	// defaultCountry used when sportsbook_sessions has no country recorded. Empty `country`
+	// makes Bifrost's user validation reject the payload; ISO 3166-1 alpha-2 is required.
+	defaultCountry = "US"
 )
 
 type operatorLog struct {
@@ -115,13 +124,12 @@ func writeOperatorJSON(w http.ResponseWriter, body map[string]any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// errorBody builds the standard error envelope: integer `errorCode`, human-readable
-// `errorMessage` plus a duplicate `message` for any client that already reads it.
-func errorBody(code int, message string) map[string]any {
+// errorBody builds the seamless-wallet error envelope: integer `errorCode` + `errorDescription`.
+// Per the protocol, error responses MUST contain only these two fields (no balance / user data).
+func errorBody(code int, desc string) map[string]any {
 	return map[string]any{
-		"errorCode":    code,
-		"errorMessage": message,
-		"message":      message,
+		"errorCode":        code,
+		"errorDescription": desc,
 	}
 }
 
@@ -150,13 +158,13 @@ func operatorTokenFromBody(body map[string]any) string {
 
 // UserDetails validates a Bifrost session token and returns the user's wallet snapshot.
 // Failure paths return integer `errorCode` so Oddin's authenticator can parse without falling
-// back to a transport-error path.
+// back to a transport-error path. Success returns the user snapshot WITHOUT `errorDescription`.
 func (h *OperatorHandler) UserDetails(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
 	token := operatorTokenFromBody(body)
 	if token == "" {
-		out := errorBody(ErrCodeInvalidToken, "missing token in request body")
+		out := errorBody(ErrCodeAuthFailed, "missing token in request body")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
@@ -172,11 +180,11 @@ func (h *OperatorHandler) UserDetails(w http.ResponseWriter, r *http.Request) {
 		// other error paths (defensive no-op today; if logRequest ever grows a fallback sink
 		// this branch benefits automatically). Emit slog.Error so the rejection is observable
 		// in Render logs even when the DB is unreachable.
-		out := errorBody(ErrCodeOperatorError, "database unavailable")
+		out := errorBody(ErrCodeInvalidParams, "database unavailable")
 		slog.ErrorContext(ctx, "oddin_operator_pool_nil",
 			"endpoint", "userDetails",
 			"client_ip", ClientIP(r),
-			"error_code", ErrCodeOperatorError)
+			"error_code", ErrCodeInvalidParams)
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
@@ -203,7 +211,7 @@ ORDER BY created_at DESC
 LIMIT 1
 `, tokHash).Scan(&userID, &currency, &language, &expiresAt, &status)
 	if err != nil || strings.TrimSpace(userID) == "" {
-		out := errorBody(ErrCodeInvalidToken, "token not recognized")
+		out := errorBody(ErrCodeAuthFailed, "token not recognized")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
@@ -214,7 +222,7 @@ LIMIT 1
 	}
 
 	if !strings.EqualFold(status, "ACTIVE") {
-		out := errorBody(ErrCodeTokenRevoked, "session is not active")
+		out := errorBody(ErrCodeAuthFailed, "session is not active")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
@@ -224,7 +232,7 @@ LIMIT 1
 		return
 	}
 	if !expiresAt.IsZero() && time.Now().UTC().After(expiresAt.UTC()) {
-		out := errorBody(ErrCodeTokenExpired, "session expired")
+		out := errorBody(ErrCodeAuthFailed, "session expired")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
 			Status:   "REJECT",
@@ -251,15 +259,18 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 		language = "en"
 	}
 
+	// Seamless wallet success body — only successful path includes the wallet snapshot.
+	// `balance` is in INTEGER MINOR UNITS (cents) per Oddin's parser (their struct reads
+	// it as uint64; sending a JSON float crashes their decoder for non-zero values).
+	// `country` MUST be a non-empty ISO 3166-1 alpha-2 code; empty values make Bifrost
+	// reject the user payload and surface "Sportsbook reported an error" in the iframe.
 	out := map[string]any{
-		"errorCode":    ErrCodeOK,
-		"errorMessage": "",
-		"userId":       userID,
-		"currency":     currency,
-		"language":     language,
-		"country":      "",
-		"balance":      float64(balanceMinor) / 100.0,
-		"balanceMinor": balanceMinor,
+		"errorCode": ErrCodeOK,
+		"userId":    userID,
+		"currency":  currency,
+		"language":  language,
+		"country":   defaultCountry,
+		"balance":   balanceMinor,
 	}
 	h.logRequest(ctx, "userDetails", body, operatorLog{
 		Endpoint: "userDetails",
@@ -269,13 +280,13 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 	writeOperatorJSON(w, out)
 }
 
-// DebitUserStub — placeholder; must not debit real balances. Returns `OPERATOR_NOT_READY` so
-// Oddin's authenticator parses the response and reports a clear "wallet not ready" error to
-// the player rather than retrying a transport failure.
+// DebitUserStub — placeholder; must not debit real balances. Returns ErrCodeInvalidParams (4)
+// — closest "operator can't process this right now" signal in the standard 0–7 set. Will be
+// replaced with real ledger debit logic once the wallet contract is wired.
 func (h *OperatorHandler) DebitUserStub(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
-	out := errorBody(ErrCodeOperatorNotReady, "operator wallet (debit) not enabled")
+	out := errorBody(ErrCodeInvalidParams, "operator wallet (debit) not enabled")
 	h.logRequest(ctx, "debitUser", body, operatorLog{
 		Endpoint: "debitUser",
 		Status:   "STUB_REJECT",
@@ -284,11 +295,11 @@ func (h *OperatorHandler) DebitUserStub(w http.ResponseWriter, r *http.Request) 
 	writeOperatorJSON(w, out)
 }
 
-// CreditUserStub — placeholder. Returns `OPERATOR_NOT_READY`.
+// CreditUserStub — placeholder. Returns ErrCodeInvalidParams until ledger credit is wired.
 func (h *OperatorHandler) CreditUserStub(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
-	out := errorBody(ErrCodeOperatorNotReady, "operator wallet (credit) not enabled")
+	out := errorBody(ErrCodeInvalidParams, "operator wallet (credit) not enabled")
 	h.logRequest(ctx, "creditUser", body, operatorLog{
 		Endpoint: "creditUser",
 		Status:   "STUB",

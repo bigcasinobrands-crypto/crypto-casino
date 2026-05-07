@@ -34,31 +34,32 @@ Oddin will also specify **which Bifrost host** to use (e.g. `bifrost.integration
 
 | Endpoint | Purpose (typical) | This repo |
 |----------|-------------------|-----------|
-| `POST /v1/oddin/userDetails` | Authenticate token + return user (id, currency, language, balance) | **Implemented** — looks up `sportsbook_sessions` (token issued by `POST /v1/sportsbook/oddin/session-token`) and returns `{ errorCode: 0, errorMessage: "", userId, currency, language, balance, balanceMinor }`. Failure paths return integer codes `100` invalid token, `101` expired, `102` revoked, `901` operator error (db/etc.). HTTP **200** with `errorCode` in body — Oddin's authenticator parses an **int**. |
-| `POST /v1/oddin/debitUser` | Stake / reserve funds | **Stub** — returns `errorCode: 900` ("operator wallet not ready") until the wallet ledger contract is wired. |
-| `POST /v1/oddin/creditUser` | Payout / return funds | **Stub** — `errorCode: 900`. |
+| `POST /v1/oddin/userDetails` | Authenticate token + return user (id, currency, language, country, balance) | **Implemented** — looks up `sportsbook_sessions` (token issued by `POST /v1/sportsbook/oddin/session-token`) and returns `{ errorCode: 0, userId, currency, language, country, balance }` where `balance` is **integer minor units (cents)** and `country` is **ISO 3166-1 alpha-2** (defaults to `US` when missing). Failures return `{ errorCode: 7, errorDescription: "..." }`. HTTP **200** with `errorCode` in body — Oddin's authenticator parses an **int**. |
+| `POST /v1/oddin/debitUser` | Stake / reserve funds | **Stub** — returns `errorCode: 4` ("operator wallet not enabled") until the wallet ledger contract is wired. |
+| `POST /v1/oddin/creditUser` | Payout / return funds | **Stub** — `errorCode: 4`. |
 | `POST /userDetails` | Root alias (Oddin default callback URL) | **Same handler** as `/v1/oddin/userDetails`. |
-| `POST /debitUser` | Root alias | **Stub** — `errorCode: 900`. |
-| `POST /creditUser` | Root alias | **Stub** — `errorCode: 900`. |
+| `POST /debitUser` | Root alias | **Stub** — `errorCode: 4`. |
+| `POST /creditUser` | Root alias | **Stub** — `errorCode: 4`. |
 | `POST …/*/` variants | Trailing slash on any of the above paths | **Same handlers** (Oddin dashboards sometimes append `/`). |
 
-The token field in the request body is read in this order: **`token`**, `userToken`, `playerToken`, `accessToken`, `session_token`, `sessionToken` — first non-empty wins. **All operator responses are HTTP 200**; success/failure is signaled by an **integer `errorCode`** (Oddin's authenticator parses an `int`; a string like `"OK"` triggers `unexpected character: \"`). Each response also carries `errorMessage` (and a duplicate `message`) for human context.
+The token field in the request body is read in this order: **`token`**, `userToken`, `playerToken`, `accessToken`, `session_token`, `sessionToken` — first non-empty wins. **All operator responses are HTTP 200**; success/failure is signaled by an **integer `errorCode`** (Oddin's authenticator parses an `int`; a string like `"OK"` triggers `unexpected character: \"`). Errors include only `errorCode` + **`errorDescription`**; success bodies omit error fields. Field naming and the small-int code scheme follow the **seamless wallet protocol** used by Oddin / EvenBet / similar providers.
 
 **Error code catalog** (defined in `services/core/internal/oddin/handler_operator.go` — keep stable):
 
 | Code | Meaning |
 |------|---------|
-| `0` | OK |
-| `100` | Invalid / unknown token |
-| `101` | Token expired |
-| `102` | Token revoked / session not active |
-| `103` | User not found |
-| `104` | User disabled |
-| `200` | Insufficient funds (debit) |
-| `900` | Operator not ready (debit/credit stubs) |
-| `901` | Operator-side error (database unavailable, etc.) |
+| `0` | Completed successfully |
+| `1` | Invalid signature |
+| `2` | Player not found |
+| `3` | Insufficient funds |
+| `4` | Invalid request params (used for stub debit/credit and DB unavailable) |
+| `5` | Reference transaction not found |
+| `6` | Reference transaction incompatible |
+| `7` | Wrong authentication / session expired |
 
-**Token validation is live**: Oddin's `Authenticator.ParseRequest` resolves a player from a Bifrost session token. Until **debit/credit** are wired to the casino ledger (still stubs returning `errorCode: 900`), bet placement will fail server-side even though sign-in/balance refresh succeed; implement ledger debits/credits per Oddin's contract and replace the stubs in `services/core/internal/oddin/handler_operator.go`.
+**Avoid high codes** (100/200/900) — providers' authenticators don't recognize them and the iframe surfaces a generic "Sportsbook reported an error" instead of the specific failure mode.
+
+**Token validation is live**: Oddin's `Authenticator.ParseRequest` resolves a player from a Bifrost session token. Until **debit/credit** are wired to the casino ledger (still stubs returning `errorCode: 4`), bet placement will fail server-side even though sign-in/balance refresh succeed; implement ledger debits/credits per Oddin's contract and replace the stubs in `services/core/internal/oddin/handler_operator.go`.
 
 ## Environment variables (quick map)
 
