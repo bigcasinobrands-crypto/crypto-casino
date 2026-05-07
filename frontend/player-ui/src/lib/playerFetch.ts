@@ -33,6 +33,21 @@ export function applyPlayerMutatingCSRF(headers: Headers, method: string | undef
   if (tok) headers.set('X-CSRF-Token', tok)
 }
 
+/**
+ * Parse `code` from core JSON error bodies. `playerapi.WriteError` uses `{ "error": { "code", "message" } }`.
+ */
+export function parsePlayerApiErrorCode(bodyText: string): string | undefined {
+  try {
+    const j = JSON.parse(bodyText) as { code?: string; error?: { code?: string } }
+    if (typeof j.code === 'string' && j.code.trim()) return j.code.trim()
+    const nested = j.error?.code
+    if (typeof nested === 'string' && nested.trim()) return nested.trim()
+  } catch {
+    /* ignore */
+  }
+  return undefined
+}
+
 /** Browser fetch to the player API with a per-request id (echoed by the server when possible). */
 export function playerFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)

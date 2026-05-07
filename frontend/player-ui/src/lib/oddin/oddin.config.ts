@@ -20,8 +20,10 @@ function trim(v: string | undefined): string {
 }
 
 export function oddinIframeEnabled(): boolean {
-  const v = import.meta.env.VITE_ODDIN_ENABLED
-  return v === 'true' || v === '1'
+  const raw = import.meta.env.VITE_ODDIN_ENABLED as string | undefined
+  if (raw === undefined || raw === null) return false
+  const v = String(raw).trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on'
 }
 
 /** Sports lives at `/casino/sports`; Oddin vs coming-soon placeholder is decided by `CasinoSportsPage`. */
@@ -88,7 +90,12 @@ export function oddinPublicConfigFromAPIPayload(data: unknown): OddinPublicConfi
   const darkMode =
     dr === undefined
       ? true
-      : dr === true || dr === 1 || dr === '1' || dr === 'true' || dr === 'yes'
+      : dr === true ||
+          dr === 1 ||
+          dr === '1' ||
+          dr === 'true' ||
+          dr === 'yes' ||
+          (typeof dr === 'string' && dr.trim().toLowerCase() === 'true')
 
   const cfg: OddinPublicConfig = {
     enabled: true,
