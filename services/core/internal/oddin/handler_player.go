@@ -145,6 +145,13 @@ func (h *Handler) SessionToken(w http.ResponseWriter, r *http.Request) {
 		ORDER BY ts.last_at DESC
 		LIMIT 1
 	`, uid).Scan(&country)
+	country = strings.TrimSpace(strings.ToUpper(country))
+	if len(country) != 2 {
+		country = ""
+	}
+	if country == "" {
+		country = h.Cfg.OddinFallbackCountryISO2()
+	}
 
 	clientIP := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
 	if i := strings.IndexByte(clientIP, ','); i > 0 {
@@ -279,6 +286,7 @@ func IntegrationStatusJSON(ctx context.Context, pool *pgxpool.Pool, cfg *config.
 	out["brand_token_configured"] = strings.TrimSpace(cfg.OddinBrandTokenPublic) != ""
 	out["operator_api_key_configured"] = strings.TrimSpace(cfg.OddinAPISecurityKey) != ""
 	out["hash_secret_configured"] = strings.TrimSpace(cfg.OddinHashSecret) != ""
+	out["oddin_fallback_country_iso2"] = cfg.OddinFallbackCountryISO2()
 	if su := strings.TrimSpace(cfg.OddinPublicScriptURL); su != "" {
 		out["script_url"] = su
 	}

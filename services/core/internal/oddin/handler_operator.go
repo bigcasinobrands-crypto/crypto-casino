@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -50,10 +51,6 @@ const (
 	ErrCodeRefNotFound       int = 5
 	ErrCodeRefIncompatible   int = 6
 	ErrCodeAuthFailed        int = 7 // wrong authentication / session expired
-
-	// defaultCountry used when sportsbook_sessions has no country recorded. Empty `country`
-	// makes Bifrost's user validation reject the payload; ISO 3166-1 alpha-2 is required.
-	defaultCountry = "US"
 )
 
 type operatorLog struct {
@@ -133,6 +130,60 @@ func errorBody(code int, desc string) map[string]any {
 	return map[string]any{
 		"errorCode":        code,
 		"errorDescription": desc,
+	}
+}
+
+// enrichOddinUserDetails adds firstName, email, verificationStatus, and optional dateOfBirth
+// so Oddin's authenticator receives the shape many seamless-wallet brands require.
+func enrichOddinUserDetails(ctx context.Context, pool *pgxpool.Pool, userID string, out map[string]any) {
+	if pool == nil || out == nil || strings.TrimSpace(userID) == "" {
+		return
+	}
+	var email, username, kyc string
+	var dob sql.NullString
+	err := pool.QueryRow(ctx, `
+		SELECT email, COALESCE(username, ''), COALESCE(kyc_status, 'none'), date_of_birth::text
+		FROM users WHERE id = $1::uuid
+	`, userID).Scan(&email, &username, &kyc, &dob)
+	if err != nil {
+		slog.WarnContext(ctx, "oddin_userdetails_profile_lookup_failed", "user_id", userID, "err", err)
+		return
+	}
+	display := strings.TrimSpace(username)
+	if display == "" && email != "" {
+		if i := strings.IndexByte(email, '@'); i > 0 {
+			display = strings.TrimSpace(email[:i])
+		}
+	}
+	if display == "" {
+		display = "Player"
+	}
+	parts := strings.Fields(display)
+	var firstName, lastName string
+	switch len(parts) {
+	case 0:
+		firstName = "Player"
+	case 1:
+		firstName = parts[0]
+	default:
+		firstName = parts[0]
+		lastName = strings.Join(parts[1:], " ")
+	}
+	out["firstName"] = firstName
+	if lastName == "" {
+		out["lastName"] = "-"
+	} else {
+		out["lastName"] = lastName
+	}
+	out["email"] = strings.TrimSpace(email)
+	out["nickname"] = display
+	verification := "UNVERIFIED"
+	if strings.EqualFold(strings.TrimSpace(kyc), "approved") {
+		verification = "VERIFIED"
+	}
+	out["verificationStatus"] = verification
+	if dob.Valid && strings.TrimSpace(dob.String) != "" {
+		out["dateOfBirth"] = strings.TrimSpace(dob.String)
 	}
 }
 
@@ -302,13 +353,16 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 	// it as uint64; sending a JSON float crashes their decoder for non-zero values).
 	// `country` MUST be a non-empty ISO 3166-1 alpha-2 code; empty values make Bifrost
 	// reject the user payload and surface "Sportsbook reported an error" in the iframe.
-	// We prefer the country resolved at session-issue time (real geographic intent) and
-	// fall back to defaultCountry only when fingerprint/IP geo could not provide one.
-	resolvedCountry := defaultCountry
+	// We prefer the country stored on the session row (geo at token issue) and fall back
+	// to Config.OddinFallbackCountryISO2() (ODDIN_DEFAULT_COUNTRY, else US).
+	resolvedCountry := ""
 	if country != nil {
-		if c := strings.TrimSpace(*country); c != "" {
-			resolvedCountry = strings.ToUpper(c)
+		if c := strings.TrimSpace(strings.ToUpper(*country)); len(c) == 2 {
+			resolvedCountry = c
 		}
+	}
+	if resolvedCountry == "" {
+		resolvedCountry = h.Cfg.OddinFallbackCountryISO2()
 	}
 	out := map[string]any{
 		"errorCode": ErrCodeOK,
@@ -318,6 +372,7 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 		"country":   resolvedCountry,
 		"balance":   balanceMinor,
 	}
+	enrichOddinUserDetails(ctx, h.Pool, userID, out)
 	h.logRequest(ctx, "userDetails", body, operatorLog{
 		Endpoint: "userDetails",
 		Status:   "OK",

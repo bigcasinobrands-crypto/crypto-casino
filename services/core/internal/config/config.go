@@ -181,6 +181,9 @@ type Config struct {
 	OddinTheme           string
 	OddinDefaultLanguage string
 	OddinDefaultCurrency string
+	// OddinDefaultCountry — ISO 3166-1 alpha-2 (e.g. GB, MT) used when traffic_sessions has no
+	// country and as Bifrost fallback; avoids hard-coding US for brands that block it.
+	OddinDefaultCountry string
 	OddinDarkMode        bool
 }
 
@@ -474,6 +477,7 @@ func Load() (Config, error) {
 	if c.OddinDefaultCurrency == "" {
 		c.OddinDefaultCurrency = "USD"
 	}
+	c.OddinDefaultCountry = strings.TrimSpace(strings.ToUpper(os.Getenv("ODDIN_DEFAULT_COUNTRY")))
 	if strings.TrimSpace(os.Getenv("ODDIN_DARK_MODE")) == "" {
 		c.OddinDarkMode = true
 	} else {
@@ -704,6 +708,17 @@ func (c *Config) OddinEnvLabel() string {
 		return "integration"
 	}
 	return strings.TrimSpace(strings.ToLower(c.OddinEnv))
+}
+
+// OddinFallbackCountryISO2 returns ODDIN_DEFAULT_COUNTRY when it is a 2-letter code; otherwise "US".
+func (c *Config) OddinFallbackCountryISO2() string {
+	if c != nil {
+		cc := strings.TrimSpace(strings.ToUpper(c.OddinDefaultCountry))
+		if len(cc) == 2 {
+			return cc
+		}
+	}
+	return "US"
 }
 
 // OddinOperatorIPAllowed returns true when IP matches allowlist or allowlist is disabled (empty).
