@@ -8,6 +8,9 @@
       "headers": {
         "Authorization": "Bearer ${env:RENDER_API_KEY}"
       }
+    },
+    "vercel": {
+      "url": "https://mcp.vercel.com"
     }
   }
 }

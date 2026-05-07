@@ -56,7 +56,7 @@ Copy placeholders from **[`docs/env/render-core.env.template`](./env/render-core
 
 ## 8. Cursor: Supabase MCP (this repo)
 
-The project includes **`.cursor/mcp.json`** so Cursor loads the [official hosted Supabase MCP server](https://supabase.com/docs/guides/getting-started/mcp) for this workspace.
+The project includes **`.cursor/mcp.json`** so Cursor loads the [official hosted Supabase MCP server](https://supabase.com/docs/guides/getting-started/mcp) for this workspace. The same file also defines **Render** and **Vercel** MCP — see **[`docs/deploy/README.md`](./deploy/README.md)** for setup (API key vs OAuth).
 
 1. **Restart Cursor** (or reload the window) after pulling so the config is picked up.
 2. Open **Settings → Cursor Settings → Tools & MCP**, find **supabase**, and complete **Sign in** (browser OAuth to Supabase). Pick the org that owns your database project.

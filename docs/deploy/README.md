@@ -74,3 +74,13 @@ This repo’s **`.cursor/mcp.json`** includes Render’s [hosted MCP server](htt
 4. First prompt in chat: set workspace, e.g. `Set my Render workspace to [WORKSPACE_NAME]`, then `List my Render services` (approve tool calls).
 
 Limitations and safety notes are documented on Render’s MCP page (e.g. env updates are the main mutating operation; no deploy triggers via MCP).
+
+## Cursor: Vercel MCP
+
+The same **`.cursor/mcp.json`** entry **`vercel`** points at [Vercel’s hosted MCP](https://vercel.com/docs/mcp/vercel-mcp) (`https://mcp.vercel.com`). **No API key in the repo** — Cursor prompts you to **Sign in with Vercel** (OAuth) the first time.
+
+1. Restart Cursor after pulling.
+2. **Settings → Tools & MCP** → **vercel** → complete auth if needed.
+3. Try: “List my Vercel projects” or “Status of latest deployment for this repo” (approve tool calls).
+
+See Vercel’s [Cursor + MCP](https://vercel.com/docs/mcp/vercel-mcp#cursor) docs for capabilities (deployments, logs, projects).
