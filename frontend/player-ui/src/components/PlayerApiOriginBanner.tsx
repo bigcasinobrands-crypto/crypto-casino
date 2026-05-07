@@ -1,8 +1,13 @@
 import { playerApiOriginConfigured } from '../lib/playerApiUrl'
 
+type Props = {
+  /** When `/health/operational` returned 200, API origin wiring works — hide the false-positive banner. */
+  operationalOk?: boolean
+}
+
 /** Warns when the player SPA cannot resolve API URLs (challenges, bonuses, balance, avatars). */
-export default function PlayerApiOriginBanner() {
-  if (!import.meta.env.PROD || playerApiOriginConfigured()) return null
+export default function PlayerApiOriginBanner({ operationalOk = false }: Props) {
+  if (!import.meta.env.PROD || playerApiOriginConfigured() || operationalOk) return null
   return (
     <div
       className="border-b border-amber-500/40 bg-amber-500/15 px-4 py-2 text-center text-[11px] font-semibold leading-snug text-amber-100"

@@ -17,6 +17,7 @@ import { translateNavItemLabel } from '../lib/navI18n'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import CasinoNavDrawerPromo from './CasinoNavDrawerPromo'
 import CasinoNavEsportsSection from './CasinoNavEsportsSection'
+import { isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
 import { LanguageMenu } from './LanguageMenu'
 import {
@@ -53,7 +54,7 @@ export default function MobileCasinoMenuOverlay({
   chatUnreadCount = 0,
 }: Props) {
   const { pathname } = useLocation()
-  const onSports = pathname.startsWith('/casino/sports')
+  const onSports = isEsportsPlayerRoute(pathname)
   const [casinoOpen, setCasinoOpen] = useState(() => !onSports)
   const { t } = useTranslation()
   const { getContent } = useSiteContent()

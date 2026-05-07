@@ -9,7 +9,7 @@ import {
   type OddinPublicConfig,
 } from '../lib/oddin/oddin.config'
 
-/** Why Oddin public-config could not supply a merged Bifrost config (for operator-facing copy on `/casino/sports`). */
+/** Why Oddin public-config could not supply a merged Bifrost config (for operator-facing copy on `/esports`). */
 export type OddinPublicConfigHint =
   | null
   | 'oddin_disabled'

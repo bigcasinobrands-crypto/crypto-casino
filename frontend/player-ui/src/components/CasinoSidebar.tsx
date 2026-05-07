@@ -15,7 +15,7 @@ import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import CasinoNavEsportsSection from './CasinoNavEsportsSection'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
 import { LanguageMenu } from './LanguageMenu'
-import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
+import { sportsbookPlayerPath, isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
 import {
   IconBanknote,
   IconBuilding2,
@@ -79,7 +79,7 @@ export default function CasinoSidebar({
 }: CasinoSidebarProps) {
   const [casinoOpen, setCasinoOpen] = useState(true)
   const { pathname, hash } = useLocation()
-  const onSports = pathname.startsWith('/casino/sports')
+  const onSports = isEsportsPlayerRoute(pathname)
   const { t } = useTranslation()
   const { getContent } = useSiteContent()
 

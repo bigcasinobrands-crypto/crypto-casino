@@ -26,9 +26,22 @@ export function oddinIframeEnabled(): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on'
 }
 
-/** Sports lives at `/casino/sports`; Oddin vs coming-soon placeholder is decided by `CasinoSportsPage`. */
+/** Canonical player path for the Oddin Bifrost shell (dedicated esports page). */
+export const ESPORTS_PLAYER_PATH = '/esports'
+
+/** Oddin vs coming-soon is decided by `CasinoSportsPage`. Prefer {@link ESPORTS_PLAYER_PATH}. */
 export function sportsbookPlayerPath(): string {
-  return '/casino/sports'
+  return ESPORTS_PLAYER_PATH
+}
+
+/** True on `/esports` and legacy `/casino/sports` (query string is not part of `pathname`). */
+export function isEsportsPlayerRoute(pathname: string): boolean {
+  if (!pathname) return false
+  return (
+    pathname === ESPORTS_PLAYER_PATH ||
+    pathname.startsWith(`${ESPORTS_PLAYER_PATH}/`) ||
+    pathname.startsWith('/casino/sports')
+  )
 }
 
 export function readOddinPublicConfig(): OddinPublicConfig | null {

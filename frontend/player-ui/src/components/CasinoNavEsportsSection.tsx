@@ -5,7 +5,7 @@ import { useOddinEsportsNav } from '../hooks/useOddinEsportsNav'
 import { translateEsportsNavLabel } from '../lib/navI18n'
 import type { EsportsNavItem } from '../lib/oddin/esportsNavCatalog'
 import { useOddinBootstrap } from '../context/OddinBootstrapContext'
-import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
+import { sportsbookPlayerPath, isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
 import { IconChevronDown, IconSwords, IconTrophy } from './icons'
 
 type Variant = 'sidebar' | 'drawer'
@@ -76,7 +76,7 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
   const navigate = useNavigate()
   const { esportsIntegrationActive } = useOddinBootstrap()
   const { items, labelsFromOperator } = useOddinEsportsNav()
-  const segmentActive = pathname.startsWith('/casino/sports')
+  const segmentActive = isEsportsPlayerRoute(pathname)
   const [open, setOpen] = useState(() => segmentActive)
 
   /** Top header toggle switches shell (Casino vs E-Sports) — keep accordions in sync with the route. */
@@ -185,7 +185,7 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
           >
           {items.map((item) => {
             const to = esportsHref(item)
-            const active = pathname === '/casino/sports' && isEsportsSubActive(search, item)
+            const active = isEsportsPlayerRoute(pathname) && isEsportsSubActive(search, item)
             const label = rowLabel(item)
             const iconSize = 15
             if (variant === 'drawer') {

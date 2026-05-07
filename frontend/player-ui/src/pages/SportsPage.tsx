@@ -11,6 +11,7 @@ import {
 import { GAME_IFRAME_ALLOW } from '../lib/gameIframe'
 import { pushRecent } from '../lib/gameStorage'
 import { playerFetch } from '../lib/playerFetch'
+import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
 
@@ -94,7 +95,7 @@ export default function SportsPage() {
       : ''
   const recentKey = catalogGameId || 'blueocean-sportsbook'
 
-  const postAuthTarget = '/casino/sports'
+  const postAuthTarget = sportsbookPlayerPath()
 
   const demoAllowed = true
   const realAllowed = true

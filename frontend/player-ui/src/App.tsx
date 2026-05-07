@@ -60,6 +60,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import WalletDepositPage from './pages/WalletDepositPage'
 import StudiosPage from './pages/StudiosPage'
+import { isEsportsPlayerRoute } from './lib/oddin/oddin.config'
 
 function LegacyCasinoRedirect() {
   const loc = useLocation()
@@ -92,9 +93,15 @@ function LegacyWalletWithdrawPathRedirect() {
   return <Navigate to="/casino/games?walletTab=withdraw" replace />
 }
 
+/** Oddin bookmarks may still use `/casino/sports`; canonical path is `/esports`. */
+function LegacyCasinoSportsRedirect() {
+  const loc = useLocation()
+  return <Navigate to={{ pathname: '/esports', search: loc.search, hash: loc.hash }} replace />
+}
+
 function CatalogFooter() {
   const { pathname } = useLocation()
-  if (pathname.startsWith('/casino/sports') || pathname.startsWith('/embed/')) {
+  if (isEsportsPlayerRoute(pathname) || pathname.startsWith('/embed/')) {
     return null
   }
   return <SiteFooter />
@@ -155,8 +162,8 @@ function AppShell() {
   const location = useLocation()
   const { pathname } = location
   const { esportsIntegrationActive } = useOddinBootstrap()
-  /** Oddin iframe: hide outer scroll below desktop; phones/tablets keep bottom nav on `/casino/sports`. */
-  const onEsportsRoute = pathname.startsWith('/casino/sports')
+  /** Oddin iframe: hide outer scroll below desktop; phones/tablets keep bottom nav on esports. */
+  const onEsportsRoute = isEsportsPlayerRoute(pathname)
   const oddinBifrostShell = esportsIntegrationActive && onEsportsRoute
   const isMobileChrome = useMobilePlayerChrome()
   const isSubDesktop = useSubDesktopPlayerChrome()
@@ -305,10 +312,6 @@ function AppShell() {
 
   const mainScrollRef = useRef<HTMLDivElement>(null)
   const pullToRefreshEnabled = !pathname.startsWith('/embed/') && !oddinBifrostShell
-  /** Any `/casino/sports` on a phone — not only when Oddin iframe is enabled (avoids “coming soon” gap). */
-  const hideMobileHeaderActions = onEsportsRoute && isMobileChrome && isAuthenticated
-  /** Tablet / small laptop: same trim while logged in on E-Sports (bottom nav replaces header actions). */
-  const hideTabletEsportsChrome = onEsportsRoute && isSubDesktop && isAuthenticated
   const esportsTabletBottomBar =
     onEsportsRoute && isSubDesktop && !isMobileChrome ? 'casino-shell-mobile-nav--esports-tablet' : ''
 
@@ -338,10 +341,8 @@ function AppShell() {
                   </div>
                 </div>
               ) : null}
-              {/* Mobile shell: Rewards + profile (search/chat via bottom nav); hidden on logged-in E-Sports phones. */}
-              <div
-                className={`relative z-[2] ml-auto flex shrink-0 items-center gap-0.5 ${hideMobileHeaderActions ? 'hidden' : ''}`}
-              >
+              {/* Mobile shell: Rewards + profile (search/chat via bottom nav). */}
+              <div className="relative z-[2] ml-auto flex shrink-0 items-center gap-0.5">
                 {!showBottomNav ? (
                   <button
                     type="button"
@@ -410,9 +411,7 @@ function AppShell() {
                   </div>
                 </div>
               ) : null}
-              <div
-                className={`relative z-[2] ml-auto flex shrink-0 items-center justify-end gap-0.5 md:gap-1 ${hideTabletEsportsChrome ? 'hidden' : ''}`}
-              >
+              <div className="relative z-[2] ml-auto flex shrink-0 items-center justify-end gap-0.5 md:gap-1">
                 {showCasinoSearch ? (
                   <button
                     type="button"
@@ -529,7 +528,7 @@ function AppShell() {
               } ${showBottomNav ? '' : 'casino-shell-scroll--no-bottom-nav'}`}
             >
               <div className="relative z-[210] shrink-0">
-                <PlayerApiOriginBanner />
+                <PlayerApiOriginBanner operationalOk={op.data != null} />
                 <OperationalBanner data={op.data} />
               </div>
               {/*
@@ -548,9 +547,10 @@ function AppShell() {
                     <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPage />} />
-                    <Route path="/casino/sports" element={<CasinoSportsPage />} />
+                    <Route path="/esports" element={<CasinoSportsPage />} />
+                    <Route path="/casino/sports" element={<LegacyCasinoSportsRedirect />} />
                     <Route path="/casino/studios" element={<StudiosPage />} />
-                    <Route path="/sportsbook" element={<Navigate to="/casino/sports" replace />} />
+                    <Route path="/sportsbook" element={<Navigate to="/esports" replace />} />
                     <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
                     <Route path="/casino/:section" element={<LobbyPage operationalData={op.data} />} />
                     <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />

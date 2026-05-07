@@ -7,7 +7,7 @@ import EsportsComingSoonPage from './EsportsComingSoonPage'
 import OddinSportsbookPage from './OddinSportsbookPage'
 
 /**
- * `/casino/sports` — Oddin Bifrost when env validates either from **player** `VITE_ODDIN_*` or **core**
+ * `/esports` (canonical) — Oddin Bifrost when env validates either from **player** `VITE_ODDIN_*` or **core**
  * `GET /v1/sportsbook/oddin/public-config` (ODDIN_BRAND_TOKEN + ODDIN_PUBLIC_BASE_URL + ODDIN_PUBLIC_SCRIPT_URL).
  */
 export default function CasinoSportsPage() {

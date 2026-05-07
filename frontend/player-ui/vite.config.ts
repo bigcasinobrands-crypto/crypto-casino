@@ -18,10 +18,18 @@ function injectPlayerApiOriginMeta(originNoTrailingSlash: string): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const apiOriginRaw = (env.VITE_PLAYER_API_ORIGIN ?? '').trim()
+  // Vercel/CI inject `VITE_*` into `process.env` at build time; `loadEnv` only merges .env files.
+  // Without this fallback, production checks and `transformIndexHtml` meta injection can miss the origin
+  // even when the dashboard variable is set, which keeps the amber "API origin not set" banner visible.
+  const apiOriginRaw = (
+    env.VITE_PLAYER_API_ORIGIN ??
+    process.env.VITE_PLAYER_API_ORIGIN ??
+    ''
+  ).trim()
   const apiOriginNormalized = apiOriginRaw.replace(/\/$/, '')
   const onVercel = process.env.VERCEL === '1'
-  const skipOriginCheck = (env.VITE_SKIP_PLAYER_API_ORIGIN_CHECK ?? '').trim() === '1'
+  const skipOriginCheck =
+    (env.VITE_SKIP_PLAYER_API_ORIGIN_CHECK ?? process.env.VITE_SKIP_PLAYER_API_ORIGIN_CHECK ?? '').trim() === '1'
 
   if (mode === 'production' && onVercel && !skipOriginCheck && !apiOriginRaw) {
     throw new Error(

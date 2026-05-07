@@ -10,6 +10,7 @@ import {
   IconMenu,
   IconSearch,
 } from './icons'
+import { isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
 
 type PlayerMobileBottomNavProps = {
   /** Sidebar drawer open — highlights Menu tab (no route). */
@@ -59,8 +60,7 @@ export default function PlayerMobileBottomNav({
   const { isAuthenticated } = usePlayerAuth()
   const { openAuth } = useAuthModal()
 
-  const casinoActive =
-    pathname.startsWith('/casino/') && !pathname.startsWith('/casino/sports')
+  const casinoActive = pathname.startsWith('/casino/') && !isEsportsPlayerRoute(pathname)
 
   const bonusesActive = pathname.startsWith('/bonuses')
 

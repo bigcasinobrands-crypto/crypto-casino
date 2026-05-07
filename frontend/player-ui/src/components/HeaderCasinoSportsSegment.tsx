@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
+import { sportsbookPlayerPath, isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
 
 type HeaderCasinoSportsSegmentProps = {
   className?: string
@@ -10,7 +11,7 @@ type HeaderCasinoSportsSegmentProps = {
 /**
  * Joined Casino / E-Sports control — dark track + purple active pill (`casino-toggle-active`).
  * Casino stays visually selected in this shell: the sidebar and routes here are casino-first;
- * E-Sports opens `/casino/sports` (Oddin Bifrost or legacy provider) in the main shell.
+ * E-Sports opens `/esports` (Oddin Bifrost or legacy provider) in the main shell.
  */
 export default function HeaderCasinoSportsSegment({
   className = '',
@@ -18,7 +19,7 @@ export default function HeaderCasinoSportsSegment({
 }: HeaderCasinoSportsSegmentProps) {
   const { t } = useTranslation()
   const { pathname } = useLocation()
-  const onSports = pathname.startsWith('/casino/sports')
+  const onSports = isEsportsPlayerRoute(pathname)
 
   const inner =
     'flex min-h-[34px] min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-[10px] px-1.5 py-1.5 text-center text-[11px] font-bold leading-tight transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-toggle-active sm:px-3 sm:text-[12px] md:text-[13px]'
@@ -37,7 +38,7 @@ export default function HeaderCasinoSportsSegment({
       <Link to="/casino/games" className={onSports ? casinoIdle : casinoSelected} onClick={onNavigate}>
         {t('sidebar.casino')}
       </Link>
-      <Link to="/casino/sports" className={onSports ? casinoSelected : casinoIdle} onClick={onNavigate}>
+      <Link to={sportsbookPlayerPath()} className={onSports ? casinoSelected : casinoIdle} onClick={onNavigate}>
         {t('nav.extras.sports')}
       </Link>
     </div>

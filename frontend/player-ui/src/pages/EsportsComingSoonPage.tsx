@@ -21,7 +21,7 @@ function hintBody(t: (key: string) => string, h: OddinPublicConfigHint): string 
 }
 
 /**
- * Placeholder for `/casino/sports` when Oddin is disabled (legacy Blue Ocean sportsbook not shown here).
+ * Placeholder for `/esports` when Oddin is disabled (legacy Blue Ocean sportsbook not shown here).
  */
 export default function EsportsComingSoonPage() {
   const { t } = useTranslation()

@@ -6,6 +6,7 @@ import SportsbookLoadingState from '../components/sportsbook/SportsbookLoadingSt
 import {
   oddinIframeEnabled,
   readOddinPublicConfig,
+  sportsbookPlayerPath,
   validateOddinPublicConfig,
   type OddinPublicConfig,
 } from '../lib/oddin/oddin.config'
@@ -21,8 +22,8 @@ export default function OddinSportsbookPage({ publicConfig }: { publicConfig?: O
         title="Esports sportsbook"
         message="The Oddin Bifrost integration is disabled for this environment."
       >
-        <Link to="/casino/sports" className="text-sm font-semibold text-casino-primary underline">
-          Open legacy sportsbook
+        <Link to={sportsbookPlayerPath()} className="text-sm font-semibold text-casino-primary underline">
+          Open esports
         </Link>
       </SportsbookErrorState>
     )
@@ -34,8 +35,8 @@ export default function OddinSportsbookPage({ publicConfig }: { publicConfig?: O
         title="Esports sportsbook"
         message="The Oddin Bifrost integration is disabled for this environment."
       >
-        <Link to="/casino/sports" className="text-sm font-semibold text-casino-primary underline">
-          Open legacy sportsbook
+        <Link to={sportsbookPlayerPath()} className="text-sm font-semibold text-casino-primary underline">
+          Open esports
         </Link>
       </SportsbookErrorState>
     )
