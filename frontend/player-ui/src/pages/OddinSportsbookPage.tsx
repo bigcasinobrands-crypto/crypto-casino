@@ -11,11 +11,24 @@ import {
 } from '../lib/oddin/oddin.config'
 import { usePlayerAuth } from '../playerAuth'
 
-export default function OddinSportsbookPage() {
-  const cfg = readOddinPublicConfig()
+export default function OddinSportsbookPage({ publicConfig }: { publicConfig?: OddinPublicConfig }) {
+  const cfg = publicConfig ?? readOddinPublicConfig()
   const valid = cfg ? validateOddinPublicConfig(cfg) : { ok: false as const, message: 'Oddin is not enabled.' }
 
-  if (!oddinIframeEnabled() || !cfg) {
+  if (!cfg) {
+    return (
+      <SportsbookErrorState
+        title="Esports sportsbook"
+        message="The Oddin Bifrost integration is disabled for this environment."
+      >
+        <Link to="/casino/sports" className="text-sm font-semibold text-casino-primary underline">
+          Open legacy sportsbook
+        </Link>
+      </SportsbookErrorState>
+    )
+  }
+
+  if (!publicConfig && !oddinIframeEnabled()) {
     return (
       <SportsbookErrorState
         title="Esports sportsbook"
@@ -32,7 +45,9 @@ export default function OddinSportsbookPage() {
     return (
       <SportsbookErrorState title="Sportsbook configuration" message={valid.message}>
         <p className="text-xs text-white/55">
-          Set <span className="font-mono">VITE_ODDIN_*</span> in your player env (see <span className="font-mono">.env.example</span>).
+          Set Oddin on core (<span className="font-mono">ODDIN_ENABLED</span>, <span className="font-mono">ODDIN_BRAND_TOKEN</span>,{' '}
+          <span className="font-mono">ODDIN_PUBLIC_BASE_URL</span>, <span className="font-mono">ODDIN_PUBLIC_SCRIPT_URL</span>) and/or{' '}
+          <span className="font-mono">VITE_ODDIN_*</span> on the player (see <span className="font-mono">.env.example</span>).
         </p>
       </SportsbookErrorState>
     )

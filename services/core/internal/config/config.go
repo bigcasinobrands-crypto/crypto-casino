@@ -136,7 +136,8 @@ type Config struct {
 	// Fingerprint Pro Server API (https://docs.fingerprint.com/reference/server-api-get-event) — Auth-API-Key; never exposed to clients.
 	FingerprintSecretAPIKey string
 	FingerprintAPIBaseURL   string
-	// RequireFingerprintPlayerAuth — when true (default in production), Sign-in and traffic would require fingerprint_request_id; APP_ENV=development never enforces — see PlayerFingerprintAuthRequired().
+	// RequireFingerprintPlayerAuth — when true, sign-in / refresh / traffic may require fingerprint_request_id
+	// (legacy opt-in: set REQUIRE_FINGERPRINT_PLAYER_AUTH=true). APP_ENV=development never enforces — see PlayerFingerprintAuthRequired().
 	RequireFingerprintPlayerAuth bool
 	// WithdrawRequireFingerprint — when true, POST /v1/wallet/withdraw must include fingerprint_request_id (enforced before ledger).
 	WithdrawRequireFingerprint bool
@@ -152,6 +153,11 @@ type Config struct {
 	OddinOperatorIPAllowlist []string // when non-empty, restrict operator callbacks to these IPs (comma-separated in env)
 	// OddinEsportsNavJSON — optional JSON array for E-Sports sidebar (id, label, page, logoUrl); list + Oddin-hosted logo URLs from integration docs.
 	OddinEsportsNavJSON string
+	// OddinTheme and locale — optional; returned from GET /v1/sportsbook/oddin/public-config when core drives the iframe.
+	OddinTheme           string
+	OddinDefaultLanguage string
+	OddinDefaultCurrency string
+	OddinDarkMode        bool
 }
 
 // DepositAssetCanonicalKeys are standard symbol_network combinations surfaced in admin UI (aligned with payment_currencies.symbol/network).
@@ -401,6 +407,11 @@ func Load() (Config, error) {
 	}
 	c.RequireFingerprintPlayerAuth = requireFingerprintPlayerAuthFromEnv(os.Getenv("REQUIRE_FINGERPRINT_PLAYER_AUTH"), c.AppEnv)
 	c.WithdrawRequireFingerprint = parseBoolEnv(os.Getenv("WITHDRAW_REQUIRE_FINGERPRINT"))
+	// Kill-switch for hosts that still have legacy REQUIRE_* / WITHDRAW_* set: one env turns off all fingerprint_request_id enforcement.
+	if parseBoolEnv(os.Getenv("DISABLE_FINGERPRINT_PLAYER_AUTH")) {
+		c.RequireFingerprintPlayerAuth = false
+		c.WithdrawRequireFingerprint = false
+	}
 	c.OddinEnabled = parseBoolEnv(os.Getenv("ODDIN_ENABLED"))
 	c.OddinEnv = strings.TrimSpace(strings.ToLower(os.Getenv("ODDIN_ENV")))
 	if c.OddinEnv == "" {
@@ -425,6 +436,20 @@ func Load() (Config, error) {
 		}
 	}
 	c.OddinEsportsNavJSON = strings.TrimSpace(os.Getenv("ODDIN_ESPORTS_NAV_JSON"))
+	c.OddinTheme = strings.TrimSpace(os.Getenv("ODDIN_THEME"))
+	c.OddinDefaultLanguage = strings.TrimSpace(os.Getenv("ODDIN_DEFAULT_LANGUAGE"))
+	if c.OddinDefaultLanguage == "" {
+		c.OddinDefaultLanguage = "en"
+	}
+	c.OddinDefaultCurrency = strings.TrimSpace(strings.ToUpper(os.Getenv("ODDIN_DEFAULT_CURRENCY")))
+	if c.OddinDefaultCurrency == "" {
+		c.OddinDefaultCurrency = "USD"
+	}
+	if strings.TrimSpace(os.Getenv("ODDIN_DARK_MODE")) == "" {
+		c.OddinDarkMode = true
+	} else {
+		c.OddinDarkMode = parseBoolEnv(os.Getenv("ODDIN_DARK_MODE"))
+	}
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
 	}
@@ -551,15 +576,15 @@ func parseBoolEnv(s string) bool {
 	return s == "1" || s == "true" || s == "yes"
 }
 
-// requireFingerprintPlayerAuthFromEnv: if REQUIRE_FINGERPRINT_PLAYER_AUTH is unset, default to true only when
-// appEnv is production (so local development without VITE_FINGERPRINT_PUBLIC_KEY does not get 400s on auth).
-// Any non-empty value is parsed with the same rules as parseBoolEnv (true/1/yes vs false/0/no).
+// requireFingerprintPlayerAuthFromEnv: Fingerprint on auth/traffic is opt-in (legacy).
+// When REQUIRE_FINGERPRINT_PLAYER_AUTH is unset, default false. Set to true/1/yes to re-enable.
 func requireFingerprintPlayerAuthFromEnv(raw string, appEnv string) bool {
 	s := strings.TrimSpace(strings.ToLower(raw))
 	if s != "" {
 		return parseBoolEnv(raw)
 	}
-	return strings.TrimSpace(strings.ToLower(appEnv)) == "production"
+	_ = appEnv // previously defaulted true in production; kept for signature stability in callers
+	return false
 }
 
 func parseIntEnv(s string, defaultVal int64) int64 {

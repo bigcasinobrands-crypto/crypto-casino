@@ -4,7 +4,8 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useOddinEsportsNav } from '../hooks/useOddinEsportsNav'
 import { translateEsportsNavLabel } from '../lib/navI18n'
 import type { EsportsNavItem } from '../lib/oddin/esportsNavCatalog'
-import { oddinIframeEnabled, sportsbookPlayerPath } from '../lib/oddin/oddin.config'
+import { useOddinBootstrap } from '../context/OddinBootstrapContext'
+import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
 import { IconChevronDown, IconSwords, IconTrophy } from './icons'
 
 type Variant = 'sidebar' | 'drawer'
@@ -73,6 +74,7 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
   const { t } = useTranslation()
   const { pathname, search } = useLocation()
   const navigate = useNavigate()
+  const { esportsIntegrationActive } = useOddinBootstrap()
   const { items, labelsFromOperator } = useOddinEsportsNav()
   const segmentActive = pathname.startsWith('/casino/sports')
   const [open, setOpen] = useState(() => segmentActive)
@@ -83,7 +85,7 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
     else setOpen(false)
   }, [segmentActive])
 
-  const showAccordion = oddinIframeEnabled()
+  const showAccordion = esportsIntegrationActive
   const sportsLabel = t('nav.extras.sports')
 
   const navItemCollapsed =

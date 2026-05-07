@@ -17,14 +17,14 @@ export function augmentFingerprintRequiredError(err: ApiErr): ApiErr {
   if (err.code !== 'fingerprint_required') return err
   if (isFingerprintEnabled()) return err
   const hint = import.meta.env.DEV
-    ? " Local dev: your API expects browser identification. Either set VITE_FINGERPRINT_PUBLIC_KEY (and VITE_FINGERPRINT_REGION) in .env.development, or point DEV_API_PROXY at http://127.0.0.1:9090 and run core with APP_ENV=development / REQUIRE_FINGERPRINT_PLAYER_AUTH unset."
-    : ' Configure VITE_FINGERPRINT_PUBLIC_KEY and VITE_FINGERPRINT_REGION for this deploy; allow this origin in the Fingerprint dashboard.'
+    ? " The API you are calling still enforces fingerprint_request_id (usually REQUIRE_FINGERPRINT_PLAYER_AUTH=true on the host, or an older core build). On the core host: set REQUIRE_FINGERPRINT_PLAYER_AUTH=false, or set DISABLE_FINGERPRINT_PLAYER_AUTH=1, redeploy, and check logs for “fingerprint player auth effective”. Or use DEV_API_PROXY=http://127.0.0.1:9090 with local core (APP_ENV=development). To re-enable legacy FP: VITE_FINGERPRINT_ENABLED=1 plus public key and region."
+    : ' Your API host still requires fingerprint_request_id — set REQUIRE_FINGERPRINT_PLAYER_AUTH=false or DISABLE_FINGERPRINT_PLAYER_AUTH=1 on core and redeploy. Legacy player FP: VITE_FINGERPRINT_ENABLED=1, VITE_FINGERPRINT_PUBLIC_KEY, VITE_FINGERPRINT_REGION.'
   const base = err.message?.trim() || 'fingerprint_request_id is required.'
   return { ...err, message: `${base}${hint}` }
 }
 
 /**
- * Fields for login/register/refresh. When the player build has VITE_FINGERPRINT_PUBLIC_KEY,
+ * Fields for login/register/refresh. When the player build has legacy FP enabled (VITE_FINGERPRINT_ENABLED + public key),
  * identification must succeed or the result is ok:false (server also enforces when configured).
  */
 export async function getAuthFingerprintPayload(): Promise<AuthFingerprintPayloadResult> {

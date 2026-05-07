@@ -5,7 +5,7 @@ import {
   mergeEsportsNavLogosFromFallback,
   type EsportsNavItem,
 } from '../lib/oddin/esportsNavCatalog'
-import { oddinIframeEnabled } from '../lib/oddin/oddin.config'
+import { useOddinBootstrap } from '../context/OddinBootstrapContext'
 
 function normalizeApiItem(x: Record<string, unknown>): EsportsNavItem | null {
   const id = typeof x.id === 'string' ? x.id.trim() : ''
@@ -22,11 +22,12 @@ function normalizeApiItem(x: Record<string, unknown>): EsportsNavItem | null {
  * is filled from bundled fallbacks (Oddin should supply HTTPS `logoUrl` per title for a perfect match).
  */
 export function useOddinEsportsNav() {
+  const { esportsIntegrationActive } = useOddinBootstrap()
   const [items, setItems] = useState<EsportsNavItem[]>(ESPORTS_NAV_FALLBACK)
   const [labelsFromOperator, setLabelsFromOperator] = useState(false)
 
   useEffect(() => {
-    if (!oddinIframeEnabled()) return
+    if (!esportsIntegrationActive) return
     let cancelled = false
     ;(async () => {
       try {
@@ -51,7 +52,7 @@ export function useOddinEsportsNav() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [esportsIntegrationActive])
 
   return { items, labelsFromOperator }
 }

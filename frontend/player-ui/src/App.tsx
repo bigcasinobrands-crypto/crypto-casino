@@ -45,11 +45,11 @@ import PlayerBootOverlay from './components/PlayerBootOverlay'
 import { SiteContentProvider } from './hooks/useSiteContent'
 import { dismissPlayerCatalogSyncToast, toastPlayerCatalogSyncWarning } from './notifications/playerToast'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
+import { OddinBootstrapProvider, useOddinBootstrap } from './context/OddinBootstrapContext'
 import { BootNonLobbyRoutes, InitialAppLoadProvider } from './context/InitialAppLoadContext'
 import DemoEmbedPage from './pages/DemoEmbedPage'
 import GameLobbyPage from './pages/GameLobbyPage'
 import CasinoSportsPage from './pages/CasinoSportsPage'
-import { oddinIframeEnabled } from './lib/oddin/oddin.config'
 import LegalPage from './pages/LegalPage'
 import LobbyPage from './pages/LobbyPage'
 import ProfilePage from './pages/ProfilePage'
@@ -124,14 +124,16 @@ export default function App() {
     <SiteContentProvider>
       <PlayerBootOverlay />
       <PlayerAuthProvider>
-        <AuthModalProvider>
-          <InitialAppLoadProvider>
-            <PlayerToaster />
-            <InstallGlobalPlayerToasts />
-            <AppShell />
-            <AuthModal />
-          </InitialAppLoadProvider>
-        </AuthModalProvider>
+        <OddinBootstrapProvider>
+          <AuthModalProvider>
+            <InitialAppLoadProvider>
+              <PlayerToaster />
+              <InstallGlobalPlayerToasts />
+              <AppShell />
+              <AuthModal />
+            </InitialAppLoadProvider>
+          </AuthModalProvider>
+        </OddinBootstrapProvider>
       </PlayerAuthProvider>
     </SiteContentProvider>
   )
@@ -152,9 +154,10 @@ function AppShell() {
 
   const location = useLocation()
   const { pathname } = location
+  const { esportsIntegrationActive } = useOddinBootstrap()
   /** Oddin iframe: hide outer scroll below desktop; phones/tablets keep bottom nav on `/casino/sports`. */
   const onEsportsRoute = pathname.startsWith('/casino/sports')
-  const oddinBifrostShell = oddinIframeEnabled() && onEsportsRoute
+  const oddinBifrostShell = esportsIntegrationActive && onEsportsRoute
   const isMobileChrome = useMobilePlayerChrome()
   const isSubDesktop = useSubDesktopPlayerChrome()
   const [searchParams, setSearchParams] = useSearchParams()

@@ -29,8 +29,10 @@ function publicKey(): string | undefined {
   return typeof k === 'string' && k.trim() !== '' ? k.trim() : undefined
 }
 
-/** True when the player build has a public API key (dashboard → Public). */
+/** Off unless explicitly enabled (legacy opt-in — avoids loading the SDK from a stray public key alone). */
 export function isFingerprintEnabled(): boolean {
+  const on = import.meta.env.VITE_FINGERPRINT_ENABLED
+  if (on !== '1' && on !== 'true') return false
   return publicKey() !== undefined
 }
 

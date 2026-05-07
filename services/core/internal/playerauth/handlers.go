@@ -129,7 +129,7 @@ func (h *Handler) rejectIfFingerprintMissing(w http.ResponseWriter, fpReqID stri
 	if strings.TrimSpace(fpReqID) != "" {
 		return false
 	}
-	playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "fingerprint_request_id is required. Use the player app with Fingerprint Pro (VITE_FINGERPRINT_PUBLIC_KEY) and allow identification to complete before sign-in.")
+	playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "fingerprint_request_id is required. Enable legacy Fingerprint on the player (VITE_FINGERPRINT_ENABLED=1 + VITE_FINGERPRINT_PUBLIC_KEY + region) and allow identification to complete before sign-in.")
 	return true
 }
 

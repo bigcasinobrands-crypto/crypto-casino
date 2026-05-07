@@ -10,6 +10,8 @@ import { FingerprintProviderFallbackBoundary } from './lib/fingerprintProviderFa
 import { FingerprintReactIntegration } from './lib/fingerprintReactIntegration'
 
 function fingerprintLoaderOptions(): { apiKey: string; region: 'us' | 'eu' | 'ap' } | null {
+  const enabled = import.meta.env.VITE_FINGERPRINT_ENABLED
+  if (enabled !== '1' && enabled !== 'true') return null
   const raw = import.meta.env.VITE_FINGERPRINT_PUBLIC_KEY
   if (typeof raw !== 'string' || !raw.trim()) return null
   const r = import.meta.env.VITE_FINGERPRINT_REGION?.trim().toLowerCase()

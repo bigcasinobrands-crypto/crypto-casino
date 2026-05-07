@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -26,6 +27,47 @@ type Handler struct {
 func hashOpaqueToken(plain string) string {
 	sum := sha256.Sum256([]byte(plain))
 	return hex.EncodeToString(sum[:])
+}
+
+// PublicConfig serves GET /v1/sportsbook/oddin/public-config — public; same values as player VITE_ODDIN_* when the operator configures Oddin only on core.
+func (h *Handler) PublicConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.Cfg == nil || !h.Cfg.OddinIntegrationEnabled() {
+		playerapi.WriteError(w, http.StatusNotFound, "oddin_disabled", "oddin integration is disabled")
+		return
+	}
+	bt := strings.TrimSpace(h.Cfg.OddinBrandTokenPublic)
+	bu := strings.TrimSpace(h.Cfg.OddinPublicBaseURL)
+	su := strings.TrimSpace(h.Cfg.OddinPublicScriptURL)
+	if bt == "" || bu == "" || su == "" {
+		playerapi.WriteError(w, http.StatusNotFound, "oddin_incomplete", "Set ODDIN_BRAND_TOKEN, ODDIN_PUBLIC_BASE_URL, and ODDIN_PUBLIC_SCRIPT_URL on core")
+		return
+	}
+	if u, err := url.Parse(su); err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		playerapi.WriteError(w, http.StatusInternalServerError, "oddin_config", "ODDIN_PUBLIC_SCRIPT_URL is not a valid absolute URL")
+		return
+	}
+	if u, err := url.Parse(bu); err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		playerapi.WriteError(w, http.StatusInternalServerError, "oddin_config", "ODDIN_PUBLIC_BASE_URL is not a valid absolute URL")
+		return
+	}
+	out := map[string]any{
+		"brand_token":      bt,
+		"base_url":         bu,
+		"script_url":       su,
+		"env":              h.Cfg.OddinEnvLabel(),
+		"default_language": h.Cfg.OddinDefaultLanguage,
+		"default_currency": h.Cfg.OddinDefaultCurrency,
+		"dark_mode":        h.Cfg.OddinDarkMode,
+	}
+	if th := strings.TrimSpace(h.Cfg.OddinTheme); th != "" {
+		out["theme"] = th
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 type sessionTokenReq struct {

@@ -65,7 +65,7 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 	t.Setenv("PLAYER_JWT_SECRET", "")
 	t.Setenv("REQUIRE_FINGERPRINT_PLAYER_AUTH", "")
 
-		t.Run("development_unset_requires_false", func(t *testing.T) {
+	t.Run("development_unset_requires_false", func(t *testing.T) {
 		t.Setenv("APP_ENV", "development")
 		c, err := Load()
 		if err != nil {
@@ -94,14 +94,29 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 		}
 	})
 
-	t.Run("production_unset_requires_true", func(t *testing.T) {
+	t.Run("production_unset_fingerprint_opt_out", func(t *testing.T) {
 		t.Setenv("APP_ENV", "production")
 		c, err := Load()
 		if err != nil {
 			t.Fatal(err)
 		}
+		if c.RequireFingerprintPlayerAuth {
+			t.Fatal("expected RequireFingerprintPlayerAuth false when env unset (Fingerprint legacy opt-in)")
+		}
+		if c.PlayerFingerprintAuthRequired() {
+			t.Fatal("expected PlayerFingerprintAuthRequired false in production when flag false")
+		}
+	})
+
+	t.Run("production_explicit_true_reenables", func(t *testing.T) {
+		t.Setenv("APP_ENV", "production")
+		t.Setenv("REQUIRE_FINGERPRINT_PLAYER_AUTH", "true")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if !c.RequireFingerprintPlayerAuth {
-			t.Fatal("expected RequireFingerprintPlayerAuth true when APP_ENV=production and env unset")
+			t.Fatal("expected RequireFingerprintPlayerAuth true when explicitly true")
 		}
 		if !c.PlayerFingerprintAuthRequired() {
 			t.Fatal("expected PlayerFingerprintAuthRequired true in production when flag true")
@@ -120,6 +135,23 @@ func TestLoad_requireFingerprintPlayerAuth_defaultsByAppEnv(t *testing.T) {
 		}
 		if c.PlayerFingerprintAuthRequired() {
 			t.Fatal("expected PlayerFingerprintAuthRequired false when flag false in production")
+		}
+	})
+
+	t.Run("production_disable_env_overrides_true", func(t *testing.T) {
+		t.Setenv("APP_ENV", "production")
+		t.Setenv("REQUIRE_FINGERPRINT_PLAYER_AUTH", "true")
+		t.Setenv("WITHDRAW_REQUIRE_FINGERPRINT", "true")
+		t.Setenv("DISABLE_FINGERPRINT_PLAYER_AUTH", "1")
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.RequireFingerprintPlayerAuth || c.WithdrawRequireFingerprint {
+			t.Fatal("expected DISABLE_FINGERPRINT_PLAYER_AUTH to clear both fingerprint enforcement flags")
+		}
+		if c.PlayerFingerprintAuthRequired() {
+			t.Fatal("expected PlayerFingerprintAuthRequired false when disabled")
 		}
 	})
 }

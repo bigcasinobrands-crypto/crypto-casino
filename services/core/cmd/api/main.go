@@ -60,6 +60,8 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	log.Printf("startup: APP_ENV=%q PORT=%q", cfg.AppEnv, cfg.Port)
+	log.Printf("startup: fingerprint player auth effective=%v (REQUIRE_FINGERPRINT_PLAYER_AUTH) withdraw_fp=%v (WITHDRAW_REQUIRE_FINGERPRINT) — set DISABLE_FINGERPRINT_PLAYER_AUTH=1 to force both off",
+		cfg.RequireFingerprintPlayerAuth, cfg.WithdrawRequireFingerprint)
 	if err := cfg.ValidateProduction(); err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL production validation: %v\n", err)
 		log.Fatalf("config: %v", err)
@@ -326,6 +328,7 @@ func main() {
 				r.Use(httprate.LimitByIP(180, time.Minute))
 				r.Get("/games", gameSrv.ListHandler())
 				r.Get("/sportsbook/context", gameSrv.SportsbookContextHandler())
+				r.Get("/sportsbook/oddin/public-config", oddinH.PublicConfig)
 				r.Get("/sportsbook/oddin/esports-nav", oddinH.EsportsNav)
 				r.Get("/market/crypto-tickers", cmcTickers.ServeHTTP)
 				r.Get("/market/crypto-logo-urls", market.CryptoLogoURLsHandler(&cfg))
