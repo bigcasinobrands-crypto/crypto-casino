@@ -89,7 +89,7 @@ Oddin’s servers call your **core API** (e.g. Render), not Vercel. Same handler
 | `POST /debitUser` | **Alias** at API root. |
 | `POST /creditUser` | **Alias** at API root. |
 
-**Using MCP:** With **Render** connected, redeploy the API service after pull; then ask an agent to confirm deploy health or hit `GET https://<api-host>/health`. An Oddin `userDetails` **404** usually means the running image is **before** the alias commit or the method is not **POST**.
+**Using MCP:** With **Render** connected, redeploy the API service after pull; then ask an agent to confirm deploy health or hit `GET https://<api-host>/health`. An Oddin `userDetails` **404** is usually **POST to `…/userDetails/`** (trailing slash) before the slash-aliases shipped, a **GET** probe (**405** on bare path), a **stale deploy**, or the wrong host — confirm with `curl -X POST https://<api>/userDetails -H 'Content-Type: application/json' -d '{}'`.
 
 If your Cursor build does not expand `${env:SUPABASE_MCP_PROJECT_REF}` in the URL, replace it in `.cursor/mcp.json` with your literal reference ID (keep the value out of git if the file is shared publicly—or keep using the env var only on your machine).
 

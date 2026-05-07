@@ -312,11 +312,15 @@ func main() {
 
 		// Oddin operator wallet (S2S): canonical routes are POST /v1/oddin/*. Oddin often configures
 		// callback base as API origin + /userDetails (no /v1/oddin prefix) — alias root paths to avoid 404.
+		// Register with and without trailing slash: some dashboards append "/" and chi otherwise returns 404.
 		r.Group(func(r chi.Router) {
 			r.Use(oddin.OperatorSecurityMiddleware(&cfg))
 			r.Post("/userDetails", oddinOp.UserDetailsStub)
+			r.Post("/userDetails/", oddinOp.UserDetailsStub)
 			r.Post("/debitUser", oddinOp.DebitUserStub)
+			r.Post("/debitUser/", oddinOp.DebitUserStub)
 			r.Post("/creditUser", oddinOp.CreditUserStub)
+			r.Post("/creditUser/", oddinOp.CreditUserStub)
 		})
 
 		r.Route("/v1", func(r chi.Router) {
@@ -420,8 +424,11 @@ func main() {
 			r.Route("/oddin", func(r chi.Router) {
 				r.Use(oddin.OperatorSecurityMiddleware(&cfg))
 				r.Post("/userDetails", oddinOp.UserDetailsStub)
+				r.Post("/userDetails/", oddinOp.UserDetailsStub)
 				r.Post("/debitUser", oddinOp.DebitUserStub)
+				r.Post("/debitUser/", oddinOp.DebitUserStub)
 				r.Post("/creditUser", oddinOp.CreditUserStub)
+				r.Post("/creditUser/", oddinOp.CreditUserStub)
 			})
 		})
 	})
