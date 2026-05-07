@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -166,7 +167,22 @@ func (h *OperatorHandler) UserDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.Pool == nil {
-		writeOperatorJSON(w, errorBody(ErrCodeOperatorError, "database unavailable"))
+		// Pool nil means startup misconfiguration; the audit table lives in that same pool,
+		// so logRequest cannot persist this rejection. Still call it for symmetry with the
+		// other error paths (defensive no-op today; if logRequest ever grows a fallback sink
+		// this branch benefits automatically). Emit slog.Error so the rejection is observable
+		// in Render logs even when the DB is unreachable.
+		out := errorBody(ErrCodeOperatorError, "database unavailable")
+		slog.ErrorContext(ctx, "oddin_operator_pool_nil",
+			"endpoint", "userDetails",
+			"client_ip", ClientIP(r),
+			"error_code", ErrCodeOperatorError)
+		h.logRequest(ctx, "userDetails", body, operatorLog{
+			Endpoint: "userDetails",
+			Status:   "REJECT",
+			BodyOut:  out,
+		})
+		writeOperatorJSON(w, out)
 		return
 	}
 
