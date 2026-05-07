@@ -56,6 +56,13 @@ The token field in the request body is read in this order: **`token`**, `userTok
 
 - `ODDIN_ENABLED`, `ODDIN_ENV`, `ODDIN_PUBLIC_BASE_URL`, `ODDIN_PUBLIC_SCRIPT_URL`, `ODDIN_BRAND_TOKEN` (diagnostics parity), `ODDIN_API_SECURITY_KEY`, `ODDIN_HASH_SECRET`, `ODDIN_TOKEN_TTL_SECONDS`, `ODDIN_OPERATOR_IP_ALLOWLIST`, **`ODDIN_ESPORTS_NAV_JSON`** (optional E-Sports sidebar; see below).
 
+### Localhost (`npm run dev` / local core)
+
+- **Same Oddin config as deploy:** Either set full **`VITE_ODDIN_*`** in `frontend/player-ui/.env` (uncomment the block in `.env.example`), **or** enable Oddin on **local** core (`services/core/.env`): `ODDIN_ENABLED=1`, `ODDIN_BRAND_TOKEN`, `ODDIN_PUBLIC_BASE_URL`, `ODDIN_PUBLIC_SCRIPT_URL` so `GET /v1/sportsbook/oddin/public-config` returns JSON. If the hosted “development” app works but localhost does not, this is almost always **missing `ODDIN_*` on local core** while Vercel/Render has them.
+- **CORS:** `PLAYER_CORS_ORIGINS` on core must include **`http://localhost:5174`** (and `http://127.0.0.1:5174` if you open that URL).
+- **Oddin allowlist:** Ask Oddin to allow **`http://localhost:5174`** for the brand/integration if the iframe script loads but stays blank or fires `ERROR`.
+- **`vite preview` vs `vite dev`:** `vite build && vite preview` loads **production** env (`.env.production`, `.env.production.local`), not `.env.development`. Copy your **`VITE_ODDIN_*`** vars into `.env.production.local` or the preview build will mount like a “prod” deploy **without** Oddin.
+
 ### Split deploy (e.g. Vercel player + Render API)
 
 - **`VITE_PLAYER_API_ORIGIN`** on the player build must point at the public core API (see player `.env.example`). Otherwise `/v1/*` and the Oddin bootstrap request never reach the Go service.
