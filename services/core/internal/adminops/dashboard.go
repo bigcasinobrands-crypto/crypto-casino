@@ -37,76 +37,81 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		totalUsers, usersWithDeposit   int64
 		avgDepSize30d                  int64
 	)
+	// Entry types: see services/core/internal/ledger/entry_types.go
+	// Casino + sportsbook stakes/wins are unified for GGR / wagered / active-user metrics.
+	// Withdrawals use 'withdrawal.pending.settled' (the final outbound debit). 'withdrawal.debit'
+	// has no Go writer and is intentionally excluded.
+	// Deposits use 'deposit.credit' only. 'deposit.checkout' is a phantom legacy type.
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
-			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 				AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 				AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 				AND created_at > now()-interval '30 days'), 0),
-			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')), 0),
+			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')), 0),
 
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type IN ('game.debit','game.bet')
+				WHERE entry_type IN ('game.debit','game.bet','sportsbook.debit')
 				AND created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type IN ('game.debit','game.bet')
+				WHERE entry_type IN ('game.debit','game.bet','sportsbook.debit')
 				AND created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type IN ('game.debit','game.bet')
+				WHERE entry_type IN ('game.debit','game.bet','sportsbook.debit')
 				AND created_at > now()-interval '30 days'), 0),
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type IN ('game.debit','game.bet')), 0),
+				WHERE entry_type IN ('game.debit','game.bet','sportsbook.debit')), 0),
 
 			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '24 hours'), 0),
+				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '7 days'), 0),
+				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '30 days'), 0),
+				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '24 hours'), 0),
+				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '7 days'), 0),
+				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.debit' AND created_at > now()-interval '30 days'), 0),
+				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
-				WHERE entry_type = 'game.debit' AND created_at > now()-interval '24 hours'), 0),
+				WHERE entry_type IN ('game.debit','sportsbook.debit') AND created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
-				WHERE entry_type = 'game.debit' AND created_at > now()-interval '7 days'), 0),
+				WHERE entry_type IN ('game.debit','sportsbook.debit') AND created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
-				WHERE entry_type = 'game.debit' AND created_at > now()-interval '30 days'), 0),
+				WHERE entry_type IN ('game.debit','sportsbook.debit') AND created_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT COUNT(*) FROM users WHERE created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT COUNT(*) FROM users WHERE created_at > now()-interval '7 days'), 0),
@@ -139,10 +144,10 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 
 			COALESCE((SELECT COUNT(*) FROM users), 0),
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0), 0),
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0), 0),
 
 			COALESCE((SELECT AVG(amount_minor)::bigint FROM ledger_entries
-				WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '30 days'), 0)
 	`).Scan(
 		&ggr24h, &ggr7d, &ggr30d, &ggrAll,
@@ -168,9 +173,18 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	ngr7d := ggr7d - bonus7d - reward7d
 	ngr30d := ggr30d - bonus30d - reward30d
 
-	var arpu7d float64
+	// ARPU = NGR / active wagering users (definition: distinct user_id with a casino or
+	// sportsbook stake ledger entry in the period). Computed server-side so admin and any
+	// other consumer cannot disagree on how active users are defined.
+	var arpu24h, arpu7d, arpu30d float64
+	if active24h > 0 {
+		arpu24h = float64(ngr24h) / float64(active24h)
+	}
 	if active7d > 0 {
 		arpu7d = float64(ngr7d) / float64(active7d)
+	}
+	if active30d > 0 {
+		arpu30d = float64(ngr30d) / float64(active30d)
 	}
 	var depositConvRate float64
 	if totalUsers > 0 {
@@ -191,19 +205,23 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		"bonus_cost_24h": bonus24h, "bonus_cost_7d": bonus7d, "bonus_cost_30d": bonus30d,
 		"reward_expense_24h": reward24h, "reward_expense_7d": reward7d, "reward_expense_30d": reward30d,
 		"ngr_24h": ngr24h, "ngr_7d": ngr7d, "ngr_30d": ngr30d,
+		"arpu_24h":                  arpu24h,
 		"arpu_7d":                   arpu7d,
+		"arpu_30d":                  arpu30d,
 		"avg_deposit_size_30d":      avgDepSize30d,
 		"deposit_conversion_rate":   depositConvRate,
 		"pending_withdrawals_value": pendWdVal,
 		"pending_withdrawals_count": pendWdCnt,
 		"metrics_derivation": map[string]string{
-			"deposits":       "ledger_entries: deposit.credit, deposit.checkout (amount_minor > 0)",
-			"ggr":            "ledger_entries: game.debit/bet/credit/win/rollback",
-			"total_wagered":  "ledger_entries: sum ABS(stake) on game.debit + game.bet (includes cash+bonus stake lines)",
-			"bonus_cost":     "ledger_entries: promo.grant to bonus_locked pocket",
+			"deposits":       "ledger_entries: deposit.credit (amount_minor > 0). deposit.checkout is a phantom legacy type with no current writer and is excluded.",
+			"withdrawals":    "ledger_entries: withdrawal.pending.settled (final outbound debit). withdrawal.debit has no current writer and is excluded.",
+			"ggr":            "ledger_entries: casino (game.debit/bet/credit/win/rollback) + sportsbook (sportsbook.debit/credit/rollback) unified",
+			"total_wagered":  "ledger_entries: sum ABS(stake) on game.debit + game.bet + sportsbook.debit (includes cash+bonus stake lines)",
+			"bonus_cost":     "ledger_entries: promo.grant to bonus_locked pocket (single source of truth)",
 			"reward_expense": "ledger_entries: promo.rakeback, vip.level_up_cash, promo.daily_hunt_cash (cash pocket)",
 			"ngr":            "GGR - bonus grant expense - cash reward expense (period); affiliate/provider fees in phase 2",
-			"active_players": "distinct user_id with game.debit in window (ledger-backed wagering)",
+			"active_players": "distinct user_id with game.debit OR sportsbook.debit in window (ledger-backed wagering)",
+			"arpu":           "NGR / active wagering users in the same window (server-computed)",
 			"pending_wd":     "payment_withdrawals (PassimPay) in LEDGER_LOCKED / SUBMITTED_TO_PROVIDER",
 		},
 	})
@@ -221,7 +239,7 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	depRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(COALESCE(amount_minor,0)),0), COUNT(*)
 		FROM ledger_entries
-		WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+		WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 		  AND created_at >= $1 AND created_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
@@ -242,7 +260,7 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	wdRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(ABS(amount_minor)),0), COUNT(*)
 		FROM ledger_entries
-		WHERE entry_type = 'withdrawal.debit' AND created_at >= $1 AND created_at <= $2
+		WHERE entry_type = 'withdrawal.pending.settled' AND created_at >= $1 AND created_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
@@ -261,9 +279,9 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	ggrByDay := make([]map[string]any, 0)
 	ggrRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date,
-			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0)
-		FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)
+		FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 		AND created_at >= $1 AND created_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
@@ -320,10 +338,14 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	}
 	launchRows.Close()
 
+	// Bonus grants by day: derived from the SAME promo.grant + bonus_locked ledger
+	// entries that feed the headline bonus_cost KPI, so chart and KPI cannot disagree.
 	bonusByDay := make([]map[string]any, 0)
 	bonusRows, err := h.Pool.Query(ctx, `
-		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(COALESCE(granted_amount_minor,0)),0), COUNT(*)
-		FROM user_bonus_instances WHERE created_at >= $1 AND created_at <= $2
+		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(amount_minor),0), COUNT(*)
+		FROM ledger_entries
+		WHERE entry_type = 'promo.grant' AND pocket = 'bonus_locked' AND amount_minor > 0
+		  AND created_at >= $1 AND created_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
@@ -384,6 +406,8 @@ func (h *Handler) DashboardTopGames(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
+	// Top by GGR is a per-game view (casino game ids) — sportsbook is excluded by design here
+	// because sportsbook entries are not associated with a `games.id`.
 	topByGGR := make([]map[string]any, 0)
 	ggrRows, err := h.Pool.Query(ctx, `
 		SELECT g.id, g.title, g.provider,
@@ -428,13 +452,16 @@ func (h *Handler) DashboardTopGames(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Active users are defined uniformly across all dashboards as players who have a
+	// real ledger-backed wager (game.debit OR sportsbook.debit) in the window.
+	// Older code used `game_launches`, which includes demo/free rounds.
 	var totalReg, totalWithDep, active7d, active30d int64
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
 			COALESCE((SELECT COUNT(*) FROM users), 0),
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0), 0),
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM game_launches WHERE created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT COUNT(DISTINCT user_id) FROM game_launches WHERE created_at > now()-interval '30 days'), 0)
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries WHERE entry_type = 'deposit.credit' AND amount_minor > 0), 0),
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries WHERE entry_type IN ('game.debit','sportsbook.debit') AND created_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries WHERE entry_type IN ('game.debit','sportsbook.debit') AND created_at > now()-interval '30 days'), 0)
 	`).Scan(&totalReg, &totalWithDep, &active7d, &active30d)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "player stats query failed")
@@ -446,16 +473,20 @@ func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 		depositConvRate = float64(totalWithDep) / float64(totalReg) * 100
 	}
 
+	// LTV = average of (deposits - withdrawals) per depositor, ledger-sourced.
+	// Withdrawals = withdrawal.pending.settled (final outbound debit). The previous
+	// code referenced withdrawal.debit, which has no current writer and made LTV =
+	// cumulative deposits only.
 	var avgLTV int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(AVG(dep_total - COALESCE(wd_total, 0))::bigint, 0) FROM (
 			SELECT user_id, SUM(COALESCE(amount_minor,0)) AS dep_total
 			FROM ledger_entries
-			WHERE entry_type IN ('deposit.credit','deposit.checkout') AND amount_minor > 0
+			WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 			GROUP BY user_id
 		) dep LEFT JOIN (
 			SELECT user_id, SUM(ABS(amount_minor)) AS wd_total
-			FROM ledger_entries WHERE entry_type = 'withdrawal.debit'
+			FROM ledger_entries WHERE entry_type = 'withdrawal.pending.settled'
 			GROUP BY user_id
 		) wd ON wd.user_id = dep.user_id
 	`).Scan(&avgLTV)
@@ -464,7 +495,7 @@ func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 	depRows, err := h.Pool.Query(ctx, `
 		SELECT u.id::text, u.email, COALESCE(SUM(COALESCE(le.amount_minor,0)),0) AS total
 		FROM ledger_entries le JOIN users u ON u.id = le.user_id
-		WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0
+		WHERE le.entry_type = 'deposit.credit' AND le.amount_minor > 0
 		GROUP BY u.id, u.email ORDER BY total DESC LIMIT 10`)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "top depositors query failed")

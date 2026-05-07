@@ -132,7 +132,7 @@ func (h *Handler) PatchPaymentFlags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, _ := json.Marshal(body)
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "ops.payment_flags", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'ops.payment_flags', 'payment_ops_flags', $2)
 	`, staffID, meta)

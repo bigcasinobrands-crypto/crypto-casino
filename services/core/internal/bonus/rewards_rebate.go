@@ -3,6 +3,7 @@ package bonus
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -103,7 +104,8 @@ func ProcessRebateGrants(ctx context.Context, pool *pgxpool.Pool, now time.Time,
 
 		rows, err := pool.Query(ctx, `
 			SELECT DISTINCT user_id::text FROM ledger_entries
-			WHERE pocket = 'cash' AND entry_type IN ('game.debit', 'game.rollback')
+			WHERE pocket = 'cash'
+			  AND entry_type IN ('game.debit', 'game.bet', 'game.rollback', 'sportsbook.debit', 'sportsbook.rollback')
 			  AND created_at >= $1 AND created_at < $2
 			LIMIT $3
 		`, start, end, userLimit)
@@ -190,6 +192,23 @@ func ProcessRebateGrants(ctx context.Context, pool *pgxpool.Pool, now time.Time,
 			}
 			if tag.RowsAffected() > 0 {
 				n++
+				// Bonus-6: surface pending rakeback liability in the ledger so
+				// reconciliation/admin can see what is owed without querying
+				// reward_rebate_grants directly. Non-balance event — payout
+				// happens later via promo.rakeback (cash credit).
+				ledgerMeta := map[string]any{
+					"grant_idempotency_key": idem,
+					"reward_program_id":     p.ID,
+					"period_key":            periodKey,
+					"base_minor":            base,
+					"amount_minor":          grant,
+				}
+				if _, lerr := ledger.RecordNonBalanceEvent(ctx, pool, uid, "USDT",
+					ledger.EntryTypePromoRakebackAccrued,
+					"promo.rakeback_accrued:"+idem, ledgerMeta); lerr != nil {
+					slog.ErrorContext(ctx, "rakeback_accrued_ledger_event_failed",
+						"user_id", uid, "reward_program_id", p.ID, "period_key", periodKey, "err", lerr)
+				}
 			}
 		}
 		rows.Close()

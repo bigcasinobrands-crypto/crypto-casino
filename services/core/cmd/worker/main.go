@@ -16,7 +16,12 @@ import (
 	"github.com/crypto-casino/core/internal/db"
 	"github.com/crypto-casino/core/internal/jobs"
 	"github.com/crypto-casino/core/internal/obs"
+	"github.com/crypto-casino/core/internal/affiliate"
+	"github.com/crypto-casino/core/internal/finjobs"
+	"github.com/crypto-casino/core/internal/oddin"
+	"github.com/crypto-casino/core/internal/reconcile"
 	"github.com/crypto-casino/core/internal/redisx"
+	"github.com/crypto-casino/core/internal/wallet"
 	"github.com/crypto-casino/core/internal/webhooks"
 )
 
@@ -156,6 +161,130 @@ func main() {
 					log.Printf("rakeback boost settle: %v", err)
 				} else if n > 0 {
 					log.Printf("rakeback boost settle: %d", n)
+				}
+			}
+		}
+	}()
+
+	// PassimPay P6: retry LEDGER_SETTLE_FAILED withdrawals on a tight cadence.
+	// These are real-money rows where the provider already shipped funds but our
+	// ledger settle didn't post — every minute we lose here is a minute the
+	// platform liability sheet disagrees with the on-chain reality.
+	go func() {
+		t := time.NewTicker(1 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				if n, err := wallet.ProcessLedgerSettleFailed(bg, pool, &cfg, 25); err != nil {
+					log.Printf("passimpay settle retry: %v", err)
+				} else if n > 0 {
+					log.Printf("passimpay settle retry: recovered %d withdrawals", n)
+				}
+			}
+		}
+	}()
+
+	// Sportsbook session expiry sweep: every 5 minutes mark expired-but-still-ACTIVE
+	// sportsbook_sessions rows as EXPIRED. The seamless wallet handler already
+	// rejects expired tokens at request time so this is not a security gate; it
+	// keeps the status column honest for support tooling and dashboards, and it
+	// allows the partial UNIQUE on (user_id, provider) WHERE status='ACTIVE' to
+	// release entries promptly so a player whose token aged out can immediately
+	// request a fresh one from the same browser session.
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				if n, err := oddin.CleanupExpiredSessions(bg, pool); err != nil {
+					log.Printf("oddin session cleanup: %v", err)
+				} else if n > 0 {
+					log.Printf("oddin session cleanup: expired %d sessions", n)
+				}
+			}
+		}
+	}()
+
+	// Affiliate commission accrual + payout sweep. Accrual runs once an hour
+	// — overkill for a daily window, but the AccrueDailyCommissions helper
+	// is idempotent (UNIQUE on (partner_id, accrual_period, currency)) so
+	// re-running is cheap and protects us against missed days when the
+	// worker was down. Payout runs alongside but only flips pending grants
+	// into 'paid' if an operator has marked them payable upstream — for now
+	// it just credits all pending grants for active partners.
+	go func() {
+		t := time.NewTicker(1 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				if n, err := affiliate.AccrueDailyCommissions(bg, pool); err != nil {
+					log.Printf("affiliate accrue: %v", err)
+				} else if n > 0 {
+					log.Printf("affiliate accrue: processed %d partners", n)
+				}
+				if n, err := affiliate.PayPendingGrants(bg, pool, 100); err != nil {
+					log.Printf("affiliate payout: %v", err)
+				} else if n > 0 {
+					log.Printf("affiliate payout: paid %d grants", n)
+				}
+			}
+		}
+	}()
+
+	// Financial DLQ processor (E-9). Drains pending rows from
+	// financial_failed_jobs every 30s. The handler registry is currently
+	// empty — sites that enqueue jobs are expected to also register a
+	// matching handler before they ship; until then the worker will park
+	// unknown job_types in status='failed' for the operator to inspect.
+	finRegistry := finjobs.Registry{}
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				if n, err := finjobs.ProcessBatch(bg, pool, finRegistry, 50); err != nil {
+					log.Printf("finjobs: %v", err)
+				} else if n > 0 {
+					log.Printf("finjobs: resolved %d jobs", n)
+				}
+			}
+		}
+	}()
+
+	// Game round reconciliation (E-7). Runs every hour, looks back 24h for
+	// orphan wins / orphan rollbacks, and 7d for stuck bets. Alerts are
+	// deduped on (kind, reference_type, reference_id) for 7d so the
+	// operator inbox doesn't flood when the same round is unmatched across
+	// many sweeps.
+	go func() {
+		t := time.NewTicker(1 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				if n, err := reconcile.CheckGameRoundReconciliation(bg, pool, 24); err != nil {
+					log.Printf("game round recon: %v", err)
+				} else if n > 0 {
+					log.Printf("game round recon: %d new alerts", n)
 				}
 			}
 		}

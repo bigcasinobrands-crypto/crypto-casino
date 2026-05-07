@@ -240,7 +240,7 @@ func (h *Handler) bonusHubPatchPromotionVersion(w http.ResponseWriter, r *http.R
 		_, _ = h.Pool.Exec(ctx, `UPDATE promotion_versions SET terms_text = NULLIF(TRIM($2),'') WHERE id = $1`, vid, *body.TermsText)
 	}
 	meta, _ := json.Marshal(map[string]any{"promotion_version_id": vid})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "bonushub.patch_version", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'bonushub.patch_version', 'promotion_versions', $2, $3::jsonb)
 	`, staffID, strconv.FormatInt(vid, 10), meta)
@@ -382,7 +382,7 @@ func (h *Handler) bonusHubPostTargets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	meta, _ := json.Marshal(map[string]any{"promotion_version_id": vid, "inserted": n})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "bonushub.add_targets", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'bonushub.add_targets', 'promotion_targets', $2::jsonb)
 	`, staffID, meta)

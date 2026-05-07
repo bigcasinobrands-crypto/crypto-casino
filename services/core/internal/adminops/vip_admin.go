@@ -146,49 +146,122 @@ func (h *Handler) patchUserVIP(w http.ResponseWriter, r *http.Request) {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid body")
 		return
 	}
+	if strings.TrimSpace(body.Reason) == "" {
+		adminapi.WriteError(w, http.StatusBadRequest, "reason_required", "reason is required for VIP manual patch")
+		return
+	}
+	if body.TierID == nil && body.Points == nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "no_change", "at least one of tier_id or points_balance must be provided")
+		return
+	}
 	ctx := r.Context()
+
+	// Snapshot the BEFORE state so the audit log captures both sides.
+	var oldTierID *int
+	var oldPoints, oldLifeWager int64
+	hadVIPRow := true
+	switch err := h.Pool.QueryRow(ctx, `
+		SELECT tier_id, COALESCE(points_balance, 0), COALESCE(lifetime_wager_minor, 0)
+		FROM player_vip_state WHERE user_id = $1::uuid
+	`, uid).Scan(&oldTierID, &oldPoints, &oldLifeWager); err {
+	case pgx.ErrNoRows:
+		oldTierID, oldPoints, oldLifeWager = nil, 0, 0
+		hadVIPRow = false
+	case nil:
+	default:
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "vip state read failed")
+		return
+	}
+
+	// All writes (tier change, points change, vip_point_ledger correction row)
+	// happen in a single transaction so an audit-visible record always exists.
+	tx, err := h.Pool.Begin(ctx)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "tx begin failed")
+		return
+	}
+	defer tx.Rollback(ctx)
+
 	if body.TierID != nil {
-		var oldTierID *int
-		var lifeWager int64
-		switch err := h.Pool.QueryRow(ctx, `
-			SELECT tier_id, COALESCE(lifetime_wager_minor, 0) FROM player_vip_state WHERE user_id = $1::uuid
-		`, uid).Scan(&oldTierID, &lifeWager); err {
-		case pgx.ErrNoRows:
-			oldTierID, lifeWager = nil, 0
-		case nil:
-		default:
-			adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "vip state read failed")
-			return
-		}
-		_, _ = h.Pool.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
 			VALUES ($1::uuid, $2, 0, 0, now())
 			ON CONFLICT (user_id) DO UPDATE SET tier_id = EXCLUDED.tier_id, updated_at = now()
-		`, uid, *body.TierID)
+		`, uid, *body.TierID); err != nil {
+			adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "tier update failed")
+			return
+		}
+	}
+
+	if body.Points != nil {
+		// Compute the delta vs current and write a vip_point_ledger correction
+		// row. This keeps the points audit trail honest — without it, an admin
+		// could rewrite points_balance without leaving any record in the
+		// per-row ledger that VIP reconciliation depends on.
+		delta := *body.Points - oldPoints
+		idem := fmt.Sprintf("vip:admin_correction:%s:%s:%d", staffID, uid, time.Now().UTC().UnixNano())
+		reason := "admin_correction:" + staffID
+		if delta != 0 {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO vip_point_ledger (user_id, delta, reason, idempotency_key)
+				VALUES ($1::uuid, $2, $3, $4)
+			`, uid, delta, reason, idem); err != nil {
+				adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "vip_point_ledger insert failed")
+				return
+			}
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
+			VALUES ($1::uuid, NULL, $2, 0, now())
+			ON CONFLICT (user_id) DO UPDATE SET points_balance = $2, updated_at = now()
+		`, uid, *body.Points); err != nil {
+			adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "points update failed")
+			return
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "commit failed")
+		return
+	}
+
+	// Tier upgrade hooks (rebate/grant/level-up benefits) run AFTER commit so
+	// they observe the new tier. Only fire if the new tier strictly outranks
+	// the previous one — manual demotions shouldn't trigger upgrade rewards.
+	if body.TierID != nil {
 		newTierID := body.TierID
 		oldSO := -1
-		if oldTierID != nil {
+		if hadVIPRow && oldTierID != nil {
 			if s, ok := bonus.TierSortOrder(ctx, h.Pool, oldTierID); ok {
 				oldSO = s
 			}
 		}
 		newSO, newOk := bonus.TierSortOrder(ctx, h.Pool, newTierID)
 		if newOk && newSO > oldSO {
-			bonus.ApplyVIPTierUpgrade(ctx, h.Pool, uid, oldTierID, newTierID, lifeWager)
+			bonus.ApplyVIPTierUpgrade(ctx, h.Pool, uid, oldTierID, newTierID, oldLifeWager)
 		}
 	}
-	if body.Points != nil {
-		_, _ = h.Pool.Exec(ctx, `
-			INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
-			VALUES ($1::uuid, NULL, $2, 0, now())
-			ON CONFLICT (user_id) DO UPDATE SET points_balance = $2, updated_at = now()
-		`, uid, *body.Points)
+
+	auditMeta := map[string]any{
+		"user_id": uid,
+		"reason":  body.Reason,
+		"before":  map[string]any{"tier_id": oldTierID, "points_balance": oldPoints, "had_vip_row": hadVIPRow},
+		"after":   map[string]any{},
 	}
-	meta, _ := json.Marshal(map[string]any{"user_id": uid, "reason": body.Reason})
-	_, _ = h.Pool.Exec(ctx, `
-		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
-		VALUES ($1::uuid, 'vip.manual_patch', 'player_vip_state', $2::jsonb)
-	`, staffID, meta)
+	if body.TierID != nil {
+		auditMeta["after"].(map[string]any)["tier_id"] = *body.TierID
+	}
+	if body.Points != nil {
+		auditMeta["after"].(map[string]any)["points_balance"] = *body.Points
+		auditMeta["points_delta"] = *body.Points - oldPoints
+	}
+	auditMetaBytes, _ := json.Marshal(auditMeta)
+	if _, err := h.Pool.Exec(ctx, `
+		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
+		VALUES ($1::uuid, 'vip.manual_patch', 'player_vip_state', $2, $3::jsonb)
+	`, staffID, uid, auditMetaBytes); err != nil {
+		log.Printf("admin_audit_log vip.manual_patch insert failed user=%s staff=%s: %v", uid, staffID, err)
+	}
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -269,7 +342,7 @@ func (h *Handler) patchVIPTier(w http.ResponseWriter, r *http.Request) {
 		log.Printf("vip ResyncAllPlayerVIPTiers after patch tier: %v", rerr)
 	}
 	meta, _ := json.Marshal(map[string]any{"tier_id": id, "name": name, "min_lifetime_wager_minor": minW})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "vip.patch_tier", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.patch_tier', 'vip_tiers', $2::jsonb)
 	`, staffID, meta)
@@ -323,7 +396,7 @@ func (h *Handler) createVIPTier(w http.ResponseWriter, r *http.Request) {
 		log.Printf("vip ResyncAllPlayerVIPTiers after create tier: %v", rerr)
 	}
 	meta, _ := json.Marshal(map[string]any{"tier_id": id, "name": name, "min_lifetime_wager_minor": body.MinLifetimeWager})
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "vip.create_tier", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.create_tier', 'vip_tiers', $2::jsonb)
 	`, staffID, meta)
@@ -588,7 +661,7 @@ func (h *Handler) createVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"tier_id": tid, "benefit_id": id, "benefit_type": btype})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "vip.create_tier_benefit", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.create_tier_benefit', 'vip_tier_benefits', $2::jsonb)
 	`, staffID, meta)
@@ -742,7 +815,7 @@ func (h *Handler) patchVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 	}
 	staffID, _ := adminapi.StaffIDFromContext(r.Context())
 	meta, _ := json.Marshal(map[string]any{"tier_id": tid, "benefit_id": bid})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "vip.patch_tier_benefit", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.patch_tier_benefit', 'vip_tier_benefits', $2::jsonb)
 	`, staffID, meta)
@@ -772,7 +845,7 @@ func (h *Handler) deleteVIPTierBenefit(w http.ResponseWriter, r *http.Request) {
 	}
 	staffID, _ := adminapi.StaffIDFromContext(r.Context())
 	meta, _ := json.Marshal(map[string]any{"tier_id": tid, "benefit_id": bid})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "vip.delete_tier_benefit", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.delete_tier_benefit', 'vip_tier_benefits', $2::jsonb)
 	`, staffID, meta)

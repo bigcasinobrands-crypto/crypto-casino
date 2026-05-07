@@ -3,8 +3,10 @@ package bonus
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -81,12 +83,33 @@ func EnqueueFreeSpinFromPromotionVersion(ctx context.Context, pool *pgxpool.Pool
 	if bet <= 0 {
 		bet = 1
 	}
-	_, ins, err := InsertFreeSpinGrantWithMetadata(ctx, pool, a.UserID, &pvid, a.IdempotencyKey, a.GameID, a.Rounds, bet, meta)
+	grantID, ins, err := InsertFreeSpinGrantWithMetadata(ctx, pool, a.UserID, &pvid, a.IdempotencyKey, a.GameID, a.Rounds, bet, meta)
 	if err != nil {
 		return false, err
 	}
 	if !ins {
 		return false, nil
+	}
+	// Bonus-5: surface the free-spin liability in the ledger timeline. Free
+	// spins are not a cash movement, but they are a real promo cost — without
+	// this row, ledger-based reconciliation cannot see the grant. Use a
+	// non-balance (zero amount) event so balances are not affected.
+	ledgerMeta := map[string]any{
+		"free_spin_grant_id":   grantID,
+		"promotion_version_id": a.PromotionVersionID,
+		"rounds":               a.Rounds,
+		"game_id":              a.GameID,
+		"bet_per_round_minor":  bet,
+		"source":               strings.TrimSpace(a.Source),
+	}
+	if strings.TrimSpace(a.ActorStaffID) != "" {
+		ledgerMeta["actor_staff_id"] = strings.TrimSpace(a.ActorStaffID)
+	}
+	if _, lerr := ledger.RecordNonBalanceEvent(ctx, pool,
+		a.UserID, "USDT", ledger.EntryTypePromoFreeSpinGrant,
+		"promo.free_spin_grant:"+a.IdempotencyKey, ledgerMeta); lerr != nil {
+		slog.ErrorContext(ctx, "free_spin_ledger_event_failed",
+			"user_id", a.UserID, "free_spin_grant_id", grantID, "err", lerr)
 	}
 	actor := bonusAuditActorSystem
 	actID := ""

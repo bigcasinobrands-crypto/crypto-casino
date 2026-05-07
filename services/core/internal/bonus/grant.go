@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -221,6 +222,30 @@ func GrantFromPromotionVersion(ctx context.Context, pool *pgxpool.Pool, a GrantA
 // ForfeitInstance marks forfeited and removes remaining bonus_locked (best-effort single bonus pool).
 // If recordPlayerRelinquishment is true, this promotion version is removed from the player’s future available-offer list (self-forfeit from the player app).
 func ForfeitInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorStaffID, reason string, recordPlayerRelinquishment bool) error {
+	return retireInstance(ctx, pool, instanceID, actorStaffID, reason, recordPlayerRelinquishment, retireKindForfeit)
+}
+
+// ExpireInstance is the system-driven counterpart to ForfeitInstance and emits
+// a distinct ledger entry type (`promo.expire`) so analytics can tell the
+// difference between a player/admin voluntary forfeit and a TTL expiry.
+// Promo expiry is always system-actuated, never recorded as a player
+// relinquishment, and never carries a staff actor.
+func ExpireInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, reason string) error {
+	r := strings.TrimSpace(reason)
+	if r == "" {
+		r = "expired"
+	}
+	return retireInstance(ctx, pool, instanceID, "", r, false, retireKindExpire)
+}
+
+type retireKind int
+
+const (
+	retireKindForfeit retireKind = iota
+	retireKindExpire
+)
+
+func retireInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorStaffID, reason string, recordPlayerRelinquishment bool, kind retireKind) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -241,31 +266,58 @@ func ForfeitInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorS
 		return fmt.Errorf("bonus: instance not forfeitable")
 	}
 
+	// Branch all kind-dependent strings up front so the rest of the flow stays
+	// linear. The ledger entry type is the most consequential: it lets every
+	// downstream report (bonus cost, NGR, KPI dashboards) tell a TTL expiry
+	// apart from a deliberate forfeit.
+	var (
+		entryType  string
+		idemPrefix string
+		newStatus  string
+		auditEvent string
+		outboxKind string
+	)
+	switch kind {
+	case retireKindExpire:
+		entryType = ledger.EntryTypePromoExpire
+		idemPrefix = "promo.expire:bonus"
+		newStatus = "expired"
+		auditEvent = "bonus_expired"
+		outboxKind = "BonusExpired"
+	default:
+		entryType = ledger.EntryTypePromoForfeit
+		idemPrefix = "promo.forfeit:bonus"
+		newStatus = "forfeited"
+		auditEvent = "bonus_forfeited"
+		outboxKind = "BonusForfeited"
+	}
+
 	bonusBal, _ := ledger.BalanceBonusLockedTx(ctx, tx, uid)
 	debit := bonusBal
 	if debit <= 0 {
 		debit = 0
 	} else {
-		idem := fmt.Sprintf("promo.forfeit:bonus:%s", instanceID)
-		_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, uid, ccy, "promo.forfeit", idem, debit, ledger.PocketBonusLocked,
+		idem := fmt.Sprintf("%s:%s", idemPrefix, instanceID)
+		_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, uid, ccy, entryType, idem, debit, ledger.PocketBonusLocked,
 			map[string]any{"bonus_instance_id": instanceID, "reason": reason})
 		if err != nil {
 			return err
 		}
 	}
 
-	_, err = tx.Exec(ctx, `
-		UPDATE user_bonus_instances SET status = 'forfeited', updated_at = now() WHERE id = $1::uuid
-	`, instanceID)
-	if err != nil {
+	if _, err := tx.Exec(ctx, `
+		UPDATE user_bonus_instances SET status = $2, updated_at = now() WHERE id = $1::uuid
+	`, instanceID, newStatus); err != nil {
 		return err
 	}
 	if actorStaffID != "" {
 		meta, _ := json.Marshal(map[string]any{"bonus_instance_id": instanceID, "reason": reason})
-		_, _ = tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 			VALUES ($1::uuid, 'bonushub.forfeit', 'user_bonus_instances', $2::jsonb)
-		`, actorStaffID, meta)
+		`, actorStaffID, meta); err != nil {
+			slog.ErrorContext(ctx, "admin_audit_log_insert_failed", "action", "bonushub.forfeit", "err", err)
+		}
 	}
 
 	ffActor, ffActorID := forfeitAuditActor(actorStaffID, reason)
@@ -273,11 +325,11 @@ func ForfeitInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorS
 	if debit > 0 {
 		auditDelta = -debit
 	}
-	if err := insertBonusAuditLog(ctx, tx, "bonus_forfeited", ffActor, ffActorID, uid, instanceID, pvid, auditDelta, ccy,
+	if err := insertBonusAuditLog(ctx, tx, auditEvent, ffActor, ffActorID, uid, instanceID, pvid, auditDelta, ccy,
 		map[string]any{"reason": reason, "debit_bonus_locked_minor": debit}); err != nil {
 		return err
 	}
-	if err := insertBonusOutbox(ctx, tx, "BonusForfeited", outboxPayloadForfeit(uid, instanceID, reason, ccy, granted)); err != nil {
+	if err := insertBonusOutbox(ctx, tx, outboxKind, outboxPayloadForfeit(uid, instanceID, reason, ccy, granted)); err != nil {
 		return err
 	}
 

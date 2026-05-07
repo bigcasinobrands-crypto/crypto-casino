@@ -84,6 +84,17 @@ type sessionTokenResp struct {
 }
 
 // SessionToken issues an opaque iframe token for the authenticated player.
+//
+// Hygiene guarantees:
+//   - Single ACTIVE session per (user, ODDIN) at any time. Issuing a new token
+//     atomically REVOKEs all prior ACTIVE rows for the same user before the
+//     INSERT. Without this, every page-load could spawn a new token and old
+//     tokens stayed valid forever — a free credential-leak vector.
+//   - The session row records the country (resolved best-effort from the most
+//     recent traffic_sessions row) and issuance IP, so userDetails can answer
+//     Bifrost with the player's actual country instead of the hard-coded "US"
+//     placeholder, and so incident response can correlate fraud back to a
+//     concrete network.
 func (h *Handler) SessionToken(w http.ResponseWriter, r *http.Request) {
 	if h.Pool == nil || h.Cfg == nil {
 		playerapi.WriteError(w, http.StatusServiceUnavailable, "db_unavailable", "service unavailable")
@@ -125,12 +136,52 @@ func (h *Handler) SessionToken(w http.ResponseWriter, r *http.Request) {
 	plain := hex.EncodeToString(tokBytes[:])
 	th := hashOpaqueToken(plain)
 
-	_, err := h.Pool.Exec(r.Context(), `
-INSERT INTO sportsbook_sessions (user_id, provider, token_hash, currency, language, expires_at, status)
-VALUES ($1::uuid, 'ODDIN', $2, $3, $4, $5, 'ACTIVE')
-`, uid, th, ccy, lang, exp)
+	ctx := r.Context()
+	var country string
+	_ = h.Pool.QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(upper(btrim(ts.country_iso2)), ''), '')
+		FROM traffic_sessions ts
+		WHERE ts.user_id = $1::uuid
+		ORDER BY ts.last_at DESC
+		LIMIT 1
+	`, uid).Scan(&country)
+
+	clientIP := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+	if i := strings.IndexByte(clientIP, ','); i > 0 {
+		clientIP = strings.TrimSpace(clientIP[:i])
+	}
+	if clientIP == "" {
+		clientIP = strings.TrimSpace(r.RemoteAddr)
+		if i := strings.LastIndexByte(clientIP, ':'); i > 0 {
+			clientIP = strings.TrimSpace(clientIP[:i])
+		}
+	}
+
+	tx, err := h.Pool.Begin(ctx)
 	if err != nil {
+		playerapi.WriteError(w, http.StatusInternalServerError, "db_error", "could not start transaction")
+		return
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE sportsbook_sessions SET status = 'REVOKED'
+		WHERE user_id = $1::uuid AND provider = 'ODDIN' AND status = 'ACTIVE'
+	`, uid); err != nil {
+		playerapi.WriteError(w, http.StatusInternalServerError, "db_error", "could not revoke prior session")
+		return
+	}
+
+	if _, err := tx.Exec(ctx, `
+INSERT INTO sportsbook_sessions (user_id, provider, token_hash, currency, language, country, ip_at_issue, expires_at, status)
+VALUES ($1::uuid, 'ODDIN', $2, $3, $4, NULLIF($5, ''), NULLIF($6, '')::inet, $7, 'ACTIVE')
+`, uid, th, ccy, lang, country, clientIP, exp); err != nil {
 		playerapi.WriteError(w, http.StatusInternalServerError, "db_error", "could not persist session")
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		playerapi.WriteError(w, http.StatusInternalServerError, "db_error", "could not commit session")
 		return
 	}
 

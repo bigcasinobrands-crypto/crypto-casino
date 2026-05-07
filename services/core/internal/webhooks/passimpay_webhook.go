@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/crypto-casino/core/internal/bonus"
+	"github.com/crypto-casino/core/internal/compliance"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/jobs"
 	"github.com/crypto-casino/core/internal/ledger"
@@ -73,6 +74,14 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 			return
 		}
 
+		// Dispatch withdrawal webhooks (P3): PassimPay sends "withdraw" callbacks
+		// to the same notification URL as deposits but distinguishes them by the
+		// "type" field. Any other type is acknowledged but ignored.
+		// Ref: https://passimpay.gitbook.io/passimpay-api/webhook-1
+		if cbType == "withdraw" || cbType == "withdrawal" {
+			handlePassimpayWithdrawalCallback(r, pool, cfg, w, raw, m, bodyDigest, sigOK)
+			return
+		}
 		if cbType != "" && cbType != "deposit" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -170,6 +179,43 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 			"amount_receive_raw": amtSrc,
 		}
 
+		// Responsible-gambling deposit gate. We check BEFORE crediting so the
+		// player ledger never carries a credit that violates a self-imposed
+		// (or admin-imposed) cap. For crypto rails the funds are already in
+		// our custody, so an exceeded cap doesn't bounce the deposit on-chain
+		// — it freezes our credit and routes the case to operator review via
+		// reconciliation_alerts. Cooling-off windows take the same path.
+		if rgErr := compliance.CheckDepositAllowed(ctx, pool, intentUser, intentCcy, minor); rgErr != nil {
+			alertDetails := map[string]any{
+				"provider_order_id": orderID,
+				"user_id":           intentUser,
+				"amount_minor":      minor,
+				"currency":          intentCcy,
+				"reason":            rgErr.Error(),
+			}
+			if alertJSON, _ := json.Marshal(alertDetails); alertJSON != nil {
+				if _, aerr := pool.Exec(ctx, `
+					INSERT INTO reconciliation_alerts (kind, user_id, reference_type, reference_id, details)
+					VALUES ('rg_deposit_blocked', NULLIF($1,'')::uuid, 'payment_deposit_intent', $2, COALESCE($3::jsonb, '{}'::jsonb))
+				`, intentUser, orderID, alertJSON); aerr != nil {
+					log.Printf("passimpay rg deposit alert insert: %v", aerr)
+				}
+			}
+			if _, uerr := pool.Exec(ctx, `
+				UPDATE payment_deposit_intents
+				SET status = 'HELD_FOR_REVIEW',
+				    metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('rg_block_reason', $2::text, 'rg_blocked_at', now()),
+				    updated_at = now()
+				WHERE provider_order_id = $1 AND provider = 'passimpay'
+			`, orderID, rgErr.Error()); uerr != nil {
+				log.Printf("passimpay rg deposit hold update: %v", uerr)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{"ok":true,"held_for_review":"%s"}`, rgErr.Error())
+			return
+		}
+
 		txn, err := pool.Begin(ctx)
 		if err != nil {
 			http.Error(w, "server_error", http.StatusInternalServerError)
@@ -191,6 +237,36 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 				http.Error(w, "ledger_clearing_failed", http.StatusInternalServerError)
 				return
 			}
+
+			// Provider fee (E-6): if the webhook reports a commission/fee
+			// field, post a `provider.fee` debit on the house user. PassimPay
+			// settles with us net of fee, so we model the fee as a separate
+			// expense in the ledger so analytics can compute true NGR
+			// (= GGR − bonus cost − provider fees) without re-querying the
+			// payment provider. The idempotency key derives from the funding
+			// key so the same webhook delivery cannot double-charge fees.
+			feeMinor := extractPassimpayFeeMinor(m, decimals)
+			if feeMinor > 0 {
+				feeIdem := fmt.Sprintf("passimpay:deposit:fee:%s", fundKey)
+				if _, fErr := ledger.RecordProviderFeeTx(ctx, txn, ledger.HouseUserID(cfg),
+					strings.ToUpper(intentCcy), "passimpay", feeIdem, feeMinor, map[string]any{
+						"funding_key":      fundKey,
+						"order_id":         orderID,
+						"linked_deposit":   idemLedger,
+						"fee_currency":     strings.ToUpper(intentCcy),
+					}); fErr != nil {
+					log.Printf("passimpay webhook provider fee: %v", fErr)
+				}
+			}
+		}
+
+		// AML monitoring (E-3): emit reconciliation_alerts for large deposits
+		// and high-velocity deposit patterns. These are non-blocking and only
+		// fire on first credit (inserted=true) so retries of the same webhook
+		// don't double-alert.
+		if inserted {
+			compliance.EmitAMLLargeDepositAlert(ctx, pool, intentUser, intentCcy, orderID, minor, cfg.KYCLargeDepositThresholdCents)
+			compliance.EmitAMLHighVelocityDepositsAlert(ctx, pool, intentUser, orderID, 24, 5)
 		}
 
 		if inserted {
@@ -397,4 +473,23 @@ func passimCoalesceStr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// extractPassimpayFeeMinor returns the per-tx fee reported by PassimPay in
+// the same minor-unit precision as the deposit. PassimPay payloads have
+// historically used a few different field names for the rail fee
+// ("commission", "fee", "fee_amount") so we coalesce across all of them and
+// return 0 if none are present. The caller decides whether to record the fee.
+func extractPassimpayFeeMinor(m map[string]any, decimals int) int64 {
+	for _, key := range []string{"commission", "fee", "fee_amount", "feeAmount", "providerCommission"} {
+		raw := strings.TrimSpace(fmt.Sprint(m[key]))
+		if raw == "" || raw == "<nil>" || raw == "0" {
+			continue
+		}
+		minor, err := decimalStringToMinor(raw, decimals)
+		if err == nil && minor > 0 {
+			return minor
+		}
+	}
+	return 0
 }

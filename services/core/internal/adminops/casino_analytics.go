@@ -112,7 +112,7 @@ checkouts_window AS (
 ledger_credits AS (
 	SELECT le.user_id, le.created_at, le.amount_minor
 	FROM ledger_entries le
-	WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0
+	WHERE le.entry_type = 'deposit.credit' AND le.amount_minor > 0
 ),
 first_deposit AS (
 	SELECT DISTINCT ON (lc.user_id) lc.user_id, lc.created_at AS first_at, lc.amount_minor
@@ -143,10 +143,10 @@ SELECT
 	(SELECT rep_d7 FROM repeat_stats),
 	(SELECT rep_d30 FROM repeat_stats),
 	COALESCE((SELECT
-		SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END) -
-		SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END)
+		SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END) -
+		SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
 		FROM ledger_entries le
-		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND ` + clauseWithAlias(all, "le", start, end) + `), 0),
+		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback') AND ` + clauseWithAlias(all, "le", start, end) + `), 0),
 	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries ubi
 		WHERE ubi.entry_type = 'promo.grant' AND ubi.pocket = 'bonus_locked' AND ubi.amount_minor > 0 AND ` + clauseWithAlias(all, "ubi", start, end) + `), 0),
 	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries re
@@ -223,7 +223,7 @@ ftd AS (
 	FROM (
 		SELECT DISTINCT ON (le.user_id) le.user_id, le.created_at AS first_at
 		FROM ledger_entries le
-		WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0 AND le.created_at <= $2
+		WHERE le.entry_type = 'deposit.credit' AND le.amount_minor > 0 AND le.created_at <= $2
 		ORDER BY le.user_id, le.created_at ASC
 	) x
 	WHERE x.first_at >= $1
@@ -282,7 +282,7 @@ WITH dep AS (
 		COUNT(DISTINCT le.user_id)::bigint AS dep_users,
 		SUM(COALESCE(le.amount_minor,0))::bigint AS dep_volume_minor
 	FROM ledger_entries le
-	WHERE le.entry_type IN ('deposit.credit','deposit.checkout') AND le.amount_minor > 0
+	WHERE le.entry_type = 'deposit.credit' AND le.amount_minor > 0
 	  AND ` + clauseWithAlias(all, "le", start, end) + `
 	GROUP BY 1,2
 ),

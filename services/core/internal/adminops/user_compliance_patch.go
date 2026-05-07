@@ -115,7 +115,7 @@ func (h *Handler) PatchUserCompliance(w http.ResponseWriter, r *http.Request) {
 		"patch":   raw,
 		"reason":  reason,
 	})
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "user.compliance_patch", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'user.compliance_patch', 'player', $2)
 	`, staffID, meta)

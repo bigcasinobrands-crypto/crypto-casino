@@ -76,7 +76,7 @@ func (h *Handler) CreateStaffUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"new_staff_id": id, "email": email, "role": role})
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "staff.create", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'staff.create', 'staff_users', $2)
 	`, staffID, meta)
@@ -124,7 +124,7 @@ func (h *Handler) PatchStaffUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		meta, _ := json.Marshal(map[string]any{"staff_id": target, "role": role})
-		_, _ = h.Pool.Exec(r.Context(), `
+		h.auditExec(r.Context(), "staff.patch_role", `
 			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 			VALUES ($1::uuid, 'staff.patch_role', 'staff_users', $2)
 		`, staffID, meta)
@@ -140,7 +140,7 @@ func (h *Handler) PatchStaffUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		meta, _ := json.Marshal(map[string]any{"staff_id": target, "mfa_webauthn_enforced": *body.MfaWebauthnEnforced})
-		_, _ = h.Pool.Exec(r.Context(), `
+		h.auditExec(r.Context(), "staff.patch_mfa", `
 			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 			VALUES ($1::uuid, 'staff.patch_mfa', 'staff_users', $2)
 		`, staffID, meta)

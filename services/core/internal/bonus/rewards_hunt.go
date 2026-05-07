@@ -177,7 +177,19 @@ func ClaimNextHuntRewardCash(ctx context.Context, pool *pgxpool.Pool, userID str
 		ccy = "USDT"
 	}
 	idem := fmt.Sprintf("reward:hunt:cash:%d:%s:%s:%d", p.ID, userID, ds, nextIdx)
-	inserted, err := PayoutAndCreditCash(ctx, pool, userID, ccy, "promo.daily_hunt_cash", idem, amt, map[string]any{
+
+	// Atomic claim: cash credit + progress advance must commit together. If
+	// they don't, a previous-design bug had the cash credit succeed while the
+	// progress update failed; the player's progress would stay at lastIdx and
+	// every retry would dedup on the same idempotency key (inserted=false) and
+	// quietly return 0 — locking the player out of all future hunt milestones.
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	inserted, err := PayoutAndCreditCashTx(ctx, tx, userID, ccy, "promo.daily_hunt_cash", idem, amt, map[string]any{
 		"reward_program_id": p.ID,
 		"milestone_index":   nextIdx,
 		"hunt_date":         ds,
@@ -186,17 +198,37 @@ func ClaimNextHuntRewardCash(ctx context.Context, pool *pgxpool.Pool, userID str
 		return 0, err
 	}
 	if !inserted {
+		// Idempotent retry of an already-credited milestone. Make sure progress
+		// matches what the ledger says: we saw a ledger row for this milestone,
+		// so the progress index must be at least nextIdx.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO player_hunt_progress (user_id, reward_program_id, hunt_date, wager_accrued_minor, last_threshold_index, updated_at)
+			VALUES ($1::uuid, $2, $3::date, $4, $5, now())
+			ON CONFLICT (user_id, reward_program_id, hunt_date) DO UPDATE SET
+				wager_accrued_minor = GREATEST(player_hunt_progress.wager_accrued_minor, EXCLUDED.wager_accrued_minor),
+				last_threshold_index = GREATEST(player_hunt_progress.last_threshold_index, EXCLUDED.last_threshold_index),
+				updated_at = now()
+		`, userID, p.ID, ds, wager, nextIdx); err != nil {
+			return 0, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return 0, err
+		}
 		return 0, nil
 	}
-	_, err = pool.Exec(ctx, `
+
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO player_hunt_progress (user_id, reward_program_id, hunt_date, wager_accrued_minor, last_threshold_index, updated_at)
 		VALUES ($1::uuid, $2, $3::date, $4, $5, now())
 		ON CONFLICT (user_id, reward_program_id, hunt_date) DO UPDATE SET
 			wager_accrued_minor = EXCLUDED.wager_accrued_minor,
 			last_threshold_index = EXCLUDED.last_threshold_index,
 			updated_at = now()
-	`, userID, p.ID, ds, wager, nextIdx)
-	if err != nil {
+	`, userID, p.ID, ds, wager, nextIdx); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
 		return 0, err
 	}
 	_ = insertNotification(ctx, pool, userID, "vip.hunt_claimed", "Daily hunt cash claimed",
@@ -287,7 +319,7 @@ func ProcessHuntForRecentPlayers(ctx context.Context, pool *pgxpool.Pool, limit 
 		SELECT DISTINCT le.user_id::text
 		FROM ledger_entries le
 		WHERE le.pocket = 'cash'
-		  AND le.entry_type IN ('game.debit', 'game.rollback')
+		  AND le.entry_type IN ('game.debit', 'game.bet', 'game.rollback', 'sportsbook.debit', 'sportsbook.rollback')
 		  AND le.created_at >= $1 AND le.created_at < $2
 		LIMIT $3
 	`, start, end, limit)

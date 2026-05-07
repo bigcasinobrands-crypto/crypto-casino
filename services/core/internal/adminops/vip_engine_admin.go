@@ -61,7 +61,7 @@ func (h *Handler) vipBroadcastMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"tier_id": body.TierID, "dry_run": body.DryRun, "recipients": n})
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "vip.broadcast_message", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.broadcast_message', 'player_notifications', $2::jsonb)
 	`, staffID, meta)
@@ -269,7 +269,7 @@ func (h *Handler) putHuntConfigAdmin(w http.ResponseWriter, r *http.Request) {
 		`, *body.Enabled, bonus.RewardKindDailyHunt)
 	}
 	meta, _ := json.Marshal(map[string]any{"action": "vip.hunt_config_patch"})
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "vip.hunt_config", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'vip.hunt_config', 'reward_programs', $2::jsonb)
 	`, staffID, meta)

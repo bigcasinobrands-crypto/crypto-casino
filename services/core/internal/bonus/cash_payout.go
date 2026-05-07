@@ -7,6 +7,7 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -45,4 +46,29 @@ func PayoutAndCreditCash(
 	}
 	ledgerKey := "reward.cash:" + idempotencyKey
 	return ledger.ApplyCredit(ctx, pool, userID, ccy, entryType, ledgerKey, amountMinor, meta)
+}
+
+// PayoutAndCreditCashTx is the transactional sibling of PayoutAndCreditCash.
+// It is mandatory for any reward flow that has companion bookkeeping rows
+// (e.g. progress / claim tables) which must commit atomically with the cash
+// credit. Callers MUST commit/rollback the tx themselves.
+func PayoutAndCreditCashTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID, currency, entryType, idempotencyKey string,
+	amountMinor int64,
+	meta map[string]any,
+) (bool, error) {
+	if amountMinor <= 0 {
+		return false, fmt.Errorf("reward payout: amount must be positive")
+	}
+	if !rewardCashPayoutEnabled() {
+		return false, fmt.Errorf("reward payout: runtime not configured")
+	}
+	ccy := strings.ToUpper(strings.TrimSpace(currency))
+	if ccy == "" {
+		ccy = "USDT"
+	}
+	ledgerKey := "reward.cash:" + idempotencyKey
+	return ledger.ApplyCreditTx(ctx, tx, userID, ccy, entryType, ledgerKey, amountMinor, meta)
 }

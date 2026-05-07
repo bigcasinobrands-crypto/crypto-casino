@@ -34,13 +34,19 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		// SEC-1: BlueOcean seamless wallet must always be HMAC-authenticated.
+		// An empty salt previously bypassed the key check entirely, exposing every player's
+		// balance to any caller. Refuse the request when the salt is unset.
 		salt := strings.TrimSpace(cfg.BlueOceanWalletSalt)
-		if salt != "" {
-			if !verifyBlueOceanQueryKey(r.URL.Query(), salt, r.URL.Query().Get("key")) {
-				log.Printf("blueocean wallet: invalid key from %s", r.RemoteAddr)
-				http.Error(w, "invalid key", http.StatusUnauthorized)
-				return
-			}
+		if salt == "" {
+			log.Printf("blueocean wallet: BLUEOCEAN_WALLET_SALT is empty — rejecting callback from %s (configure salt to enable)", r.RemoteAddr)
+			http.Error(w, "wallet auth not configured", http.StatusUnauthorized)
+			return
+		}
+		if !verifyBlueOceanQueryKey(r.URL.Query(), salt, r.URL.Query().Get("key")) {
+			log.Printf("blueocean wallet: invalid key from %s", r.RemoteAddr)
+			http.Error(w, "invalid key", http.StatusUnauthorized)
+			return
 		}
 		q := r.URL.Query()
 		remote := strings.TrimSpace(q.Get("remote_id"))

@@ -10,7 +10,9 @@ import (
 )
 
 // QueryPlayerBettingTotals returns ledger aggregates for profile stats and game-history summaries.
-// Counts distinct bet rounds when BlueOcean splits a stake into bonus + cash debits (same metadata txn).
+// Counts distinct bet rounds when BlueOcean splits a stake into bonus + cash debits (same metadata txn);
+// sportsbook bets (Oddin) are counted one row per stake. Both products contribute to the player's
+// lifetime totals because the player profile is a unified view, not a casino-only view.
 func QueryPlayerBettingTotals(ctx context.Context, pool *pgxpool.Pool, uid string) (
 	totalWagered int64,
 	totalBets int,
@@ -24,12 +26,13 @@ func QueryPlayerBettingTotals(ctx context.Context, pool *pgxpool.Pool, uid strin
 				SELECT entry_type, amount_minor, metadata
 				FROM ledger_entries
 				WHERE user_id = $1::uuid
-				  AND entry_type IN ('game.debit', 'game.credit', 'game.bet', 'game.win', 'game.rollback')
+				  AND entry_type IN ('game.debit', 'game.credit', 'game.bet', 'game.win', 'game.rollback',
+				                     'sportsbook.debit', 'sportsbook.credit', 'sportsbook.rollback')
 			)
 			SELECT
 				GREATEST(COALESCE(SUM(CASE
-					WHEN entry_type IN ('game.debit', 'game.bet') THEN ABS(amount_minor)
-					WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor)
+					WHEN entry_type IN ('game.debit', 'game.bet', 'sportsbook.debit') THEN ABS(amount_minor)
+					WHEN entry_type IN ('game.rollback', 'sportsbook.rollback') THEN -ABS(amount_minor)
 					ELSE 0 END), 0), 0)::bigint,
 				COALESCE((
 					SELECT COUNT(*)::int FROM (
@@ -44,14 +47,18 @@ func QueryPlayerBettingTotals(ctx context.Context, pool *pgxpool.Pool, uid strin
 					SELECT COUNT(*)::int FROM game_lines g
 					WHERE g.entry_type IN ('game.debit', 'game.bet')
 					  AND COALESCE(g.metadata->>'txn', '') = ''
+				), 0)
+				+ COALESCE((
+					SELECT COUNT(*)::int FROM game_lines g
+					WHERE g.entry_type = 'sportsbook.debit'
 				), 0),
 				COALESCE(SUM(CASE
-					WHEN entry_type IN ('game.credit', 'game.win') THEN amount_minor
+					WHEN entry_type IN ('game.credit', 'game.win', 'sportsbook.credit') THEN amount_minor
 					ELSE 0 END), 0)::bigint,
 				COALESCE(MAX(CASE
-					WHEN entry_type IN ('game.credit', 'game.win') THEN amount_minor
+					WHEN entry_type IN ('game.credit', 'game.win', 'sportsbook.credit') THEN amount_minor
 					ELSE NULL END), 0)::bigint,
-				COALESCE(COUNT(*) FILTER (WHERE entry_type IN ('game.credit', 'game.win')), 0)::int
+				COALESCE(COUNT(*) FILTER (WHERE entry_type IN ('game.credit', 'game.win', 'sportsbook.credit')), 0)::int
 			FROM game_lines
 	`, uid).Scan(&totalWagered, &totalBets, &totalWon, &highestWin, &winLineCount)
 	return totalWagered, totalBets, totalWon, highestWin, winLineCount, err

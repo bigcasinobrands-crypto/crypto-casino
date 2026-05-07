@@ -315,12 +315,14 @@ func main() {
 		// Register with and without trailing slash: some dashboards append "/" and chi otherwise returns 404.
 		r.Group(func(r chi.Router) {
 			r.Use(oddin.OperatorSecurityMiddleware(&cfg))
-			r.Post("/userDetails", oddinOp.UserDetailsStub)
-			r.Post("/userDetails/", oddinOp.UserDetailsStub)
-			r.Post("/debitUser", oddinOp.DebitUserStub)
-			r.Post("/debitUser/", oddinOp.DebitUserStub)
-			r.Post("/creditUser", oddinOp.CreditUserStub)
-			r.Post("/creditUser/", oddinOp.CreditUserStub)
+			r.Post("/userDetails", oddinOp.UserDetails)
+			r.Post("/userDetails/", oddinOp.UserDetails)
+			r.Post("/debitUser", oddinOp.DebitUser)
+			r.Post("/debitUser/", oddinOp.DebitUser)
+			r.Post("/creditUser", oddinOp.CreditUser)
+			r.Post("/creditUser/", oddinOp.CreditUser)
+			r.Post("/rollbackUser", oddinOp.RollbackUser)
+			r.Post("/rollbackUser/", oddinOp.RollbackUser)
 		})
 
 		r.Route("/v1", func(r chi.Router) {
@@ -405,12 +407,20 @@ func main() {
 				r.Get("/wallet/game-history", wallet.GameHistoryHandler(pool))
 				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
 				r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
-				r.Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, cmcTickers, fpClient))
+				// Per-user rate limit (5 attempts / 10 min) prevents a single user from
+				// hammering the withdraw endpoint regardless of IP rotation. The IP-based
+				// limit on the surrounding group still throttles bursts from any one IP.
+				r.With(playerapi.LimitByUserID(5, 10*time.Minute)).
+					Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, cmcTickers, fpClient))
 				r.With(httprate.LimitByIP(30, time.Minute)).Post("/sportsbook/oddin/session-token", oddinH.SessionToken)
 				r.Group(func(r chi.Router) {
 					r.Use(httprate.LimitByIP(60, time.Minute))
 					r.Get("/wallet/payment-currencies", wallet.PaymentCurrenciesHandler(pool, &cfg))
-					r.Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg))
+					// Per-user limit (10 deposit-address fetches / hour) on top of the
+					// IP-based limit, to prevent a single user from sweeping the address
+					// generator endlessly even from changing IPs.
+					r.With(playerapi.LimitByUserID(10, time.Hour)).
+						Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg))
 					r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg))
 				})
 			})
@@ -423,12 +433,14 @@ func main() {
 			})
 			r.Route("/oddin", func(r chi.Router) {
 				r.Use(oddin.OperatorSecurityMiddleware(&cfg))
-				r.Post("/userDetails", oddinOp.UserDetailsStub)
-				r.Post("/userDetails/", oddinOp.UserDetailsStub)
-				r.Post("/debitUser", oddinOp.DebitUserStub)
-				r.Post("/debitUser/", oddinOp.DebitUserStub)
-				r.Post("/creditUser", oddinOp.CreditUserStub)
-				r.Post("/creditUser/", oddinOp.CreditUserStub)
+				r.Post("/userDetails", oddinOp.UserDetails)
+				r.Post("/userDetails/", oddinOp.UserDetails)
+				r.Post("/debitUser", oddinOp.DebitUser)
+				r.Post("/debitUser/", oddinOp.DebitUser)
+				r.Post("/creditUser", oddinOp.CreditUser)
+				r.Post("/creditUser/", oddinOp.CreditUser)
+				r.Post("/rollbackUser", oddinOp.RollbackUser)
+				r.Post("/rollbackUser/", oddinOp.RollbackUser)
 			})
 		})
 	})

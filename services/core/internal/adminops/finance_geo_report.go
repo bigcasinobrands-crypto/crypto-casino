@@ -14,8 +14,9 @@ import (
 )
 
 // FinanceGeoPayload is returned by GET /v1/admin/analytics/finance-geo.
-// Deposits: deposit.credit, deposit.checkout (amount_minor > 0).
-// Withdrawals: withdrawal.debit (stored as negative amount_minor; reported as positive volume).
+// Deposits: deposit.credit (amount_minor > 0). deposit.checkout has no current writer.
+// Withdrawals: withdrawal.pending.settled (stored as negative amount_minor; reported as positive volume).
+// withdrawal.debit has no current writer.
 // Country: metadata.geo_country (Fingerprint on-ledger) → metadata.attribution_country_iso2 →
 // most recent traffic_sessions row with last_at <= ledger line time.
 type FinanceGeoPayload struct {
@@ -72,17 +73,17 @@ WITH lined AS (
   ) tr ON true
   WHERE le.created_at >= $1 AND le.created_at < $2
     AND (
-      (le.entry_type IN ('deposit.credit', 'deposit.checkout') AND le.amount_minor > 0)
-      OR (le.entry_type = 'withdrawal.debit' AND le.amount_minor < 0)
+      (le.entry_type = 'deposit.credit' AND le.amount_minor > 0)
+      OR (le.entry_type = 'withdrawal.pending.settled' AND le.amount_minor < 0)
     )
 )
 SELECT
   country_iso2,
   currency,
-  COALESCE(SUM(CASE WHEN entry_type IN ('deposit.credit', 'deposit.checkout') AND amount_minor > 0 THEN amount_minor ELSE 0 END), 0)::bigint AS deposits_minor,
-  COALESCE(SUM(CASE WHEN entry_type = 'withdrawal.debit' AND amount_minor < 0 THEN -amount_minor ELSE 0 END), 0)::bigint AS withdrawals_minor,
-  COUNT(*) FILTER (WHERE entry_type IN ('deposit.credit', 'deposit.checkout') AND amount_minor > 0)::bigint AS deposit_lines,
-  COUNT(*) FILTER (WHERE entry_type = 'withdrawal.debit' AND amount_minor < 0)::bigint AS withdrawal_lines
+  COALESCE(SUM(CASE WHEN entry_type = 'deposit.credit' AND amount_minor > 0 THEN amount_minor ELSE 0 END), 0)::bigint AS deposits_minor,
+  COALESCE(SUM(CASE WHEN entry_type = 'withdrawal.pending.settled' AND amount_minor < 0 THEN -amount_minor ELSE 0 END), 0)::bigint AS withdrawals_minor,
+  COUNT(*) FILTER (WHERE entry_type = 'deposit.credit' AND amount_minor > 0)::bigint AS deposit_lines,
+  COUNT(*) FILTER (WHERE entry_type = 'withdrawal.pending.settled' AND amount_minor < 0)::bigint AS withdrawal_lines
 FROM lined
 GROUP BY country_iso2, currency
 ORDER BY country_iso2 ASC, currency ASC
@@ -146,8 +147,8 @@ WITH lined AS (
   ) tr ON true
   WHERE le.created_at >= $1 AND le.created_at < $2
     AND (
-      (le.entry_type IN ('deposit.credit', 'deposit.checkout') AND le.amount_minor > 0)
-      OR (le.entry_type = 'withdrawal.debit' AND le.amount_minor < 0)
+      (le.entry_type = 'deposit.credit' AND le.amount_minor > 0)
+      OR (le.entry_type = 'withdrawal.pending.settled' AND le.amount_minor < 0)
     )
 )
 SELECT

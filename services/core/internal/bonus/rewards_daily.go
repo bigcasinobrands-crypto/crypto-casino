@@ -193,22 +193,36 @@ func ClaimDailyReward(ctx context.Context, pool *pgxpool.Pool, userID, claimDate
 		}
 	}
 
-	var claimed bool
-	_ = pool.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM player_reward_claims
-			WHERE user_id = $1::uuid AND reward_program_id = $2 AND claim_date = $3::date AND status = 'completed'
-		)
-	`, userID, p.ID, claimDate).Scan(&claimed)
-	if claimed {
-		return nil
-	}
-
 	ccy := currency
 	if ccy == "" {
 		ccy = "USDT"
 	}
 	idem := fmt.Sprintf("bonus:reward:daily:%d:%s:%s", p.ID, userID, claimDate)
+
+	// Atomically reserve the daily slot before we touch the bonus ledger.
+	// We insert the player_reward_claims row in 'pending' state; if a row already
+	// exists for (user, program, date), the ON CONFLICT path returns the existing
+	// status. This eliminates the previous race where:
+	//   - GrantFromPromotionVersion succeeded
+	//   - the followup INSERT into player_reward_claims failed (network blip / shutdown)
+	//   - a retry would re-enter ClaimDailyReward, see no completed claim row,
+	//     and re-call grant. Today the inserted=false guard makes that a UX bug
+	//     ("not claimable" on retry) but the pending-row approach makes it a real
+	//     resume: the grant is re-invoked under the same idempotency key (a no-op
+	//     in the ledger) and the row is finalized to 'completed'.
+	var existingStatus string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO player_reward_claims (user_id, reward_program_id, claim_date, amount_minor, status, idempotency_key)
+		VALUES ($1::uuid, $2, $3::date, $4, 'pending', $5)
+		ON CONFLICT (user_id, reward_program_id, claim_date) DO UPDATE
+		  SET claim_date = EXCLUDED.claim_date
+		RETURNING status
+	`, userID, p.ID, claimDate, cfg.AmountMinor, idem).Scan(&existingStatus); err != nil {
+		return err
+	}
+	if existingStatus == "completed" {
+		return nil
+	}
 
 	inserted, err := GrantFromPromotionVersion(ctx, pool, GrantArgs{
 		UserID:             userID,
@@ -219,19 +233,42 @@ func ClaimDailyReward(ctx context.Context, pool *pgxpool.Pool, userID, claimDate
 		DepositAmountMinor: 0,
 	})
 	if err != nil {
+		// Leave the pending row in place. A future retry will resume the grant
+		// under the same deterministic idempotency key and the ledger remains
+		// the source of truth — we cannot double-credit.
 		return err
 	}
 	if !inserted {
-		// Active WR or risk denied — surface as not claimable for UX
-		return ErrDailyNotClaimable
+		// inserted=false from GrantFromPromotionVersion can mean either
+		// (a) the idempotency key already produced a grant on a prior call,
+		//     in which case we should finalize the pending claim, OR
+		// (b) the bonus engine refused to grant (e.g. risk gate, dedup, max
+		//     active bonuses). We disambiguate by checking whether a
+		//     user_bonus_instances row exists for this idempotency key.
+		var grantExists bool
+		_ = pool.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM user_bonus_instances
+				WHERE idempotency_key = $1
+			)
+		`, idem).Scan(&grantExists)
+		if !grantExists {
+			// True risk-gate refusal: drop the pending row so the player can
+			// retry later when conditions change (e.g. min wager satisfied).
+			_, _ = pool.Exec(ctx, `
+				DELETE FROM player_reward_claims
+				WHERE user_id = $1::uuid AND reward_program_id = $2 AND claim_date = $3::date AND status = 'pending'
+			`, userID, p.ID, claimDate)
+			return ErrDailyNotClaimable
+		}
+		// fall through and finalize the claim row
 	}
 
-	_, err = pool.Exec(ctx, `
-		INSERT INTO player_reward_claims (user_id, reward_program_id, claim_date, amount_minor, status, idempotency_key)
-		VALUES ($1::uuid, $2, $3::date, $4, 'completed', $5)
-		ON CONFLICT (user_id, reward_program_id, claim_date) DO NOTHING
-	`, userID, p.ID, claimDate, cfg.AmountMinor, idem)
-	if err != nil {
+	if _, err := pool.Exec(ctx, `
+		UPDATE player_reward_claims
+		SET status = 'completed'
+		WHERE user_id = $1::uuid AND reward_program_id = $2 AND claim_date = $3::date AND status = 'pending'
+	`, userID, p.ID, claimDate); err != nil {
 		return err
 	}
 	return nil

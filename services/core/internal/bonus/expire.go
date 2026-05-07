@@ -26,10 +26,13 @@ func SweepExpiredForfeits(ctx context.Context, pool *pgxpool.Pool) (int, error) 
 	}
 	n := 0
 	for _, id := range ids {
-		if err := ForfeitInstance(ctx, pool, id, "", "expired", false); err != nil {
-			continue
-		}
-		if _, err := pool.Exec(ctx, `UPDATE user_bonus_instances SET status = 'expired', updated_at = now() WHERE id = $1::uuid`, id); err != nil {
+		// ExpireInstance debits remaining bonus_locked under the canonical
+		// `promo.expire` ledger entry type and flips status to 'expired'
+		// inside one transaction. The previous code routed through
+		// ForfeitInstance, which posted `promo.forfeit` rows that polluted
+		// every "voluntary forfeit" report and made TTL expirations
+		// invisible in financial analytics.
+		if err := ExpireInstance(ctx, pool, id, "expired"); err != nil {
 			continue
 		}
 		n++

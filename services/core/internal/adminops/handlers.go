@@ -89,6 +89,12 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/dashboard/crypto-chain-summary", h.DashboardCryptoChainSummary)
 	r.Get("/analytics/traffic", h.TrafficAnalytics)
 	r.Get("/analytics/finance-geo", h.FinanceGeoAnalytics)
+	r.Get("/finance/fund-segregation", h.FundSegregationHandler())
+	r.Get("/finance/failed-jobs", h.ListFinancialFailedJobs)
+	r.Get("/finance/treasury-status", h.TreasuryStatus)
+	r.Post("/auth/step-up", h.PostStepUpAssertion)
+	r.Get("/compliance/kyc/pending", h.ListPendingKYC)
+	r.Get("/compliance/kyc/{id}", h.GetUserKYC)
 	r.Get("/integrations/oddin", h.OddinIntegrationStatus)
 	r.Get("/games/{id}/rtp-stats", h.GameRTPStats)
 	r.Get("/audit-log", h.AuditLog)
@@ -116,7 +122,21 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Patch("/games/{id}/thumbnail-override", h.PatchGameThumbnailOverride)
 		r.Patch("/game-providers/lobby-hidden", h.PatchProviderLobbyHidden)
 		r.Patch("/ops/payment-flags", h.PatchPaymentFlags)
-		r.Post("/withdrawals/{id}/approve", h.ApproveWithdrawal)
+		// SEC-6: high-value financial actions require a fresh step-up MFA
+		// assertion (POST /auth/step-up) within the last 5 minutes. The
+		// middleware reads from staff_step_up_assertions; route handlers
+		// then call adminapi.ConsumeStepUpForAction to mark the assertion
+		// used so a single step-up cannot drive multiple privileged writes.
+		r.Group(func(sr chi.Router) {
+			sr.Use(adminapi.RequireStepUp(h.Pool, 0))
+			sr.Post("/withdrawals/{id}/approve", h.ApproveWithdrawal)
+			sr.Post("/withdrawals/{id}/reject", h.RejectWithdrawal)
+			sr.Post("/deposits/{id}/reverse", h.ReverseDeposit)
+			sr.Post("/users/{id}/kyc/approve", h.ApproveUserKYC)
+			sr.Post("/users/{id}/kyc/reject", h.RejectUserKYC)
+			sr.Post("/finance/provider-fees", h.PostProviderFee)
+			sr.Post("/finance/failed-jobs/{id}/resolve", h.ResolveFinancialFailedJob)
+		})
 		r.Post("/compliance/player-erasure", h.EnqueuePlayerErasure)
 		r.Route("/security/break-glass", func(sr chi.Router) {
 			sr.Get("/grants", h.ListBreakGlassGrants)

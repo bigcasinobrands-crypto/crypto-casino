@@ -31,12 +31,17 @@ func HandleBlueOcean(pool *pgxpool.Pool, rdb *redis.Client) http.HandlerFunc {
 			http.Error(w, "bad body", http.StatusBadRequest)
 			return
 		}
-		if secret != "" {
-			sig := r.Header.Get("X-Webhook-Signature")
-			if !verifyHMAC(secret, body, sig) {
-				http.Error(w, "invalid signature", http.StatusUnauthorized)
-				return
-			}
+		// SEC-2: BlueOcean POST webhook must always be HMAC-authenticated.
+		// Empty WEBHOOK_BLUEOCEAN_SECRET previously skipped verification entirely, allowing
+		// any caller to inject game credit events. Refuse when the secret is unset.
+		if secret == "" {
+			http.Error(w, "webhook auth not configured", http.StatusUnauthorized)
+			return
+		}
+		sig := r.Header.Get("X-Webhook-Signature")
+		if !verifyHMAC(secret, body, sig) {
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
 		}
 		var payload map[string]any
 		if err := json.Unmarshal(body, &payload); err != nil {

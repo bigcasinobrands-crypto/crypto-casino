@@ -111,7 +111,7 @@ func (h *Handler) PutContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	meta, _ := json.Marshal(map[string]any{"key": key})
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "content.update", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'content.update', 'site_content', $2)
 	`, staffID, meta)

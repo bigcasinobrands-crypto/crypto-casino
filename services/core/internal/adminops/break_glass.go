@@ -114,7 +114,7 @@ func (h *Handler) CreateBreakGlassGrant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"grant_id": id, "resource_key": body.ResourceKey})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "break_glass.create", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'break_glass.create', 'break_glass_grants', $2, $3)
 	`, staffID, id, meta)
@@ -172,7 +172,7 @@ func (h *Handler) ApproveBreakGlassGrant(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"ttl_minutes": ttl})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "break_glass.approve", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'break_glass.approve', 'break_glass_grants', $2, $3)
 	`, staffID, grantID, meta)
@@ -218,7 +218,7 @@ func (h *Handler) RejectBreakGlassGrant(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"reason": body.Reason})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "break_glass.reject", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'break_glass.reject', 'break_glass_grants', $2, $3)
 	`, staffID, grantID, meta)
@@ -263,7 +263,7 @@ func (h *Handler) ConsumeBreakGlassGrant(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"note": body.Note})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "break_glass.consume", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'break_glass.consume', 'break_glass_grants', $2, $3)
 	`, staffID, grantID, meta)

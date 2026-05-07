@@ -54,6 +54,17 @@ export function WithdrawFormPanel({
   const [destination, setDestination] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // P2: Persist a single Idempotency-Key per withdrawal intent. A double-click,
+  // network retry, or transient browser hiccup must not produce two ledger
+  // locks. The key resets after a successful submit (handled below) and after
+  // an explicit selected-currency change (the user is starting a new intent).
+  const idemKeyRef = useRef<string | null>(null)
+  const ensureIdemKey = useCallback(() => {
+    if (!idemKeyRef.current) {
+      idemKeyRef.current = crypto.randomUUID()
+    }
+    return idemKeyRef.current
+  }, [])
 
   const balanceLabel = useMemo(() => {
     if (balanceMinor == null) return '0.00'
@@ -78,6 +89,14 @@ export function WithdrawFormPanel({
 
   const minFmt = selected ? formatMinorHint(selected.symbol, selected.min_withdraw_minor) : null
   const minHint = minFmt ? `${minFmt} · ${t('wallet.minWithdrawHint')}` : t('wallet.minWithdrawHint')
+
+  // P2: Switching currencies starts a new withdrawal intent — generate a fresh key
+  // on the next submit so we don't accidentally reuse a previous key for a different
+  // currency.
+  const selectedPaymentID = selected?.payment_id ?? null
+  useEffect(() => {
+    idemKeyRef.current = null
+  }, [selectedPaymentID])
 
   const submit = async () => {
     setErr(null)
@@ -111,7 +130,7 @@ export function WithdrawFormPanel({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Idempotency-Key': crypto.randomUUID(),
+          'Idempotency-Key': ensureIdemKey(),
         },
         body: JSON.stringify(payload),
       })
@@ -120,10 +139,16 @@ export function WithdrawFormPanel({
         const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
         toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/withdraw', rid)
         setErr(parsed?.message ?? t('wallet.errWithdrawFailed'))
+        // Keep the same Idempotency-Key — a 4xx may be transient (e.g. min amount,
+        // address validation). Retrying with the same key is safe: the server will
+        // either accept the new params or, if the original lock already happened,
+        // return the existing withdrawal_id.
         return
       }
       const j = (await res.json()) as { withdrawal_id?: string }
       await refreshProfile()
+      // Successful submit: clear the key so the next withdrawal opens a new intent.
+      idemKeyRef.current = null
       const id = j.withdrawal_id
       if (id) {
         onSuccess({

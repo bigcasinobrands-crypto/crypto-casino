@@ -16,7 +16,6 @@ import (
 	"github.com/crypto-casino/core/internal/bonusblueocean"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -56,7 +55,7 @@ func (h *Handler) mountBonusHub(r chi.Router) {
 		b.Get("/promotion-versions/{vid}/targets", h.bonusHubGetTargets)
 		b.With(adminapi.RequireAnyRole("superadmin")).Post("/promotion-versions/{vid}/targets", h.bonusHubPostTargets)
 		b.Get("/instances", h.bonusHubListInstances)
-		b.Post("/instances/{id}/forfeit", h.bonusHubForfeitInstance)
+		b.With(adminapi.RequireAnyRole("admin", "superadmin")).Post("/instances/{id}/forfeit", h.bonusHubForfeitInstance)
 		b.With(adminapi.RequireAnyRole("superadmin")).Post("/instances/grant", h.bonusHubManualGrant)
 		b.Get("/free-spin-grants", h.bonusHubListFreeSpinGrants)
 		b.With(adminapi.RequireAnyRole("superadmin")).Post("/free-spin-grants", h.bonusHubCreateFreeSpinGrant)
@@ -74,10 +73,15 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 	`).Scan(&grants24)
 	riskPending := bonus.ReviewQueuePending(ctx, h.Pool)
 
+	// Bonus cost: derive from the SAME promo.grant + bonus_locked ledger entries
+	// that feed the headline bonus_cost_* KPI on the main dashboard. Reading from
+	// user_bonus_instances would silently disagree if a row was inserted but the
+	// ledger credit failed (or vice versa). Ledger is the single source of truth.
 	var bonusCost30d int64
 	_ = h.Pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(granted_amount_minor), 0)::bigint FROM user_bonus_instances
-		WHERE created_at > now() - interval '30 days'
+		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
+		WHERE entry_type = 'promo.grant' AND pocket = 'bonus_locked' AND amount_minor > 0
+		  AND created_at > now() - interval '30 days'
 	`).Scan(&bonusCost30d)
 
 	var totalCompleted, totalForfeited, totalNonPending int64
@@ -94,13 +98,15 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 	var avgGrantMinor int64
 	_ = h.Pool.QueryRow(ctx, `SELECT COALESCE(AVG(granted_amount_minor), 0)::bigint FROM user_bonus_instances`).Scan(&avgGrantMinor)
 
+	// GGR includes both casino and sportsbook activity for the bonus-as-percent-of-GGR ratio.
 	var ggr30d int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
-			SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END) -
-			SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0
+			SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END) -
+			SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END), 0
 		)::bigint FROM ledger_entries
-		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND created_at > now() - interval '30 days'
+		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+		  AND created_at > now() - interval '30 days'
 	`).Scan(&ggr30d)
 
 	var bonusPctOfGGR float64
@@ -536,7 +542,7 @@ func (h *Handler) bonusHubPatchPromotion(w http.ResponseWriter, r *http.Request)
 		meta["vip_only"] = *body.VIPOnly
 	}
 	metaB, _ := json.Marshal(meta)
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "bonushub.patch_promotion", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'bonushub.patch_promotion', 'promotions', $2, $3::jsonb)
 	`, staffID, strconv.FormatInt(id, 10), metaB)
@@ -890,7 +896,7 @@ func (h *Handler) bonusHubPublishVersion(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"promotion_version_id": vid, "offer_family": fam, "eligibility_fingerprint": fp})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "bonushub.publish_version", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'bonushub.publish_version', 'promotion_versions', $2, $3::jsonb)
 	`, staffID, strconv.FormatInt(vid, 10), meta)
@@ -980,6 +986,14 @@ type manualGrantReq struct {
 	GrantAmountMinor   int64  `json:"grant_amount_minor"`
 	Currency           string `json:"currency"`
 	AllowWithdrawable  bool   `json:"allow_withdrawable"`
+	// IdempotencyKey is OPTIONAL but strongly preferred. Front-end should
+	// generate a UUID once when the grant modal opens and resend the same
+	// value on retry. When absent, the server derives a deterministic key from
+	// (staff, offer, user) so a double-submit on the SAME staff session for
+	// the SAME offer/player resolves idempotently — without this fallback the
+	// previous code minted a fresh UUID per request and double-clicks created
+	// two grants.
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
@@ -1005,7 +1019,7 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	// Cash grant path
 	if body.GrantAmountMinor > 0 {
-		idem := "bonus:grant:admin:" + staffID + ":" + uuid.New().String()
+		idem := manualGrantIdempotencyKey(body.IdempotencyKey, staffID, body.PromotionVersionID, uid)
 		inserted, err := bonus.GrantFromPromotionVersion(ctx, h.Pool, bonus.GrantArgs{
 			UserID:                 uid,
 			PromotionVersionID:     body.PromotionVersionID,
@@ -1033,7 +1047,7 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 			"wagering_terms_applied": true,
 		}
 		meta, _ := json.Marshal(auditMeta)
-		_, _ = h.Pool.Exec(ctx, `
+		h.auditExec(ctx, "bonushub.manual_grant", `
 			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 			VALUES ($1::uuid, 'bonushub.manual_grant', 'user_bonus_instances', $2::jsonb)
 		`, staffID, meta)
@@ -1066,7 +1080,7 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "grant_amount_minor must be > 0, or rules must include free rounds + game_id")
 		return
 	}
-	idem := "bonus:fs:admin:" + staffID + ":" + uuid.New().String()
+	idem := manualFreeSpinIdempotencyKey(body.IdempotencyKey, staffID, body.PromotionVersionID, uid)
 	ins, err := bonus.EnqueueFreeSpinFromPromotionVersion(ctx, h.Pool, bonus.FreeSpinEnqueueArgs{
 		UserID:               uid,
 		PromotionVersionID:   body.PromotionVersionID,
@@ -1094,7 +1108,7 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 		"wagering_terms_applied": true,
 	}
 	meta, _ := json.Marshal(auditMeta)
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "bonushub.manual_grant", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'bonushub.manual_grant', 'user_bonus_instances', $2::jsonb)
 	`, staffID, meta)
@@ -1244,7 +1258,7 @@ func (h *Handler) bonusHubResolveRiskReview(w http.ResponseWriter, r *http.Reque
 	}
 	staffID, _ := adminapi.StaffIDFromContext(r.Context())
 	meta, _ := json.Marshal(map[string]any{"decision_id": id, "decision": body.Decision})
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "bonushub.resolve_risk_review", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'bonushub.resolve_risk_review', 'bonus_risk_decisions', $2, $3::jsonb)
 	`, staffID, strconv.FormatInt(id, 10), meta)
@@ -1255,6 +1269,34 @@ func (h *Handler) bonusHubResolveRiskReview(w http.ResponseWriter, r *http.Reque
 func isPGUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505"
+}
+
+// manualGrantIdempotencyKey resolves the idempotency key for a manual admin
+// grant. Preference order:
+//
+//  1. Client-supplied IdempotencyKey (UI sends a UUID created when the modal
+//     opens; resends preserve the same key — single grant on retry).
+//  2. Deterministic key derived from (staff, promotion, user). This guarantees
+//     a double-submit on the SAME staff session for the SAME (offer, player)
+//     deduplicates against the existing user_bonus_instances unique constraint
+//     instead of creating a second grant. Two different staff members granting
+//     the same offer to the same player still get distinct keys, which is what
+//     we want — they are deliberately separate manual interventions.
+func manualGrantIdempotencyKey(clientKey, staffID string, promotionVersionID int64, userID string) string {
+	if k := strings.TrimSpace(clientKey); k != "" {
+		return "bonus:grant:admin:client:" + k
+	}
+	return fmt.Sprintf("bonus:grant:admin:%s:%d:%s", staffID, promotionVersionID, userID)
+}
+
+// manualFreeSpinIdempotencyKey is the free-spin equivalent of
+// manualGrantIdempotencyKey. Same shape, different prefix so a cash grant and
+// a free spin grant for the same (staff, offer, user) tuple do not collide.
+func manualFreeSpinIdempotencyKey(clientKey, staffID string, promotionVersionID int64, userID string) string {
+	if k := strings.TrimSpace(clientKey); k != "" {
+		return "bonus:fs:admin:client:" + k
+	}
+	return fmt.Sprintf("bonus:fs:admin:%s:%d:%s", staffID, promotionVersionID, userID)
 }
 
 func normalizeAdminColor(raw *string) (*string, error) {

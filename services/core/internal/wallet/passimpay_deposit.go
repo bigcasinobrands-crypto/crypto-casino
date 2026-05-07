@@ -14,6 +14,7 @@ import (
 	"github.com/crypto-casino/core/internal/payments/passimpay"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -48,6 +49,41 @@ func passimpayDepositAddress(w http.ResponseWriter, r *http.Request, pool *pgxpo
 		network = "ERC20"
 	}
 
+	// P8: optional intended amount lets the webhook compare paid vs requested
+	// and report CREDITED_FULL vs CREDITED_PARTIALLY accurately.
+	var requestedAmountMinor *int64
+	if v := strings.TrimSpace(q.Get("amount_minor")); v != "" {
+		n, perr := strconv.ParseInt(v, 10, 64)
+		if perr != nil || n <= 0 {
+			playerapi.WriteError(w, http.StatusBadRequest, "invalid_amount", "amount_minor must be a positive integer")
+			return
+		}
+		requestedAmountMinor = &n
+	}
+
+	// P9: validate (provider_payment_id, symbol, network) against payment_currencies
+	// so unknown or disabled currencies cannot reach the provider.
+	curr, cerr := loadPassimpayCurrency(r.Context(), pool, paymentID, symbol, network)
+	if cerr == pgx.ErrNoRows {
+		playerapi.WriteError(w, http.StatusBadRequest, "unsupported_currency", "no payment_currencies row for this provider/payment_id/symbol/network")
+		return
+	}
+	if cerr != nil {
+		log.Printf("passimpay deposit-address: payment_currencies lookup err=%v", cerr)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "currency lookup failed")
+		return
+	}
+	if !curr.DepositEnabled {
+		playerapi.WriteError(w, http.StatusForbidden, "deposit_disabled", "deposits are disabled for this currency")
+		return
+	}
+
+	// P7: enforce server-side minimum deposit (when amount is supplied).
+	if requestedAmountMinor != nil && curr.MinDepositMinor != nil && *requestedAmountMinor < *curr.MinDepositMinor {
+		playerapi.WriteError(w, http.StatusBadRequest, "below_min_deposit", fmt.Sprintf("minimum deposit is %d minor units", *curr.MinDepositMinor))
+		return
+	}
+
 	orderID := strings.ReplaceAll(uuid.NewString(), "-", "")
 	if len(orderID) > 64 {
 		orderID = orderID[:64]
@@ -64,14 +100,24 @@ func passimpayDepositAddress(w http.ResponseWriter, r *http.Request, pool *pgxpo
 		return
 	}
 
+	// P1: fail-closed if intent insert fails. Returning an address whose intent
+	// was never persisted means the corresponding webhook hits the orphan path
+	// and the deposit cannot be credited — funds get stuck. Rather than risk
+	// that, we fail the request and ask the player to retry.
+	var requestedColumn any
+	if requestedAmountMinor != nil {
+		requestedColumn = *requestedAmountMinor
+	}
 	_, err = pool.Exec(ctx, `
 		INSERT INTO payment_deposit_intents (
 			user_id, provider, method, provider_order_id, provider_payment_id, currency, network,
-			deposit_address, deposit_tag, status, metadata
-		) VALUES ($1::uuid, 'passimpay', $2, $3, $4, $5, $6, $7, NULLIF($8,''), 'ADDRESS_ASSIGNED', $9::jsonb)
-	`, uid, strings.TrimSpace(cfg.PassimpayDepositMethod), orderID, fmt.Sprintf("%d", paymentID), strings.ToUpper(symbol), network, addr, tag, mustJSON(map[string]any{"source": "deposit_address"}))
+			deposit_address, deposit_tag, requested_amount_minor, status, metadata
+		) VALUES ($1::uuid, 'passimpay', $2, $3, $4, $5, $6, $7, NULLIF($8,''), $9, 'ADDRESS_ASSIGNED', $10::jsonb)
+	`, uid, strings.TrimSpace(cfg.PassimpayDepositMethod), orderID, fmt.Sprintf("%d", paymentID), strings.ToUpper(symbol), network, addr, tag, requestedColumn, mustJSON(map[string]any{"source": "deposit_address"}))
 	if err != nil {
-		log.Printf("passimpay deposit intent insert: %v", err)
+		log.Printf("passimpay deposit intent insert FAILED user=%s order=%s err=%v — refusing to return address (would orphan webhook)", uid, orderID, err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "intent_persist_failed", "could not persist deposit intent — please try again")
+		return
 	}
 
 	out := map[string]any{
@@ -84,6 +130,9 @@ func passimpayDepositAddress(w http.ResponseWriter, r *http.Request, pool *pgxpo
 		"provider":    "passimpay",
 		"order_id":    orderID,
 		"payment_id":  paymentID,
+	}
+	if requestedAmountMinor != nil {
+		out["requested_amount_minor"] = *requestedAmountMinor
 	}
 
 	if tag != "" {

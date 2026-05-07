@@ -19,34 +19,38 @@ func (h *Handler) GetUserFacts(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
+	// Deposits use 'deposit.credit' only. The previous LIKE 'withdraw%' filter included
+	// 'withdrawal.lock.cash' (the reservation move at request time), which double-counted
+	// each withdrawal. We now use 'withdrawal.pending.settled' (the final outbound debit).
 	var deposits7d, deposits30d, withdrawals7d, withdrawals30d int64
 	var depCount7d, depCount30d int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN entry_type = 'deposit.credit' AND created_at > now() - interval '7 days' THEN amount_minor ELSE 0 END), 0)::bigint,
 			COALESCE(SUM(CASE WHEN entry_type = 'deposit.credit' AND created_at > now() - interval '30 days' THEN amount_minor ELSE 0 END), 0)::bigint,
-			COALESCE(SUM(CASE WHEN entry_type LIKE 'withdraw%' AND amount_minor < 0 AND created_at > now() - interval '7 days' THEN -amount_minor ELSE 0 END), 0)::bigint,
-			COALESCE(SUM(CASE WHEN entry_type LIKE 'withdraw%' AND amount_minor < 0 AND created_at > now() - interval '30 days' THEN -amount_minor ELSE 0 END), 0)::bigint,
+			COALESCE(SUM(CASE WHEN entry_type = 'withdrawal.pending.settled' AND amount_minor < 0 AND created_at > now() - interval '7 days' THEN -amount_minor ELSE 0 END), 0)::bigint,
+			COALESCE(SUM(CASE WHEN entry_type = 'withdrawal.pending.settled' AND amount_minor < 0 AND created_at > now() - interval '30 days' THEN -amount_minor ELSE 0 END), 0)::bigint,
 			COUNT(*) FILTER (WHERE entry_type = 'deposit.credit' AND created_at > now() - interval '7 days'),
 			COUNT(*) FILTER (WHERE entry_type = 'deposit.credit' AND created_at > now() - interval '30 days')
 		FROM ledger_entries WHERE user_id = $1::uuid
 	`, uid).Scan(&deposits7d, &deposits30d, &withdrawals7d, &withdrawals30d, &depCount7d, &depCount30d)
 
+	// Per-user GGR includes both casino and sportsbook stake/win activity.
 	var ggr7d, ggr30d int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
-		  SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
-		  - SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0)::bigint
+		  SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
+		  - SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)::bigint
 		FROM ledger_entries
-		WHERE user_id = $1::uuid AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+		WHERE user_id = $1::uuid AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 		  AND created_at > now() - interval '7 days'
 	`, uid).Scan(&ggr7d)
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
-		  SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END)
-		  - SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0)::bigint
+		  SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
+		  - SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)::bigint
 		FROM ledger_entries
-		WHERE user_id = $1::uuid AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+		WHERE user_id = $1::uuid AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 		  AND created_at > now() - interval '30 days'
 	`, uid).Scan(&ggr30d)
 

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -202,16 +203,17 @@ func (h *OperatorHandler) UserDetails(w http.ResponseWriter, r *http.Request) {
 		userID    string
 		currency  string
 		language  string
+		country   *string
 		expiresAt time.Time
 		status    string
 	)
 	err := h.Pool.QueryRow(ctx, `
-SELECT user_id::text, currency, language, expires_at, status
+SELECT user_id::text, currency, language, country, expires_at, status
 FROM sportsbook_sessions
 WHERE token_hash = $1 AND provider = 'ODDIN'
 ORDER BY created_at DESC
 LIMIT 1
-`, tokHash).Scan(&userID, &currency, &language, &expiresAt, &status)
+`, tokHash).Scan(&userID, &currency, &language, &country, &expiresAt, &status)
 	if err != nil {
 		// pgx.ErrNoRows is the legitimate "no matching session" case → genuine auth failure.
 		// Any other error (connection drop, scan failure, query error) is an operator-side
@@ -300,12 +302,20 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 	// it as uint64; sending a JSON float crashes their decoder for non-zero values).
 	// `country` MUST be a non-empty ISO 3166-1 alpha-2 code; empty values make Bifrost
 	// reject the user payload and surface "Sportsbook reported an error" in the iframe.
+	// We prefer the country resolved at session-issue time (real geographic intent) and
+	// fall back to defaultCountry only when fingerprint/IP geo could not provide one.
+	resolvedCountry := defaultCountry
+	if country != nil {
+		if c := strings.TrimSpace(*country); c != "" {
+			resolvedCountry = strings.ToUpper(c)
+		}
+	}
 	out := map[string]any{
 		"errorCode": ErrCodeOK,
 		"userId":    userID,
 		"currency":  currency,
 		"language":  language,
-		"country":   defaultCountry,
+		"country":   resolvedCountry,
 		"balance":   balanceMinor,
 	}
 	h.logRequest(ctx, "userDetails", body, operatorLog{
@@ -316,32 +326,431 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 	writeOperatorJSON(w, out)
 }
 
-// DebitUserStub — placeholder; must not debit real balances. Returns ErrCodeInvalidParams (4)
-// — closest "operator can't process this right now" signal in the standard 0–7 set. Will be
-// replaced with real ledger debit logic once the wallet contract is wired.
-func (h *OperatorHandler) DebitUserStub(w http.ResponseWriter, r *http.Request) {
+// extractAmountMinor pulls the amount in MINOR units from a parsed Oddin body.
+// Oddin's seamless wallet protocol uses integer minor units to match the
+// `balance` we return from userDetails. We accept both numeric (preferred) and
+// string forms because some SDK builds emit JSON numbers as strings.
+func extractAmountMinor(body map[string]any, keys ...string) (int64, bool) {
+	if body == nil {
+		return 0, false
+	}
+	for _, k := range keys {
+		v, ok := body[k]
+		if !ok {
+			continue
+		}
+		switch n := v.(type) {
+		case float64:
+			return int64(n), true
+		case int:
+			return int64(n), true
+		case int64:
+			return n, true
+		case string:
+			s := strings.TrimSpace(n)
+			if s == "" {
+				continue
+			}
+			// strconv-free path so we don't grow imports — float64 round-trip
+			// is safe up to 2^53 which is far above any realistic stake amount.
+			var f float64
+			if _, err := jsonNumberFromString(s, &f); err == nil {
+				return int64(f), true
+			}
+		}
+	}
+	return 0, false
+}
+
+// jsonNumberFromString parses a number-as-string without pulling strconv into
+// every file in this package; we already pull encoding/json so this stays
+// dependency-stable.
+func jsonNumberFromString(s string, out *float64) (int, error) {
+	return -1, json.Unmarshal([]byte(s), out)
+}
+
+// extractStringField picks the first non-empty string for any of the candidate keys.
+func extractStringField(body map[string]any, keys ...string) string {
+	if body == nil {
+		return ""
+	}
+	for _, k := range keys {
+		if v, ok := body[k].(string); ok {
+			s := strings.TrimSpace(v)
+			if s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// resolveSession authenticates the operator callback and returns the bound user.
+// On failure it writes the error response and returns ok=false; callers must
+// stop after that. The session pre-checks must mirror UserDetails so that
+// debit/credit/rollback cannot bypass auth that userDetails performed.
+func (h *OperatorHandler) resolveSession(ctx context.Context, body map[string]any) (userID, currency string, ok bool, errResp map[string]any) {
+	token := operatorTokenFromBody(body)
+	if token == "" {
+		return "", "", false, errorBody(ErrCodeAuthFailed, "missing token in request body")
+	}
+	if h.Pool == nil {
+		return "", "", false, errorBody(ErrCodeInvalidParams, "database unavailable")
+	}
+	tokHash := hashOperatorToken(token)
+	var (
+		expiresAt time.Time
+		status    string
+	)
+	err := h.Pool.QueryRow(ctx, `
+SELECT user_id::text, currency, expires_at, status
+FROM sportsbook_sessions
+WHERE token_hash = $1 AND provider = 'ODDIN'
+ORDER BY created_at DESC
+LIMIT 1
+`, tokHash).Scan(&userID, &currency, &expiresAt, &status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", false, errorBody(ErrCodeAuthFailed, "token not recognized")
+		}
+		slog.ErrorContext(ctx, "oddin_operator_session_lookup_failed", "err", err)
+		return "", "", false, errorBody(ErrCodeInvalidParams, "operator query error")
+	}
+	if !strings.EqualFold(status, "ACTIVE") {
+		return "", "", false, errorBody(ErrCodeAuthFailed, "session is not active")
+	}
+	if !expiresAt.IsZero() && time.Now().UTC().After(expiresAt.UTC()) {
+		return "", "", false, errorBody(ErrCodeAuthFailed, "session expired")
+	}
+	if strings.TrimSpace(userID) == "" {
+		return "", "", false, errorBody(ErrCodeAuthFailed, "token not recognized")
+	}
+	currency = strings.TrimSpace(strings.ToUpper(currency))
+	if currency == "" {
+		currency = "USD"
+	}
+	return userID, currency, true, nil
+}
+
+// DebitUser places a sportsbook stake on the player's wallet by writing a
+// `sportsbook.debit` ledger row in the cash pocket and returning the new
+// balance to Oddin. Idempotency key is derived from the provider's
+// transactionId so retries from Bifrost cannot double-charge.
+//
+// Cross-checks:
+//   - The session token must resolve to the same userId Oddin sent in `userId`.
+//     This blocks a compromised session from spending some other player's funds.
+//   - amount must be positive integer minor units; we fail closed on parse errors.
+//   - balance is checked via FOR UPDATE row lock so concurrent debits from
+//     userDetails / casino flow cannot race the player into negative balance.
+func (h *OperatorHandler) DebitUser(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
-	out := errorBody(ErrCodeInvalidParams, "operator wallet (debit) not enabled")
-	h.logRequest(ctx, "debitUser", body, operatorLog{
-		Endpoint: "debitUser",
-		Status:   "STUB_REJECT",
-		BodyOut:  out,
-	})
+
+	uid, sessionCcy, ok, errResp := h.resolveSession(ctx, body)
+	if !ok {
+		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "REJECT", BodyOut: errResp})
+		writeOperatorJSON(w, errResp)
+		return
+	}
+
+	bodyUserID := extractStringField(body, "userId", "playerId")
+	if bodyUserID != "" && !strings.EqualFold(bodyUserID, uid) {
+		// Token belongs to user A but Oddin claims user B. This must never be
+		// a "soft fail" — it is either a misconfigured Bifrost deployment or
+		// an attempted replay across users. Reject with auth failure so the
+		// audit row makes the mismatch obvious.
+		out := errorBody(ErrCodeAuthFailed, "session/user mismatch")
+		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "REJECT_MISMATCH", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+
+	txnID := extractStringField(body, "transactionId", "transaction_id", "txId")
+	if txnID == "" {
+		out := errorBody(ErrCodeInvalidParams, "transactionId required")
+		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "REJECT", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	ticketID := extractStringField(body, "ticketId", "ticket_id", "betId", "bet_id")
+	amount, hasAmount := extractAmountMinor(body, "amount", "amountMinor", "stake", "betAmount")
+	if !hasAmount || amount <= 0 {
+		out := errorBody(ErrCodeInvalidParams, "amount must be positive minor units")
+		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "REJECT", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+
+	ccy := strings.TrimSpace(strings.ToUpper(extractStringField(body, "currency")))
+	if ccy == "" {
+		ccy = sessionCcy
+	}
+
+	bal, status, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "debit", txnID, ticketID, amount)
+	if err != nil {
+		slog.ErrorContext(ctx, "oddin_debit_failed", "err", err, "txn", txnID)
+		out := errorBody(ErrCodeInvalidParams, "operator processing error")
+		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "ERROR", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	switch status {
+	case "INSUFFICIENT":
+		out := errorBody(ErrCodeInsufficientFunds, "insufficient funds")
+		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "INSUFFICIENT", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+
+	out := map[string]any{
+		"errorCode":     ErrCodeOK,
+		"userId":        uid,
+		"transactionId": txnID,
+		"currency":      ccy,
+		"balance":       bal,
+	}
+	h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "OK", BodyOut: out})
 	writeOperatorJSON(w, out)
 }
 
-// CreditUserStub — placeholder. Returns ErrCodeInvalidParams until ledger credit is wired.
-func (h *OperatorHandler) CreditUserStub(w http.ResponseWriter, r *http.Request) {
+// CreditUser settles a sportsbook win on the player's wallet by writing a
+// `sportsbook.credit` ledger row in the cash pocket. Like DebitUser, retries
+// dedupe on the provider transactionId. Negative or zero amounts are rejected
+// because Oddin sends void/refund flows through rollbackUser, not creditUser.
+func (h *OperatorHandler) CreditUser(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	body := readJSONBody(r)
-	out := errorBody(ErrCodeInvalidParams, "operator wallet (credit) not enabled")
-	h.logRequest(ctx, "creditUser", body, operatorLog{
-		Endpoint: "creditUser",
-		Status:   "STUB",
-		BodyOut:  out,
-	})
+
+	uid, sessionCcy, ok, errResp := h.resolveSession(ctx, body)
+	if !ok {
+		h.logRequest(ctx, "creditUser", body, operatorLog{Endpoint: "creditUser", Status: "REJECT", BodyOut: errResp})
+		writeOperatorJSON(w, errResp)
+		return
+	}
+	bodyUserID := extractStringField(body, "userId", "playerId")
+	if bodyUserID != "" && !strings.EqualFold(bodyUserID, uid) {
+		out := errorBody(ErrCodeAuthFailed, "session/user mismatch")
+		h.logRequest(ctx, "creditUser", body, operatorLog{Endpoint: "creditUser", Status: "REJECT_MISMATCH", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	txnID := extractStringField(body, "transactionId", "transaction_id", "txId")
+	if txnID == "" {
+		out := errorBody(ErrCodeInvalidParams, "transactionId required")
+		h.logRequest(ctx, "creditUser", body, operatorLog{Endpoint: "creditUser", Status: "REJECT", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	ticketID := extractStringField(body, "ticketId", "ticket_id", "betId", "bet_id")
+	amount, hasAmount := extractAmountMinor(body, "amount", "amountMinor", "win", "payout")
+	if !hasAmount || amount < 0 {
+		out := errorBody(ErrCodeInvalidParams, "amount must be non-negative minor units")
+		h.logRequest(ctx, "creditUser", body, operatorLog{Endpoint: "creditUser", Status: "REJECT", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	ccy := strings.TrimSpace(strings.ToUpper(extractStringField(body, "currency")))
+	if ccy == "" {
+		ccy = sessionCcy
+	}
+
+	bal, _, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "credit", txnID, ticketID, amount)
+	if err != nil {
+		slog.ErrorContext(ctx, "oddin_credit_failed", "err", err, "txn", txnID)
+		out := errorBody(ErrCodeInvalidParams, "operator processing error")
+		h.logRequest(ctx, "creditUser", body, operatorLog{Endpoint: "creditUser", Status: "ERROR", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	out := map[string]any{
+		"errorCode":     ErrCodeOK,
+		"userId":        uid,
+		"transactionId": txnID,
+		"currency":      ccy,
+		"balance":       bal,
+	}
+	h.logRequest(ctx, "creditUser", body, operatorLog{Endpoint: "creditUser", Status: "OK", BodyOut: out})
 	writeOperatorJSON(w, out)
+}
+
+// RollbackUser reverses a previously-applied sportsbook stake. Oddin uses this
+// for ticket cancellations, voided bets, and timeout-induced reversals. We
+// accept either a `referenceTransactionId` (the original debit) or the same
+// `transactionId` field; the rollback ledger row carries its own deterministic
+// idempotency key so a duplicate webhook is a no-op.
+func (h *OperatorHandler) RollbackUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	body := readJSONBody(r)
+
+	uid, sessionCcy, ok, errResp := h.resolveSession(ctx, body)
+	if !ok {
+		h.logRequest(ctx, "rollbackUser", body, operatorLog{Endpoint: "rollbackUser", Status: "REJECT", BodyOut: errResp})
+		writeOperatorJSON(w, errResp)
+		return
+	}
+	bodyUserID := extractStringField(body, "userId", "playerId")
+	if bodyUserID != "" && !strings.EqualFold(bodyUserID, uid) {
+		out := errorBody(ErrCodeAuthFailed, "session/user mismatch")
+		h.logRequest(ctx, "rollbackUser", body, operatorLog{Endpoint: "rollbackUser", Status: "REJECT_MISMATCH", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	txnID := extractStringField(body, "transactionId", "transaction_id", "txId")
+	if txnID == "" {
+		out := errorBody(ErrCodeInvalidParams, "transactionId required")
+		h.logRequest(ctx, "rollbackUser", body, operatorLog{Endpoint: "rollbackUser", Status: "REJECT", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	refTxnID := extractStringField(body, "referenceTransactionId", "originalTransactionId", "originalTxId")
+	if refTxnID == "" {
+		// Some SDK builds reuse the rollback's own id as the reference.
+		refTxnID = txnID
+	}
+	ticketID := extractStringField(body, "ticketId", "ticket_id", "betId", "bet_id")
+	amount, hasAmount := extractAmountMinor(body, "amount", "amountMinor")
+	if !hasAmount {
+		// Best-effort: if Oddin omits the amount we look it up from the original
+		// debit so rollback magnitudes stay tied to the ledger and not the
+		// (potentially inflated) request body.
+		var inferred int64
+		if h.Pool != nil {
+			origIdem := fmt.Sprintf("oddin:sportsbook:debit:%s", refTxnID)
+			_ = h.Pool.QueryRow(ctx, `
+				SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries WHERE idempotency_key = $1
+			`, origIdem).Scan(&inferred)
+			if inferred < 0 {
+				inferred = -inferred
+			}
+		}
+		amount = inferred
+	}
+	if amount <= 0 {
+		// Treat as best-effort no-op acknowledgement; we cannot post a zero
+		// rollback into the ledger but we owe Bifrost a 200 with current
+		// balance so it can mark its own transaction settled.
+		bal, _ := ledger.BalanceMinor(ctx, h.Pool, uid)
+		out := map[string]any{
+			"errorCode":     ErrCodeOK,
+			"userId":        uid,
+			"transactionId": txnID,
+			"currency":      sessionCcy,
+			"balance":       bal,
+		}
+		h.logRequest(ctx, "rollbackUser", body, operatorLog{Endpoint: "rollbackUser", Status: "NOOP", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	ccy := strings.TrimSpace(strings.ToUpper(extractStringField(body, "currency")))
+	if ccy == "" {
+		ccy = sessionCcy
+	}
+
+	bal, _, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "rollback", txnID, ticketID, amount)
+	if err != nil {
+		slog.ErrorContext(ctx, "oddin_rollback_failed", "err", err, "txn", txnID)
+		out := errorBody(ErrCodeInvalidParams, "operator processing error")
+		h.logRequest(ctx, "rollbackUser", body, operatorLog{Endpoint: "rollbackUser", Status: "ERROR", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	}
+	out := map[string]any{
+		"errorCode":     ErrCodeOK,
+		"userId":        uid,
+		"transactionId": txnID,
+		"currency":      ccy,
+		"balance":       bal,
+	}
+	h.logRequest(ctx, "rollbackUser", body, operatorLog{Endpoint: "rollbackUser", Status: "OK", BodyOut: out})
+	writeOperatorJSON(w, out)
+}
+
+// applyOddinSeamless wraps a single sportsbook ledger movement (debit / credit
+// / rollback) in one transaction with a row-level user lock. This mirrors
+// applyBOSeamless for casino so we get the same correctness guarantees:
+//   - balance reads happen under FOR UPDATE so concurrent stakes can't race
+//   - ledger writes carry deterministic idempotency keys derived from the
+//     provider transactionId, so duplicate Bifrost retries are no-ops
+//   - the returned balance is computed AFTER the write and AFTER the commit
+//     so Bifrost gets the post-state and not a stale snapshot
+func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, action, txnID, ticketID string, amount int64) (int64, string, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, "ERROR", err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE`, userID); err != nil {
+		return 0, "ERROR", err
+	}
+
+	bal, err := ledger.BalanceMinorTx(ctx, tx, userID)
+	if err != nil {
+		return 0, "ERROR", err
+	}
+
+	meta := map[string]any{
+		"provider":       "ODDIN",
+		"transaction_id": txnID,
+		"ticket_id":      ticketID,
+	}
+
+	switch action {
+	case "debit":
+		if bal < amount {
+			return bal, "INSUFFICIENT", nil
+		}
+		idem := fmt.Sprintf("oddin:sportsbook:debit:%s", txnID)
+		if _, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, ledger.EntryTypeSportsbookDebit, idem, amount, ledger.PocketCash, meta); err != nil {
+			return bal, "ERROR", err
+		}
+	case "credit":
+		idem := fmt.Sprintf("oddin:sportsbook:credit:%s", txnID)
+		if amount == 0 {
+			// Oddin does send zero-amount settlements for losing tickets so the
+			// ticket lifecycle is closed in their system. Record a non-balance
+			// audit ledger row so the trace is preserved without moving funds.
+			if _, err := ledger.RecordNonBalanceEvent(ctx, pool, userID, ccy, ledger.EntryTypeSportsbookCredit, idem, meta); err != nil {
+				return bal, "ERROR", err
+			}
+		} else {
+			if _, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, ledger.EntryTypeSportsbookCredit, idem, amount, meta); err != nil {
+				return bal, "ERROR", err
+			}
+		}
+	case "rollback":
+		idem := fmt.Sprintf("oddin:sportsbook:rollback:%s", txnID)
+		if _, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, ledger.EntryTypeSportsbookRollback, idem, amount, meta); err != nil {
+			return bal, "ERROR", err
+		}
+	default:
+		return bal, "ERROR", fmt.Errorf("oddin seamless: unknown action %q", action)
+	}
+
+	bal, err = ledger.BalanceMinorTx(ctx, tx, userID)
+	if err != nil {
+		return 0, "ERROR", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return bal, "ERROR", err
+	}
+	return bal, "OK", nil
+}
+
+// DebitUserStub — Deprecated: kept as alias so older route registrations compile.
+// Prefer DebitUser. Will be removed once cmd/api routes use the canonical handlers.
+//
+// Deprecated: use DebitUser.
+func (h *OperatorHandler) DebitUserStub(w http.ResponseWriter, r *http.Request) {
+	h.DebitUser(w, r)
+}
+
+// CreditUserStub — Deprecated: alias for CreditUser. Use CreditUser directly.
+//
+// Deprecated: use CreditUser.
+func (h *OperatorHandler) CreditUserStub(w http.ResponseWriter, r *http.Request) {
+	h.CreditUser(w, r)
 }
 
 // UserDetailsStub is kept as a name alias so older route registrations compile. Prefer UserDetails.

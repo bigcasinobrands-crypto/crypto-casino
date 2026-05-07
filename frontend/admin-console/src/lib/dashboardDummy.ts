@@ -5,14 +5,35 @@
  * - `VITE_ADMIN_DUMMY_DASHBOARD=false` / `0` — force live `/v1` dashboard calls.
  * - Unset — **production (`import.meta.env.PROD`)**: never dummy (financial KPIs must be live).
  * - Unset — **development**: demo on by default so a missing API does not blank the dashboard.
+ *
+ * Staging/preview builds where `import.meta.env.PROD === false` would silently fall back to
+ * dummy data without an explicit `VITE_ADMIN_DUMMY_DASHBOARD=false`. Operators must set
+ * `VITE_ADMIN_DUMMY_DASHBOARD=false` on every non-PROD build that connects to a real API.
  */
+
+let warned = false
 
 export function isDashboardDummyMode(): boolean {
   const v = import.meta.env.VITE_ADMIN_DUMMY_DASHBOARD
-  if (v === 'false' || v === '0') return false
-  if (v === 'true' || v === '1') return true
-  if (import.meta.env.PROD) return false
-  return import.meta.env.DEV === true
+  let on: boolean
+  if (v === 'false' || v === '0') {
+    on = false
+  } else if (v === 'true' || v === '1') {
+    on = true
+  } else if (import.meta.env.PROD) {
+    on = false
+  } else {
+    on = import.meta.env.DEV === true
+  }
+
+  if (on && !warned && typeof console !== 'undefined') {
+    console.warn(
+      '[ADMIN] Dummy dashboard data is active — financial figures are NOT real. ' +
+        'Set VITE_ADMIN_DUMMY_DASHBOARD=false to force live API calls.',
+    )
+    warned = true
+  }
+  return on
 }
 
 function periodDays(period: string): number {

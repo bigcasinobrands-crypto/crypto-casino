@@ -2,7 +2,9 @@ package bonus
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -159,14 +161,30 @@ func ReverseVIPAccrualForCashRollbackTx(ctx context.Context, tx pgx.Tx, userID s
 }
 
 // ProcessRecentVIPAccruals scans recent game.debit rows and accrues (worker batch).
+//
+// Per-row errors are no longer silently `continue`d — VIP accrual gaps were
+// previously invisible because the worker quietly skipped failing rows and
+// then advanced the idempotency cursor (vip_point_ledger NOT EXISTS) past
+// them on the next tick. Now we log every failure with structured context and
+// record the row in worker_failed_jobs so a stuck row is observable in admin.
+//
+// We deliberately keep "skip and continue" behaviour for the batch — one bad
+// row should not block the rest. The change is making the skip noisy so it
+// can be alerted on.
 func ProcessRecentVIPAccruals(ctx context.Context, pool *pgxpool.Pool, limit int) (int, error) {
 	if limit <= 0 {
 		limit = 500
 	}
+	// Accrue from BOTH casino (game.debit) and sportsbook (sportsbook.debit)
+	// stake lines. Restricting to game.debit-only would have made high-roller
+	// sports bettors invisible to the VIP engine — same dollar wagered on
+	// roulette would tier them up but the same dollar on a parlay would not.
+	// vip_point_ledger.idempotency_key is keyed off the ledger row id so each
+	// stake line accrues exactly once regardless of product.
 	rows, err := pool.Query(ctx, `
 		SELECT le.id, le.user_id::text, ABS(le.amount_minor), le.pocket
 		FROM ledger_entries le
-		WHERE le.entry_type = 'game.debit'
+		WHERE le.entry_type IN ('game.debit', 'sportsbook.debit')
 		  AND NOT EXISTS (
 			SELECT 1 FROM vip_point_ledger v
 			WHERE v.idempotency_key = 'vip:accrual:' || le.id::text
@@ -178,19 +196,62 @@ func ProcessRecentVIPAccruals(ctx context.Context, pool *pgxpool.Pool, limit int
 		return 0, err
 	}
 	defer rows.Close()
-	n := 0
+	type pending struct {
+		ID     int64
+		UID    string
+		Amt    int64
+		Pocket string
+	}
+	var batch []pending
 	for rows.Next() {
-		var id int64
-		var uid string
-		var amt int64
-		var pocket string
-		if err := rows.Scan(&id, &uid, &amt, &pocket); err != nil {
+		var p pending
+		if scanErr := rows.Scan(&p.ID, &p.UID, &p.Amt, &p.Pocket); scanErr != nil {
+			slog.ErrorContext(ctx, "vip_accrual_scan_failed", "err", scanErr)
 			continue
 		}
-		if err := AccrueVIPFromGameDebit(ctx, pool, uid, id, amt, pocket); err != nil {
+		batch = append(batch, p)
+	}
+	rows.Close()
+
+	n := 0
+	failed := 0
+	for _, p := range batch {
+		if accErr := AccrueVIPFromGameDebit(ctx, pool, p.UID, p.ID, p.Amt, p.Pocket); accErr != nil {
+			failed++
+			slog.ErrorContext(ctx, "vip_accrual_row_failed",
+				"ledger_entry_id", p.ID,
+				"user_id", p.UID,
+				"amount_minor", p.Amt,
+				"pocket", p.Pocket,
+				"err", accErr)
+			recordVIPAccrualFailedRow(ctx, pool, p.ID, p.UID, p.Amt, p.Pocket, accErr.Error())
 			continue
 		}
 		n++
 	}
+	if failed > 0 {
+		slog.WarnContext(ctx, "vip_accrual_batch_partial",
+			"processed", n, "failed", failed, "scanned", len(batch))
+	}
 	return n, nil
+}
+
+// recordVIPAccrualFailedRow upserts a single failed-row record into
+// worker_failed_jobs so ops can see exactly which ledger row failed VIP accrual
+// and why. Matched rows are deduplicated by ledger_entry_id, so a row that
+// keeps failing each cycle does not flood the table.
+func recordVIPAccrualFailedRow(ctx context.Context, pool *pgxpool.Pool, ledgerID int64, userID string, amt int64, pocket, errText string) {
+	payload, _ := json.Marshal(map[string]any{
+		"ledger_entry_id": ledgerID,
+		"user_id":         userID,
+		"amount_minor":    amt,
+		"pocket":          pocket,
+	})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO worker_failed_jobs (job_type, payload, error_text, attempts)
+		VALUES ('vip_accrual_row', $1::jsonb, $2, 1)
+		ON CONFLICT DO NOTHING
+	`, payload, errText); err != nil {
+		slog.ErrorContext(ctx, "vip_accrual_dlq_insert_failed", "err", err, "ledger_entry_id", ledgerID)
+	}
 }

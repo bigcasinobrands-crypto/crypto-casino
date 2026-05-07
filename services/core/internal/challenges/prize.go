@@ -39,13 +39,6 @@ func AwardPrizeIfNeeded(ctx context.Context, pool *pgxpool.Pool, entryID, challe
 	if already != nil && *already > 0 {
 		return nil
 	}
-	if prizeType != "cash" {
-		// bonus / free_spins / pool — admin or follow-up integration
-		return nil
-	}
-	if prizeMinor == nil || *prizeMinor <= 0 {
-		return nil
-	}
 	ccy := strings.TrimSpace(currency)
 	if ccy == "" {
 		ccy = "USDT"
@@ -54,10 +47,43 @@ func AwardPrizeIfNeeded(ctx context.Context, pool *pgxpool.Pool, entryID, challe
 	_ = pool.QueryRow(ctx, `SELECT title, COALESCE(slug, '') FROM challenges WHERE id = $1::uuid`, challengeID).Scan(&chTitle, &chSlug)
 	idem := fmt.Sprintf("challenge:prize:%s:%s", challengeID, entryID)
 	meta := map[string]any{
-		"challenge_id": challengeID, "entry_id": entryID,
-		"challenge_title": chTitle, "challenge_slug": chSlug,
+		"challenge_id":    challengeID,
+		"entry_id":        entryID,
+		"challenge_title": chTitle,
+		"challenge_slug":  chSlug,
+		"prize_type":      prizeType,
 	}
-	_, err = ledger.ApplyCredit(ctx, pool, userID, ccy, "challenge.prize", idem, *prizeMinor, meta)
+
+	if prizeType != "cash" {
+		// bonus / free_spins / pool prizes are awarded out-of-band (admin
+		// follow-up, manual fulfillment, or downstream service). They are
+		// not cash credits and do not move the player's wallet — but they
+		// MUST appear in the ledger timeline so finance and support can
+		// see the full reward history. Record a zero-amount, non-balance
+		// challenge.prize_noncash event keyed by the entry id so it is
+		// idempotent across retries / promotion sweeps.
+		var amt int64
+		if prizeMinor != nil {
+			amt = *prizeMinor
+			meta["prize_amount_minor"] = amt
+		}
+		if _, err := ledger.RecordNonBalanceEvent(ctx, pool, userID, ccy, ledger.EntryTypeChallengePrizeNonCash, idem, meta); err != nil {
+			return err
+		}
+		// Mark the entry as awarded so we don't keep re-recording. Non-cash
+		// prizes pass amt==0 here intentionally; analytics joining on
+		// prize_awarded_at is now safe to count this row as "awarded".
+		_, err = pool.Exec(ctx, `
+			UPDATE challenge_entries SET prize_awarded_minor = COALESCE(prize_awarded_minor, 0), prize_awarded_at = now(), updated_at = now()
+			WHERE id = $1::uuid AND prize_awarded_at IS NULL
+		`, entryID)
+		return err
+	}
+	if prizeMinor == nil || *prizeMinor <= 0 {
+		return nil
+	}
+	meta["prize_amount_minor"] = *prizeMinor
+	_, err = ledger.ApplyCredit(ctx, pool, userID, ccy, ledger.EntryTypeChallengePrize, idem, *prizeMinor, meta)
 	if err != nil {
 		return err
 	}

@@ -75,7 +75,7 @@ func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	meta, _ := json.Marshal(body)
-	_, _ = h.Pool.Exec(r.Context(), `
+	h.auditExec(r.Context(), "settings.update", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'settings.update', 'site_settings', $2)
 	`, staffID, meta)

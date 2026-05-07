@@ -114,6 +114,30 @@ type Config struct {
 	WithdrawDailyLimitCents  int64 // max total per user per 24h; 0 = no limit
 	WithdrawDailyCountLimit  int   // max number of withdrawals per user per 24h; 0 = no limit
 	WithdrawMinAccountAgeSec int   // minimum account age in seconds; 0 = no restriction
+	// KYCLargeWithdrawalThresholdCents: amount above which a withdrawal is blocked
+	// unless users.kyc_status='approved'. 0 disables the gate. Default 100000 ($1000).
+	KYCLargeWithdrawalThresholdCents int64
+	// KYCLargeDepositThresholdCents: amount above which the deposit webhook
+	// raises an `aml_large_deposit` reconciliation_alert (does not block).
+	// 0 disables. Default 100000 ($1000).
+	KYCLargeDepositThresholdCents int64
+	// AMLLargeWithdrawalAlertThresholdCents: amount above which a successful
+	// withdrawal raises an `aml_large_withdrawal` reconciliation_alert. This
+	// is alerting only; the hard block is WithdrawMaxSingleCents above. 0
+	// disables. Default 200000 ($2000).
+	AMLLargeWithdrawalAlertThresholdCents int64
+	// OperatorDailyPayoutCapCents: hard cap on the SUM of withdrawal amounts
+	// (in USD cents) the platform will submit to PassimPay in a rolling 24h
+	// window across ALL users. Treasury-drain protection. Once exceeded,
+	// further withdrawal requests are queued in REVIEW status until the
+	// next day's window opens or an operator approves them. 0 disables.
+	OperatorDailyPayoutCapCents int64
+	// WalletAddressKEK: 32-byte hex key used for AES-GCM encryption of
+	// destination crypto addresses at rest (SEC-7). Production should set
+	// this from a secret manager (Vault, AWS KMS, GCP Secret Manager).
+	// Empty string disables encryption — withdraws are still recorded but
+	// addresses go to the legacy plaintext column.
+	WalletAddressKEK string
 	// BonusMaxBetViolationsAutoForfeit forfeits active instances when max_bet_violations_count >= this value; 0 = disabled.
 	BonusMaxBetViolationsAutoForfeit int
 	// Challenges: when true, worker skips challenge_bo_* jobs (emergency kill-switch).
@@ -368,6 +392,11 @@ func Load() (Config, error) {
 	c.WithdrawDailyLimitCents = parseIntEnv(os.Getenv("WITHDRAW_DAILY_LIMIT_CENTS"), 0)
 	c.WithdrawDailyCountLimit = int(parseIntEnv(os.Getenv("WITHDRAW_DAILY_COUNT_LIMIT"), 0))
 	c.WithdrawMinAccountAgeSec = int(parseIntEnv(os.Getenv("WITHDRAW_MIN_ACCOUNT_AGE_SEC"), 0))
+	c.KYCLargeWithdrawalThresholdCents = parseIntEnv(os.Getenv("KYC_LARGE_WITHDRAWAL_THRESHOLD_CENTS"), 100_000)
+	c.KYCLargeDepositThresholdCents = parseIntEnv(os.Getenv("KYC_LARGE_DEPOSIT_THRESHOLD_CENTS"), 100_000)
+	c.AMLLargeWithdrawalAlertThresholdCents = parseIntEnv(os.Getenv("AML_LARGE_WITHDRAWAL_ALERT_THRESHOLD_CENTS"), 200_000)
+	c.OperatorDailyPayoutCapCents = parseIntEnv(os.Getenv("OPERATOR_DAILY_PAYOUT_CAP_CENTS"), 0)
+	c.WalletAddressKEK = strings.TrimSpace(os.Getenv("WALLET_ADDRESS_KEK"))
 	v := int(parseIntEnv(os.Getenv("BONUS_MAX_BET_VIOLATIONS_AUTO_FORFEIT"), 0))
 	if v < 0 {
 		v = 0
@@ -499,6 +528,38 @@ func (c *Config) ValidateProduction() error {
 	}
 	if c.UsesPassimpay() && !c.PassimPayConfigured() {
 		return fmt.Errorf("APP_ENV=production: PAYMENT_PROVIDER=passimpay requires PASSIMPAY_PLATFORM_ID and PASSIMPAY_SECRET_KEY (or PASSIMPAY_API_KEY); or set PAYMENT_PROVIDER=none to start without crypto cashier")
+	}
+	// SEC-1: BlueOcean seamless wallet GET callback authenticates via key=sha1(salt+query).
+	// An empty salt disables that check entirely — refuse to start in production.
+	if strings.TrimSpace(c.BlueOceanWalletSalt) == "" {
+		return fmt.Errorf("APP_ENV=production: BLUEOCEAN_WALLET_SALT is required (seamless wallet callback auth would otherwise be bypassed)")
+	}
+	// SEC-2: BlueOcean POST webhook authenticates via HMAC. Empty secret = open endpoint.
+	// Note: we look for webhook secret env directly, not the field, so this catches both defaults.
+	if strings.TrimSpace(os.Getenv("WEBHOOK_BLUEOCEAN_SECRET")) == "" {
+		return fmt.Errorf("APP_ENV=production: WEBHOOK_BLUEOCEAN_SECRET is required (HMAC verification on POST /v1/webhooks/blueocean would otherwise be skipped)")
+	}
+	// SEC-3: separate player and staff JWT signing keys. Sharing JWT_SECRET creates a
+	// defense-in-depth failure even if other audience/role checks block direct misuse.
+	if strings.TrimSpace(c.PlayerJWTSecret) != "" && strings.TrimSpace(c.JWTSecret) != "" && c.PlayerJWTSecret == c.JWTSecret {
+		return fmt.Errorf("APP_ENV=production: PLAYER_JWT_SECRET must differ from JWT_SECRET (set both to distinct openssl rand -hex 32 values)")
+	}
+	if strings.TrimSpace(c.JWTPlayerAudience) == "" {
+		return fmt.Errorf("APP_ENV=production: JWT_PLAYER_AUDIENCE is required (audience claim must be enforced for player tokens)")
+	}
+	if strings.TrimSpace(c.JWTStaffAudience) == "" {
+		return fmt.Errorf("APP_ENV=production: JWT_STAFF_AUDIENCE is required (audience claim must be enforced for staff tokens)")
+	}
+	// P10: PassimPay webhooks must reject invalid signatures in production. When fail-closed
+	// is off, spoofed deposit credits are accepted as long as a row exists for the order_id.
+	if c.UsesPassimpay() && !c.PassimpayFailClosed {
+		return fmt.Errorf("APP_ENV=production: PASSIMPAY_FAIL_CLOSED must be true (set in Render env vars) to reject spoofed PassimPay webhooks")
+	}
+	// SEC-7: WALLET_ADDRESS_KEK is required so withdrawal destination
+	// addresses are encrypted at rest. The cipher is AES-256-GCM; the env
+	// var must be exactly 32 bytes hex-encoded.
+	if strings.TrimSpace(c.WalletAddressKEK) == "" {
+		return fmt.Errorf("APP_ENV=production: WALLET_ADDRESS_KEK is required (32-byte hex; openssl rand -hex 32) to encrypt withdrawal addresses at rest")
 	}
 	return nil
 }

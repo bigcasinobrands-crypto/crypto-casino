@@ -178,7 +178,7 @@ func (h *Handler) CreateApprovalRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"resource_type": body.ResourceType})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "approval_request.create", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'approval_request.create', 'admin_approval_requests', $2, $3)
 	`, staffID, newID, meta)
@@ -236,7 +236,7 @@ func (h *Handler) ApproveApprovalRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"comment": body.Comment})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "approval_request.approve", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'approval_request.approve', 'admin_approval_requests', $2, $3)
 	`, staffID, id, meta)
@@ -291,7 +291,7 @@ func (h *Handler) RejectApprovalRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"comment": body.Comment})
-	_, _ = h.Pool.Exec(ctx, `
+	h.auditExec(ctx, "approval_request.reject", `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'approval_request.reject', 'admin_approval_requests', $2, $3)
 	`, staffID, id, meta)
