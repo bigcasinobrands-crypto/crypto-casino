@@ -63,3 +63,14 @@ If login returned HTTP **500** with `session` / `family_id` errors, the database
 ## CI integration tests
 
 Tests tagged `integration` run against ephemeral Postgres/Redis in GitHub Actions (see `.github/workflows/ci.yml`).
+
+## Cursor: Render MCP
+
+This repo’s **`.cursor/mcp.json`** includes Render’s [hosted MCP server](https://docs.render.com/docs/mcp-server) so agents can list services, read logs/metrics, and (with care) adjust env vars.
+
+1. Create an API key: [Dashboard → Account → API keys](https://dashboard.render.com/settings#api-keys). Keys are broadly scoped—treat them like root access to your Render workspaces.
+2. Set environment variable **`RENDER_API_KEY`** for your user session (Windows: System Properties → Environment Variables, or set it in the shell profile you use to launch Cursor). **Do not** commit the key; `.cursor/mcp.json` uses `Authorization: Bearer ${env:RENDER_API_KEY}`.
+3. Restart Cursor, open **Settings → Tools & MCP**, confirm **render** connects.
+4. First prompt in chat: set workspace, e.g. `Set my Render workspace to [WORKSPACE_NAME]`, then `List my Render services` (approve tool calls).
+
+Limitations and safety notes are documented on Render’s MCP page (e.g. env updates are the main mutating operation; no deploy triggers via MCP).
