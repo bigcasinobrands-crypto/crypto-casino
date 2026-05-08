@@ -49,7 +49,7 @@ export const PortraitGameThumb: FC<{
         src={src}
         alt=""
         draggable={false}
-        className={`h-full w-full object-cover object-center transition-[opacity,transform] duration-300 ease-out group-hover:scale-[1.04] ${
+        className={`h-full w-full object-cover object-center transition-opacity duration-300 ease-out ${
           ready ? 'opacity-100' : 'opacity-0'
         }`}
         loading="lazy"

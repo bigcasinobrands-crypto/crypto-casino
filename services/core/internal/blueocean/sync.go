@@ -177,6 +177,11 @@ func upsertCatalogBatch(ctx context.Context, pool *pgxpool.Pool, cfg *config.Con
 			"mobile":      g.Mobile,
 			"has_jackpot": g.HasJackpot,
 		}
+		if g.Raw != nil {
+			if rtp, ok := theoreticalRTPPercentFromCatalogMap(g.Raw); ok {
+				meta["theoretical_rtp_pct"] = rtp
+			}
+		}
 		metaBytes, _ := json.Marshal(meta)
 		tags := lobbyTagsForGame(g.IDHash, lobbyTagMap)
 		_, err := pool.Exec(ctx, `

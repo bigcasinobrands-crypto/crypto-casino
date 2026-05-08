@@ -361,6 +361,8 @@
   max-width: 100%;
   min-width: 0;
   overflow: visible;
+  /* Breath room so .game-thumb-link:hover translateY isn’t clipped by strip `overflow-y: hidden` (rounded tops look square). */
+  padding-top: 8px;
   padding-bottom: 0;
   touch-action: manipulation;
 }

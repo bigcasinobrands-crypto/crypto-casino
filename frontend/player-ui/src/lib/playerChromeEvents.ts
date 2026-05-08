@@ -6,3 +6,6 @@ export const PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT = 'vybe-player-close-notifi
 export const PLAYER_CHROME_CLOSE_CHAT_EVENT = 'vybe-player-close-chat-drawer'
 /** Mobile left drawer — close when opening wallet/rewards; open menu closes wallet+rewards via App. */
 export const PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT = 'vybe-player-close-mobile-menu'
+
+/** Open the shell {@link WalletFlowModal} (deposit / withdraw) — same path as header Deposit. */
+export const PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT = 'vybe-player-open-wallet-modal'

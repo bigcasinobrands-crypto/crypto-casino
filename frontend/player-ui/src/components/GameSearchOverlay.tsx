@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import i18n from '../i18n'
 import { IconSearch, IconX } from './icons'
 import { GameCardSkeleton } from './GameCardSkeleton'
+import { GameThumbInteractiveShell } from './GameThumbInteractiveShell'
 import { PortraitGameThumb } from './PortraitGameThumb'
 import { RequireAuthLink } from './RequireAuthLink'
 import { playerApiUrl } from '../lib/playerApiUrl'
@@ -18,6 +19,7 @@ type GameRow = {
   provider_system?: string
   thumbnail_url?: string
   thumb_rev?: number
+  effective_rtp_pct?: number
 }
 
 const FETCH_LIMIT = 48
@@ -214,7 +216,7 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
           </div>
 
           <div
-            className="mask-scroll-fade-y scrollbar-none flex min-h-0 flex-col overflow-y-auto overscroll-y-contain scroll-smooth pb-6 pt-1 motion-reduce:scroll-auto pointer-events-auto"
+            className="mask-scroll-fade-y scrollbar-none flex min-h-0 flex-col overflow-y-auto overscroll-y-contain scroll-smooth pb-6 pt-2 motion-reduce:scroll-auto pointer-events-auto"
             onMouseDown={closeIfBlankClick}
             role="presentation"
           >
@@ -240,7 +242,9 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
                     <div key={g.id} className="group relative" data-game-search-shield>
                       <RequireAuthLink to={lobbyTo} className="group game-thumb-link block" onClick={() => onClose()}>
                         <div className="aspect-[3/4] w-full overflow-hidden rounded-casino-md bg-casino-elevated">
-                          <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                          <GameThumbInteractiveShell effectiveRtpPct={g.effective_rtp_pct}>
+                            <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                          </GameThumbInteractiveShell>
                         </div>
                         <p className="mt-1 line-clamp-2 text-center text-[11px] font-medium leading-tight text-casino-muted transition group-hover:text-casino-foreground">
                           {g.title}

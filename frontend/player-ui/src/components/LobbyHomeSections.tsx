@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'reac
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
+import { GameThumbInteractiveShell } from './GameThumbInteractiveShell'
 import { PortraitGameThumb } from './PortraitGameThumb'
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
@@ -18,6 +19,8 @@ type Game = {
   thumb_rev?: number
   provider_system?: string
   live?: boolean
+  /** From API `effective_rtp_pct` when games.metadata includes it. */
+  effective_rtp_pct?: number
 }
 
 type CatalogFault = 'relative' | 'http' | 'network' | 'bad_body'
@@ -244,7 +247,9 @@ function GameSection({
         className="group game-thumb-link block"
       >
         <div className="casino-game-tile-frame relative rounded-casino-md bg-casino-elevated ring-1 ring-white/[0.06]">
-          <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+          <GameThumbInteractiveShell effectiveRtpPct={g.effective_rtp_pct}>
+            <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+          </GameThumbInteractiveShell>
         </div>
         <span className="sr-only">{g.title}</span>
       </RequireAuthLink>

@@ -249,12 +249,12 @@ const CasinoCatalogSearchStrip: FC<CasinoCatalogSearchStripProps> = ({ pathname,
 
   if (!chatOpen) {
     return (
-      <div className="mb-4 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-2.5">
+      <div className="mb-4 flex min-w-0 max-w-full flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-2.5">
         {/*
           Search flexes and shrinks first; pills stay intrinsic width so all category buttons stay visible
           (avoid equal flex-1 columns that squeeze the pill tray).
         */}
-        <CasinoCatalogSearchField className="mb-0 min-w-0 w-full flex-1 sm:min-w-[12rem]" />
+        <CasinoCatalogSearchField className="mb-0 min-w-0 w-full flex-1 sm:min-w-0 sm:w-auto sm:min-w-[10rem]" />
         <CasinoCatalogNavPills
           pathname={pathname}
           lobbyDashboardHome={lobbyDashboardHome}
@@ -280,7 +280,7 @@ const CasinoCatalogSearchStrip: FC<CasinoCatalogSearchStripProps> = ({ pathname,
       >
         <CasinoCatalogSearchField
           compact
-          className="mb-0 min-w-0 w-full shrink-0 sm:min-w-[8rem] sm:max-w-none sm:flex-1"
+          className="mb-0 min-w-0 w-full shrink-0 sm:min-w-[8rem] sm:max-w-none sm:w-auto sm:flex-1"
         />
         <CasinoCatalogNavPills
           pathname={pathname}

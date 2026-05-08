@@ -8,6 +8,7 @@ import {
   PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT,
   PLAYER_CHROME_CLOSE_REWARDS_EVENT,
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
+  PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT,
 } from './lib/playerChromeEvents'
 import { playerApiUrl } from './lib/playerApiUrl'
 import { prefetchCryptoTickersOnce } from './lib/prefetchCryptoTickers'
@@ -279,6 +280,17 @@ function AppShell() {
     },
     [dismissAllChrome],
   )
+
+  useEffect(() => {
+    const onOpenWalletModal = (e: Event) => {
+      if (!isAuthenticated) return
+      const ce = e as CustomEvent<{ tab?: WalletMainTab }>
+      const tab = ce.detail?.tab === 'withdraw' ? 'withdraw' : 'deposit'
+      openWallet(tab)
+    }
+    window.addEventListener(PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT, onOpenWalletModal)
+    return () => window.removeEventListener(PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT, onOpenWalletModal)
+  }, [isAuthenticated, openWallet])
 
   const toggleChat = useCallback(() => {
     if (chatOpen) {

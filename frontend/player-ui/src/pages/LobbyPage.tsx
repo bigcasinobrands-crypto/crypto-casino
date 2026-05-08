@@ -30,8 +30,10 @@ import {
 import LobbyHomeSections from '../components/LobbyHomeSections'
 import { GameCardSkeleton } from '../components/GameCardSkeleton'
 import PromoHero from '../components/PromoHero'
+import HomeCryptoPaymentsBanner from '../components/HomeCryptoPaymentsBanner'
 import { useCompleteInitialLoad } from '../context/InitialAppLoadContext'
 import ChallengesPageContent from '../components/challenges/ChallengesPageContent'
+import { GameThumbInteractiveShell } from '../components/GameThumbInteractiveShell'
 import { PortraitGameThumb } from '../components/PortraitGameThumb'
 
 type Game = {
@@ -44,6 +46,7 @@ type Game = {
   provider_system?: string
   is_new?: boolean
   live?: boolean
+  effective_rtp_pct?: number
 }
 
 /** Page size for API `limit` / `offset` (must match server max 2000). */
@@ -446,8 +449,9 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   if (isDashboardHome) {
     return (
-      <div className="player-casino-max min-w-0 shrink-0 px-4 pb-12 pt-3 sm:px-5 sm:pt-4 md:px-6 lg:px-8">
+      <div className="player-casino-max min-w-0 shrink-0 pb-12 pt-3 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))] sm:pt-4 sm:pl-[max(1.25rem,env(safe-area-inset-left,0px))] sm:pr-[max(1.25rem,env(safe-area-inset-right,0px))] md:pl-[max(1.5rem,env(safe-area-inset-left,0px))] md:pr-[max(1.5rem,env(safe-area-inset-right,0px))] lg:pl-[max(2rem,env(safe-area-inset-left,0px))] lg:pr-[max(2rem,env(safe-area-inset-right,0px))]">
         <PromoHero />
+        <HomeCryptoPaymentsBanner />
         <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
         <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
       </div>
@@ -512,9 +516,11 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
               const lobbyTo = `/casino/game-lobby/${encodeURIComponent(g.id)}`
               return (
                 <div key={g.id} className="group relative min-w-0">
-                  <RequireAuthLink to={lobbyTo} className="group game-thumb-link">
+                  <RequireAuthLink to={lobbyTo} className="group block game-thumb-link">
                     <div className="casino-game-tile-frame overflow-hidden rounded-casino-md bg-casino-elevated">
-                      <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                      <GameThumbInteractiveShell effectiveRtpPct={g.effective_rtp_pct}>
+                        <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                      </GameThumbInteractiveShell>
                     </div>
                     <span className="sr-only">{g.title}</span>
                   </RequireAuthLink>

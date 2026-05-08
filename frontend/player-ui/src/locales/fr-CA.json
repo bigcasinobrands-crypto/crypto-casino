@@ -308,6 +308,15 @@
     "catalogLiveGames": "Jeux en direct",
     "scrollSearchFiltersLeft": "Faire défiler recherche et filtres vers la gauche",
     "scrollSearchFiltersRight": "Faire défiler recherche et filtres vers la droite",
+    "cryptoPayments": {
+      "ariaLabel": "Cryptomonnaies prises en charge et dépôt",
+      "supporting": "Prise en charge de",
+      "count": "30+",
+      "currencies": "cryptomonnaies"
+    },
+    "gameTile": {
+      "effectiveRtp": "RTP effectif"
+    },
     "hero": {
       "sampleCountdown": "1 j 9 h 35 min",
       "raffleTitle": "Tombola 25 K$",

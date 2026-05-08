@@ -257,18 +257,34 @@ body {
     @apply mx-auto w-full min-w-0 max-w-[min(100%,90rem)] overflow-x-hidden;
   }
 
-  /* Game tiles: soft violet glow on hover around the thumbnail frame. */
+  /* Game tiles: lift + glow on hover (no image zoom; RTP overlay is long-hover in GameThumbInteractiveShell).
+   * No overflow-hidden here: transform + overflow + radius on the same node breaks top-corner clipping in Chromium.
+   * `z-index` on hover keeps lifted tiles above neighbors; strips add padding-top so `overflow-y: hidden` scrollports do not flatten tall rounded tops. */
   .game-thumb-link {
-    @apply block overflow-hidden rounded-casino-md border border-casino-border bg-casino-surface shadow-sm;
+    @apply relative z-0 rounded-casino-md border border-casino-border bg-casino-surface shadow-sm;
     transition:
-      border-color 0.25s ease,
-      box-shadow 0.25s ease;
+      border-color 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+      box-shadow 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+      transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .game-thumb-link:hover {
-    border-color: color-mix(in srgb, var(--color-casino-primary) 50%, transparent);
+    z-index: 5;
+    transform: translate3d(0, -5px, 0);
+    border-color: color-mix(in srgb, var(--color-casino-primary) 55%, transparent);
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-casino-primary) 28%, transparent),
-      0 0 32px color-mix(in srgb, var(--color-casino-primary) 42%, transparent);
+      0 0 0 1px color-mix(in srgb, var(--color-casino-primary) 34%, transparent),
+      0 12px 28px rgba(0, 0, 0, 0.48),
+      0 0 36px color-mix(in srgb, var(--color-casino-primary) 40%, transparent),
+      0 0 52px color-mix(in srgb, var(--color-casino-primary) 22%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .game-thumb-link {
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .game-thumb-link:hover {
+      z-index: 0;
+      transform: none;
+    }
   }
   .game-thumb-link:focus-visible {
     outline: 2px solid var(--color-casino-primary);

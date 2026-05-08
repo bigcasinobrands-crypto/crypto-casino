@@ -2,6 +2,7 @@ package games
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -36,6 +37,8 @@ type listRow struct {
 	Live                bool   `json:"live"`
 	/** Human copy from games.metadata (description, summary, or long_description) when set in catalog sync. */
 	Description string `json:"description,omitempty"`
+	/** Lobby hover: from metadata.effective_rtp_pct or theoretical_rtp_pct (decimal string). */
+	EffectiveRTPPct *float64 `json:"effective_rtp_pct,omitempty"`
 }
 
 // ListHandler returns games with optional filters.
@@ -185,7 +188,20 @@ func (s *Server) ListHandler() http.HandlerFunc {
 					metadata->>'summary',
 					metadata->>'long_description',
 					''
-				)), ''), '')
+				)), ''), ''),
+				CASE
+					WHEN (metadata->>'effective_rtp_pct') ~ '^[0-9]+(\.[0-9]+)?$'
+						THEN (metadata->>'effective_rtp_pct')::double precision
+					WHEN (metadata->>'theoretical_rtp_pct') ~ '^[0-9]+(\.[0-9]+)?$'
+						THEN (metadata->>'theoretical_rtp_pct')::double precision
+					WHEN (metadata->>'theoretical_rtp') ~ '^[0-9]+(\.[0-9]+)?$'
+						THEN (metadata->>'theoretical_rtp')::double precision
+					WHEN regexp_replace(trim(both from COALESCE(metadata->>'rtp_pct','')), '%$', '') ~ '^[0-9]+(\.[0-9]+)?$'
+						THEN regexp_replace(trim(both from COALESCE(metadata->>'rtp_pct','')), '%$', '')::double precision
+					WHEN regexp_replace(trim(both from COALESCE(metadata->>'rtp','')), '%$', '') ~ '^[0-9]+(\.[0-9]+)?$'
+						THEN regexp_replace(trim(both from COALESCE(metadata->>'rtp','')), '%$', '')::double precision
+					ELSE NULL
+				END
 			FROM games
 			WHERE ` + strings.Join(where, " AND ") + `
 			ORDER BY ` + order
@@ -205,10 +221,15 @@ func (s *Server) ListHandler() http.HandlerFunc {
 		out := make([]listRow, 0)
 		for rows.Next() {
 			var g listRow
+			var rtp sql.NullFloat64
 			if err := rows.Scan(&g.ID, &g.IDHash, &g.Title, &g.Provider, &g.Category, &g.ThumbnailURL,
-				&g.GameType, &g.ProviderSystem, &g.IsNew, &g.FeatureBuySupported, &g.PlayForFunSupported, &g.Mobile, &g.ThumbRev, &g.Description); err != nil {
+				&g.GameType, &g.ProviderSystem, &g.IsNew, &g.FeatureBuySupported, &g.PlayForFunSupported, &g.Mobile, &g.ThumbRev, &g.Description, &rtp); err != nil {
 				log.Printf("games list: skip row scan: %v", err)
 				continue
+			}
+			if rtp.Valid {
+				v := rtp.Float64
+				g.EffectiveRTPPct = &v
 			}
 			g.IDHash = strings.TrimSpace(g.IDHash)
 			g.Live = g.GameType == "live-casino" || g.Category == "live"

@@ -3,6 +3,7 @@ package blueocean
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -547,4 +548,75 @@ func ParseCatalogGames(response json.RawMessage, imageBase string) ([]CatalogGam
 		return nil, fmt.Errorf("blueocean: parsed zero games")
 	}
 	return out, nil
+}
+
+// theoreticalRTPPercentFromCatalogMap extracts RTP (as a human percent, e.g. 96.5) from getGameList-style
+// game objects so we can persist `metadata.theoretical_rtp_pct` for lobby hover (`GET /v1/games` → `effective_rtp_pct`).
+func theoreticalRTPPercentFromCatalogMap(m map[string]any) (float64, bool) {
+	if m == nil {
+		return 0, false
+	}
+	for _, k := range []string{
+		"effective_rtp_pct", "theoretical_rtp_pct", "theoretical_rtp", "effective_rtp",
+		"rtp", "rtp_pct", "rtp_percent", "RTP", "return_to_player",
+	} {
+		if v, ok := m[k]; ok {
+			if f, ok := parseFlexibleRTPNumber(v); ok {
+				return f, true
+			}
+		}
+	}
+	for _, nk := range []string{"additional", "Additional", "meta", "details"} {
+		sub, ok := m[nk].(map[string]any)
+		if !ok {
+			continue
+		}
+		if f, ok := theoreticalRTPPercentFromCatalogMap(sub); ok {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+func parseFlexibleRTPNumber(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return normalizeCatalogRTPPercent(t)
+	case json.Number:
+		f, err := t.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return normalizeCatalogRTPPercent(f)
+	case string:
+		s := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(t), "%"))
+		if s == "" {
+			return 0, false
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return 0, false
+		}
+		return normalizeCatalogRTPPercent(f)
+	case int:
+		return normalizeCatalogRTPPercent(float64(t))
+	case int64:
+		return normalizeCatalogRTPPercent(float64(t))
+	default:
+		return 0, false
+	}
+}
+
+func normalizeCatalogRTPPercent(f float64) (float64, bool) {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, false
+	}
+	if f > 0 && f <= 1.0+1e-9 {
+		f *= 100
+	}
+	// Real-world casino RTP is almost always in this band; keeps bogus fields from becoming lobby UI noise.
+	if f < 70 || f > 100.51 {
+		return 0, false
+	}
+	return math.Round(f*100) / 100, true
 }

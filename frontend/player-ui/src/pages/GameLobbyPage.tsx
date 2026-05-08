@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
+import { GameThumbInteractiveShell } from '../components/GameThumbInteractiveShell'
 import { PortraitGameThumb } from '../components/PortraitGameThumb'
 import {
   IconBarChart3,
@@ -45,6 +46,8 @@ type GameMeta = {
   play_for_fun_supported?: boolean
   /** From catalog metadata when the sync stored description/summary/long_description. */
   description?: string
+  /** From catalog metadata (`effective_rtp_pct` / `theoretical_rtp_pct`) on list responses. */
+  effective_rtp_pct?: number
 }
 
 type LaunchPlayMode = 'demo' | 'real'
@@ -271,7 +274,7 @@ function StatsKeyValueTable({
 }
 
 const relatedGameCardShell =
-  'group flex h-full flex-col overflow-hidden rounded-casino-md border border-white/[0.08] bg-casino-surface transition hover:border-casino-primary/35 hover:bg-casino-elevated'
+  'group game-thumb-link flex h-full flex-col rounded-casino-md border border-white/[0.08] bg-casino-surface'
 
 /** Match `LobbyPage` / `player-casino-max` gutters so the lobby reads at the same scale as the catalog on phones. */
 const lobbyRailInner = 'mx-auto w-full max-w-[min(100%,90rem)] px-4 sm:px-5 md:px-6 lg:px-8'
@@ -1584,7 +1587,7 @@ export default function GameLobbyPage() {
                   </button>
                   <div
                     ref={relatedRailRef}
-                    className="scrollbar-none flex min-h-0 min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-0.5 max-xl:snap-none xl:gap-3"
+                    className="scrollbar-none flex min-h-0 min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pt-2 pb-0.5 max-xl:snap-none xl:gap-3"
                   >
                     {relatedGames
                       .filter((g) => g.id?.trim())
@@ -1605,8 +1608,10 @@ export default function GameLobbyPage() {
                               navigate(lobbyTo)
                             }}
                           >
-                            <div className="relative aspect-[5/6] w-full shrink-0 overflow-hidden bg-black">
-                              <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                            <div className="relative aspect-[5/6] w-full shrink-0 overflow-hidden rounded-casino-md bg-black">
+                              <GameThumbInteractiveShell effectiveRtpPct={g.effective_rtp_pct}>
+                                <PortraitGameThumb url={g.thumbnail_url} title={g.title} fallbackKey={g.id} thumbRev={g.thumb_rev} />
+                              </GameThumbInteractiveShell>
                             </div>
                           </RequireAuthLink>
                         )

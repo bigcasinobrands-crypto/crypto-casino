@@ -308,6 +308,15 @@
     "catalogLiveGames": "Live games",
     "scrollSearchFiltersLeft": "Scroll search and filters left",
     "scrollSearchFiltersRight": "Scroll search and filters right",
+    "cryptoPayments": {
+      "ariaLabel": "Supported cryptocurrencies and deposit",
+      "supporting": "Supporting",
+      "count": "30+",
+      "currencies": "Crypto Currencies"
+    },
+    "gameTile": {
+      "effectiveRtp": "Effective RTP"
+    },
     "hero": {
       "sampleCountdown": "1d 9h 35m",
       "raffleTitle": "$25K Raffle",

@@ -154,3 +154,24 @@ func TestParseCatalogGames_providerSlugOnlyBlueOcean(t *testing.T) {
 		t.Fatalf("want empty studio when only aggregator slug present, got %+v", games)
 	}
 }
+
+func TestTheoreticalRTPPercentFromCatalogMap_flatAndNested(t *testing.T) {
+	if v, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"rtp": "99.50%"}); !ok || v != 99.5 {
+		t.Fatalf("percent string: got %v %v", v, ok)
+	}
+	if v, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"theoretical_rtp_pct": 96.25}); !ok || v != 96.25 {
+		t.Fatalf("number: got %v %v", v, ok)
+	}
+	if v, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"theoretical_rtp": 0.965}); !ok || v != 96.5 {
+		t.Fatalf("fraction: got %v %v", v, ok)
+	}
+	if v, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"additional": map[string]any{"rtp_pct": "97.1"}}); !ok || v != 97.1 {
+		t.Fatalf("nested: got %v %v", v, ok)
+	}
+	if _, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"rtp": "40"}); ok {
+		t.Fatal("expected reject below 70")
+	}
+	if _, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"rtp": "150"}); ok {
+		t.Fatal("expected reject above 100.51")
+	}
+}
