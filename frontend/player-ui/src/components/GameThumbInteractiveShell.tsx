@@ -32,9 +32,13 @@ export const GameThumbInteractiveShell: FC<Props> = ({ effectiveRtpPct, children
     effectiveRtpPct != null && typeof effectiveRtpPct === 'number' && !Number.isNaN(effectiveRtpPct)
 
   const onEnter = () => {
-    if (!hasRtp || reduceMotion) return
+    if (!hasRtp) return
     clearTimer()
     setRtpVisible(false)
+    if (reduceMotion) {
+      setRtpVisible(true)
+      return
+    }
     timerRef.current = window.setTimeout(() => setRtpVisible(true), LONG_HOVER_MS)
   }
 
@@ -52,15 +56,15 @@ export const GameThumbInteractiveShell: FC<Props> = ({ effectiveRtpPct, children
       {children}
       {hasRtp ? (
         <div
-          className={`pointer-events-none absolute inset-0 z-[2] flex flex-col overflow-hidden rounded-casino-md transition-opacity duration-300 ease-out ${
-            rtpVisible ? 'opacity-100' : 'opacity-0'
-          }`}
+          className={`pointer-events-none absolute inset-0 z-[2] flex flex-col overflow-hidden rounded-casino-md ease-out ${
+            reduceMotion ? '' : 'transition-opacity duration-300'
+          } ${rtpVisible ? 'opacity-100' : 'opacity-0'}`}
           aria-hidden={!rtpVisible}
         >
-          {/* Semi-transparent scrim so thumbnail art stays visible (reference: ~55–70% combined opacity + light brand tint). */}
-          <div className="absolute inset-0 rounded-casino-md bg-black/50" aria-hidden />
+          {/* Dark scrim — ~75–82% effective so art stays faintly readable; tint adds brand depth. */}
+          <div className="absolute inset-0 rounded-casino-md bg-black/70" aria-hidden />
           <div
-            className="absolute inset-0 rounded-casino-md bg-gradient-to-b from-black/25 via-casino-primary/[0.14] to-black/55"
+            className="absolute inset-0 rounded-casino-md bg-gradient-to-b from-black/15 via-casino-primary/[0.1] to-black/35"
             aria-hidden
           />
           <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3 text-center">

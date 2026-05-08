@@ -271,11 +271,11 @@ body {
     z-index: 5;
     transform: translate3d(0, -5px, 0);
     border-color: color-mix(in srgb, var(--color-casino-primary) 55%, transparent);
+    /* Single halo + elevation — stacked 0-offset blurs were clipping into a thin two-tone line at the tile edge. */
     box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-casino-primary) 34%, transparent),
-      0 12px 28px rgba(0, 0, 0, 0.48),
-      0 0 36px color-mix(in srgb, var(--color-casino-primary) 40%, transparent),
-      0 0 52px color-mix(in srgb, var(--color-casino-primary) 22%, transparent);
+      0 0 0 1px color-mix(in srgb, var(--color-casino-primary) 32%, transparent),
+      0 14px 28px rgba(0, 0, 0, 0.5),
+      0 0 22px -4px color-mix(in srgb, var(--color-casino-primary) 38%, transparent);
   }
   @media (prefers-reduced-motion: reduce) {
     .game-thumb-link {

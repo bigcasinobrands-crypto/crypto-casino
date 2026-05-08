@@ -575,6 +575,28 @@ func theoreticalRTPPercentFromCatalogMap(m map[string]any) (float64, bool) {
 			return f, true
 		}
 	}
+	return deepRTPScan(m, 8)
+}
+
+// deepRTPScan walks nested objects (limited depth) and parses any value whose key looks RTP-related.
+func deepRTPScan(m map[string]any, depth int) (float64, bool) {
+	if m == nil || depth <= 0 {
+		return 0, false
+	}
+	for k, v := range m {
+		lk := strings.ToLower(strings.TrimSpace(k))
+		if strings.Contains(lk, "rtp") {
+			if f, ok := parseFlexibleRTPNumber(v); ok {
+				return f, true
+			}
+		}
+		switch t := v.(type) {
+		case map[string]any:
+			if f, ok := deepRTPScan(t, depth-1); ok {
+				return f, true
+			}
+		}
+	}
 	return 0, false
 }
 
@@ -590,6 +612,7 @@ func parseFlexibleRTPNumber(v any) (float64, bool) {
 		return normalizeCatalogRTPPercent(f)
 	case string:
 		s := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(t), "%"))
+		s = strings.ReplaceAll(s, ",", ".")
 		if s == "" {
 			return 0, false
 		}
@@ -614,8 +637,8 @@ func normalizeCatalogRTPPercent(f float64) (float64, bool) {
 	if f > 0 && f <= 1.0+1e-9 {
 		f *= 100
 	}
-	// Real-world casino RTP is almost always in this band; keeps bogus fields from becoming lobby UI noise.
-	if f < 70 || f > 100.51 {
+	// Typical slots ~85–99.5%; allow lower bound for niche titles while rejecting obvious garbage.
+	if f < 50 || f > 100.51 {
 		return 0, false
 	}
 	return math.Round(f*100) / 100, true

@@ -169,9 +169,16 @@ func TestTheoreticalRTPPercentFromCatalogMap_flatAndNested(t *testing.T) {
 		t.Fatalf("nested: got %v %v", v, ok)
 	}
 	if _, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"rtp": "40"}); ok {
-		t.Fatal("expected reject below 70")
+		t.Fatal("expected reject below 50")
 	}
 	if _, ok := theoreticalRTPPercentFromCatalogMap(map[string]any{"rtp": "150"}); ok {
 		t.Fatal("expected reject above 100.51")
+	}
+}
+
+func TestTheoreticalRTPPercent_deepNestedKey(t *testing.T) {
+	m := map[string]any{"stats": map[string]any{"default_rtp": "98,10"}}
+	if v, ok := theoreticalRTPPercentFromCatalogMap(m); !ok || v != 98.1 {
+		t.Fatalf("deep rtp: got %v %v", v, ok)
 	}
 }
