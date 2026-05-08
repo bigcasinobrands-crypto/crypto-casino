@@ -99,6 +99,11 @@ func passimpayDepositAddress(w http.ResponseWriter, r *http.Request, pool *pgxpo
 		playerapi.WriteError(w, http.StatusBadGateway, "passimpay_error", "could not obtain deposit address")
 		return
 	}
+	if !IsPlausibleOnChainDepositAddress(addr) {
+		log.Printf("passimpay deposit-address: reject non-on-chain address from provider user=%s payId=%d addr=%q", uid, paymentID, addr)
+		playerapi.WriteError(w, http.StatusBadGateway, "invalid_deposit_address", "provider returned an invalid deposit address")
+		return
+	}
 
 	// P1: fail-closed if intent insert fails. Returning an address whose intent
 	// was never persisted means the corresponding webhook hits the orphan path

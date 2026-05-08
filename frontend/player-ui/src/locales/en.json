@@ -691,6 +691,7 @@
     "noDepositAddress": "No address — confirm PassimPay deposit currencies are enabled.",
     "depositSentCta": "I've sent it",
     "depositQrAlt": "QR code for deposit address",
+    "depositQrInvalidAddress": "This address looks like a website link, not a crypto deposit address. Do not send funds. Contact support or try again.",
     "depositOrDivider": "or",
     "depositPayWithWeb3": "Pay with Web3 wallet",
     "depositOneMethodOnly": "Use either this checkout or the manual address above for this deposit — not both.",

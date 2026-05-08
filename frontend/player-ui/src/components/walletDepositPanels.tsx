@@ -2,6 +2,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { buildDepositQrPayload, isLikelyWebHttpUrl } from '../lib/depositQrPayload'
 import { readApiError } from '../api/errors'
 import { resolveCryptoLogoUrl, useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
 import { networkHelpUrl, transactionExplorerUrl } from '../lib/walletExplorer'
@@ -218,6 +219,11 @@ export function DepositAddressPanel({
 
   const address = data?.address?.trim() ?? ''
   const qrUrl = data?.qr_url?.trim()
+  const qrPayload = useMemo(
+    () => buildDepositQrPayload(address, symbol, network, memo),
+    [address, symbol, network, memo],
+  )
+  const depositQrUnsafe = Boolean(address && qrPayload === null && isLikelyWebHttpUrl(address))
   const symLogo = resolveCryptoLogoUrl(logoUrls, symbol, network)
   const showPaymentPanel = !loading && !err && address
 
@@ -251,11 +257,18 @@ export function DepositAddressPanel({
           <div className="mb-4 flex flex-col items-center gap-3 pt-1">
             {qrUrl ? (
               <img src={qrUrl} alt={t('wallet.depositQrAlt')} className="size-[140px] rounded-lg bg-white p-2 shadow-md" />
-            ) : (
-              <div className="rounded-lg bg-white p-2 shadow-md">
-                <QRCodeSVG value={address} size={128} level="M" />
+            ) : depositQrUnsafe ? (
+              <div
+                className="flex size-[140px] items-center justify-center rounded-lg border border-red-500/45 bg-red-500/10 p-2 text-center"
+                role="alert"
+              >
+                <p className="text-[10px] leading-snug text-red-200">{t('wallet.depositQrInvalidAddress')}</p>
               </div>
-            )}
+            ) : qrPayload ? (
+              <div className="rounded-lg bg-white p-2 shadow-md">
+                <QRCodeSVG value={qrPayload} size={128} level="M" />
+              </div>
+            ) : null}
           </div>
 
           <WalletDisplayRow

@@ -691,6 +691,7 @@
     "noDepositAddress": "Aucune adresse — vérifiez les devises PassimPay.",
     "depositSentCta": "J'ai envoyé",
     "depositQrAlt": "Code QR pour l'adresse de dépôt",
+    "depositQrInvalidAddress": "Cette valeur ressemble à un lien Web, pas à une adresse crypto. N'envoyez pas de fonds. Contactez le support ou réessayez.",
     "depositOrDivider": "ou",
     "depositPayWithWeb3": "Payer avec un portefeuille Web3",
     "depositOneMethodOnly": "Utilisez soit cette page de paiement, soit l'adresse manuelle ci-dessus pour ce dépôt — pas les deux.",
