@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useAuthModal } from '../../authModalContext'
 import type { OddinPublicConfig } from '../../lib/oddin/oddin.config'
 import { bifrostContentHeightPx } from '../../lib/oddin/oddin-layout'
+import { canonicalOddinBifrostPageQueryValue } from '../../lib/oddin/oddin-bifrost-route'
 import { useOddinBifrost } from '../../lib/oddin/useOddinBifrost'
 import { usePlayerAuth } from '../../playerAuth'
 import SportsbookErrorState from './SportsbookErrorState'
@@ -23,8 +24,13 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
 
   const onOddinRoute = useCallback(
     (route: string) => {
+      const canonical = canonicalOddinBifrostPageQueryValue(route)
       const next = new URLSearchParams(searchParams)
-      next.set('page', route)
+      if (!canonical) {
+        next.delete('page')
+      } else {
+        next.set('page', canonical)
+      }
       setSearchParams(next, { replace: true })
     },
     [searchParams, setSearchParams],

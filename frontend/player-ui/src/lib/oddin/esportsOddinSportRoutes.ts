@@ -10,94 +10,160 @@ export function isOpaqueOddinBifrostRoute(page: string): boolean {
   return parts.length >= 3 && parts.every((seg) => seg.length >= 8)
 }
 
-/**
- * Oddin sport identifiers from operator “Sports_Routes” (column B: `od:sport:N`).
- * These are passed as the `page` query param → Bifrost `route`, same as long JWT/param strings in column C when you paste those into {@link ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID} or `ODDIN_ESPORTS_NAV_JSON`.
- *
- * **JWT / column C:** If Bifrost requires the full opaque token for your env, set it in `ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID` (per `id`) or in core `ODDIN_ESPORTS_NAV_JSON`; overrides win and are never replaced by URNs.
- */
-export const ESPORTS_ODDIN_SPORT_URN_BY_ID: Record<string, string> = {
-  lol: 'od:sport:1',
-  dota2: 'od:sport:2',
-  cs2: 'od:sport:3',
-  fortnite: 'od:sport:4',
-  pubg: 'od:sport:5',
-  fifa: 'od:sport:6',
-  nba2k: 'od:sport:7',
-  overwatch2: 'od:sport:8',
-  hearthstone: 'od:sport:9',
-  kingofglory: 'od:sport:10',
-  starcraft2: 'od:sport:11',
-  rocketleague: 'od:sport:12',
-  valorant: 'od:sport:13',
-  starcraft: 'od:sport:14',
-  cod: 'od:sport:15',
-  r6: 'od:sport:16',
-  nhl: 'od:sport:17',
-  warcraft3: 'od:sport:18',
-  efootball: 'od:sport:19',
-  cs2duels: 'od:sport:21',
-  halo: 'od:sport:27',
-  wildrift: 'od:sport:28',
-  arenaofvalor: 'od:sport:29',
-  ageofempires: 'od:sport:30',
-  mobilelegends: 'od:sport:31',
-  efootballsim: 'od:sport:32',
-  ebasketballsim: 'od:sport:33',
-  ebasketball: 'od:sport:34',
-  ecricket: 'od:sport:35',
-  tabletennis: 'od:sport:36',
-  pubgmobile: 'od:sport:37',
-  eftarena: 'od:sport:38',
-  dota2duels: 'od:sport:39',
-  deadlock: 'od:sport:40',
-  freefire: 'od:sport:41',
-  geoguessr: 'od:sport:42',
-  worldoftanks: 'od:sport:43',
-  tekken: 'od:sport:44',
-  /** Sheet maps both Street Fighter and Crossfire to `od:sport:46` — same Bifrost target until Oddin disambiguates. */
-  streetfighter: 'od:sport:46',
-  crossfire: 'od:sport:46',
-  worldofwarcraft: 'od:sport:47',
-  marvelrivals: 'od:sport:48',
-  chess: 'od:sport:49',
-  etouchdown: 'od:sport:52',
-  apexlegends: 'od:sport:54',
+function decodeOddinRouteParam(raw: string): string {
+  const t = raw.trim()
+  if (!t) return t
+  try {
+    return decodeURIComponent(t)
+  } catch {
+    return t
+  }
 }
 
 /**
- * Paste full column-C route strings from Oddin Sports_Routes when `od:sport:N` is not accepted by your Bifrost build.
- * Keys are `EsportsNavItem.id` (e.g. `lol`, `dota2`).
+ * Oddin `Sports_Routes.csv` column **Route Parameter** (URL-encoded in the sheet).
+ * Decoded at runtime so `encodeURIComponent` in navigators yields the same encoding Oddin expects.
+ * Source: vendor Oddin / operator CSV (Sport ID = `od:sport:N` in column B).
  */
+const ESPORTS_ODDIN_ROUTE_PARAM_ENCODED: Record<string, string> = {
+  fortnite:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5BPT0ifQ%3D%3D',
+  pubg:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5RPT0ifQ%3D%3D',
+  cs2duels:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1qRT0ifQ%3D%3D',
+  efootballsim:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16ST0ifQ%3D%3D',
+  ebasketballsim:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16TT0ifQ%3D%3D',
+  ebasketball:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16UT0ifQ%3D%3D',
+  tabletennis:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16WT0ifQ%3D%3D',
+  pubgmobile:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16Yz0ifQ%3D%3D',
+  dota2duels:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16az0ifQ%3D%3D',
+  etouchdown:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5UST0ifQ%3D%3D',
+  tekken:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5EUT0ifQ%3D%3D',
+  streetfighter:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5EVT0ifQ%3D%3D',
+  marvelrivals:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5EZz0ifQ%3D%3D',
+  chess:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5Eaz0ifQ%3D%3D',
+  eftarena:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16Zz0ifQ%3D%3D',
+  deadlock:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5EQT0ifQ%3D%3D',
+  geoguessr:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5EST0ifQ%3D%3D',
+  cs2:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk13PT0ifQ%3D%3D',
+  valorant:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UTT0ifQ%3D%3D',
+  worldoftanks:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5ETT0ifQ%3D%3D',
+  lol:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1RPT0ifQ%3D%3D',
+  dota2:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1nPT0ifQ%3D%3D',
+  fifa:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5nPT0ifQ%3D%3D',
+  nba2k:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk53PT0ifQ%3D%3D',
+  overwatch2:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk9BPT0ifQ%3D%3D',
+  hearthstone:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk9RPT0ifQ%3D%3D',
+  kingofglory:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UQT0ifQ%3D%3D',
+  starcraft2:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1URT0ifQ%3D%3D',
+  nhl:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UYz0ifQ%3D%3D',
+  rocketleague:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UST0ifQ%3D%3D',
+  starcraft:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UUT0ifQ%3D%3D',
+  cod:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UVT0ifQ%3D%3D',
+  r6:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UWT0ifQ%3D%3D',
+  warcraft3:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1UZz0ifQ%3D%3D',
+  halo:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1qYz0ifQ%3D%3D',
+  wildrift:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1qZz0ifQ%3D%3D',
+  arenaofvalor:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1qaz0ifQ%3D%3D',
+  ageofempires:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16QT0ifQ%3D%3D',
+  mobilelegends:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16RT0ifQ%3D%3D',
+  crossfire:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5EWT0ifQ%3D%3D',
+  worldofwarcraft:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5EYz0ifQ%3D%3D',
+  efootball:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk1Uaz0ifQ%3D%3D',
+  ecricket:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk16VT0ifQ%3D%3D',
+  apexlegends:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5UUT0ifQ%3D%3D',
+  freefire:
+    'eyJyb3V0ZSI6Ii90aW1lbGluZSIsInR5cGUiOiJ1cGNvbWluZyIsInNwb3J0SWQiOiJjM0J2Y25RdmIyUTZjM0J2Y25RNk5ERT0ifQ%3D%3D',
+}
+
+/** Decoded route params for Bifrost `route` / `?page=` (Oddin `Sports_Routes.csv` column C). */
+export const ESPORTS_ODDIN_ROUTE_PARAM_BY_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(ESPORTS_ODDIN_ROUTE_PARAM_ENCODED).map(([k, v]) => [k, decodeOddinRouteParam(v)]),
+)
+
+/**
+ * Fallback `od:sport:N` when a nav id has no row in `ESPORTS_ODDIN_ROUTE_PARAM_BY_ID` (e.g. `penaltyarena`).
+ */
+export const ESPORTS_ODDIN_SPORT_URN_BY_ID: Record<string, string> = {
+  penaltyarena: 'od:sport:0',
+}
+
+/** Operator hotfix: wins over CSV. Keys: `EsportsNavItem.id`. */
 export const ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID: Partial<Record<string, string>> = {}
 
-function shouldReplacePageWithUrn(currentPage: string): boolean {
+function shouldApplyBundledBifrostRoute(currentPage: string): boolean {
   const p = currentPage.trim()
   if (!p) return true
   if (p.startsWith('/')) return true
-  if (p.startsWith('od:sport:')) return false
+  if (p.startsWith('od:sport:')) return true
   if (isOpaqueOddinBifrostRoute(p)) return false
   return true
 }
 
 /**
- * Applies {@link ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID}, then fills `od:sport:*` URNs when `page` is empty or a legacy `/path` slug.
- * Does not replace operator JWT / long opaque `page` values from API JSON.
+ * Applies {@link ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID}, then Oddin CSV route params, then {@link ESPORTS_ODDIN_SPORT_URN_BY_ID}.
+ * Keeps operator-supplied opaque `page` values from `ODDIN_ESPORTS_NAV_JSON` when they are already non-slash routes.
  */
 export function applyEsportsBifrostRoutes(item: EsportsNavRow): EsportsNavRow {
   if (item.id === 'overview') {
     return { ...item, page: '' }
   }
   const id = item.id.toLowerCase()
-  const override = ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID[id]?.trim()
-  if (override) {
-    return { ...item, page: override }
+  const manual = ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID[id]?.trim()
+  if (manual) {
+    return { ...item, page: manual }
   }
-  const urn = ESPORTS_ODDIN_SPORT_URN_BY_ID[id]
-  if (!urn || !shouldReplacePageWithUrn(item.page)) {
-    return item
+  const fromCsv = ESPORTS_ODDIN_ROUTE_PARAM_BY_ID[id]?.trim()
+  if (fromCsv && shouldApplyBundledBifrostRoute(item.page)) {
+    return { ...item, page: fromCsv }
   }
-  return { ...item, page: urn }
+  const urn = ESPORTS_ODDIN_SPORT_URN_BY_ID[id]?.trim()
+  if (urn && shouldApplyBundledBifrostRoute(item.page)) {
+    return { ...item, page: urn }
+  }
+  return item
 }
 
 export function applyEsportsBifrostRoutesToAll<T extends EsportsNavRow>(items: T[]): T[] {

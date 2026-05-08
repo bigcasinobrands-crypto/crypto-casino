@@ -20,7 +20,8 @@ function normalizeApiItem(x: Record<string, unknown>): EsportsNavItem | null {
 
 /**
  * E-Sports sidebar rows: operator list from GET /v1/sportsbook/oddin/esports-nav when configured; slash `page` paths
- * are upgraded to Oddin `od:sport:*` URNs when IDs match; JWT `page` values from the API are kept. Missing `logoUrl`
+ * (and bare `od:sport:*` where listed) are upgraded to Oddin `Sports_Routes.csv` route parameters when IDs match; opaque
+ * `page` values from the API are kept. Missing `logoUrl`
  * is filled from bundled fallbacks (Oddin should supply HTTPS `logoUrl` per title for a perfect match).
  */
 export function useOddinEsportsNav() {

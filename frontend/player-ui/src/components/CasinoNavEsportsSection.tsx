@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useOddinEsportsNav } from '../hooks/useOddinEsportsNav'
 import { translateEsportsNavLabel } from '../lib/navI18n'
+import { bifrostRoutesLooselyEqual } from '../lib/oddin/oddin-bifrost-route'
 import type { EsportsNavItem } from '../lib/oddin/esportsNavCatalog'
 import { useOddinBootstrap } from '../context/OddinBootstrapContext'
 import { sportsbookPlayerPath, isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
@@ -20,7 +21,7 @@ function isEsportsSubActive(search: string, item: EsportsNavItem): boolean {
   const q = new URLSearchParams(search)
   const cur = q.get('page')?.trim() ?? ''
   if (!item.page) return cur === ''
-  return cur === item.page.trim()
+  return bifrostRoutesLooselyEqual(cur, item.page.trim())
 }
 
 /** ~One column: same height as Casino line icons (15px); narrow width so rows stay compact. */
@@ -68,7 +69,9 @@ type Props = {
 }
 
 /**
- * E-Sports accordion (Oddin iframe `?page=` routes). Logos: Oddin / operator via GET /v1/sportsbook/oddin/esports-nav (ODDIN_ESPORTS_NAV_JSON).
+ * Vybe Bet E-Sports accordion: each row links to `/esports?page=…` with the Oddin Bifrost route from `Sports_Routes.csv`
+ * (via bundled mapping + operator API). Oddin’s `ROUTE_CHANGE` updates the same `page` query in {@link OddinSportsbookFrame}
+ * so in-iframe navigation keeps the URL — and this component — in sync (see `bifrostRoutesLooselyEqual`).
  */
 export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate }: Props) {
   const { t } = useTranslation()
