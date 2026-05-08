@@ -14,3 +14,5 @@
  */
 export const PLAYER_BOOT_OVERLAY_Z = 'z-[400]'
 export const PLAYER_MODAL_OVERLAY_Z = 'z-[270]'
+/** Nested modal (e.g. Affiliate history on top of Refer & Earn) — above {@link PLAYER_MODAL_OVERLAY_Z}. */
+export const PLAYER_MODAL_STACK_OVERLAY_Z = 'z-[280]'

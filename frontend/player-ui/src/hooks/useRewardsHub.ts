@@ -159,6 +159,14 @@ export type RainEligibilityPreview = {
   next_round_at?: string
 }
 
+/** From GET /v1/rewards/hub `referral` — link code + funnel stages when wired. */
+export type HubReferralSummary = {
+  link_code?: string
+  link_id?: string
+  stages?: Record<string, number>
+  description?: string
+}
+
 export type RewardsHubPayload = {
   calendar: RewardsCalendarDay[]
   hunt: HuntStatus
@@ -185,6 +193,42 @@ export type RewardsHubPayload = {
   vip_delivery_preview?: VipDeliveryPreview
   /** Optional until rain programme ships — UI renders only when meaningful keys exist. */
   rain_eligibility?: RainEligibilityPreview
+  referral?: HubReferralSummary
+}
+
+function normalizeReferral(raw: unknown): HubReferralSummary | undefined {
+  if (raw == null || typeof raw !== 'object') return undefined
+  const r = raw as Record<string, unknown>
+  const link_code = typeof r.link_code === 'string' ? r.link_code.trim() : ''
+  const link_id = typeof r.link_id === 'string' ? r.link_id.trim() : ''
+  const description = typeof r.description === 'string' ? r.description : undefined
+  let stages: Record<string, number> | undefined
+  if (r.stages && typeof r.stages === 'object' && !Array.isArray(r.stages)) {
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(r.stages as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        out[k] = Math.trunc(v)
+      } else if (typeof v === 'string' && v.trim() !== '') {
+        const n = Number(v)
+        if (Number.isFinite(n)) out[k] = Math.trunc(n)
+      }
+    }
+    if (Object.keys(out).length > 0) stages = out
+  }
+  const summary: HubReferralSummary = {}
+  if (link_code) summary.link_code = link_code
+  if (link_id) summary.link_id = link_id
+  if (description) summary.description = description
+  if (stages) summary.stages = stages
+  if (
+    !summary.link_code &&
+    !summary.link_id &&
+    !summary.description &&
+    !summary.stages
+  ) {
+    return undefined
+  }
+  return summary
 }
 
 function parseMinorInt(v: unknown): number {
@@ -228,7 +272,13 @@ export function normalizeRewardsHubPayload(raw: unknown): RewardsHubPayload {
     wagering_remaining_minor: parseMinorInt(agg?.wagering_remaining_minor),
     lifetime_promo_minor: parseMinorInt(agg?.lifetime_promo_minor),
   }
-  return { ...(o as RewardsHubPayload), bonus_instances: list, aggregates }
+  const referral = normalizeReferral(o.referral)
+  return {
+    ...(o as RewardsHubPayload),
+    bonus_instances: list,
+    aggregates,
+    ...(referral !== undefined ? { referral } : {}),
+  }
 }
 
 export function useRewardsHub() {

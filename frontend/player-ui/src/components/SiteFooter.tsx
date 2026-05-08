@@ -5,11 +5,19 @@ import type { TFunction } from 'i18next'
 import { useState, type FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSiteContent } from '../hooks/useSiteContent'
+import { PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT } from '../lib/playerChromeEvents'
 
 const linkMuted = 'text-[10px] font-medium leading-snug text-casino-muted transition hover:text-casino-primary'
 const colTitle = 'mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-casino-foreground'
 
-type FooterLink = { label: string; to?: string; href?: string; requireAuth?: boolean }
+type FooterLink = {
+  label: string
+  to?: string
+  href?: string
+  requireAuth?: boolean
+  /** Same behavior as sidebar Affiliate — opens Refer & Earn. */
+  openAffiliateModal?: boolean
+}
 type SocialLink = { label: string; url?: string }
 
 type SeoBlock = {
@@ -50,7 +58,7 @@ const FALLBACK_GAMES_LINKS: FooterLink[] = [
 
 const FALLBACK_ABOUT_LINKS: FooterLink[] = [
   { label: 'VIP Program', to: '/vip', requireAuth: true },
-  { label: 'Affiliate' },
+  { label: 'Affiliate', openAffiliateModal: true },
   { label: 'My Bonuses', to: '/bonuses', requireAuth: true },
   { label: 'Terms of Service', to: '/terms' },
   { label: 'Responsible Gaming', to: '/responsible-gambling' },
@@ -82,13 +90,23 @@ function translateFooterLinkLabel(t: TFunction, lk: FooterLink): string {
   return d
 }
 
+function footerLinkOpensAffiliateModal(lk: FooterLink): boolean {
+  if (lk.openAffiliateModal) return true
+  if (lk.to || lk.href) return false
+  return /affiliate|affiliation/i.test(lk.label)
+}
+
+function openAffiliateModalFromFooter() {
+  window.dispatchEvent(new CustomEvent(PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT))
+}
+
 function renderLinkList(links: FooterLink[], t: TFunction) {
   return (
     <ul className="flex flex-col gap-1">
-      {links.map((lk) => {
+      {links.map((lk, idx) => {
         const label = translateFooterLinkLabel(t, lk)
         return (
-          <li key={lk.label}>
+          <li key={`${lk.label}-${idx}`}>
             {lk.href ? (
               <a href={lk.href} target="_blank" rel="noreferrer" className={linkMuted}>
                 {label}
@@ -101,6 +119,14 @@ function renderLinkList(links: FooterLink[], t: TFunction) {
               <Link className={linkMuted} to={lk.to}>
                 {label}
               </Link>
+            ) : footerLinkOpensAffiliateModal(lk) ? (
+              <button
+                type="button"
+                className={`${linkMuted} cursor-pointer border-0 bg-transparent p-0 text-left font-inherit`}
+                onClick={openAffiliateModalFromFooter}
+              >
+                {label}
+              </button>
             ) : (
               <span className={linkMuted}>{label}</span>
             )}

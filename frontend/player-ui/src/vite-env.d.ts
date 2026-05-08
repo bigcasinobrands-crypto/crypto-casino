@@ -3,6 +3,8 @@
 interface ImportMetaEnv {
   /** Core API origin when the player app is not served behind the same host (e.g. https://api.example.com) */
   readonly VITE_PLAYER_API_ORIGIN?: string
+  /** External B2B affiliate / publisher signup. If unset, modal links to same-origin `/affiliate`. */
+  readonly VITE_AFFILIATE_PROGRAM_URL?: string
   readonly VITE_TURNSTILE_SITE_KEY?: string
   readonly VITE_SUPPORT_URL?: string
   readonly VITE_RG_URL?: string

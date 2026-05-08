@@ -9,6 +9,7 @@ import {
   PLAYER_CHROME_CLOSE_REWARDS_EVENT,
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
   PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT,
+  PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT,
 } from './lib/playerChromeEvents'
 import { playerApiUrl } from './lib/playerApiUrl'
 import { prefetchCryptoTickersOnce } from './lib/prefetchCryptoTickers'
@@ -27,6 +28,7 @@ import { IconMenu, IconMessageSquare, IconSearch, IconUser } from './components/
 import NotificationBell from './components/NotificationBell'
 import RewardsHeaderDropdown from './components/RewardsHeaderDropdown'
 import PlayerHeaderLogo from './components/PlayerHeaderLogo'
+import ReferAndEarnModal from './components/ReferAndEarnModal'
 import WalletFlowModal, { type WalletMainTab } from './components/WalletFlowModal'
 import MainScrollRestoration from './components/MainScrollRestoration'
 import MainScrollTopOnRouteChange from './components/MainScrollTopOnRouteChange'
@@ -175,6 +177,7 @@ function AppShell() {
     () => localStorage.getItem('sidebar_collapsed') === 'true',
   )
   const [walletOpen, setWalletOpen] = useState(false)
+  const [affiliateModalOpen, setAffiliateModalOpen] = useState(false)
   const [walletTab, setWalletTab] = useState<WalletMainTab>('deposit')
   const [gameSearchOpen, setGameSearchOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -228,6 +231,7 @@ function AppShell() {
     setSidebarOpen(false)
     setGameSearchOpen(false)
     setWalletOpen(false)
+    setAffiliateModalOpen(false)
     setChatOpen(false)
     closeHeaderDropdowns()
   }, [closeHeaderDropdowns])
@@ -291,6 +295,21 @@ function AppShell() {
     window.addEventListener(PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT, onOpenWalletModal)
     return () => window.removeEventListener(PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT, onOpenWalletModal)
   }, [isAuthenticated, openWallet])
+
+  const openAffiliateModal = useCallback(() => {
+    setSidebarOpen(false)
+    setGameSearchOpen(false)
+    setWalletOpen(false)
+    setChatOpen(false)
+    closeHeaderDropdowns()
+    setAffiliateModalOpen(true)
+  }, [closeHeaderDropdowns])
+
+  useEffect(() => {
+    const onOpenAffiliate = () => openAffiliateModal()
+    window.addEventListener(PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT, onOpenAffiliate)
+    return () => window.removeEventListener(PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT, onOpenAffiliate)
+  }, [openAffiliateModal])
 
   const toggleChat = useCallback(() => {
     if (chatOpen) {
@@ -548,6 +567,8 @@ function AppShell() {
             onClose={() => setWalletOpen(false)}
             initialTab={walletTab}
           />
+
+          <ReferAndEarnModal open={affiliateModalOpen} onClose={() => setAffiliateModalOpen(false)} />
 
           <div className="casino-shell-main relative z-[200] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <PullToRefreshOverlay scrollRef={mainScrollRef} enabled={pullToRefreshEnabled} />

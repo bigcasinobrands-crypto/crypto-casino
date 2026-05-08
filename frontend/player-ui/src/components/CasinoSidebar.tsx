@@ -11,6 +11,7 @@ import {
   type CasinoNavCategory,
 } from '../lib/casinoNav'
 import { translateNavItemLabel } from '../lib/navI18n'
+import { PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT } from '../lib/playerChromeEvents'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import CasinoNavEsportsSection from './CasinoNavEsportsSection'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
@@ -125,6 +126,34 @@ export default function CasinoSidebar({
     const label = translateNavItemLabel(t, section, item)
     const route =
       item.id === 'sports' ? sportsbookPlayerPath() : (ROUTE_MAP[item.id] ?? '')
+
+    const openAffiliateModal = () => {
+      window.dispatchEvent(new CustomEvent(PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT))
+    }
+
+    if (item.id === 'affiliate') {
+      if (collapsed) {
+        return (
+          <button
+            key={item.id}
+            type="button"
+            className={navItem}
+            title={label}
+            onClick={openAffiliateModal}
+          >
+            {icon(item.id, 15)}
+          </button>
+        )
+      }
+      return (
+        <button key={item.id} type="button" className={navItem} onClick={openAffiliateModal}>
+          <span className="flex items-center gap-2.5">
+            {icon(item.id, 15)}
+            {label}
+          </span>
+        </button>
+      )
+    }
     /** Sports stays browsable when logged out; VIP/rewards-style promo routes require sign-in. */
     const publicPromo = item.id === 'sports'
 

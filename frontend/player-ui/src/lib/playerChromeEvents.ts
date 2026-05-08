@@ -9,3 +9,5 @@ export const PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT = 'vybe-player-close-mobile-m
 
 /** Open the shell {@link WalletFlowModal} (deposit / withdraw) — same path as header Deposit. */
 export const PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT = 'vybe-player-open-wallet-modal'
+/** Open Refer & Earn (affiliate intro + share link) — sidebar / mobile drawer. */
+export const PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT = 'vybe-player-open-affiliate-modal'

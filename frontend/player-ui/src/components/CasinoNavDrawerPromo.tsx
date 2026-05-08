@@ -5,6 +5,7 @@ import { RequireAuthNavLink } from './RequireAuthNavLink'
 import type { CasinoNavCategory } from '../lib/casinoNav'
 import { casinoNavRoute } from '../lib/casinoNav'
 import { translateNavItemLabel } from '../lib/navI18n'
+import { PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT, PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT } from '../lib/playerChromeEvents'
 import { IconCrown, IconGift, IconTicket, IconTractor, IconUsers } from './icons'
 
 const PROMO_ICONS: Record<string, (size: number) => ReactNode> = {
@@ -37,6 +38,24 @@ export default function CasinoNavDrawerPromo({ promoItems }: Props) {
         const route = casinoNavRoute(item.id)
         const label = translateNavItemLabel(t, 'promo', item)
         const ico = (PROMO_ICONS[item.id] ?? ((s: number) => <IconGift size={s} aria-hidden />))(17)
+
+        if (item.id === 'affiliate') {
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={row}
+              onClick={(e) => {
+                e.stopPropagation()
+                window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT))
+                window.dispatchEvent(new CustomEvent(PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT))
+              }}
+            >
+              {ico}
+              {label}
+            </button>
+          )
+        }
 
         if (item.id === 'raffle' && route && !item.coming_soon) {
           return (
