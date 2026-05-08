@@ -82,6 +82,9 @@ type Config struct {
 	HIBPCheckPasswords bool
 	// AllowJWTHS256InProduction — escape hatch: allow HS256 player/staff JWTs when JWT_RSA_PRIVATE_KEY_FILE is unset (not recommended).
 	AllowJWTHS256InProduction bool
+	// AllowProductionMissingBlueOceanWebhookSecret — production bootstrap only: skip ValidateProduction check
+	// for WEBHOOK_BLUEOCEAN_SECRET. POST /v1/webhooks/blueocean still returns 401 until the secret is set; use openssl rand -hex 32 and configure in Render + BlueOcean.
+	AllowProductionMissingBlueOceanWebhookSecret bool
 	// CoinMarketCap Pro API (server-side only; used for public /v1/market/crypto-tickers)
 	CoinMarketCapAPIKey string
 	// Logo.dev — crypto/blockchain logos (https://img.logo.dev/crypto/{symbol}?token=pk_…)
@@ -329,6 +332,7 @@ func Load() (Config, error) {
 	c.PlayerCookieOmitJSONTokens = parseBoolEnv(os.Getenv("PLAYER_COOKIE_OMIT_JSON_TOKENS"))
 	c.HIBPCheckPasswords = parseBoolEnv(os.Getenv("HIBP_CHECK_PASSWORDS"))
 	c.AllowJWTHS256InProduction = parseBoolEnv(os.Getenv("ALLOW_JWT_HS256_IN_PRODUCTION"))
+	c.AllowProductionMissingBlueOceanWebhookSecret = parseBoolEnv(os.Getenv("ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET"))
 	c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("COINMARKETCAP_API_KEY"))
 	if c.CoinMarketCapAPIKey == "" {
 		c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("CMC_API_KEY"))
@@ -538,10 +542,11 @@ func (c *Config) ValidateProduction() error {
 	if strings.TrimSpace(c.BlueOceanWalletSalt) == "" {
 		return fmt.Errorf("APP_ENV=production: BLUEOCEAN_WALLET_SALT is required (seamless wallet callback auth would otherwise be bypassed)")
 	}
-	// SEC-2: BlueOcean POST webhook authenticates via HMAC. Empty secret = open endpoint.
-	// Note: we look for webhook secret env directly, not the field, so this catches both defaults.
-	if strings.TrimSpace(os.Getenv("WEBHOOK_BLUEOCEAN_SECRET")) == "" {
-		return fmt.Errorf("APP_ENV=production: WEBHOOK_BLUEOCEAN_SECRET is required (HMAC verification on POST /v1/webhooks/blueocean would otherwise be skipped)")
+	// SEC-2: BlueOcean POST webhook authenticates via HMAC. Empty secret means HandleBlueOcean
+	// returns 401 for every request (safe), but we still require an explicit secret in production
+	// so operators do not forget — except ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET for bootstrap.
+	if strings.TrimSpace(os.Getenv("WEBHOOK_BLUEOCEAN_SECRET")) == "" && !c.AllowProductionMissingBlueOceanWebhookSecret {
+		return fmt.Errorf("APP_ENV=production: WEBHOOK_BLUEOCEAN_SECRET is required (HMAC for POST /v1/webhooks/blueocean). On Render: Environment → add WEBHOOK_BLUEOCEAN_SECRET (openssl rand -hex 32) and the same value in BlueOcean. Temporary bootstrap: ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET=true (webhook stays 401 until the secret is set)")
 	}
 	// SEC-3: separate player and staff JWT signing keys. Sharing JWT_SECRET creates a
 	// defense-in-depth failure even if other audience/role checks block direct misuse.

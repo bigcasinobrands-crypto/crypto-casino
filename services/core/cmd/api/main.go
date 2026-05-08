@@ -66,6 +66,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "FATAL production validation: %v\n", err)
 		log.Fatalf("config: %v", err)
 	}
+	if cfg.AppEnv == "production" && strings.TrimSpace(os.Getenv("WEBHOOK_BLUEOCEAN_SECRET")) == "" && cfg.AllowProductionMissingBlueOceanWebhookSecret {
+		log.Printf("WARNING: WEBHOOK_BLUEOCEAN_SECRET unset with ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET — POST /v1/webhooks/blueocean returns 401 until you configure the secret on Render and in BlueOcean")
+	}
 	obs.InitLogging(cfg.LogFormat)
 	if cfg.VaultAddress != "" && cfg.VaultToken != "" && cfg.VaultTransitKeyName != "" {
 		pii.SetDefaultTransit(pii.NewTransit(cfg.VaultAddress, cfg.VaultToken, cfg.VaultTransitMount, cfg.VaultTransitKeyName))

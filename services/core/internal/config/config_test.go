@@ -250,3 +250,39 @@ func TestValidateProduction_requiresFingerprintSecretWhenMandatory(t *testing.T)
 		t.Fatal(err)
 	}
 }
+
+func TestValidateProduction_blueOceanWebhookBootstrapOptIn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:p@localhost:5432/db")
+	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	t.Setenv("PLAYER_JWT_SECRET", strings.Repeat("z", 32))
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("JWT_RSA_PRIVATE_KEY_FILE", "/path/to/key.pem")
+	t.Setenv("JWT_PLAYER_AUDIENCE", "players")
+	t.Setenv("JWT_STAFF_AUDIENCE", "staff")
+	t.Setenv("BLUEOCEAN_WALLET_SALT", "wallet-salt-for-test")
+	t.Setenv("PAYMENT_PROVIDER", "none")
+	t.Setenv("WALLET_ADDRESS_KEK", strings.Repeat("a", 64))
+	t.Setenv("WEBHOOK_BLUEOCEAN_SECRET", "")
+	t.Setenv("ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET", "")
+
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ValidateProduction(); err == nil {
+		t.Fatal("expected error when WEBHOOK_BLUEOCEAN_SECRET empty and bootstrap opt-in unset")
+	}
+
+	t.Setenv("ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET", "true")
+	c2, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c2.AllowProductionMissingBlueOceanWebhookSecret {
+		t.Fatal("expected AllowProductionMissingBlueOceanWebhookSecret true")
+	}
+	if err := c2.ValidateProduction(); err != nil {
+		t.Fatalf("expected ValidateProduction ok with bootstrap opt-in: %v", err)
+	}
+}

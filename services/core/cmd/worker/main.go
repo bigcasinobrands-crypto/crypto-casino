@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +34,9 @@ func main() {
 	}
 	if err := cfg.ValidateProduction(); err != nil {
 		log.Fatalf("config: %v", err)
+	}
+	if cfg.AppEnv == "production" && strings.TrimSpace(os.Getenv("WEBHOOK_BLUEOCEAN_SECRET")) == "" && cfg.AllowProductionMissingBlueOceanWebhookSecret {
+		log.Printf("WARNING: WEBHOOK_BLUEOCEAN_SECRET unset with ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET — POST /v1/webhooks/blueocean returns 401 until configured")
 	}
 	obs.InitLogging(cfg.LogFormat)
 	if cfg.RedisURL == "" {
