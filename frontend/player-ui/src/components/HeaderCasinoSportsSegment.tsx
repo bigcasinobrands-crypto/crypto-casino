@@ -11,7 +11,7 @@ type HeaderCasinoSportsSegmentProps = {
 /**
  * Joined Casino / E-Sports control — dark track + purple active pill (`casino-toggle-active`).
  * Casino stays visually selected in this shell: the sidebar and routes here are casino-first;
- * E-Sports opens `/esports` (Oddin Bifrost or legacy provider) in the main shell.
+ * E-Sports opens `/esports` (Oddin esports / legacy provider) in the main shell.
  */
 export default function HeaderCasinoSportsSegment({
   className = '',

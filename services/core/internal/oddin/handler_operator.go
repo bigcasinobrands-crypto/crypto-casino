@@ -23,8 +23,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// OperatorHandler serves Oddin operator (S2S) callbacks. `userDetails` validates Bifrost session
-// tokens issued by `POST /v1/sportsbook/oddin/session-token`; `debitUser` / `creditUser` are
+// OperatorHandler serves Oddin operator (S2S) callbacks. `userDetails` validates Oddin iframe
+// (Bifrost) session tokens issued by `POST /v1/sportsbook/oddin/session-token`; `debitUser` / `creditUser` are
 // stubs until the wallet → ledger contract is wired.
 //
 // Response shape — seamless wallet convention used by Oddin / EvenBet / similar providers:
@@ -210,7 +210,7 @@ func operatorTokenFromBody(body map[string]any) string {
 	return ""
 }
 
-// UserDetails validates a Bifrost session token and returns the user's wallet snapshot.
+// UserDetails validates an Oddin session token (issued for their Bifrost client) and returns the user's wallet snapshot.
 // Failure paths return integer `errorCode` so Oddin's authenticator can parse without falling
 // back to a transport-error path. Success returns the user snapshot WITHOUT `errorDescription`.
 func (h *OperatorHandler) UserDetails(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +299,7 @@ LIMIT 1
 	if strings.TrimSpace(userID) == "" {
 		// Defensive: sportsbook_sessions.user_id is NOT NULL UUID so this should be
 		// unreachable, but if a future schema change ever allows blanks we still want a
-		// clean auth-failed response rather than handing Bifrost an empty userId.
+		// clean auth-failed response rather than handing Oddin an empty userId.
 		out := errorBody(ErrCodeAuthFailed, "token not recognized")
 		h.logRequest(ctx, "userDetails", body, operatorLog{
 			Endpoint: "userDetails",
@@ -351,7 +351,7 @@ UPDATE sportsbook_sessions SET last_used_at = now() WHERE token_hash = $1 AND pr
 	// Seamless wallet success body — only successful path includes the wallet snapshot.
 	// `balance` is in INTEGER MINOR UNITS (cents) per Oddin's parser (their struct reads
 	// it as uint64; sending a JSON float crashes their decoder for non-zero values).
-	// `country` MUST be a non-empty ISO 3166-1 alpha-2 code; empty values make Bifrost
+	// `country` MUST be a non-empty ISO 3166-1 alpha-2 code; empty values make Oddin's iframe
 	// reject the user payload and surface "Sportsbook reported an error" in the iframe.
 	// We prefer the country stored on the session row (geo at token issue) and fall back
 	// to Config.OddinFallbackCountryISO2() (ODDIN_DEFAULT_COUNTRY, else US).
@@ -490,7 +490,7 @@ LIMIT 1
 // DebitUser places a sportsbook stake on the player's wallet by writing a
 // `sportsbook.debit` ledger row in the cash pocket and returning the new
 // balance to Oddin. Idempotency key is derived from the provider's
-// transactionId so retries from Bifrost cannot double-charge.
+// transactionId so Oddin retries cannot double-charge.
 //
 // Cross-checks:
 //   - The session token must resolve to the same userId Oddin sent in `userId`.
@@ -512,7 +512,7 @@ func (h *OperatorHandler) DebitUser(w http.ResponseWriter, r *http.Request) {
 	bodyUserID := extractStringField(body, "userId", "playerId")
 	if bodyUserID != "" && !strings.EqualFold(bodyUserID, uid) {
 		// Token belongs to user A but Oddin claims user B. This must never be
-		// a "soft fail" — it is either a misconfigured Bifrost deployment or
+		// a "soft fail" — it is either a misconfigured Oddin deployment or
 		// an attempted replay across users. Reject with auth failure so the
 		// audit row makes the mismatch obvious.
 		out := errorBody(ErrCodeAuthFailed, "session/user mismatch")
@@ -683,7 +683,7 @@ func (h *OperatorHandler) RollbackUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if amount <= 0 {
 		// Treat as best-effort no-op acknowledgement; we cannot post a zero
-		// rollback into the ledger but we owe Bifrost a 200 with current
+		// rollback into the ledger but we owe Oddin a 200 with current
 		// balance so it can mark its own transaction settled.
 		bal, _ := ledger.BalanceMinor(ctx, h.Pool, uid)
 		out := map[string]any{
@@ -726,9 +726,9 @@ func (h *OperatorHandler) RollbackUser(w http.ResponseWriter, r *http.Request) {
 // applyBOSeamless for casino so we get the same correctness guarantees:
 //   - balance reads happen under FOR UPDATE so concurrent stakes can't race
 //   - ledger writes carry deterministic idempotency keys derived from the
-//     provider transactionId, so duplicate Bifrost retries are no-ops
+//     provider transactionId, so duplicate Oddin retries are no-ops
 //   - the returned balance is computed AFTER the write and AFTER the commit
-//     so Bifrost gets the post-state and not a stale snapshot
+//     so Oddin gets the post-state and not a stale snapshot
 func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, action, txnID, ticketID string, amount int64) (int64, string, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {

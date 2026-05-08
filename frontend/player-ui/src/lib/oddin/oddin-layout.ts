@@ -1,4 +1,4 @@
-/** Shared layout helpers for Bifrost iframe height (avoid double scroll; match shell headers). */
+/** Shared layout helpers for Oddin's iframe height (avoid double scroll; match shell headers). */
 
 export function measureShellHeaderOffsetPx(): number {
   if (typeof document === 'undefined') return 64

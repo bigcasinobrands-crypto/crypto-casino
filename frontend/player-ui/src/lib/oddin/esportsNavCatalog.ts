@@ -1,6 +1,6 @@
 /**
  * Esports shortcuts for the sidebar / mobile drawer.
- * `page` is passed as `?page=` and forwarded to Oddin Bifrost `route`.
+ * `page` is passed as `?page=` and forwarded to Oddin's Bifrost `route` API.
  *
  * Prefer **Oddin-supplied `logoUrl`** (HTTPS) on each row in `ODDIN_ESPORTS_NAV_JSON` / `GET /v1/sportsbook/oddin/esports-nav`.
  * The bundled list below only fills gaps: titles use **game marks** where a stable CDN icon exists — not publisher wordmarks
@@ -20,7 +20,7 @@ export type EsportsNavItem = {
 const si = (slug: string, color: string) => `https://cdn.simpleicons.org/${slug}/${color}`
 
 /**
- * Default list aligned with Oddin “Bifrost → Sports order”. Client order may differ.
+ * Default list aligned with Oddin's recommended "Sports order" for the iframe. Client order may differ.
  * Rows without `logoUrl` use the swords fallback (failed remote icons do the same via `onError`).
  */
 export const ESPORTS_NAV_FALLBACK: EsportsNavItem[] = [

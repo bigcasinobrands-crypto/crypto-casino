@@ -38,7 +38,7 @@ function waitForBuildBifrost(timeoutMs: number): Promise<LoadOddinScriptResult> 
       if (Date.now() - start > timeoutMs) {
         resolve({
           ok: false,
-          message: 'Timed out waiting for Oddin Bifrost (window.oddin.buildBifrost missing).',
+          message: 'Timed out waiting for Oddin (window.oddin.buildBifrost missing).',
         })
         return
       }

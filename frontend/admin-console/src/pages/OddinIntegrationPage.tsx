@@ -108,9 +108,9 @@ export default function OddinIntegrationPage() {
 
   return (
     <>
-      <PageMeta title="Oddin Bifrost · Admin" description="Esports iframe integration diagnostics (non-secret)" />
+      <PageMeta title="Oddin · Esports integration" description="Esports iframe integration diagnostics (non-secret)" />
       <PageBreadcrumb
-        pageTitle="Oddin Bifrost"
+        pageTitle="Oddin (esports)"
         subtitle="Health and event counters for the player sportsbook iframe (GET /v1/admin/integrations/oddin)."
       />
 

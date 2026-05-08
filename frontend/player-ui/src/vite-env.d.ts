@@ -16,7 +16,7 @@ interface ImportMetaEnv {
   readonly VITE_FINGERPRINT_PUBLIC_KEY?: string
   /** Fingerprint region: `eu`, `us`, or `ap` — must match dashboard workspace (required for EU). */
   readonly VITE_FINGERPRINT_REGION?: string
-  /** Oddin Bifrost esports iframe at `/esports` when enabled (public values only; never API secrets). */
+  /** Oddin esports iframe (their "Bifrost" client) at `/esports` when enabled (public values only; never API secrets). */
   readonly VITE_ODDIN_ENABLED?: string
   readonly VITE_ODDIN_ENV?: string
   readonly VITE_ODDIN_BRAND_TOKEN?: string
@@ -26,7 +26,7 @@ interface ImportMetaEnv {
   readonly VITE_ODDIN_DEFAULT_LANGUAGE?: string
   readonly VITE_ODDIN_DEFAULT_CURRENCY?: string
   readonly VITE_ODDIN_DARK_MODE?: string
-  /** When "1"/"true", `?oddin_guest=1` on `/esports` forces Bifrost without a token even if signed in (staging bisection). Dev always allows it. */
+  /** When "1"/"true", `?oddin_guest=1` on `/esports` forces Oddin's iframe without a token even if signed in (staging bisection). Dev always allows it. */
   readonly VITE_ODDIN_ALLOW_GUEST_QUERY?: string
 }
 

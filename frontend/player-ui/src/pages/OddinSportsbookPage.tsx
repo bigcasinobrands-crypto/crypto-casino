@@ -20,7 +20,7 @@ export default function OddinSportsbookPage({ publicConfig }: { publicConfig?: O
     return (
       <SportsbookErrorState
         title="Esports sportsbook"
-        message="The Oddin Bifrost integration is disabled for this environment."
+        message="Oddin esports is disabled for this environment."
       >
         <Link to={sportsbookPlayerPath()} className="text-sm font-semibold text-casino-primary underline">
           Open esports
@@ -33,7 +33,7 @@ export default function OddinSportsbookPage({ publicConfig }: { publicConfig?: O
     return (
       <SportsbookErrorState
         title="Esports sportsbook"
-        message="The Oddin Bifrost integration is disabled for this environment."
+        message="Oddin esports is disabled for this environment."
       >
         <Link to={sportsbookPlayerPath()} className="text-sm font-semibold text-casino-primary underline">
           Open esports
@@ -146,7 +146,7 @@ function OddinSportsbookPageReady({ publicConfig }: { publicConfig: OddinPublicC
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {import.meta.env.DEV && forceGuestIframe ? (
         <div className="shrink-0 border-b border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-center text-xs text-amber-100/95">
-          Oddin guest bisection: <span className="rounded bg-black/35 px-1 font-mono">?oddin_guest=1</span> — Bifrost runs{' '}
+          Oddin guest bisection: <span className="rounded bg-black/35 px-1 font-mono">?oddin_guest=1</span> — Oddin's client runs{' '}
           <strong>without</strong> a session token. Remove the query param to test real <code className="font-mono">userDetails</code>.
         </div>
       ) : null}

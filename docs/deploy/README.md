@@ -74,7 +74,7 @@ Workspace file: **`.cursor/mcp.json`**. Restart Cursor after editing.
 | **render** | Services, logs, metrics, env vars (API) | Create an API key: [Dashboard → Account → API keys](https://dashboard.render.com/settings#api-keys). Set **`RENDER_API_KEY`** on your user/OS environment (same session that launches Cursor). **Do not** commit the key. |
 | **vercel** | Projects, deployments, logs | **Settings → Tools & MCP → vercel** → **Sign in with Vercel** (OAuth). No repo secret. |
 
-**Oddin / Bifrost** is not an MCP product—verify **`ODDIN_*`** and **`PLAYER_CORS_ORIGINS`** on your Render service (env + logs) or in the dashboard. See **`docs/oddin-iframe-integration.md`**.
+**Oddin esports (Bifrost)** is not an MCP product—verify **`ODDIN_*`** and **`PLAYER_CORS_ORIGINS`** on your Render service (env + logs) or in the dashboard. See **`docs/oddin-iframe-integration.md`**.
 
 ### Oddin operator routes (verify after API deploy)
 

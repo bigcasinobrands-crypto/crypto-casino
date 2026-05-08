@@ -52,9 +52,9 @@
   "esportsSportsbook": {
     "comingSoonBody": "Bientôt disponible.",
     "hintTitle": "Le cadre sportsbook (Oddin) n’est pas actif sur ce déploiement",
-    "hintFoot": "Configurez Oddin sur l’API (Render) ou définissez VITE_ODDIN_ENABLED et les URLs Bifrost sur Vercel. Voir docs/oddin-iframe-integration.md dans le dépôt.",
+    "hintFoot": "Configurez Oddin sur l’API (Render) ou définissez VITE_ODDIN_ENABLED et les URLs (script/base) de l’iframe Oddin sur Vercel. Voir docs/oddin-iframe-integration.md dans le dépôt.",
     "hint_oddin_disabled": "L’API indique qu’Oddin est désactivé. Définissez ODDIN_ENABLED=1, ODDIN_BRAND_TOKEN, ODDIN_PUBLIC_BASE_URL et ODDIN_PUBLIC_SCRIPT_URL sur le service core, puis redéployez.",
-    "hint_oddin_incomplete": "Oddin est activé mais il manque le jeton ou les URLs Bifrost sur l’API. Complétez ODDIN_BRAND_TOKEN, ODDIN_PUBLIC_BASE_URL et ODDIN_PUBLIC_SCRIPT_URL, puis redéployez.",
+    "hint_oddin_incomplete": "Oddin est activé mais il manque le jeton ou les URLs de l’iframe sur l’API. Complétez ODDIN_BRAND_TOKEN, ODDIN_PUBLIC_BASE_URL et ODDIN_PUBLIC_SCRIPT_URL, puis redéployez.",
     "hint_api_error": "L’API a renvoyé une erreur pour la configuration publique du sportsbook. Vérifiez les journaux et les variables Oddin.",
     "hint_invalid_payload": "La réponse de l’API pour la configuration sportsbook est invalide. Vérifiez que GET /v1/sportsbook/oddin/public-config renvoie du JSON.",
     "hint_network": "Impossible d’atteindre /v1/sportsbook/oddin/public-config. Vérifiez VITE_PLAYER_API_ORIGIN et PLAYER_CORS_ORIGINS.",

@@ -52,9 +52,9 @@
   "esportsSportsbook": {
     "comingSoonBody": "Coming soon.",
     "hintTitle": "Sportsbook iframe is not active on this deploy",
-    "hintFoot": "You can either configure Oddin on the core API (Render) or set VITE_ODDIN_ENABLED plus brand token and Bifrost URLs on the Vercel player build. See docs/oddin-iframe-integration.md in the repo.",
+    "hintFoot": "You can either configure Oddin on the core API (Render) or set VITE_ODDIN_ENABLED plus brand token and Oddin iframe script/base URLs on the Vercel player build. See docs/oddin-iframe-integration.md in the repo.",
     "hint_oddin_disabled": "The API reports Oddin is disabled. Set ODDIN_ENABLED=1 on the core service, add ODDIN_BRAND_TOKEN, ODDIN_PUBLIC_BASE_URL, and ODDIN_PUBLIC_SCRIPT_URL from Oddin, then redeploy the API.",
-    "hint_oddin_incomplete": "Oddin is enabled on the API but the brand token or Bifrost URLs are missing. Set ODDIN_BRAND_TOKEN, ODDIN_PUBLIC_BASE_URL, and ODDIN_PUBLIC_SCRIPT_URL on the core service, then redeploy.",
+    "hint_oddin_incomplete": "Oddin is enabled on the API but the brand token or Oddin iframe URLs are missing. Set ODDIN_BRAND_TOKEN, ODDIN_PUBLIC_BASE_URL, and ODDIN_PUBLIC_SCRIPT_URL on the core service, then redeploy.",
     "hint_api_error": "The API returned an error for the sportsbook public config. Check core logs and Oddin-related environment variables.",
     "hint_invalid_payload": "The API response for sportsbook config could not be read. Confirm the core service is healthy and /v1/sportsbook/oddin/public-config returns JSON.",
     "hint_network": "The browser could not reach /v1/sportsbook/oddin/public-config. Confirm VITE_PLAYER_API_ORIGIN on Vercel and PLAYER_CORS_ORIGINS on the API include this site.",

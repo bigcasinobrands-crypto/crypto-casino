@@ -41,7 +41,7 @@ export function useOddinBifrost(
   const cfgRef = useRef(publicConfig)
   cfgRef.current = publicConfig
 
-  /** When bootstrap merges core `public-config` after first paint, rebuild Bifrost so script/base/token/env stay in sync. */
+  /** When bootstrap merges core `public-config` after first paint, rebuild Oddin's iframe so script/base/token/env stay in sync. */
   const bifrostConfigKey = [
     publicConfig.scriptUrl,
     publicConfig.baseUrl,
@@ -191,7 +191,7 @@ export function useOddinBifrost(
         const inst = w.oddin.buildBifrost(baseConfig, true)
         instanceRef.current = inst
       } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Could not start Oddin Bifrost.'
+        const msg = e instanceof Error ? e.message : 'Could not start Oddin esports iframe.'
         setPhase('error')
         setLoadMessage(msg)
         optsRef.current.onError?.(msg)

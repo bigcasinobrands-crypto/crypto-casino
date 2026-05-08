@@ -1,5 +1,5 @@
 /**
- * Types for Oddin.gg Bifrost (buildBifrost) — public config only on the client.
+ * Types for Oddin.gg `buildBifrost` (their iframe SDK) — public config only on the client.
  */
 
 export type OddinBifrostConfig = {

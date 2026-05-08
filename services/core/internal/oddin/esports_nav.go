@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	// Oddin Bifrost “Sports order” can expose many disciplines; allow full operator lists in ODDIN_ESPORTS_NAV_JSON.
+	// Oddin iframe “Sports order” can expose many disciplines; allow full operator lists in ODDIN_ESPORTS_NAV_JSON.
 	esportsNavMaxItems    = 80
 	esportsNavMaxIDLen    = 64
 	esportsNavMaxLabelLen = 128

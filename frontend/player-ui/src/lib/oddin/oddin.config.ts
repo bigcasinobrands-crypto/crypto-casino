@@ -1,5 +1,5 @@
 /**
- * Oddin Bifrost — reads public integration flags from Vite env (never secrets).
+ * Oddin esports iframe — reads public integration flags from Vite env (never secrets).
  * Mirrors backend `ODDIN_*` naming where applicable.
  */
 
@@ -26,7 +26,7 @@ export function oddinIframeEnabled(): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on'
 }
 
-/** Canonical player path for the Oddin Bifrost shell (dedicated esports page). */
+/** Canonical player path for the Oddin esports shell (dedicated esports page). */
 export const ESPORTS_PLAYER_PATH = '/esports'
 
 /** Oddin vs coming-soon is decided by `CasinoSportsPage`. Prefer {@link ESPORTS_PLAYER_PATH}. */
@@ -147,7 +147,7 @@ export function mergeOddinPublicConfigs(
 }
 
 /**
- * True when Bifrost should mount: feature flag on and all public fields validate.
+ * True when Oddin's iframe should mount: feature flag on and all public fields validate.
  * If `VITE_ODDIN_ENABLED` is set but brand token or URLs are missing, returns false so the shell shows “coming soon” instead of a configuration error.
  */
 export function oddinBifrostUsable(): boolean {

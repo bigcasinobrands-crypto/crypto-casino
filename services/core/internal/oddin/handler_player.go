@@ -92,7 +92,7 @@ type sessionTokenResp struct {
 //     tokens stayed valid forever — a free credential-leak vector.
 //   - The session row records the country (resolved best-effort from the most
 //     recent traffic_sessions row) and issuance IP, so userDetails can answer
-//     Bifrost with the player's actual country instead of the hard-coded "US"
+//     Oddin's iframe with the player's actual country instead of the hard-coded "US"
 //     placeholder, and so incident response can correlate fraud back to a
 //     concrete network.
 func (h *Handler) SessionToken(w http.ResponseWriter, r *http.Request) {

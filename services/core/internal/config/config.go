@@ -168,7 +168,7 @@ type Config struct {
 	RequireFingerprintPlayerAuth bool
 	// WithdrawRequireFingerprint — when true, POST /v1/wallet/withdraw must include fingerprint_request_id (enforced before ledger).
 	WithdrawRequireFingerprint bool
-	// Oddin.gg Bifrost esports iframe + operator callbacks (secrets server-side only).
+	// Oddin.gg esports iframe (“Bifrost”) + operator callbacks (secrets server-side only).
 	OddinEnabled             bool
 	OddinEnv                 string // integration | production (informational)
 	OddinPublicBaseURL       string // same logical values as player VITE_ODDIN_BASE_URL (admin/status only)
@@ -185,7 +185,7 @@ type Config struct {
 	OddinDefaultLanguage string
 	OddinDefaultCurrency string
 	// OddinDefaultCountry — ISO 3166-1 alpha-2 (e.g. GB, MT) used when traffic_sessions has no
-	// country and as Bifrost fallback; avoids hard-coding US for brands that block it.
+	// country and as Oddin iframe fallback; avoids hard-coding US for brands that block it.
 	OddinDefaultCountry string
 	OddinDarkMode        bool
 }

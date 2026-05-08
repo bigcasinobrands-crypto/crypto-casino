@@ -68,7 +68,7 @@ type Props = {
 }
 
 /**
- * E-Sports accordion (Bifrost `?page=` routes). Logos: Oddin / operator via GET /v1/sportsbook/oddin/esports-nav (ODDIN_ESPORTS_NAV_JSON).
+ * E-Sports accordion (Oddin iframe `?page=` routes). Logos: Oddin / operator via GET /v1/sportsbook/oddin/esports-nav (ODDIN_ESPORTS_NAV_JSON).
  */
 export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate }: Props) {
   const { t } = useTranslation()
