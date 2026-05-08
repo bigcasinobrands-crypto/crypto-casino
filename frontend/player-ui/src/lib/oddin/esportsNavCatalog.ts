@@ -34,7 +34,7 @@ const RAW_ESPORTS_NAV_FALLBACK: EsportsNavItem[] = [
   { id: 'hearthstone', label: 'Hearthstone', page: '/hearthstone', logoUrl: '/esports/hearthstone.png' },
   { id: 'kingofglory', label: 'King of Glory', page: '/kingofglory', logoUrl: '/esports/kingofglory.png' },
   { id: 'starcraft2', label: 'StarCraft 2', page: '/starcraft2', logoUrl: '/esports/starcraft2.png' },
-  { id: 'rocketleague', label: 'Rocket League', page: '/rocketleague' },
+  { id: 'rocketleague', label: 'Rocket League', page: '/rocketleague', logoUrl: '/esports/rocketleague.png' },
   { id: 'valorant', label: 'Valorant', page: '/valorant', logoUrl: si('valorant', 'FF4655') },
   { id: 'starcraft', label: 'StarCraft 1', page: '/starcraft', logoUrl: '/esports/starcraft.png' },
   { id: 'cod', label: 'Call of Duty', page: '/cod', logoUrl: '/esports/call-of-duty.png' },
@@ -67,7 +67,6 @@ const RAW_ESPORTS_NAV_FALLBACK: EsportsNavItem[] = [
   { id: 'marvelrivals', label: 'Marvel Rivals', page: '/marvelrivals', logoUrl: '/esports/marvelrivals.png' },
   { id: 'chess', label: 'Chess', page: '/chess', logoUrl: si('chessdotcom', '81B64C') },
   { id: 'etouchdown', label: 'eTouchdown', page: '/etouchdown', logoUrl: '/esports/etouchdown.png' },
-  { id: 'penaltyarena', label: 'Penalty Arena', page: '/penaltyarena' },
   {
     id: 'apexlegends',
     label: 'Apex Legends',
@@ -76,8 +75,17 @@ const RAW_ESPORTS_NAV_FALLBACK: EsportsNavItem[] = [
   },
 ]
 
+/** IDs excluded from shell nav even if the operator API returns them (deep links may still work). */
+export const ESPORTS_NAV_HIDDEN_IDS = new Set(['penaltyarena'])
+
+export function filterEsportsNavForShell(items: EsportsNavItem[]): EsportsNavItem[] {
+  return items.filter((it) => !ESPORTS_NAV_HIDDEN_IDS.has(it.id.toLowerCase()))
+}
+
 /** Sidebar / drawer rows with Bifrost `route` targets from Oddin sport URNs (or overrides). */
-export const ESPORTS_NAV_FALLBACK: EsportsNavItem[] = applyEsportsBifrostRoutesToAll(RAW_ESPORTS_NAV_FALLBACK)
+export const ESPORTS_NAV_FALLBACK: EsportsNavItem[] = filterEsportsNavForShell(
+  applyEsportsBifrostRoutesToAll(RAW_ESPORTS_NAV_FALLBACK),
+)
 
 /** Normalize Bifrost `page` for logo lookup; opaque JWT tokens stay unchanged (case-sensitive). */
 export function normalizeEsportsNavPageKey(page: string): string {

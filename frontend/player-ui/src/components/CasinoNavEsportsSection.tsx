@@ -24,9 +24,9 @@ function isEsportsSubActive(search: string, item: EsportsNavItem): boolean {
   return bifrostRoutesLooselyEqual(cur, item.page.trim())
 }
 
-/** ~One column: same height as Casino line icons (15px); narrow width so rows stay compact. */
+/** ~One column: same line-height as first row of label; top-align with wrapped titles. */
 const iconCell =
-  'flex h-[15px] w-9 shrink-0 items-center justify-start overflow-hidden'
+  'flex h-[15px] w-9 shrink-0 items-center justify-start overflow-hidden pt-0.5'
 
 function EsportsRowGlyph({ item, size }: { item: EsportsNavItem; size: number }) {
   const [imgOk, setImgOk] = useState(true)
@@ -51,12 +51,12 @@ function EsportsRowGlyph({ item, size }: { item: EsportsNavItem; size: number })
 
 /** Same rhythm as CasinoNavCasinoLinks (sidebar + drawer). */
 const sidebarSub =
-  'flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-2.5 pr-2 text-left text-[12px] font-medium leading-snug text-casino-muted transition hover:bg-white/[0.04] hover:text-casino-foreground [&_svg]:shrink-0 [&_svg]:text-casino-primary/88'
+  'flex w-full items-start gap-2.5 rounded-lg py-1.5 pl-2.5 pr-2 text-left text-[12px] font-medium leading-snug text-casino-muted transition hover:bg-white/[0.04] hover:text-casino-foreground [&_svg]:shrink-0 [&_svg]:text-casino-primary/88'
 const sidebarSubActive =
   'bg-casino-primary/22 font-semibold text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary'
 
 const drawerSub =
-  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13px] font-semibold leading-snug text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground [&_svg]:shrink-0 [&_svg]:text-casino-primary'
+  'flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13px] font-semibold leading-snug text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground [&_svg]:shrink-0 [&_svg]:text-casino-primary'
 const drawerSubActive = 'bg-casino-primary/22 text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary'
 
 type Props = {
@@ -201,7 +201,9 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
                   <span className={iconCell} aria-hidden>
                     <EsportsRowGlyph item={item} size={iconSize} />
                   </span>
-                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  <span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-snug">
+                    {label}
+                  </span>
                 </NavLink>
               )
             }
@@ -215,7 +217,9 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
                 <span className={iconCell} aria-hidden>
                   <EsportsRowGlyph item={item} size={iconSize} />
                 </span>
-                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <span className="min-w-0 flex-1 whitespace-normal break-words text-left leading-snug">
+                  {label}
+                </span>
               </NavLink>
             )
           })}

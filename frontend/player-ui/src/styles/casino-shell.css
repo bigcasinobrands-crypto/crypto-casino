@@ -225,7 +225,7 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: var(--shell-sidebar-w, 200px);
+    width: var(--shell-sidebar-w, 236px);
     /* Above main scroll shell (App `z-[200]`) so fixed chrome stays clickable. */
     z-index: 205;
     overflow: hidden;
@@ -238,7 +238,7 @@
     display: flex;
     align-items: center;
     position: fixed;
-    left: var(--shell-sidebar-w, 200px);
+    left: var(--shell-sidebar-w, 236px);
     top: 0;
     /* Full width to viewport right; Global Chat sits below this bar (ChatDrawer `top`). */
     right: 0;
@@ -302,7 +302,7 @@
    * region fills only the gap — avoids flex `flex:1` + width fighting and content bleeding under chat.
    */
   .casino-shell-main {
-    margin-left: var(--shell-sidebar-w, 200px);
+    margin-left: var(--shell-sidebar-w, 236px);
     margin-right: var(--shell-chat-inset, 0px);
     flex: 1 1 auto;
     min-width: 0;

@@ -88,7 +88,7 @@ export default function MobileCasinoMenuOverlay({
         onClick={onClose}
       />
       <aside
-        className="relative z-10 flex h-full w-[min(82vw,320px)] max-w-[320px] flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.5)]"
+        className="relative z-10 flex h-full w-[min(88vw,348px)] max-w-[348px] flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.5)]"
         role="dialog"
         aria-modal="true"
         aria-label={t('sidebar.casinoMenu')}

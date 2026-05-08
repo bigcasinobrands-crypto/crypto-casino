@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { playerFetch } from '../lib/playerFetch'
 import {
   ESPORTS_NAV_FALLBACK,
+  filterEsportsNavForShell,
   mergeEsportsNavLogosFromFallback,
   type EsportsNavItem,
 } from '../lib/oddin/esportsNavCatalog'
@@ -46,7 +47,11 @@ export function useOddinEsportsNav() {
           if (it && it.id.toLowerCase() !== 'overview') next.push(it)
         }
         if (next.length === 0 || cancelled) return
-        setItems(applyEsportsBifrostRoutesToAll(mergeEsportsNavLogosFromFallback(next)))
+        setItems(
+          filterEsportsNavForShell(
+            applyEsportsBifrostRoutesToAll(mergeEsportsNavLogosFromFallback(next)),
+          ),
+        )
         setLabelsFromOperator(true)
       } catch {
         /* use fallback */

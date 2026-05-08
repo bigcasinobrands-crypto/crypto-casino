@@ -245,7 +245,7 @@ export default function CasinoSidebar({
   return (
     <aside
       className={`flex h-full min-h-0 min-w-0 shrink-0 flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.45)] transition-[width] duration-200 ease-out ${
-        collapsed ? 'w-[52px]' : 'w-[200px]'
+        collapsed ? 'w-[52px]' : 'w-[236px]'
       }`}
     >
         <div className="shrink-0 border-b border-white/[0.06] bg-casino-sidebar px-0.5 pt-2 pb-2">

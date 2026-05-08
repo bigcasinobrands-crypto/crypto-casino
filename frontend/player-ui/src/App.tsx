@@ -373,7 +373,7 @@ function AppShell() {
           className={`player-app-shell flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased ${oddinBifrostShell ? 'overscroll-y-none' : ''} ${chatOpen ? 'shell-chat-open' : ''}`}
           style={
             {
-              ['--shell-sidebar-w']: sidebarCollapsed ? '52px' : '200px',
+              ['--shell-sidebar-w']: sidebarCollapsed ? '52px' : '236px',
             } as React.CSSProperties
           }
         >
