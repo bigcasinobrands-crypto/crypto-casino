@@ -315,7 +315,8 @@
       "currencies": "Crypto Currencies"
     },
     "gameTile": {
-      "effectiveRtp": "Effective RTP"
+      "effectiveRtp": "Effective RTP",
+      "rtpNotListed": "Not listed"
     },
     "hero": {
       "sampleCountdown": "1d 9h 35m",

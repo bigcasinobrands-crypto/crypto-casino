@@ -7,12 +7,12 @@ import { IconChevronRight } from './icons'
 const LONG_HOVER_MS = 1000
 
 type Props = {
-  /** From `GET /v1/games` when `games.metadata` includes `effective_rtp_pct` or `theoretical_rtp_pct`. */
+  /** From `GET /v1/games` when `games.metadata` includes RTP; overlay still shows without it (fallback copy). */
   effectiveRtpPct?: number | null
   children: ReactNode
 }
 
-/** Long-hover “effective RTP” overlay on lobby-style tiles (elevation + glow live on `.game-thumb-link`). */
+/** Long-hover RTP overlay on lobby-style tiles — every tile gets the same treatment; value when API provides it. */
 export const GameThumbInteractiveShell: FC<Props> = ({ effectiveRtpPct, children }) => {
   const { t } = useTranslation()
   const reduceMotion = usePrefersReducedMotion()
@@ -28,11 +28,10 @@ export const GameThumbInteractiveShell: FC<Props> = ({ effectiveRtpPct, children
 
   useEffect(() => () => clearTimer(), [clearTimer])
 
-  const hasRtp =
+  const hasNumericRtp =
     effectiveRtpPct != null && typeof effectiveRtpPct === 'number' && !Number.isNaN(effectiveRtpPct)
 
   const onEnter = () => {
-    if (!hasRtp) return
     clearTimer()
     setRtpVisible(false)
     if (reduceMotion) {
@@ -54,30 +53,34 @@ export const GameThumbInteractiveShell: FC<Props> = ({ effectiveRtpPct, children
       onMouseLeave={onLeave}
     >
       {children}
-      {hasRtp ? (
+      <div
+        className={`pointer-events-none absolute inset-0 z-[2] flex flex-col overflow-hidden rounded-casino-md ease-out ${
+          reduceMotion ? '' : 'transition-opacity duration-300'
+        } ${rtpVisible ? 'opacity-100' : 'opacity-0'}`}
+        aria-hidden={!rtpVisible}
+      >
+        {/* Dark scrim — ~75–82% effective so art stays faintly readable; tint adds brand depth. */}
+        <div className="absolute inset-0 rounded-casino-md bg-black/70" aria-hidden />
         <div
-          className={`pointer-events-none absolute inset-0 z-[2] flex flex-col overflow-hidden rounded-casino-md ease-out ${
-            reduceMotion ? '' : 'transition-opacity duration-300'
-          } ${rtpVisible ? 'opacity-100' : 'opacity-0'}`}
-          aria-hidden={!rtpVisible}
-        >
-          {/* Dark scrim — ~75–82% effective so art stays faintly readable; tint adds brand depth. */}
-          <div className="absolute inset-0 rounded-casino-md bg-black/70" aria-hidden />
-          <div
-            className="absolute inset-0 rounded-casino-md bg-gradient-to-b from-black/15 via-casino-primary/[0.1] to-black/35"
-            aria-hidden
-          />
-          <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3 text-center">
-            <IconChevronRight className="mb-3 shrink-0 text-white/90" size={22} aria-hidden />
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/75">
-              {t('lobby.gameTile.effectiveRtp')}
-            </p>
+          className="absolute inset-0 rounded-casino-md bg-gradient-to-b from-black/15 via-casino-primary/[0.1] to-black/35"
+          aria-hidden
+        />
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3 text-center">
+          <IconChevronRight className="mb-3 shrink-0 text-white/90" size={22} aria-hidden />
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/75">
+            {t('lobby.gameTile.effectiveRtp')}
+          </p>
+          {hasNumericRtp ? (
             <p className="mt-1.5 text-[1.35rem] font-bold tabular-nums leading-none tracking-tight text-white">
               {effectiveRtpPct.toFixed(2)}%
             </p>
-          </div>
+          ) : (
+            <p className="mt-1.5 text-[1.05rem] font-semibold leading-snug tracking-tight text-white/78">
+              {t('lobby.gameTile.rtpNotListed')}
+            </p>
+          )}
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }

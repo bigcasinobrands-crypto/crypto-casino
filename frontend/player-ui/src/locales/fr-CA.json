@@ -315,7 +315,8 @@
       "currencies": "cryptomonnaies"
     },
     "gameTile": {
-      "effectiveRtp": "RTP effectif"
+      "effectiveRtp": "RTP effectif",
+      "rtpNotListed": "Non indiqué"
     },
     "hero": {
       "sampleCountdown": "1 j 9 h 35 min",
