@@ -45,7 +45,7 @@ export const CASINO_NAV_FALLBACK_EXTRAS: CasinoNavCategory[] = [{ id: 'sports', 
 
 export const CASINO_NAV_FALLBACK_PROMO: CasinoNavCategory[] = [
   { id: 'rewards', label: 'My Bonuses', enabled: true },
-  { id: 'affiliate', label: 'Affiliate', enabled: true },
+  { id: 'affiliate', label: 'Refer and Earn', enabled: true },
   { id: 'vip', label: 'VIP', enabled: true },
   { id: 'farming', label: 'Farming', enabled: true, coming_soon: true },
   { id: 'raffle', label: '$25K Raffle', enabled: true },

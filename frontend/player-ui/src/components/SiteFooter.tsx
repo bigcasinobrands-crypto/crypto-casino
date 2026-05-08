@@ -58,7 +58,7 @@ const FALLBACK_GAMES_LINKS: FooterLink[] = [
 
 const FALLBACK_ABOUT_LINKS: FooterLink[] = [
   { label: 'VIP Program', to: '/vip', requireAuth: true },
-  { label: 'Affiliate', openAffiliateModal: true },
+  { label: 'Refer and Earn', openAffiliateModal: true },
   { label: 'My Bonuses', to: '/bonuses', requireAuth: true },
   { label: 'Terms of Service', to: '/terms' },
   { label: 'Responsible Gaming', to: '/responsible-gambling' },
@@ -86,6 +86,7 @@ function translateFooterLinkLabel(t: TFunction, lk: FooterLink): string {
   if (lk.to === '/responsible-gambling') return t('footer.responsibleGaming', { defaultValue: d })
   if (lk.to === '/privacy') return t('footer.privacy', { defaultValue: d })
   if (lk.to === '/aml') return t('footer.aml', { defaultValue: d })
+  if (lk.openAffiliateModal) return t('footer.affiliate', { defaultValue: d })
   if (!lk.to && d.toLowerCase().includes('affiliate')) return t('footer.affiliate', { defaultValue: d })
   return d
 }
@@ -93,7 +94,7 @@ function translateFooterLinkLabel(t: TFunction, lk: FooterLink): string {
 function footerLinkOpensAffiliateModal(lk: FooterLink): boolean {
   if (lk.openAffiliateModal) return true
   if (lk.to || lk.href) return false
-  return /affiliate|affiliation/i.test(lk.label)
+  return /affiliate|affiliation|refer\s+and\s+earn|parrainez/i.test(lk.label)
 }
 
 function openAffiliateModalFromFooter() {
