@@ -147,9 +147,6 @@ function shouldApplyBundledBifrostRoute(currentPage: string): boolean {
  * Keeps operator-supplied opaque `page` values from `ODDIN_ESPORTS_NAV_JSON` when they are already non-slash routes.
  */
 export function applyEsportsBifrostRoutes(item: EsportsNavRow): EsportsNavRow {
-  if (item.id === 'overview') {
-    return { ...item, page: '' }
-  }
   const id = item.id.toLowerCase()
   const manual = ESPORTS_BIFROST_ROUTE_OVERRIDE_BY_ID[id]?.trim()
   if (manual) {

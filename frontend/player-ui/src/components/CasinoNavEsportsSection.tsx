@@ -30,9 +30,6 @@ const iconCell =
 
 function EsportsRowGlyph({ item, size }: { item: EsportsNavItem; size: number }) {
   const [imgOk, setImgOk] = useState(true)
-  if (item.id === 'overview') {
-    return <IconTrophy size={size} className="shrink-0 text-casino-primary/88" aria-hidden />
-  }
   if (!item.logoUrl) {
     return <IconSwords size={size} className="shrink-0 text-casino-primary/88" aria-hidden />
   }

@@ -43,7 +43,7 @@ export function useOddinEsportsNav() {
         for (const row of raw) {
           if (!row || typeof row !== 'object' || Array.isArray(row)) continue
           const it = normalizeApiItem(row as Record<string, unknown>)
-          if (it) next.push(it)
+          if (it && it.id.toLowerCase() !== 'overview') next.push(it)
         }
         if (next.length === 0 || cancelled) return
         setItems(applyEsportsBifrostRoutesToAll(mergeEsportsNavLogosFromFallback(next)))

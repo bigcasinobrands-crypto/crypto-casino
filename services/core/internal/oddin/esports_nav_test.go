@@ -9,7 +9,7 @@ import (
 
 func TestParseEsportsNavJSON(t *testing.T) {
 	items, err := ParseEsportsNavJSON(`[
-	  {"id":"overview","label":"Overview","page":""},
+	  {"id":"root","label":"Sportsbook","page":""},
 	  {"id":"cs2","label":"Counter-Strike 2","page":"/cs2","logoUrl":"https://cdn.example.com/cs2.svg"},
 	  {"logoUrl":"http://insecure.example.com/x.svg","id":"nox","label":"No https on logo"}
 	]`)
@@ -19,8 +19,8 @@ func TestParseEsportsNavJSON(t *testing.T) {
 	if len(items) != 3 {
 		t.Fatalf("got %d items want 3", len(items))
 	}
-	if items[0].ID != "overview" || items[0].LogoURL != "" {
-		t.Fatalf("overview: %+v", items[0])
+	if items[0].ID != "root" || items[0].LogoURL != "" {
+		t.Fatalf("root: %+v", items[0])
 	}
 	if items[1].LogoURL == "" || !strings.HasPrefix(items[1].LogoURL, "https://") {
 		t.Fatalf("cs2 logo: %+v", items[1])
