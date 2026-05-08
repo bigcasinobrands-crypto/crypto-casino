@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import OddinSportsbookFrame from '../components/sportsbook/OddinSportsbookFrame'
 import SportsbookErrorState from '../components/sportsbook/SportsbookErrorState'
 import SportsbookLoadingState from '../components/sportsbook/SportsbookLoadingState'
@@ -59,6 +59,13 @@ export default function OddinSportsbookPage({ publicConfig }: { publicConfig?: O
 
 function OddinSportsbookPageReady({ publicConfig }: { publicConfig: OddinPublicConfig }) {
   const { isAuthenticated, apiFetch } = usePlayerAuth()
+  const [searchParams] = useSearchParams()
+  const allowGuestQuery =
+    import.meta.env.DEV ||
+    import.meta.env.VITE_ODDIN_ALLOW_GUEST_QUERY === '1' ||
+    String(import.meta.env.VITE_ODDIN_ALLOW_GUEST_QUERY || '').toLowerCase() === 'true'
+  const forceGuestIframe = allowGuestQuery && searchParams.get('oddin_guest') === '1'
+
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading')
   const [sessionToken, setSessionToken] = useState<string | null>(null)
   const [sessionError, setSessionError] = useState<string | null>(null)
@@ -67,15 +74,21 @@ function OddinSportsbookPageReady({ publicConfig }: { publicConfig: OddinPublicC
   const language = publicConfig.defaultLanguage
 
   useLayoutEffect(() => {
+    if (forceGuestIframe) {
+      setSessionToken(null)
+      setSessionError(null)
+      setPhase('ready')
+      return
+    }
     if (!isAuthenticated) {
       setSessionToken(null)
       setSessionError(null)
       setPhase('ready')
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, forceGuestIframe])
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (forceGuestIframe || !isAuthenticated) {
       return
     }
     let cancelled = false
@@ -113,7 +126,7 @@ function OddinSportsbookPageReady({ publicConfig }: { publicConfig: OddinPublicC
     return () => {
       cancelled = true
     }
-  }, [apiFetch, currency, isAuthenticated, language])
+  }, [apiFetch, currency, forceGuestIframe, isAuthenticated, language])
 
   if (phase === 'loading') {
     return (
@@ -127,9 +140,17 @@ function OddinSportsbookPageReady({ publicConfig }: { publicConfig: OddinPublicC
     return <SportsbookErrorState title="Session error" message={sessionError} />
   }
 
+  const iframeToken = forceGuestIframe ? null : isAuthenticated ? sessionToken : null
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <OddinSportsbookFrame publicConfig={publicConfig} sessionToken={isAuthenticated ? sessionToken : null} />
+      {import.meta.env.DEV && forceGuestIframe ? (
+        <div className="shrink-0 border-b border-amber-500/35 bg-amber-500/10 px-3 py-1.5 text-center text-xs text-amber-100/95">
+          Oddin guest bisection: <span className="rounded bg-black/35 px-1 font-mono">?oddin_guest=1</span> — Bifrost runs{' '}
+          <strong>without</strong> a session token. Remove the query param to test real <code className="font-mono">userDetails</code>.
+        </div>
+      ) : null}
+      <OddinSportsbookFrame publicConfig={publicConfig} sessionToken={iframeToken} />
     </div>
   )
 }

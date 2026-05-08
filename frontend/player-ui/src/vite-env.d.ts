@@ -26,6 +26,8 @@ interface ImportMetaEnv {
   readonly VITE_ODDIN_DEFAULT_LANGUAGE?: string
   readonly VITE_ODDIN_DEFAULT_CURRENCY?: string
   readonly VITE_ODDIN_DARK_MODE?: string
+  /** When "1"/"true", `?oddin_guest=1` on `/esports` forces Bifrost without a token even if signed in (staging bisection). Dev always allows it. */
+  readonly VITE_ODDIN_ALLOW_GUEST_QUERY?: string
 }
 
 interface ImportMeta {
