@@ -59,10 +59,10 @@ export const GameThumbInteractiveShell: FC<Props> = ({ effectiveRtpPct, children
         } ${rtpVisible ? 'opacity-100' : 'opacity-0'}`}
         aria-hidden={!rtpVisible}
       >
-        {/* Dark scrim — ~75–82% effective so art stays faintly readable; tint adds brand depth. */}
-        <div className="absolute inset-0 rounded-casino-md bg-black/70" aria-hidden />
+        {/* Dark scrim — strong opacity so thumb art recedes; light vignette only at bottom. */}
+        <div className="absolute inset-0 rounded-casino-md bg-black/88" aria-hidden />
         <div
-          className="absolute inset-0 rounded-casino-md bg-gradient-to-b from-black/15 via-casino-primary/[0.1] to-black/35"
+          className="absolute inset-0 rounded-casino-md bg-gradient-to-b from-transparent via-transparent to-black/35"
           aria-hidden
         />
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3 text-center">
