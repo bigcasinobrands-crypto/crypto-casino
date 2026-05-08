@@ -1,13 +1,13 @@
 import { QRCodeSVG } from 'qrcode.react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { readApiError } from '../api/errors'
-import { useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
+import { resolveCryptoLogoUrl, useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
 import { networkHelpUrl, transactionExplorerUrl } from '../lib/walletExplorer'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
-import { IconCircleDollarSign } from './icons'
+import { CryptoLogoMark } from './wallet/CryptoLogoMark'
 import { WalletBonusStrip } from './wallet/WalletBonusStrip'
 import {
   WalletBackButton,
@@ -18,7 +18,7 @@ import {
 } from './wallet/WalletShell'
 const MIN_USD_CENTS = 1000
 
-type DepositAddrRes = {
+export type DepositAddrRes = {
   address?: string
   qr_url?: string
   symbol?: string
@@ -65,52 +65,97 @@ type DepositAddressPanelProps = {
   symbol: string
   network: string
   amountUsdText: string
+  /** USD amount in cents when known (e.g. from URL); used for PassimPay invoice link */
+  amountMinor?: number | null
   onBack: () => void
   onSent: () => void
+  /** When present (e.g. prefetched on pick step), show details immediately and refresh in background */
+  initialDepositSnapshot?: DepositAddrRes | null
 }
 
-export function DepositAddressPanel({ paymentId, symbol, network, amountUsdText, onBack, onSent }: DepositAddressPanelProps) {
+export function DepositAddressPanel({
+  paymentId,
+  symbol,
+  network,
+  amountUsdText,
+  amountMinor: amountMinorProp = null,
+  onBack,
+  onSent,
+  initialDepositSnapshot = null,
+}: DepositAddressPanelProps) {
   const { t } = useTranslation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
-  const logoUrls = useCryptoLogoUrlMap()
+  const logoUrls = useCryptoLogoUrlMap([symbol])
   const [data, setData] = useState<DepositAddrRes | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [copyMsg, setCopyMsg] = useState<string | null>(null)
+  const [invoiceBusy, setInvoiceBusy] = useState(false)
+  const [invoiceErr, setInvoiceErr] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setErr(null)
-    setLoading(true)
-    try {
-      const q = new URLSearchParams({
-        payment_id: String(paymentId),
-        symbol,
-        network,
-      })
-      const res = await apiFetch(`/v1/wallet/deposit-address?${q}`)
-      if (!res.ok) {
-        const parsed = await readApiError(res)
-        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-        toastPlayerApiError(parsed, res.status, 'GET /v1/wallet/deposit-address', rid)
-        setErr(parsed?.message ?? 'Could not load deposit address')
-        setData(null)
-        return
-      }
-      const j = (await res.json()) as DepositAddrRes
-      setData(j)
-    } catch {
-      toastPlayerNetworkError('Network error.', 'GET /v1/wallet/deposit-address')
-      setErr('Network error')
-      setData(null)
-    } finally {
-      setLoading(false)
+  const amountMinorResolved = useMemo(() => {
+    if (amountMinorProp != null && Number.isFinite(amountMinorProp) && amountMinorProp >= MIN_USD_CENTS) {
+      return Math.round(amountMinorProp)
     }
-  }, [apiFetch, paymentId, symbol, network])
+    const n = Number(String(amountUsdText).replace(',', '.'))
+    if (Number.isFinite(n) && n * 100 >= MIN_USD_CENTS) {
+      return Math.round(n * 100)
+    }
+    return null
+  }, [amountMinorProp, amountUsdText])
+
+  const load = useCallback(
+    async (opts?: { background?: boolean }) => {
+      if (!opts?.background) {
+        setErr(null)
+        setLoading(true)
+      }
+      try {
+        const q = new URLSearchParams({
+          payment_id: String(paymentId),
+          symbol,
+          network,
+        })
+        const res = await apiFetch(`/v1/wallet/deposit-address?${q}`)
+        if (!res.ok) {
+          const parsed = await readApiError(res)
+          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+          toastPlayerApiError(parsed, res.status, 'GET /v1/wallet/deposit-address', rid)
+          setErr(parsed?.message ?? 'Could not load deposit address')
+          if (!opts?.background) setData(null)
+          return
+        }
+        const j = (await res.json()) as DepositAddrRes
+        setData(j)
+        setErr(null)
+      } catch {
+        toastPlayerNetworkError('Network error.', 'GET /v1/wallet/deposit-address')
+        setErr('Network error')
+        if (!opts?.background) setData(null)
+      } finally {
+        if (!opts?.background) setLoading(false)
+      }
+    },
+    [apiFetch, paymentId, symbol, network],
+  )
+
+  const snapshotRef = useRef<DepositAddrRes | null>(null)
+  snapshotRef.current = initialDepositSnapshot
+  const snapshotAddr = initialDepositSnapshot?.address?.trim() ?? ''
 
   useEffect(() => {
     if (!isAuthenticated) return
+    if (snapshotAddr) {
+      const snap = snapshotRef.current
+      if (snap?.address?.trim()) {
+        setData(snap)
+        setErr(null)
+        setLoading(false)
+      }
+      return
+    }
     void load()
-  }, [isAuthenticated, load])
+  }, [isAuthenticated, paymentId, symbol, network, snapshotAddr, load])
 
   const memo = (data?.memo ?? data?.memo_tag)?.trim() ?? ''
 
@@ -127,9 +172,54 @@ export function DepositAddressPanel({ paymentId, symbol, network, amountUsdText,
     }
   }
 
+  const openPassimpayHostedCheckout = useCallback(async () => {
+    const minor = amountMinorResolved
+    if (minor == null) {
+      setInvoiceErr(t('wallet.depositInvoiceAmountUnknown'))
+      return
+    }
+    setInvoiceErr(null)
+    setInvoiceBusy(true)
+    try {
+      const res = await apiFetch('/v1/wallet/deposit-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_id: paymentId,
+          symbol,
+          network,
+          amount_minor: minor,
+        }),
+      })
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
+        toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/deposit-invoice', rid)
+        setInvoiceErr(parsed?.message ?? t('wallet.depositInvoiceFailed'))
+        return
+      }
+      const j = (await res.json()) as { invoice_url?: string }
+      const url = j.invoice_url?.trim()
+      if (!url) {
+        setInvoiceErr(t('wallet.depositInvoiceFailed'))
+        return
+      }
+      const popup = window.open(url, '_blank', 'noopener,noreferrer')
+      if (!popup) {
+        window.location.href = url
+      }
+    } catch {
+      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/deposit-invoice')
+      setInvoiceErr(t('wallet.depositInvoiceFailed'))
+    } finally {
+      setInvoiceBusy(false)
+    }
+  }, [amountMinorResolved, apiFetch, network, paymentId, symbol, t])
+
   const address = data?.address?.trim() ?? ''
   const qrUrl = data?.qr_url?.trim()
-  const symLogo = logoUrls?.[symbol.toLowerCase()]
+  const symLogo = resolveCryptoLogoUrl(logoUrls, symbol, network)
+  const showPaymentPanel = !loading && !err && address
 
   return (
     <div className="space-y-0">
@@ -139,24 +229,38 @@ export function DepositAddressPanel({ paymentId, symbol, network, amountUsdText,
 
       <WalletBonusStrip />
 
-      {loading ? <p className="mb-3 text-xs text-wallet-subtext">{t('wallet.loadingAddress')}</p> : null}
+      {loading ? (
+        <WalletPanel className="mb-0">
+          <div className="mb-4 flex flex-col items-center gap-3 pt-1">
+            <div
+              className="size-[140px] shrink-0 animate-pulse rounded-lg bg-white/[0.08]"
+              aria-hidden
+            />
+          </div>
+          <p className="text-center text-xs text-wallet-subtext">{t('wallet.loadingPaymentDetails')}</p>
+        </WalletPanel>
+      ) : null}
       {err ? (
         <p className="mb-3 text-xs text-red-400" role="alert">
           {err}
         </p>
       ) : null}
 
-      {!loading && !err && address ? (
+      {showPaymentPanel ? (
         <WalletPanel className="mb-0">
+          <div className="mb-4 flex flex-col items-center gap-3 pt-1">
+            {qrUrl ? (
+              <img src={qrUrl} alt={t('wallet.depositQrAlt')} className="size-[140px] rounded-lg bg-white p-2 shadow-md" />
+            ) : (
+              <div className="rounded-lg bg-white p-2 shadow-md">
+                <QRCodeSVG value={address} size={128} level="M" />
+              </div>
+            )}
+          </div>
+
           <WalletDisplayRow
             label={t('wallet.depositCurrency')}
-            icon={
-              symLogo ? (
-                <img src={symLogo} alt="" className="size-5 shrink-0 rounded-full object-cover" loading="lazy" />
-              ) : (
-                <IconCircleDollarSign size={16} className="shrink-0 text-emerald-400" aria-hidden />
-              )
-            }
+            icon={<CryptoLogoMark url={symLogo} className="text-emerald-400" />}
             value={symbol}
           />
           <WalletDisplayRow label={t('wallet.chooseNetwork')} value={network} />
@@ -181,16 +285,6 @@ export function DepositAddressPanel({ paymentId, symbol, network, amountUsdText,
             <p className="mb-4 text-[11px] leading-snug text-amber-200/90">{t('wallet.passimpayMemoWarning')}</p>
           ) : null}
 
-          <div className="mb-4 flex flex-col items-center gap-3 pt-1">
-            {qrUrl ? (
-              <img src={qrUrl} alt={t('wallet.depositQrAlt')} className="size-[140px] rounded-lg bg-white p-2 shadow-md" />
-            ) : (
-              <div className="rounded-lg bg-white p-2 shadow-md">
-                <QRCodeSVG value={address} size={128} level="M" />
-              </div>
-            )}
-          </div>
-
           <WalletReadOnlyRow label={t('wallet.depositAddressLabel', { symbol })}>
             <span className="block max-w-full truncate font-mono text-[13px]">{address}</span>
           </WalletReadOnlyRow>
@@ -205,6 +299,35 @@ export function DepositAddressPanel({ paymentId, symbol, network, amountUsdText,
           >
             {t('wallet.depositSentCta')}
           </button>
+
+          {amountMinorResolved != null ? (
+            <>
+              <div className="relative my-5 w-full">
+                <div className="absolute inset-0 flex items-center" aria-hidden>
+                  <div className="w-full border-t border-white/[0.08]" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="border border-casino-border bg-casino-segment-track px-2 text-[10px] font-semibold uppercase tracking-wider text-casino-muted">
+                    {t('wallet.depositOrDivider')}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={invoiceBusy}
+                onClick={() => void openPassimpayHostedCheckout()}
+                className="w-full rounded-full border border-violet-400/40 bg-violet-600/25 py-3 text-sm font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition hover:bg-violet-600/35 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {invoiceBusy ? t('wallet.depositInvoiceOpening') : t('wallet.depositPayWithWeb3')}
+              </button>
+              <p className="mt-2.5 text-center text-[11px] leading-snug text-amber-200/90">{t('wallet.depositOneMethodOnly')}</p>
+              {invoiceErr ? (
+                <p className="mb-1 mt-2 text-center text-[11px] text-red-400" role="alert">
+                  {invoiceErr}
+                </p>
+              ) : null}
+            </>
+          ) : null}
         </WalletPanel>
       ) : null}
 
@@ -357,7 +480,7 @@ export function DepositSentPanel({
       <button
         type="button"
         onClick={onDepositAgain}
-        className="w-full rounded-lg border border-casino-border py-2 text-center text-xs text-casino-foreground hover:bg-casino-elevated"
+        className="w-full rounded-lg border border-casino-border py-2 text-center text-xs text-casino-foreground hover:bg-casino-chip-hover"
       >
         {phase === 'confirmed' ? 'Deposit again' : 'Make another deposit'}
       </button>

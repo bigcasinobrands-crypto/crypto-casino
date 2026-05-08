@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAuthModal } from '../../authModalContext'
 import type { OddinPublicConfig } from '../../lib/oddin/oddin.config'
-import { bifrostHeightPx } from '../../lib/oddin/oddin-layout'
+import { bifrostContentHeightPx } from '../../lib/oddin/oddin-layout'
 import { useOddinBifrost } from '../../lib/oddin/useOddinBifrost'
 import { usePlayerAuth } from '../../playerAuth'
 import SportsbookErrorState from './SportsbookErrorState'
@@ -47,23 +47,32 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
     },
   )
 
-  // Keep deps stable: height comes from `bifrostHeightPx()` (viewport + shell chrome), not Oddin `page`.
+  // Viewport changes + real `#bifrost` host size (banners, safe areas, tablet bottom bar).
   useEffect(() => {
     if (phase === 'idle' || phase === 'loading_script') return
     const inst = instanceRef.current
     if (!inst) return
-    const onResize = () => {
+    const bump = () => {
       try {
         inst.updateConfig({
-          height: () => bifrostHeightPx(),
+          height: () => bifrostContentHeightPx(),
         })
       } catch {
         /* ignore */
       }
     }
-    onResize()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+    bump()
+    window.addEventListener('resize', bump)
+    const el = typeof document !== 'undefined' ? document.getElementById('bifrost') : null
+    let ro: ResizeObserver | null = null
+    if (el instanceof HTMLElement) {
+      ro = new ResizeObserver(() => bump())
+      ro.observe(el)
+    }
+    return () => {
+      window.removeEventListener('resize', bump)
+      ro?.disconnect()
+    }
   }, [phase, instanceRef])
 
   const showLoader = phase === 'loading_script' || phase === 'bootstrap' || (phase === 'ready' && !iframeReady)

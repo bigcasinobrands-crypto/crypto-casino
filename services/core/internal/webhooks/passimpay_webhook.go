@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -129,14 +130,16 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 
 		ctx := r.Context()
 
-		var intentUser, intentCcy string
+		var intentUser, intentCcy, intentNetwork, intentMethod string
 		var providerPID string
+		var requestedUsdMinor sql.NullInt64
 		err = pool.QueryRow(ctx, `
-			SELECT user_id::text, currency, COALESCE(NULLIF(provider_payment_id,''), '')
+			SELECT user_id::text, currency, COALESCE(NULLIF(provider_payment_id,''), ''),
+				COALESCE(NULLIF(network,''), ''), requested_amount_minor, COALESCE(NULLIF(method,''), 'h2h')
 			FROM payment_deposit_intents
 			WHERE provider = 'passimpay' AND provider_order_id = $1
 			LIMIT 1
-		`, orderID).Scan(&intentUser, &intentCcy, &providerPID)
+		`, orderID).Scan(&intentUser, &intentCcy, &providerPID, &intentNetwork, &requestedUsdMinor, &intentMethod)
 		if err != nil || intentUser == "" {
 			log.Printf("passimpay webhook: orphan orderId=%s err=%v", orderID, err)
 			_, _ = pool.Exec(ctx, `
@@ -170,13 +173,22 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		idemLedger := fmt.Sprintf("passimpay:deposit:fund:%s", fundKey)
 
 		meta := map[string]any{
-			"payment_provider":   "passimpay",
-			"order_id":           orderID,
+			"payment_provider":    "passimpay",
+			"order_id":            orderID,
 			"tx_hash":             txhash,
-			"funding_key":        fundKey,
+			"funding_key":         fundKey,
 			"payment_currency_id": providerPID,
 			"confirmations_raw":   m["confirmations"],
-			"amount_receive_raw": amtSrc,
+			"amount_receive_raw":  amtSrc,
+			"deposit_asset":       strings.ToUpper(strings.TrimSpace(intentCcy)),
+			"deposit_intent_method": strings.TrimSpace(intentMethod),
+			"settlement_amount_minor": minor,
+		}
+		if net := strings.TrimSpace(intentNetwork); net != "" {
+			meta["deposit_network"] = net
+		}
+		if requestedUsdMinor.Valid {
+			meta["requested_quote_amount_minor_usd"] = requestedUsdMinor.Int64
 		}
 
 		// Responsible-gambling deposit gate. We check BEFORE crediting so the

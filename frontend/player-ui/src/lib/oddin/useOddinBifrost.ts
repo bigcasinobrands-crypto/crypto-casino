@@ -4,7 +4,7 @@ import type { OddinBifrostConfig, OddinBifrostInstance, OddinIframeEvent } from 
 import { loadOddinScript } from './oddin-script-loader'
 import type { OddinPublicConfig } from './oddin.config'
 import { analyticsActionFromPayload, isTrackedAnalyticsAction, routeFromOddinEvent, safeJsonRecord } from './oddin-events'
-import { bifrostHeightPx } from './oddin-layout'
+import { bifrostContentHeightPx } from './oddin-layout'
 
 export type OddinPhase = 'idle' | 'loading_script' | 'bootstrap' | 'ready' | 'error'
 
@@ -181,7 +181,7 @@ export function useOddinBifrost(
         currency: cfg.defaultCurrency,
         theme: cfg.theme,
         contentElement: '#bifrost',
-        height: () => bifrostHeightPx(),
+        height: () => bifrostContentHeightPx(),
         darkMode: cfg.darkMode,
         route: routeRef.current,
         eventHandler: handleIframeEvent,

@@ -1,11 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DepositWrongChainWarning, UsdAmountField, ChooseAssetNetworkHint } from '../DepositFlowShared'
-import { useCryptoLogoUrlMap } from '../../lib/cryptoLogoUrls'
+import { resolveCryptoLogoUrl, useCryptoLogoUrlMap } from '../../lib/cryptoLogoUrls'
 import type { PassimpayCurrency } from '../../lib/paymentCurrencies'
-import { currencyOptionLabel, formatMinorHint, passimpayNetworkLabel } from '../../lib/paymentCurrencies'
+import { currencyOptionLabel, currencyTokenLabelForGroupRow, formatMinorHint, groupPassimpayCurrenciesByNetwork, passimpayNetworkLabel } from '../../lib/paymentCurrencies'
 import { WalletNativeSelectRow, WalletPanel, WalletPrimaryButton } from './WalletShell'
-import { IconCircleDollarSign } from '../icons'
+import { CryptoLogoMark } from './CryptoLogoMark'
 
 type Props = {
   amountUsd: string
@@ -21,6 +21,14 @@ type Props = {
   onRetryCurrencies?: () => void
   selected: PassimpayCurrency | null
   onSelect: (c: PassimpayCurrency) => void
+  /**
+   * When true (wallet modal on phones), pin Continue below a scroll area so the currency dropdown
+   * has room and the CTA stays above the home indicator / bottom nav.
+   */
+  splitFooter?: boolean
+  /** Wallet sheet ref — currency menu can translate the sheet up on small screens. */
+  menuLiftScopeRef?: RefObject<HTMLElement | null>
+  onMenuLiftPxChange?: (px: number) => void
 }
 
 export function WalletDepositPickStep({
@@ -36,26 +44,38 @@ export function WalletDepositPickStep({
   onRetryCurrencies,
   selected,
   onSelect,
+  splitFooter = false,
+  menuLiftScopeRef,
+  onMenuLiftPxChange,
 }: Props) {
   const { t } = useTranslation()
-  const logoUrls = useCryptoLogoUrlMap()
-
   const depositList = useMemo(() => currencies.filter((c) => c.deposit_enabled), [currencies])
+  const depositSymbols = useMemo(() => depositList.map((c) => c.symbol), [depositList])
+  const logoUrls = useCryptoLogoUrlMap(depositSymbols)
 
-  const selectOpts = useMemo(
+  const currencyGroups = useMemo(() => groupPassimpayCurrenciesByNetwork(depositList), [depositList])
+
+  const optionGroups = useMemo(
     () =>
-      depositList.map((c) => ({
-        value: String(c.payment_id),
-        label: currencyOptionLabel(c),
+      currencyGroups.map((g) => ({
+        groupId: g.groupId,
+        heading: g.heading,
+        options: g.currencies.map((c) => {
+          const symLogo = resolveCryptoLogoUrl(logoUrls, c.symbol, c.network)
+          return {
+            value: String(c.payment_id),
+            label: currencyTokenLabelForGroupRow(c),
+            summaryLabel: currencyOptionLabel(c),
+            icon: <CryptoLogoMark url={symLogo} />,
+          }
+        }),
       })),
-    [depositList],
+    [currencyGroups, logoUrls],
   )
 
-  const symLogo = selected ? logoUrls?.[selected.symbol.toLowerCase()] : undefined
+  const minPassimpay = selected ? formatMinorHint(selected.symbol, selected.min_deposit_minor, selected.decimals) : null
 
-  const minPassimpay = selected ? formatMinorHint(selected.symbol, selected.min_deposit_minor) : null
-
-  return (
+  const fields = (
     <>
       <UsdAmountField value={amountUsd} onChange={onAmountUsd} minUsd={minUsd} tone="wallet" />
       {amountErr ? (
@@ -70,7 +90,7 @@ export function WalletDepositPickStep({
         <p className="mb-3 text-xs text-casino-muted">{t('wallet.passimpayCurrenciesLoading')}</p>
       ) : null}
       {currenciesError ? (
-        <div className="mb-3 rounded-lg border border-casino-border bg-casino-elevated/80 px-3 py-2.5" role="alert">
+        <div className="mb-3 rounded-lg border border-casino-border bg-casino-surface px-3 py-2.5" role="alert">
           <p className="text-xs text-red-400">{currenciesError}</p>
           {onRetryCurrencies ? (
             <button
@@ -97,26 +117,15 @@ export function WalletDepositPickStep({
             const row = depositList.find((c) => String(c.payment_id) === v)
             if (row) onSelect(row)
           }}
-          options={selectOpts}
-          icon={
-            symLogo ? (
-              <img src={symLogo} alt="" className="size-5 rounded-full object-cover" loading="lazy" />
-            ) : (
-              <IconCircleDollarSign size={16} className="text-casino-primary" aria-hidden />
-            )
-          }
+          optionGroups={optionGroups}
+          menuLiftScopeRef={menuLiftScopeRef}
+          onMenuLiftPxChange={onMenuLiftPxChange}
         />
-        {selected ? (
+        {selected && (minPassimpay || selected.requires_tag) ? (
           <p className="mb-4 text-[11px] leading-snug text-casino-muted">
-            {t('wallet.passimpayProviderNote', {
-              id: selected.payment_id,
-              sym: selected.symbol,
-              net: selected.network || '—',
-            })}
-            {minPassimpay
-              ? ` ${t('wallet.passimpayMinDeposit', { amount: minPassimpay })}`
-              : ''}
-            {selected.requires_tag ? ` ${t('wallet.passimpayRequiresTag')}` : ''}
+            {minPassimpay ? t('wallet.passimpayMinDeposit', { amount: minPassimpay }) : null}
+            {minPassimpay && selected.requires_tag ? ' ' : null}
+            {selected.requires_tag ? t('wallet.passimpayRequiresTag') : null}
           </p>
         ) : null}
       </WalletPanel>
@@ -129,10 +138,35 @@ export function WalletDepositPickStep({
           />
         </div>
       ) : null}
+    </>
+  )
 
-      <WalletPrimaryButton onClick={onContinue} disabled={!selected || depositList.length === 0}>
-        {continueLabel}
-      </WalletPrimaryButton>
+  const continueBtn = (
+    <WalletPrimaryButton onClick={onContinue} disabled={!selected || depositList.length === 0}>
+      {continueLabel}
+    </WalletPrimaryButton>
+  )
+
+  if (splitFooter) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden max-sm:flex-none sm:min-h-0">
+        <div className="min-h-0 overflow-y-auto overscroll-y-contain scroll-smooth px-3 py-1 scrollbar-casino max-sm:max-h-[min(56dvh,480px)] max-sm:flex-none sm:flex-1 sm:min-h-0 sm:px-4 sm:py-2">
+          {fields}
+        </div>
+        <div className="z-[1] shrink-0 bg-wallet-modal pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
+          <div className="px-3 pt-3 sm:px-4 [&_button]:mt-0">
+            {continueBtn}
+          </div>
+          <div className="mt-3 h-px shrink-0 bg-casino-border -mx-6" aria-hidden />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {fields}
+      {continueBtn}
     </>
   )
 }

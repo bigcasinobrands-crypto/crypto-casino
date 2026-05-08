@@ -98,6 +98,37 @@ func (c *Client) GetDepositAddress(ctx context.Context, paymentID int, orderID s
 	return addr, tag, nil
 }
 
+// CreateInvoiceOrder wraps POST /v2/createorder (invoice / hosted payment link).
+// https://passimpay.gitbook.io/passimpay-api/create-an-invoice-link
+// amountUSD must use two decimal places (e.g. "50.00"). type 1 = cryptocurrencies only.
+func (c *Client) CreateInvoiceOrder(ctx context.Context, orderID, amountUSD string, paymentID int) (payURL string, err error) {
+	st, j, _, err := c.post(ctx, "/v2/createorder", map[string]any{
+		"orderId":    orderID,
+		"amount":     amountUSD,
+		"currencies": fmt.Sprintf("%d", paymentID),
+		"symbol":     "USD",
+		"type":       1,
+	})
+	if err != nil {
+		return "", err
+	}
+	if st < 200 || st >= 300 {
+		msg := ""
+		if j != nil && j["message"] != nil {
+			msg = strings.TrimSpace(fmt.Sprint(j["message"]))
+		}
+		return "", fmt.Errorf("passimpay createorder: HTTP %d %s", st, msg)
+	}
+	if res, ok := j["result"].(float64); !ok || int(res) != 1 {
+		return "", fmt.Errorf("passimpay createorder: result not success %+v", j)
+	}
+	u := strings.TrimSpace(fmt.Sprint(j["url"]))
+	if u == "" {
+		return "", fmt.Errorf("passimpay createorder: missing url in %+v", j)
+	}
+	return u, nil
+}
+
 // CreateWithdraw wraps POST /v2/withdraw. Rate limited to 1 rps upstream.
 func (c *Client) CreateWithdraw(ctx context.Context, paymentID int, addressTo, amount string, orderID string) (txID string, err error) {
 	st, j, _, err := c.post(ctx, "/v2/withdraw", map[string]any{

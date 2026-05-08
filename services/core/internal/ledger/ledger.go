@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -68,13 +69,28 @@ func RecordNonBalanceEvent(ctx context.Context, pool *pgxpool.Pool, userID, curr
 	return ApplyCreditWithPocket(ctx, pool, userID, currency, entryType, idempotencyKey, 0, PocketCash, meta)
 }
 
-// BalanceMinor returns playable balance (cash + bonus_locked).
+// BalanceMinor returns playable balance (cash + bonus_locked) across every `currency`
+// row in the ledger. Only use this when all movements share one minor-unit convention
+// (for example USD cents only). If players hold multiple settlement assets (USDT, ETH, …),
+// use BalanceMinorInCurrency for per-asset play limits or wallet.BalancesHandler for reporting.
 func BalanceMinor(ctx context.Context, pool *pgxpool.Pool, userID string) (int64, error) {
 	var sum int64
 	err := pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
 		WHERE user_id = $1::uuid AND pocket IN ('cash', 'bonus_locked')
 	`, userID).Scan(&sum)
+	return sum, err
+}
+
+// BalanceMinorInCurrency returns playable balance (cash + bonus_locked) for a single ledger
+// `currency` code (e.g. USDT, ETH). Amounts are in that asset's minor units.
+func BalanceMinorInCurrency(ctx context.Context, pool *pgxpool.Pool, userID, currency string) (int64, error) {
+	ccy := strings.ToUpper(strings.TrimSpace(currency))
+	var sum int64
+	err := pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
+		WHERE user_id = $1::uuid AND pocket IN ('cash', 'bonus_locked') AND currency = $2
+	`, userID, ccy).Scan(&sum)
 	return sum, err
 }
 

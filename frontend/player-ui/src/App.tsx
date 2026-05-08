@@ -181,6 +181,25 @@ function AppShell() {
   const rewardsHub = useRewardsHub()
   useRakebackBoostLiveToast(isAuthenticated ? rewardsHub.data : null, isAuthenticated)
 
+  /** Oddin: block iOS/macOS rubber-band that drags past the iframe into empty canvas. */
+  useEffect(() => {
+    if (!oddinBifrostShell) return
+    const root = document.documentElement
+    const body = document.body
+    const mount = document.getElementById('root')
+    const prevRoot = root.style.overscrollBehaviorY
+    const prevBody = body.style.overscrollBehaviorY
+    const prevMount = mount?.style.overscrollBehaviorY ?? ''
+    root.style.overscrollBehaviorY = 'none'
+    body.style.overscrollBehaviorY = 'none'
+    if (mount) mount.style.overscrollBehaviorY = 'none'
+    return () => {
+      root.style.overscrollBehaviorY = prevRoot
+      body.style.overscrollBehaviorY = prevBody
+      if (mount) mount.style.overscrollBehaviorY = prevMount
+    }
+  }, [oddinBifrostShell])
+
   useEffect(() => {
     prefetchCryptoTickersOnce()
   }, [])
@@ -320,7 +339,7 @@ function AppShell() {
       <PersistentMiniPlayerProvider>
         <BootNonLobbyRoutes />
         <div
-          className={`player-app-shell flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased ${chatOpen ? 'shell-chat-open' : ''}`}
+          className={`player-app-shell flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased ${oddinBifrostShell ? 'overscroll-y-none' : ''} ${chatOpen ? 'shell-chat-open' : ''}`}
           style={
             {
               ['--shell-sidebar-w']: sidebarCollapsed ? '52px' : '200px',
@@ -333,7 +352,7 @@ function AppShell() {
               <PlayerHeaderLogo className="relative z-[2] max-w-[38vw] truncate sm:max-w-[10rem]" />
               {isAuthenticated ? (
                 <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-10 sm:px-12">
-                  <div className="pointer-events-auto flex min-h-[36px] min-w-0 max-w-[min(28rem,calc(100vw-7.5rem))] items-center justify-center overflow-hidden px-0.5">
+                  <div className="pointer-events-auto flex min-h-[36px] min-w-0 max-w-[min(28rem,calc(100vw-6.25rem))] items-center justify-center px-0.5">
                     <HeaderWalletBar
                       onOpenWallet={openWallet}
                       depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
@@ -523,7 +542,9 @@ function AppShell() {
             <div
               ref={mainScrollRef}
               id={PLAYER_MAIN_SCROLL_ID}
-              className={`scrollbar-none overscroll-y-contain overscroll-x-none casino-shell-scroll flex min-h-0 min-w-0 flex-col overflow-x-hidden scroll-smooth [overflow-anchor:none] touch-pan-y ${
+              className={`scrollbar-none overscroll-x-none casino-shell-scroll flex min-h-0 min-w-0 flex-col overflow-x-hidden scroll-smooth [overflow-anchor:none] touch-pan-y ${
+                oddinBifrostShell ? 'overscroll-y-none' : 'overscroll-y-contain'
+              } ${
                 oddinBifrostShell ? 'overflow-y-hidden' : 'overflow-y-auto'
               } ${showBottomNav ? '' : 'casino-shell-scroll--no-bottom-nav'}`}
             >
@@ -541,7 +562,7 @@ function AppShell() {
                   Do not use min-h-0 on this routes wrapper: it lets the flex item shrink below game/grid
                   content; overflow stays visible so tiles painted onto the footer below (nested flex bug).
                 */}
-                <div className="flex min-w-0 flex-1 flex-col">
+                <div className={`flex min-w-0 flex-1 flex-col ${oddinBifrostShell ? 'min-h-0' : ''}`}>
                   <Routes>
                     <Route path="/" element={<Navigate to="/casino/games" replace />} />
                     <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />

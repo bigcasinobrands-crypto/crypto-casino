@@ -33,7 +33,7 @@
   /* Wallet modal — aligned with casino cards (#1c1c1c surface, purple CTAs) */
   --color-wallet-backdrop: rgb(0 0 0 / 0.82);
   --color-wallet-modal: #1c1c1c;
-  --color-wallet-panel: #242424;
+  --color-wallet-panel: #1c1c1c;
   --color-wallet-field: #1c1c1c;
   --color-wallet-tab-well: #141414;
   --color-wallet-tab-pill: rgba(123, 97, 255, 0.22);
@@ -125,6 +125,10 @@ body {
     display: none;
     width: 0;
     height: 0;
+  }
+
+  .overscroll-y-none {
+    overscroll-behavior-y: none;
   }
 
   /* Reduces scroll chaining into the browser chrome on macOS/iOS. */

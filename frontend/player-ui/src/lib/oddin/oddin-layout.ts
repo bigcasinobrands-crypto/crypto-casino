@@ -14,10 +14,16 @@ export function measureShellHeaderOffsetPx(): number {
   return maxBottom > 0 ? Math.round(maxBottom) : 64
 }
 
-function measureMobileBottomNavInsetPx(): number {
-  if (typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches) return 0
+/**
+ * Fixed bottom nav — phones always; tablets only on `/esports` (`.casino-shell-mobile-nav--esports-tablet`).
+ * Must not gate on viewport width: inset was `0` on 768–1279px while the bar was still visible.
+ */
+function measureBottomNavInsetPx(): number {
+  if (typeof window === 'undefined') return 0
   const el = document.querySelector('.casino-shell-mobile-nav')
   if (!(el instanceof HTMLElement)) return 0
+  const st = window.getComputedStyle(el)
+  if (st.display === 'none' || st.visibility === 'hidden') return 0
   const r = el.getBoundingClientRect()
   if (r.height <= 0 || r.top <= 0) return 0
   return Math.max(0, Math.round(window.innerHeight - r.top))
@@ -26,6 +32,22 @@ function measureMobileBottomNavInsetPx(): number {
 export function bifrostHeightPx(): number {
   if (typeof window === 'undefined') return 720
   const top = measureShellHeaderOffsetPx()
-  const bottom = measureMobileBottomNavInsetPx()
+  const bottom = measureBottomNavInsetPx()
   return Math.max(320, window.innerHeight - top - bottom)
+}
+
+/**
+ * Prefer the laid-out `#bifrost` slot (flex + banners + shell padding). Falls back to viewport math
+ * when height is not ready yet — avoids iframe taller than its host, which caused outer/body overscroll on iOS.
+ */
+export function bifrostContentHeightPx(): number {
+  if (typeof document === 'undefined') return bifrostHeightPx()
+  const el = document.getElementById('bifrost')
+  if (el instanceof HTMLElement) {
+    const h = el.clientHeight
+    if (Number.isFinite(h) && h > 0) {
+      return Math.max(280, Math.floor(h))
+    }
+  }
+  return bifrostHeightPx()
 }

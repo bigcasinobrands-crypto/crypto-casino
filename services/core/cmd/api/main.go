@@ -419,11 +419,12 @@ func main() {
 				r.Group(func(r chi.Router) {
 					r.Use(httprate.LimitByIP(60, time.Minute))
 					r.Get("/wallet/payment-currencies", wallet.PaymentCurrenciesHandler(pool, &cfg))
-					// Per-user limit (10 deposit-address fetches / hour) on top of the
-					// IP-based limit, to prevent a single user from sweeping the address
-					// generator endlessly even from changing IPs.
-					r.With(playerapi.LimitByUserID(10, time.Hour)).
+					// Per-user limit prevents sweeping the address generator from many IPs; the UI
+					// may prefetch once per currency + load on the address step, so keep headroom.
+					r.With(playerapi.LimitByUserID(120, time.Hour)).
 						Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg))
+					r.With(playerapi.LimitByUserID(120, time.Hour)).
+						Post("/wallet/deposit-invoice", wallet.DepositInvoiceHandler(pool, &cfg))
 					r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg))
 				})
 			})

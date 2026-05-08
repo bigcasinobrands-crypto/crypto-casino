@@ -156,8 +156,8 @@ export function AssetToggleRow({
             onClick={() => onSymbol(a.id)}
             className={`flex flex-col items-center gap-1 rounded-lg border px-1.5 py-2 text-center transition ${
               on
-                ? `border-casino-primary bg-casino-elevated ring-1 ${a.ring}`
-                : 'border-casino-border hover:border-casino-border/80'
+                ? `border-casino-primary bg-casino-surface ring-1 ${a.ring}`
+                : 'border-casino-border bg-casino-surface hover:border-white/12 hover:bg-casino-chip-hover'
             }`}
           >
             <CryptoLogoOrFallback
@@ -223,8 +223,10 @@ export function NetworkCardGrid({
               key={id}
               type="button"
               onClick={() => onNetwork(id)}
-              className={`flex w-full items-start gap-2 rounded-lg border p-2 text-left transition hover:bg-casino-bg/40 ${
-                selected ? 'border-red-500 bg-casino-elevated/60 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]' : 'border-casino-border'
+              className={`flex w-full items-start gap-2 rounded-lg border bg-casino-surface p-2 text-left transition ${
+                selected
+                  ? 'border-red-500 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]'
+                  : 'border-casino-border hover:border-white/12 hover:bg-casino-chip-hover'
               }`}
             >
               <NetworkGlyph id={id} logoUrl={logoUrls?.[NETWORK_CHAIN_LOGO[id]]} />
@@ -284,8 +286,10 @@ export function WithdrawNetworkCardGrid({
               key={id}
               type="button"
               onClick={() => onNetwork(id)}
-              className={`flex w-full items-start gap-2 rounded-lg border p-2 text-left transition hover:bg-casino-bg/40 ${
-                selected ? 'border-red-500 bg-casino-elevated/60 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]' : 'border-casino-border'
+              className={`flex w-full items-start gap-2 rounded-lg border bg-casino-surface p-2 text-left transition ${
+                selected
+                  ? 'border-red-500 shadow-[0_0_0_1px_rgba(239,68,68,0.35)]'
+                  : 'border-casino-border hover:border-white/12 hover:bg-casino-chip-hover'
               }`}
             >
               <NetworkGlyph id={id} logoUrl={logoUrls?.[NETWORK_CHAIN_LOGO[id]]} />
@@ -349,8 +353,8 @@ export function UsdAmountField({
         <div
           className={
             wallet
-              ? 'flex items-center rounded-lg border border-casino-border bg-casino-elevated px-3 text-xs font-semibold text-casino-muted'
-              : 'flex items-center rounded-lg border border-casino-border bg-casino-elevated px-2.5 text-xs font-semibold text-casino-muted'
+              ? 'flex items-center rounded-lg border border-casino-border bg-casino-segment-track px-3 text-xs font-semibold text-casino-muted'
+              : 'flex items-center rounded-lg border border-casino-border bg-casino-segment-track px-2.5 text-xs font-semibold text-casino-muted'
           }
         >
           {t('wallet.currencyUsd')}
@@ -408,7 +412,7 @@ export function InstructionsNetworkStrip({
   return (
     <div>
       <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-casino-muted">{t('wallet.networkSection')}</p>
-      <div className="flex items-center gap-2 rounded-lg border border-casino-border bg-casino-elevated/40 p-2">
+      <div className="flex items-center gap-2 rounded-lg border border-casino-border bg-casino-surface p-2">
         <NetworkGlyph id={network} logoUrl={logoUrls?.[NETWORK_CHAIN_LOGO[network]]} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -438,7 +442,7 @@ export function InstructionsCryptoFiatChrome({
       <button
         type="button"
         onClick={onBack}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-casino-border bg-casino-bg py-2 text-xs font-medium text-casino-foreground hover:bg-casino-elevated"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-casino-border bg-casino-surface py-2 text-xs font-medium text-casino-foreground hover:border-white/12 hover:bg-casino-chip-hover"
       >
         {t('wallet.back')}
       </button>

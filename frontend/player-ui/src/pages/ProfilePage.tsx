@@ -38,6 +38,7 @@ import {
   IconWallet,
 } from '../components/icons'
 import { getFingerprintForAction } from '../lib/fingerprintClient'
+import { formatCryptoQuantityUpToFourDecimals, isUsdDollarPrefixedSymbol } from '../lib/paymentCurrencies'
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { useVipStatus } from '../hooks/useVipStatus'
 import { useVipProgram } from '../hooks/useVipProgram'
@@ -1688,20 +1689,33 @@ type WalletEntry = {
   bonus_locked_minor?: number
 }
 
-const CURRENCY_META: Record<string, { name: string; color: string; symbol: string }> = {
-  USDT: { name: 'Tether', color: '#26a17b', symbol: '$' },
-  USDC: { name: 'USDC', color: '#2775ca', symbol: '$' },
-  SOL: { name: 'Solana', color: '#14f195', symbol: 'S' },
-  BTC: { name: 'Bitcoin', color: '#f7931a', symbol: '₿' },
-  ETH: { name: 'Ethereum', color: '#627eea', symbol: 'Ξ' },
-  DOGE: { name: 'Dogecoin', color: '#d7b33e', symbol: 'Ð' },
-  XRP: { name: 'Ripple', color: '#6f677f', symbol: 'X' },
-  LTC: { name: 'Litecoin', color: '#5d8dff', symbol: 'Ł' },
-  TRX: { name: 'Tron', color: '#ff0013', symbol: 'T' },
+type ProfileCurrencyMeta = { name: string; color: string; symbol: string; decimals: number }
+
+/** Ledger `amount_minor` scale per currency (see services/core ledger minor units). */
+const CURRENCY_META: Record<string, ProfileCurrencyMeta> = {
+  USDT: { name: 'Tether', color: '#26a17b', symbol: '$', decimals: 2 },
+  USDC: { name: 'USD Coin', color: '#2775ca', symbol: '$', decimals: 2 },
+  DAI: { name: 'Dai', color: '#f5ac37', symbol: '◈', decimals: 2 },
+  SOL: { name: 'Solana', color: '#14f195', symbol: 'S', decimals: 9 },
+  BTC: { name: 'Bitcoin', color: '#f7931a', symbol: '₿', decimals: 8 },
+  ETH: { name: 'Ethereum', color: '#627eea', symbol: 'Ξ', decimals: 18 },
+  DOGE: { name: 'Dogecoin', color: '#d7b33e', symbol: 'Ð', decimals: 8 },
+  XRP: { name: 'Ripple', color: '#6f677f', symbol: 'X', decimals: 6 },
+  LTC: { name: 'Litecoin', color: '#5d8dff', symbol: 'Ł', decimals: 8 },
+  TRX: { name: 'Tron', color: '#ff0013', symbol: 'T', decimals: 6 },
 }
 
-function getCurrencyMeta(code: string) {
-  return CURRENCY_META[code.toUpperCase()] ?? { name: code, color: '#a099a8', symbol: code.charAt(0) }
+function getCurrencyMeta(code: string): ProfileCurrencyMeta {
+  const u = code.toUpperCase()
+  const row = CURRENCY_META[u]
+  if (row) return row
+  return { name: code, color: '#a099a8', symbol: (u.charAt(0) || '?').toUpperCase(), decimals: 2 }
+}
+
+function formatProfileWalletPrimary(minor: number, currency: string, decimals: number): string {
+  const v = minor / 10 ** decimals
+  if (isUsdDollarPrefixedSymbol(currency)) return v.toFixed(2)
+  return formatCryptoQuantityUpToFourDecimals(v)
 }
 
 const WALLET_POLL_MS = 15_000
@@ -1749,14 +1763,27 @@ function useWallets() {
 }
 
 function WalletPanel() {
-  const { t, i18n } = useTranslation()
-  const lng = i18n.language
+  const { t } = useTranslation()
   const { wallets, loading } = useWallets()
 
+  const sortedWallets = useMemo(() => {
+    const rank = (c: string) => {
+      const u = c.toUpperCase()
+      if (u === 'USDT') return 0
+      if (u === 'USDC') return 1
+      return 2
+    }
+    return [...wallets].sort((a, b) => {
+      const d = rank(a.currency) - rank(b.currency)
+      if (d !== 0) return d
+      return a.currency.localeCompare(b.currency, undefined, { sensitivity: 'base' })
+    })
+  }, [wallets])
+
   return (
-    <div className="flex flex-col gap-5 rounded-casino-lg bg-casino-card p-5 sm:p-6">
-      <h3 className="flex items-center gap-2.5 text-lg font-extrabold text-casino-foreground">
-        <IconWallet size={20} className="text-casino-primary" />
+    <div className="flex flex-col gap-5 rounded-casino-lg border border-casino-border bg-casino-card p-5 sm:p-6">
+      <h3 className="flex items-center gap-2.5 text-lg font-extrabold tracking-tight text-casino-foreground">
+        <IconWallet size={20} className="shrink-0 text-casino-primary" aria-hidden />
         {t('profile.myWallets')}
       </h3>
 
@@ -1768,45 +1795,45 @@ function WalletPanel() {
         <p className="py-6 text-center text-sm text-casino-muted">{t('profile.walletEmpty')}</p>
       ) : (
         <div className="flex flex-col gap-3">
-          {wallets.map((w) => {
+          {sortedWallets.map((w) => {
             const meta = getCurrencyMeta(w.currency)
-            const bal = (w.balance_minor / 100).toLocaleString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })
+            const dec = meta.decimals
+            const primaryStr = formatProfileWalletPrimary(w.balance_minor, w.currency, dec)
+            const bonusStr = formatProfileWalletPrimary(w.bonus_locked_minor ?? 0, w.currency, dec)
+            const showUsdRef = isUsdDollarPrefixedSymbol(w.currency)
+            const usdRefStr = showUsdRef ? `$${(w.balance_minor / 10 ** dec).toFixed(2)}` : null
+
             return (
               <div
                 key={w.currency}
-                className="flex items-center justify-between rounded-casino-md border border-white/[0.04] bg-white/[0.02] px-4 py-3.5"
+                className="flex min-w-0 items-center justify-between gap-4 rounded-casino-md border border-casino-border bg-casino-surface px-4 py-4 sm:px-5"
               >
-                <div className="flex items-center gap-3.5">
+                <div className="flex min-w-0 flex-1 items-center gap-3.5">
                   <div
-                    className="flex size-9 items-center justify-center rounded-full text-sm font-bold"
-                    style={{ backgroundColor: `${meta.color}18`, color: meta.color }}
+                    className="flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                    style={{ backgroundColor: `${meta.color}22`, color: meta.color }}
+                    aria-hidden
                   >
                     {meta.symbol}
                   </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-extrabold text-casino-foreground">{w.currency}</span>
-                    <span className="text-xs font-semibold text-casino-muted">{meta.name}</span>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate text-sm font-extrabold tracking-tight text-casino-foreground">
+                      {w.currency.toUpperCase()}
+                    </span>
+                    <span className="truncate text-xs font-medium text-casino-muted">{meta.name}</span>
                   </div>
                 </div>
-                <div className="flex flex-col items-end gap-0.5">
-                  <span className="text-[15px] font-extrabold tabular-nums text-casino-foreground">{bal}</span>
-                  {w.currency === 'USDT' || w.currency === 'USDC' ? (
-                    <span className="text-xs font-semibold text-casino-muted">${bal}</span>
-                  ) : (
-                    <span className="text-xs font-semibold text-casino-muted">{w.currency}</span>
-                  )}
-                  <span className="text-[11px] font-semibold text-casino-muted">
-                    {t('profile.bonusRemaining')}{' '}
-                    <span className="text-casino-foreground">
-                      {((w.bonus_locked_minor ?? 0) / 100).toLocaleString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
+                <div className="flex shrink-0 flex-col items-end justify-center gap-1 text-right">
+                  <span className="text-[15px] font-extrabold tabular-nums tracking-tight text-casino-foreground sm:text-base">
+                    {primaryStr}
                   </span>
+                  {usdRefStr ? (
+                    <span className="text-xs font-medium tabular-nums text-casino-muted">{usdRefStr}</span>
+                  ) : null}
+                  <p className="max-w-[14rem] text-[11px] font-medium leading-snug text-casino-muted">
+                    {t('profile.bonusRemaining')}{' '}
+                    <span className="font-semibold tabular-nums text-casino-foreground">{bonusStr}</span>
+                  </p>
                 </div>
               </div>
             )

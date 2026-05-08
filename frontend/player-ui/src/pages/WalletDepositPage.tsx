@@ -7,6 +7,7 @@ import type { PassimpayCurrency } from '../lib/paymentCurrencies'
 import {
   DepositAddressPanel,
   DepositSentPanel,
+  type DepositAddrRes,
   amountUsdTextFromSearchParams,
   effectiveWalletDepositPhase,
   validAddressStepParams,
@@ -18,8 +19,9 @@ const MIN_USD = 10
 
 export default function WalletDepositPage() {
   const { t } = useTranslation()
-  const { isAuthenticated } = usePlayerAuth()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [addrPrefetch, setAddrPrefetch] = useState<{ key: string; data: DepositAddrRes } | null>(null)
 
   const phase = effectiveWalletDepositPhase(searchParams)
 
@@ -50,6 +52,32 @@ export default function WalletDepositPage() {
     if (row) setSelected(row)
   }, [currencies, searchParams])
 
+  useEffect(() => {
+    if (!isAuthenticated || phase !== 'form' || !selected) return
+    const key = `${selected.payment_id}|${selected.symbol}|${selected.network}`
+    let cancelled = false
+    void (async () => {
+      try {
+        const q = new URLSearchParams({
+          payment_id: String(selected.payment_id),
+          symbol: selected.symbol,
+          network: selected.network,
+        })
+        const res = await apiFetch(`/v1/wallet/deposit-address?${q}`)
+        if (!res.ok || cancelled) return
+        const j = (await res.json()) as DepositAddrRes
+        if (!cancelled && j?.address?.trim()) {
+          setAddrPrefetch((prev) => (prev?.key === key ? prev : { key, data: j }))
+        }
+      } catch {
+        /* prefetch is best-effort */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, phase, selected, apiFetch])
+
   const paymentIdFromUrl = useMemo(() => {
     const pid = Number(searchParams.get('payment_id'))
     return Number.isFinite(pid) && pid >= 1 ? pid : null
@@ -68,6 +96,13 @@ export default function WalletDepositPage() {
   const amountUsdForAddress = useMemo(() => amountUsdTextFromSearchParams(searchParams), [searchParams])
 
   const sentNetworkLabel = useMemo(() => passimpayNetworkLabel(networkForStep), [networkForStep])
+
+  const addressStepKey =
+    paymentIdFromUrl != null && symbolForStep && networkForStep
+      ? `${paymentIdFromUrl}|${symbolForStep}|${networkForStep}`
+      : ''
+  const initialDepositSnapshot =
+    addressStepKey && addrPrefetch?.key === addressStepKey ? addrPrefetch.data : null
 
   const continueToAddress = () => {
     setAmountErr(null)
@@ -126,12 +161,18 @@ export default function WalletDepositPage() {
       <>
         <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <DepositAddressPanel
+          key={addressStepKey}
           paymentId={paymentIdFromUrl}
           symbol={symbolForStep}
           network={networkForStep}
           amountUsdText={amountUsdForAddress}
+          amountMinor={(() => {
+            const n = Number(searchParams.get('amount_minor'))
+            return Number.isFinite(n) && n >= MIN_USD * 100 ? Math.round(n) : null
+          })()}
           onBack={backFromAddress}
           onSent={markSent}
+          initialDepositSnapshot={initialDepositSnapshot}
         />
       </>,
     )

@@ -13,35 +13,62 @@ type PlayerBonusRow = {
   title?: string
 }
 
+type AvailableOfferRow = {
+  promotion_version_id: number
+  title?: string
+  description?: string
+  kind?: string
+  offer_details?: {
+    audience?: { first_deposit_only?: boolean }
+  }
+}
+
 function statusBucket(status: string): 'active' | 'past' {
   const s = status.toLowerCase()
   if (s === 'active' || s === 'pending' || s === 'pending_review') return 'active'
   return 'past'
 }
 
+function pickWelcomeOffer(offers: AvailableOfferRow[]): AvailableOfferRow | null {
+  if (!offers.length) return null
+  const welcome = offers.find((o) => o.offer_details?.audience?.first_deposit_only === true)
+  return welcome ?? offers[0] ?? null
+}
+
 /**
- * “Choose your bonus” panel matching Banani wallet chrome — loads active instance bonus when available.
+ * “Choose your bonus” panel — active instance bonus, else best available welcome / welcome-tagged offer.
  */
 export function WalletBonusStrip() {
   const { t } = useTranslation()
   const { apiFetch, refreshProfile } = usePlayerAuth()
   const [loading, setLoading] = useState(true)
   const [bonuses, setBonuses] = useState<PlayerBonusRow[]>([])
+  const [availableOffers, setAvailableOffers] = useState<AvailableOfferRow[]>([])
   const [forfeitOpen, setForfeitOpen] = useState(false)
   const [forfeitBusy, setForfeitBusy] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiFetch('/v1/wallet/bonuses')
-      if (!res.ok) {
+      const [resBonuses, resAvail] = await Promise.all([
+        apiFetch('/v1/wallet/bonuses'),
+        apiFetch('/v1/bonuses/available'),
+      ])
+      if (resBonuses.ok) {
+        const j = (await resBonuses.json()) as { bonuses?: PlayerBonusRow[] }
+        setBonuses(Array.isArray(j.bonuses) ? j.bonuses : [])
+      } else {
         setBonuses([])
-        return
       }
-      const j = (await res.json()) as { bonuses?: PlayerBonusRow[] }
-      setBonuses(Array.isArray(j.bonuses) ? j.bonuses : [])
+      if (resAvail.ok) {
+        const j = (await resAvail.json()) as { offers?: AvailableOfferRow[] }
+        setAvailableOffers(Array.isArray(j.offers) ? j.offers : [])
+      } else {
+        setAvailableOffers([])
+      }
     } catch {
       setBonuses([])
+      setAvailableOffers([])
     } finally {
       setLoading(false)
     }
@@ -56,7 +83,9 @@ export function WalletBonusStrip() {
     [bonuses],
   )
 
-  const title = active?.title?.trim() || active?.promotion_version_id
+  const welcomeOffer = useMemo(() => pickWelcomeOffer(availableOffers), [availableOffers])
+
+  const activeTitle = active?.title?.trim() || active?.promotion_version_id
 
   const runForfeit = async () => {
     if (!active) return
@@ -95,11 +124,11 @@ export function WalletBonusStrip() {
     <>
       <WalletPanel className="mb-4">
         <div className="mb-3 text-[13px] font-semibold text-white">{t('wallet.chooseBonus')}</div>
-        {active && title ? (
+        {active && activeTitle ? (
           <>
             <div className="mb-4 flex items-center justify-between gap-2 text-[13px] font-medium text-white">
               <span className="min-w-0 leading-snug">
-                {t('wallet.nowActiveBonus', { title: String(title) })}
+                {t('wallet.nowActiveBonus', { title: String(activeTitle) })}
               </span>
               <WalletInfoTrigger
                 label={t('wallet.activeBonusInfo')}
@@ -114,6 +143,17 @@ export function WalletBonusStrip() {
               {t('profile.forfeit')}
             </button>
           </>
+        ) : welcomeOffer?.title ? (
+          <div className="space-y-2">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-casino-muted">
+              {t('wallet.welcomeOfferHeading')}
+            </p>
+            <p className="text-[13px] font-semibold leading-snug text-white">{welcomeOffer.title}</p>
+            {welcomeOffer.description?.trim() ? (
+              <p className="text-[12px] leading-relaxed text-wallet-subtext">{welcomeOffer.description.trim()}</p>
+            ) : null}
+            <p className="text-[11px] leading-snug text-wallet-subtext">{t('wallet.welcomeOfferDepositHint')}</p>
+          </div>
         ) : (
           <p className="text-[13px] text-wallet-subtext">{t('wallet.noActiveBonus')}</p>
         )}
