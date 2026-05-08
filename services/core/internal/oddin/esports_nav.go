@@ -15,7 +15,7 @@ const (
 	esportsNavMaxItems    = 80
 	esportsNavMaxIDLen    = 64
 	esportsNavMaxLabelLen = 128
-	esportsNavMaxPageLen  = 512
+	esportsNavMaxPageLen  = 8192
 	esportsNavMaxURILen   = 2048
 )
 

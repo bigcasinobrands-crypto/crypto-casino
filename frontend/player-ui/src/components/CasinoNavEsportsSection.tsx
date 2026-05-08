@@ -135,19 +135,21 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
     'border border-white/[0.08] bg-casino-segment-track text-casino-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:bg-white/[0.06] hover:text-white/90'
 
   const subWrap =
-    variant === 'sidebar' ? 'mb-2 ml-2 mt-1 border-l border-casino-primary/22 pl-3' : 'mb-1'
+    variant === 'sidebar'
+      ? 'mb-2 ml-2 mt-1 min-w-0 max-w-full border-l border-casino-primary/22 pl-3'
+      : 'mb-1 min-w-0 max-w-full'
 
   const subListScroll =
     variant === 'sidebar'
-      ? 'scrollbar-esports flex min-h-0 max-h-[min(24rem,55dvh)] flex-col gap-0.5 overflow-y-auto overscroll-y-contain py-0.5 pr-0.5'
-      : 'scrollbar-esports flex min-h-0 max-h-[min(32rem,70dvh)] flex-col gap-0.5 overflow-y-auto overscroll-y-contain py-0.5 pr-0.5'
+      ? 'scrollbar-esports flex min-h-0 min-w-0 max-h-[min(24rem,55dvh)] max-w-full flex-col gap-0.5 overflow-x-hidden overflow-y-auto overscroll-y-contain py-0.5 pr-0.5'
+      : 'scrollbar-esports flex min-h-0 min-w-0 max-h-[min(32rem,70dvh)] max-w-full flex-col gap-0.5 overflow-x-hidden overflow-y-auto overscroll-y-contain py-0.5 pr-0.5'
 
   const headerChevronClass = segmentActive
     ? `shrink-0 transition ${open ? 'rotate-180 text-white/90' : 'text-white/90'}`
     : 'icon-chevron shrink-0 text-casino-muted/90 transition'
 
   return (
-    <div>
+    <div className="min-w-0 w-full max-w-full">
       <button
         type="button"
         className={`${sectionHeaderBtn} ${segmentActive ? (open ? sectionOpen : sectionClosed) : sectionInactiveShell}`}
@@ -199,7 +201,7 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
                   <span className={iconCell} aria-hidden>
                     <EsportsRowGlyph item={item} size={iconSize} />
                   </span>
-                  <span className="min-w-0 flex-1">{label}</span>
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
                 </NavLink>
               )
             }
@@ -213,7 +215,7 @@ export default function CasinoNavEsportsSection({ variant, collapsed, onNavigate
                 <span className={iconCell} aria-hidden>
                   <EsportsRowGlyph item={item} size={iconSize} />
                 </span>
-                <span className="min-w-0 flex-1">{label}</span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
               </NavLink>
             )
           })}

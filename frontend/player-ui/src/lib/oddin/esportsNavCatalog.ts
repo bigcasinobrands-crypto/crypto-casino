@@ -1,11 +1,13 @@
 /**
  * Esports shortcuts for the sidebar / mobile drawer.
- * `page` is passed as `?page=` and forwarded to Oddin's Bifrost `route` API.
+ * `page` is passed as `?page=` and forwarded to Oddin's Bifrost `route` API (Oddin sport URN, path, or opaque JWT from Sports_Routes).
  *
  * Prefer **Oddin-supplied `logoUrl`** (HTTPS) on each row in `ODDIN_ESPORTS_NAV_JSON` / `GET /v1/sportsbook/oddin/esports-nav`.
  * The bundled list below only fills gaps: titles use **game marks** where a stable CDN icon exists — not publisher wordmarks
  * that repeat across unrelated rows. `mergeEsportsNavLogosFromFallback` merges these when the API omits `logoUrl`.
  */
+import { applyEsportsBifrostRoutesToAll, isOpaqueOddinBifrostRoute } from './esportsOddinSportRoutes'
+
 export type EsportsNavItem = {
   id: string
   label: string
@@ -19,11 +21,8 @@ export type EsportsNavItem = {
 
 const si = (slug: string, color: string) => `https://cdn.simpleicons.org/${slug}/${color}`
 
-/**
- * Default list aligned with Oddin's recommended "Sports order" for the iframe. Client order may differ.
- * Rows without `logoUrl` use the swords fallback (failed remote icons do the same via `onError`).
- */
-export const ESPORTS_NAV_FALLBACK: EsportsNavItem[] = [
+/** Legacy `/slug` paths are rewritten to Oddin `od:sport:*` on export. */
+const RAW_ESPORTS_NAV_FALLBACK: EsportsNavItem[] = [
   { id: 'overview', label: 'Overview', page: '' },
   { id: 'lol', label: 'League of Legends', page: '/lol', logoUrl: si('leagueoflegends', 'C89B3C') },
   { id: 'dota2', label: 'Dota 2', page: '/dota2', logoUrl: si('dota2', 'D04C24') },
@@ -78,10 +77,14 @@ export const ESPORTS_NAV_FALLBACK: EsportsNavItem[] = [
   },
 ]
 
-/** Normalize Bifrost `page` for lookup (leading slash + lowercase). */
+/** Sidebar / drawer rows with Bifrost `route` targets from Oddin sport URNs (or overrides). */
+export const ESPORTS_NAV_FALLBACK: EsportsNavItem[] = applyEsportsBifrostRoutesToAll(RAW_ESPORTS_NAV_FALLBACK)
+
+/** Normalize Bifrost `page` for logo lookup; opaque JWT tokens stay unchanged (case-sensitive). */
 export function normalizeEsportsNavPageKey(page: string): string {
   const p = page.trim()
   if (!p) return ''
+  if (isOpaqueOddinBifrostRoute(p)) return p
   const withSlash = p.startsWith('/') ? p : `/${p}`
   return withSlash.toLowerCase()
 }
@@ -101,7 +104,7 @@ function buildEsportsNavLogoLookups(rows: EsportsNavItem[]): LogoLookups {
   return { byPage, byId }
 }
 
-const ESPORTS_NAV_LOGO_LOOKUPS = buildEsportsNavLogoLookups(ESPORTS_NAV_FALLBACK)
+const ESPORTS_NAV_LOGO_LOOKUPS = buildEsportsNavLogoLookups(RAW_ESPORTS_NAV_FALLBACK)
 
 /**
  * When `GET /v1/sportsbook/oddin/esports-nav` returns rows without `logoUrl`, fill from the bundled fallback

@@ -5,6 +5,7 @@ import {
   mergeEsportsNavLogosFromFallback,
   type EsportsNavItem,
 } from '../lib/oddin/esportsNavCatalog'
+import { applyEsportsBifrostRoutesToAll } from '../lib/oddin/esportsOddinSportRoutes'
 import { useOddinBootstrap } from '../context/OddinBootstrapContext'
 
 function normalizeApiItem(x: Record<string, unknown>): EsportsNavItem | null {
@@ -18,7 +19,8 @@ function normalizeApiItem(x: Record<string, unknown>): EsportsNavItem | null {
 }
 
 /**
- * E-Sports sidebar rows: operator list from GET /v1/sportsbook/oddin/esports-nav when configured; missing `logoUrl`
+ * E-Sports sidebar rows: operator list from GET /v1/sportsbook/oddin/esports-nav when configured; slash `page` paths
+ * are upgraded to Oddin `od:sport:*` URNs when IDs match; JWT `page` values from the API are kept. Missing `logoUrl`
  * is filled from bundled fallbacks (Oddin should supply HTTPS `logoUrl` per title for a perfect match).
  */
 export function useOddinEsportsNav() {
@@ -43,7 +45,7 @@ export function useOddinEsportsNav() {
           if (it) next.push(it)
         }
         if (next.length === 0 || cancelled) return
-        setItems(mergeEsportsNavLogosFromFallback(next))
+        setItems(applyEsportsBifrostRoutesToAll(mergeEsportsNavLogosFromFallback(next)))
         setLabelsFromOperator(true)
       } catch {
         /* use fallback */

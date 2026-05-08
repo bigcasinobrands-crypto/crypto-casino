@@ -529,15 +529,15 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
   /** Overall wallet balance $0.00 (minor units) — show perimeter pulse on every breakpoint. */
   const showZeroBalanceAlert = isAuthenticated && balanceMinor !== null && balanceMinor === 0
 
-  /** Left tray: stretches full pill height; vertical padding only here so Deposit meets top/bottom inner border. */
+  /** Left tray: compact on desktop; tablet can still grow in centered header slot. */
   const chipInnerClosed =
-    'relative z-[1] flex min-h-8 min-w-0 flex-1 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 md:min-h-9 md:self-stretch md:rounded-none md:border-0 md:bg-transparent md:py-1.5 md:pl-1 md:pr-3 md:shadow-none md:ring-0 max-[1279px]:md:min-h-9 max-[1279px]:md:py-1.5 max-[1279px]:md:pl-1 max-[1279px]:md:pr-2 min-[1280px]:md:min-h-10 min-[1280px]:md:py-2 min-[1280px]:md:pl-2 min-[1280px]:md:pr-3'
+    'relative z-[1] flex min-h-8 min-w-0 w-auto max-w-full flex-1 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 md:min-h-9 md:self-stretch md:w-auto md:rounded-none md:border-0 md:bg-transparent md:py-1.5 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-9 max-[1279px]:md:flex-1 max-[1279px]:md:py-1.5 max-[1279px]:md:pl-1 max-[1279px]:md:pr-2 min-[1280px]:md:min-h-9 min-[1280px]:md:w-auto min-[1280px]:max-w-[min(11.5rem,calc(100vw-14rem))] min-[1280px]:md:flex-none min-[1280px]:md:shrink min-[1280px]:md:py-1.5 min-[1280px]:md:pl-1.5 min-[1280px]:md:pr-1.5'
 
   /** Balance + asset picker — grows/shrinks inside `chipInnerClosed`; balance line truncates. */
   const walletBarCore = (
-    <div className="flex min-h-8 min-w-0 flex-1 items-center gap-1 md:min-h-9 md:gap-1 min-[1280px]:md:gap-1.5 min-[1280px]:gap-2">
+    <div className="flex min-h-8 min-w-0 flex-1 items-center gap-1 md:min-h-9 md:gap-1 max-[1279px]:md:flex-1 min-[1280px]:md:flex-none min-[1280px]:md:gap-1">
       <div className="flex min-w-0 flex-col items-start leading-tight">
-        <span className="truncate text-[10px] font-semibold tabular-nums text-white max-[1279px]:md:text-[10px] md:text-xs min-[1280px]:text-sm">
+        <span className="truncate text-[10px] font-semibold tabular-nums text-white max-[1279px]:md:text-[10px] md:text-xs min-[1280px]:text-xs">
           {formatWalletChipAmount(isAuthenticated ? balanceMinor : 0, showBalancesUsd, active.symbol)}
         </span>
         {isAuthenticated && balanceBreakdown && balanceBreakdown.bonusLockedMinor > 0 ? (
@@ -552,12 +552,12 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
         onClick={() => setOpen((p) => !p)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="flex h-7 max-w-[100vw] shrink-0 items-center gap-0.5 rounded-lg px-1 text-[10px] font-semibold text-white transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50 md:h-7 md:gap-1 md:px-1 md:text-[11px] max-[1279px]:md:h-7 min-[1280px]:md:h-8 min-[1280px]:md:gap-1.5 min-[1280px]:md:px-1.5 min-[1280px]:md:text-xs"
+        className="flex h-7 max-w-[100vw] shrink-0 items-center gap-0.5 rounded-lg px-1 text-[10px] font-semibold text-white transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50 md:h-7 md:gap-0.5 md:px-1 md:text-[11px] max-[1279px]:md:h-7 min-[1280px]:md:h-7 min-[1280px]:md:gap-1 min-[1280px]:md:px-1 min-[1280px]:md:text-xs"
       >
         <ChainLogo wallet={active} logoUrl={activeChipLogoUrl} />
         <span className="font-bold text-white md:inline">{active.symbol}</span>
         <span className="hidden text-casino-muted min-[1280px]:inline">·</span>
-        <span className="hidden max-w-[6rem] truncate text-xs font-medium text-casino-muted min-[1280px]:inline">
+        <span className="hidden max-w-[4.5rem] truncate text-xs font-medium text-casino-muted min-[1280px]:inline">
           {passimpayNetworkLabel(active.network)}
         </span>
         <IconChevronDown
@@ -576,7 +576,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
       title={t('header.deposit')}
       aria-label={t('header.depositAriaLabel')}
       aria-current={depositNavActive ? 'page' : undefined}
-      className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-tight text-white antialiased transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:h-full md:min-h-0 md:w-auto md:min-w-0 md:rounded-l-none md:rounded-r-full md:border-0 md:px-3.5 md:py-0 md:text-xs md:font-bold md:leading-tight md:shadow-none max-[1279px]:md:px-3 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:max-w-8 max-[1000px]:min-[768px]:md:px-0 min-[1280px]:md:px-5 min-[1280px]:md:py-0 min-[1280px]:md:text-sm bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:justify-center ${
+      className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-tight text-white antialiased transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:h-full md:min-h-0 md:w-auto md:min-w-0 md:rounded-l-none md:rounded-r-full md:border-0 md:px-2 md:py-0 md:text-xs md:font-bold md:leading-tight md:shadow-none max-[1279px]:md:px-2.5 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:max-w-8 max-[1000px]:min-[768px]:md:px-0 min-[1280px]:md:w-max min-[1280px]:md:px-2 min-[1280px]:md:py-0 min-[1280px]:md:text-xs bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:justify-center ${
         depositNavActive
           ? 'ring-2 ring-casino-primary/55 shadow-[0_0_12px_rgba(123,97,255,0.38)] md:ring-0 md:shadow-none md:brightness-[1.05]'
           : ''
@@ -602,18 +602,18 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
 
   /** Full pill shell (balance tray + divider + deposit) — same chrome as the non-zero outer `md:` frame. */
   const walletPillInnerSurface =
-    'relative z-[1] flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:py-0 md:pl-2 md:pr-0 max-[1279px]:md:w-full max-[1279px]:md:min-w-0 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,100%)] min-[1280px]:justify-start min-[1280px]:pl-3 min-[1280px]:pr-0'
+    'relative z-[1] flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:py-0 md:pl-1.5 md:pr-0 max-[1279px]:md:w-full max-[1279px]:md:min-w-0 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(17rem,calc(100vw-14rem))] min-[1280px]:justify-start min-[1280px]:pl-1.5 min-[1280px]:pr-0'
 
   /** Outer frame for the full pill (used for layout measurement + floating clone when not in zero-balance ring). */
   const walletPillOuterFrame =
-    'pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:py-0 md:pl-2 md:pr-0 max-[1279px]:md:w-full max-[1279px]:md:min-w-0 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,100%)] min-[1280px]:justify-start min-[1280px]:pl-3 min-[1280px]:pr-0'
+    'pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:py-0 md:pl-1.5 md:pr-0 max-[1279px]:md:w-full max-[1279px]:md:min-w-0 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(17rem,calc(100vw-14rem))] min-[1280px]:justify-start min-[1280px]:pl-1.5 min-[1280px]:pr-0'
 
   return (
     <>
       {showZeroBalanceAlert ? (
         <div
           ref={barRef}
-          className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:rounded-full max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(28rem,100%)]"
+          className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:rounded-full max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(17rem,calc(100vw-14rem))]"
         >
           <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
           <div className={walletPillInnerSurface}>
