@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -75,7 +76,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			return
 		}
 		wantKey := queryValsGetCI(q, "key")
-		if !verifyBlueOceanQueryKey(q, salt, wantKey) {
+		if !verifyBlueOceanWalletKey(r, q, salt, wantKey) {
 			log.Printf("blueocean wallet: invalid key from %s", r.RemoteAddr)
 			http.Error(w, "invalid key", http.StatusUnauthorized)
 			return
@@ -578,6 +579,266 @@ func writeBOWalletJSON(w http.ResponseWriter, status int, balanceMinor int64, ms
 		out.Msg = msg
 	}
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// verifyBlueOceanWalletKey checks key = sha1(salt + signingString). Blue Ocean’s PHP sample uses
+// http_build_query($_GET) after removing key: that preserves parameter **order** from the URL and
+// uses x-www-form-urlencoded rules (spaces as '+'). Go’s url.Values.Encode() sorts keys and uses
+// %20 for spaces — so we try several canonicalizations.
+func verifyBlueOceanWalletKey(r *http.Request, merged url.Values, salt, wantKey string) bool {
+	wantKey = strings.TrimSpace(strings.ToLower(wantKey))
+	if wantKey == "" {
+		return false
+	}
+	dedup := make(map[string]struct{})
+	try := func(signing string) bool {
+		if signing == "" {
+			return false
+		}
+		if _, ok := dedup[signing]; ok {
+			return false
+		}
+		dedup[signing] = struct{}{}
+		// nosemgrep: go.lang.security.audit.crypto.use-of-sha1 -- BO contract
+		sum := sha1.Sum([]byte(salt + signing))
+		got := fmt.Sprintf("%x", sum)
+		return strings.EqualFold(got, wantKey)
+	}
+	if r != nil {
+		if raw := strings.TrimSpace(r.URL.RawQuery); raw != "" {
+			if try(blueOceanSigningFromRawOrdered(raw)) {
+				return true
+			}
+		}
+	}
+	if r != nil && r.Method == http.MethodPost {
+		if signing, ok := blueOceanSigningFromPostJSONBody(r); ok && try(signing) {
+			return true
+		}
+	}
+	if try(blueOceanPHPSortedQuery(merged)) {
+		return true
+	}
+	if try(blueOceanGoURLEncodeQuery(merged)) {
+		return true
+	}
+	return false
+}
+
+
+type blueOceanQueryPair struct {
+	key, val string
+}
+
+func parseQueryStringOrdered(raw string) []blueOceanQueryPair {
+	if raw == "" {
+		return nil
+	}
+	var out []blueOceanQueryPair
+	for _, seg := range strings.Split(raw, "&") {
+		if seg == "" {
+			continue
+		}
+		k, v := seg, ""
+		if i := strings.IndexByte(seg, '='); i >= 0 {
+			k, v = seg[:i], seg[i+1:]
+		}
+		kDec, errK := url.QueryUnescape(k)
+		if errK == nil {
+			k = kDec
+		}
+		vDec, errV := url.QueryUnescape(v)
+		if errV == nil {
+			v = vDec
+		}
+		out = append(out, blueOceanQueryPair{key: k, val: v})
+	}
+	return out
+}
+
+// phpQueryEscape approximates PHP urlencode for application/x-www-form-urlencoded (space -> '+').
+func phpQueryEscape(s string) string {
+	return strings.ReplaceAll(url.QueryEscape(s), "%20", "+")
+}
+
+func blueOceanSigningFromRawOrdered(raw string) string {
+	pairs := parseQueryStringOrdered(raw)
+	var parts []string
+	for _, p := range pairs {
+		if strings.EqualFold(p.key, "key") {
+			continue
+		}
+		parts = append(parts, phpQueryEscape(p.key)+"="+phpQueryEscape(p.val))
+	}
+	return strings.Join(parts, "&")
+}
+
+func blueOceanPHPSortedQuery(q url.Values) string {
+	if q == nil {
+		return ""
+	}
+	var keys []string
+	for k := range q {
+		if strings.EqualFold(k, "key") {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		for _, val := range q[k] {
+			parts = append(parts, phpQueryEscape(k)+"="+phpQueryEscape(val))
+		}
+	}
+	return strings.Join(parts, "&")
+}
+
+func blueOceanGoURLEncodeQuery(q url.Values) string {
+	v := url.Values{}
+	for k, vals := range q {
+		if strings.EqualFold(k, "key") {
+			continue
+		}
+		for _, val := range vals {
+			v.Add(k, val)
+		}
+	}
+	return v.Encode()
+}
+
+const maxBlueOceanJSONBodyPeek = 256 << 10
+
+// blueOceanSigningFromPostJSONBody builds signing string using JSON object key order (BO testers
+// often POST JSON; signature may follow key order in the payload).
+func blueOceanSigningFromPostJSONBody(r *http.Request) (string, bool) {
+	if r == nil || r.Body == nil {
+		return "", false
+	}
+	ct := strings.ToLower(r.Header.Get("Content-Type"))
+	if !strings.Contains(ct, "application/json") && ct != "" {
+		return "", false
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBlueOceanJSONBodyPeek+1))
+	if err != nil || len(body) > maxBlueOceanJSONBodyPeek {
+		return "", false
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	keys, err := jsonObjectStringKeyOrder(bytes.TrimSpace(body))
+	if err != nil || len(keys) == 0 {
+		return "", false
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", false
+	}
+	var parts []string
+	for _, k := range keys {
+		if strings.EqualFold(k, "key") {
+			continue
+		}
+		rawVal, ok := raw[k]
+		if !ok {
+			continue
+		}
+		var str string
+		if err := json.Unmarshal(rawVal, &str); err == nil {
+			parts = append(parts, phpQueryEscape(k)+"="+phpQueryEscape(str))
+			continue
+		}
+		var num json.Number
+		if err := json.Unmarshal(rawVal, &num); err == nil {
+			parts = append(parts, phpQueryEscape(k)+"="+phpQueryEscape(num.String()))
+			continue
+		}
+		var f float64
+		if err := json.Unmarshal(rawVal, &f); err == nil {
+			s := strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", f), "0"), ".")
+			if s == "" || s == "-" {
+				s = "0"
+			}
+			parts = append(parts, phpQueryEscape(k)+"="+phpQueryEscape(s))
+			continue
+		}
+		var b bool
+		if err := json.Unmarshal(rawVal, &b); err == nil {
+			if b {
+				parts = append(parts, phpQueryEscape(k)+"="+phpQueryEscape("1"))
+			} else {
+				parts = append(parts, phpQueryEscape(k)+"="+phpQueryEscape("0"))
+			}
+			continue
+		}
+	}
+	return strings.Join(parts, "&"), len(parts) > 0
+}
+
+func jsonObjectStringKeyOrder(data []byte) ([]string, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	t, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	delim, ok := t.(json.Delim)
+	if !ok || delim != '{' {
+		return nil, fmt.Errorf("want json object")
+	}
+	var keys []string
+	for {
+		t, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		if d, ok := t.(json.Delim); ok && d == '}' {
+			break
+		}
+		key, ok := t.(string)
+		if !ok {
+			return nil, fmt.Errorf("want string key")
+		}
+		keys = append(keys, key)
+		if err := skipJSONValueDecoder(dec); err != nil {
+			return nil, err
+		}
+	}
+	return keys, nil
+}
+
+func skipJSONValueDecoder(dec *json.Decoder) error {
+	t, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	switch v := t.(type) {
+	case json.Delim:
+		switch v {
+		case '[':
+			for dec.More() {
+				if err := skipJSONValueDecoder(dec); err != nil {
+					return err
+				}
+			}
+			if _, err := dec.Token(); err != nil { // ]
+				return err
+			}
+		case '{':
+			for dec.More() {
+				if _, err := dec.Token(); err != nil { // key
+					return err
+				}
+				if err := skipJSONValueDecoder(dec); err != nil {
+					return err
+				}
+			}
+			if _, err := dec.Token(); err != nil { // }
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func verifyBlueOceanQueryKey(q url.Values, salt, wantKey string) bool {
