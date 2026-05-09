@@ -603,7 +603,7 @@ function PlayerBonusesPanel() {
                       <span className="text-xs text-casino-muted">{b.currency}</span>
                     </div>
                     <p className="mt-1 text-xs text-casino-muted">
-                      {t('profile.grantedLabel')} {formatMinorUsd(b.granted_amount_minor, lng)} · WR{' '}
+                      {t('bonuses.grantedLabel')} {formatMinorUsd(b.granted_amount_minor, lng)} · WR{' '}
                       {formatMinorUsd(b.wr_contributed_minor, lng)} / {formatMinorUsd(b.wr_required_minor, lng)}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center justify-end gap-2">

@@ -126,8 +126,7 @@ export default function BonusHubOperationsPage() {
       try {
         const res = await apiFetch('/v1/admin/integrations/blueocean/status')
         if (!res.ok || cancelled) return
-        const j = (await res.json()) as { settlement_currency?: string; multicurrency?: boolean }
-        if (j.multicurrency) return
+        const j = (await res.json()) as { settlement_currency?: string }
         const s = (j.settlement_currency || 'EUR').trim().toUpperCase() || 'EUR'
         if (!cancelled) setMgCurrency(s)
       } catch {
