@@ -375,13 +375,13 @@ function AppShell() {
           className={`player-app-shell flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased ${oddinBifrostShell ? 'overscroll-y-none' : ''} ${chatOpen ? 'shell-chat-open' : ''}`}
           style={
             {
-              ['--shell-sidebar-w']: sidebarCollapsed ? '52px' : '236px',
+              ['--shell-sidebar-w']: sidebarCollapsed ? '48px' : '204px',
             } as React.CSSProperties
           }
         >
           <header className="casino-shell-mobile-header border-b border-white/[0.06] bg-casino-topbar shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
             {/* Mobile: wallet centered in header (`absolute`); actions on the right. */}
-            <div className="relative isolate flex h-16 min-h-[4rem] w-full min-w-0 items-center justify-between gap-x-1 px-2">
+            <div className="relative isolate flex h-14 min-h-[3.5rem] w-full min-w-0 items-center justify-between gap-x-1 px-2">
               <PlayerHeaderLogo className="relative z-[2] max-w-[38vw] truncate sm:max-w-[10rem]" />
               {isAuthenticated ? (
                 <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center px-10 sm:px-12">
@@ -505,10 +505,10 @@ function AppShell() {
           </header>
 
           <header className="casino-shell-desktop-header border-b border-white/[0.06] bg-casino-topbar shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
-            <div className="isolate mx-auto flex h-full min-h-0 w-full min-w-0 max-w-full items-center gap-2 pl-2 pr-3 md:gap-3 md:px-5 min-[1280px]:px-6">
+            <div className="isolate mx-auto flex h-full min-h-0 w-full min-w-0 max-w-full items-center gap-2 pl-2 pr-2.5 md:gap-2.5 md:px-4 min-[1280px]:px-4">
               <PlayerHeaderLogo className="relative z-[2]" />
               {isAuthenticated ? (
-                <div className="relative z-[1] flex min-h-[40px] min-w-0 flex-1 basis-0 items-center justify-center overflow-hidden px-0 md:px-1">
+                <div className="relative z-[1] flex min-h-[36px] min-w-0 flex-1 basis-0 items-center justify-center overflow-hidden px-0 md:px-1">
                   <HeaderWalletBar
                     onOpenWallet={openWallet}
                     depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}

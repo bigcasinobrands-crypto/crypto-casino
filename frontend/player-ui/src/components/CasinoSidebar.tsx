@@ -106,16 +106,16 @@ export default function CasinoSidebar({
   const closeIfMobile = () => {}
 
   const navItem = collapsed
-    ? 'flex w-full items-center justify-center rounded-lg p-2.5 text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground'
-    : 'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-[13px] font-semibold text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground [&_svg]:text-casino-primary/88'
+    ? 'flex w-full items-center justify-center rounded-lg p-2 text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground'
+    : 'flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[12px] font-semibold text-casino-muted transition hover:bg-white/[0.06] hover:text-casino-foreground [&_svg]:text-casino-primary/88'
 
   const navItemActive =
     'bg-casino-primary/22 text-white hover:bg-casino-primary/30 [&_svg]:text-casino-primary'
 
   const casinoSectionHeaderInactive =
-    'flex w-full items-center justify-between rounded-2xl border border-white/[0.08] bg-casino-segment-track px-3.5 py-3 text-left text-[13px] font-bold text-casino-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:bg-white/[0.06] hover:text-white/90 no-underline'
+    'flex w-full items-center justify-between rounded-2xl border border-white/[0.08] bg-casino-segment-track px-3 py-2.5 text-left text-[12px] font-bold text-casino-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition hover:bg-white/[0.06] hover:text-white/90 no-underline'
   const casinoSectionHeaderBtn =
-    'flex w-full items-center justify-between rounded-2xl px-3.5 py-3 text-left text-[13px] font-bold text-white transition'
+    'flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-[12px] font-bold text-white transition'
   const casinoSectionHeaderOpen =
     'bg-casino-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:brightness-110'
   const casinoSectionHeaderClosed = 'bg-casino-primary-dim hover:bg-casino-primary'
@@ -244,14 +244,12 @@ export default function CasinoSidebar({
 
   return (
     <aside
-      className={`flex h-full min-h-0 min-w-0 shrink-0 flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.45)] transition-[width] duration-200 ease-out ${
-        collapsed ? 'w-[52px]' : 'w-[236px]'
-      }`}
+      className={`flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.45)] transition-[width] duration-200 ease-out`}
     >
-        <div className="shrink-0 border-b border-white/[0.06] bg-casino-sidebar px-0.5 pt-2 pb-2">
+        <div className="shrink-0 border-b border-white/[0.06] bg-casino-sidebar px-0.5 pb-1.5 pt-1.5">
           <div className="block">
             {collapsed ? (
-              <div className="flex h-14 items-center justify-center px-2">
+              <div className="flex h-12 items-center justify-center px-1.5">
                 <button
                   type="button"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] bg-casino-chip text-white/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-white/[0.06] transition hover:bg-casino-chip-hover"
@@ -280,8 +278,8 @@ export default function CasinoSidebar({
         </div>
 
         <nav
-          className={`scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain pb-10 pt-4 ${
-            collapsed ? 'items-center px-1.5' : 'px-3'
+          className={`scrollbar-none flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain pb-8 pt-3 ${
+            collapsed ? 'items-center px-1' : 'px-2.5'
           }`}
           onClick={closeIfMobile}
         >

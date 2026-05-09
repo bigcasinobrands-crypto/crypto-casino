@@ -10,12 +10,13 @@
 :root {
   --casino-bp-tablet: 768px;
   --casino-bp-desktop: 1280px;
-  --casino-header-h-mobile: 64px;
-  --casino-header-h-tablet: 56px;
-  --casino-header-h-desktop: 60px;
-  --casino-gutter-x-mobile: 1rem;
-  --casino-gutter-x-tablet: 1.25rem;
-  --casino-gutter-x-desktop: 1.5rem;
+  /* Compact shell: slightly shorter headers + tighter desktop gutters vs original 64/56/60 + 1.5rem */
+  --casino-header-h-mobile: 56px;
+  --casino-header-h-tablet: 52px;
+  --casino-header-h-desktop: 54px;
+  --casino-gutter-x-mobile: 0.875rem;
+  --casino-gutter-x-tablet: 1rem;
+  --casino-gutter-x-desktop: 1.125rem;
   /**
    * Height of `.casino-shell-mobile-nav` (PlayerMobileBottomNav): pt-1.5 + row min-h + pb max(6px, safe-area).
    * Use for overlays that stop above the bar so blur/scrim meets the nav without a gap (avoid 4rem + safe-area double-count).
@@ -75,13 +76,6 @@
 
   .shell-chat-open .casino-promo-card {
     min-height: 176px;
-  }
-}
-
-/* Narrow tablet / small laptop: slightly shorter fixed header so chrome matches scaled-down wallet row */
-@media (min-width: 768px) and (max-width: 1023px) {
-  :root {
-    --casino-header-h-tablet: 52px;
   }
 }
 
@@ -225,7 +219,7 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: var(--shell-sidebar-w, 236px);
+    width: var(--shell-sidebar-w, 204px);
     /* Above main scroll shell (App `z-[200]`) so fixed chrome stays clickable. */
     z-index: 205;
     overflow: hidden;
@@ -238,7 +232,7 @@
     display: flex;
     align-items: center;
     position: fixed;
-    left: var(--shell-sidebar-w, 236px);
+    left: var(--shell-sidebar-w, 204px);
     top: 0;
     /* Full width to viewport right; Global Chat sits below this bar (ChatDrawer `top`). */
     right: 0;
@@ -302,7 +296,7 @@
    * region fills only the gap — avoids flex `flex:1` + width fighting and content bleeding under chat.
    */
   .casino-shell-main {
-    margin-left: var(--shell-sidebar-w, 236px);
+    margin-left: var(--shell-sidebar-w, 204px);
     margin-right: var(--shell-chat-inset, 0px);
     flex: 1 1 auto;
     min-width: 0;

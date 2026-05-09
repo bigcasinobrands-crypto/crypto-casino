@@ -41,6 +41,8 @@ type GameMeta = {
   provider?: string
   provider_system?: string
   category?: string
+  /** Mirrors `games.game_type` when present on list/detail (e.g. live-casino). */
+  game_type?: string
   live?: boolean
   /** When false, only real-money launch is offered for this title. */
   play_for_fun_supported?: boolean
@@ -277,7 +279,8 @@ const relatedGameCardShell =
   'group game-thumb-link flex h-full flex-col rounded-casino-md border border-white/[0.08] bg-casino-surface'
 
 /** Match `LobbyPage` / `player-casino-max` gutters so the lobby reads at the same scale as the catalog on phones. */
-const lobbyRailInner = 'mx-auto w-full max-w-[min(100%,90rem)] px-4 sm:px-5 md:px-6 lg:px-8'
+const lobbyRailInner =
+  'mx-auto w-full max-w-[min(100%,96rem)] px-3 sm:px-4 md:px-5 lg:px-6'
 
 /** Above this length, mobile description uses show more / show less. */
 const MOBILE_GAME_DESC_TOGGLE_CHARS = 260
@@ -302,8 +305,8 @@ function useViewportBelowXl() {
 }
 
 /**
- * Full-page game lobby: catalog links here; provider iframe loads in a top-aligned “theater”
- * (chrome rows + 16:9 stage). The same shell is shown when signed out, with a sign-in overlay on the stage.
+ * Full-page game lobby: catalog links here; provider iframe loads in a top-aligned theater
+ * (chrome rows + stage: 16:9 for slots, taller min-height for live tables). The same shell is shown when signed out, with a sign-in overlay on the stage.
  */
 export default function GameLobbyPage() {
   const { gameId: rawId } = useParams()
@@ -747,58 +750,8 @@ export default function GameLobbyPage() {
     }
   }, [relatedGames.length, relatedFetchKey, syncRelatedRailScroll])
 
-  if (!gameId) {
-    return <Navigate to="/casino/games" replace />
-  }
-
-  const title = meta?.title ?? (metaLoading ? t('gameLobby.loadingGame') : t('gameLobby.gameLobbyTitle'))
-  const providerLabel =
-    meta?.provider_system?.trim() ||
-    meta?.provider?.trim() ||
-    (metaLoading ? '…' : t('gameLobby.casinoProviderFallback'))
-  const edgeLabel =
-    meta?.live || meta?.category?.toLowerCase() === 'live'
-      ? t('gameLobby.edgeLiveTable')
-      : t('gameLobby.edgeCasinoPlay')
-  const popOutButtonTitle = thisGameInMini
-    ? t('gameLobby.popOutReturnTheater')
-    : mini && mini.gameId !== gameId
-      ? t('gameLobby.popOutReplace')
-      : t('gameLobby.popOutDefault')
-  const launchPending = Boolean(
-    isAuthenticated && launchModeChoice !== null && !metaErr && !iframeUrl && !launchErr,
-  )
-  const iframeBootPending = Boolean(
-    isAuthenticated &&
-      iframeUrl?.trim() &&
-      !thisGameInMini &&
-      !iframeStageReady &&
-      !launchErr,
-  )
-  const showTheater = !metaErr
-  /** Single iframe mount while playing in-page (not mini). Shown at all breakpoints; layout chrome differs by `xl`. */
   const showInlinePlayer = Boolean(isAuthenticated && iframeUrl && !thisGameInMini)
   const showMobileFramelessPlayer = Boolean(showInlinePlayer && viewportBelowXl)
-  const gameDescription = meta?.description?.trim() ?? ''
-  const mobileLobbyDisplayDescription =
-    meta && !metaErr ? gameDescription || descriptionFallback : ''
-  const mobileLobbyDescNeedsToggle = mobileLobbyDisplayDescription.length > MOBILE_GAME_DESC_TOGGLE_CHARS
-  const showMobilePlayButtons = Boolean(
-    isAuthenticated && meta && !metaErr && !iframeUrl && !thisGameInMini && !launchPending,
-  )
-
-  const openSignIn = () => openAuth('login', { navigateTo: postAuthTarget })
-  const openRegister = () => openAuth('register', { navigateTo: postAuthTarget })
-
-  const onFavouriteClick = () => {
-    if (!meta) return
-    if (!isAuthenticated) {
-      openAuth('login', { navigateTo: postAuthTarget })
-      return
-    }
-    toggleFavourite(meta.id)
-    refreshFav()
-  }
 
   const exitMobileImmersivePlayer = useCallback(() => {
     setRequestedImmersiveLaunch(false)
@@ -820,6 +773,61 @@ export default function GameLobbyPage() {
     }
   }, [showMobileFramelessPlayer])
 
+  if (!gameId) {
+    return <Navigate to="/casino/games" replace />
+  }
+
+  const title = meta?.title ?? (metaLoading ? t('gameLobby.loadingGame') : t('gameLobby.gameLobbyTitle'))
+  const providerLabel =
+    meta?.provider_system?.trim() ||
+    meta?.provider?.trim() ||
+    (metaLoading ? '…' : t('gameLobby.casinoProviderFallback'))
+  const edgeLabel =
+    meta?.live ||
+    meta?.category?.toLowerCase() === 'live' ||
+    meta?.game_type?.trim().toLowerCase() === 'live-casino'
+      ? t('gameLobby.edgeLiveTable')
+      : t('gameLobby.edgeCasinoPlay')
+  /** Live tiles need vertical space; strict 16:9 letterboxes tall provider UIs inside our frame. */
+  const liveTableTheater = Boolean(
+    meta?.live ||
+      meta?.category?.trim().toLowerCase() === 'live' ||
+      meta?.game_type?.trim().toLowerCase() === 'live-casino',
+  )
+  const theaterStageFrameClass = liveTableTheater
+    ? 'relative w-full bg-black min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))]'
+    : 'relative aspect-video w-full bg-black'
+  const popOutButtonTitle = thisGameInMini
+    ? t('gameLobby.popOutReturnTheater')
+    : mini && mini.gameId !== gameId
+      ? t('gameLobby.popOutReplace')
+      : t('gameLobby.popOutDefault')
+  const launchPending = Boolean(
+    isAuthenticated && launchModeChoice !== null && !metaErr && !iframeUrl && !launchErr,
+  )
+  const showTheater = !metaErr
+  /** Single iframe mount while playing in-page (not mini). Shown at all breakpoints; layout chrome differs by `xl`. */
+  const gameDescription = meta?.description?.trim() ?? ''
+  const mobileLobbyDisplayDescription =
+    meta && !metaErr ? gameDescription || descriptionFallback : ''
+  const mobileLobbyDescNeedsToggle = mobileLobbyDisplayDescription.length > MOBILE_GAME_DESC_TOGGLE_CHARS
+  const showMobilePlayButtons = Boolean(
+    isAuthenticated && meta && !metaErr && !iframeUrl && !thisGameInMini && !launchPending,
+  )
+
+  const openSignIn = () => openAuth('login', { navigateTo: postAuthTarget })
+  const openRegister = () => openAuth('register', { navigateTo: postAuthTarget })
+
+  const onFavouriteClick = () => {
+    if (!meta) return
+    if (!isAuthenticated) {
+      openAuth('login', { navigateTo: postAuthTarget })
+      return
+    }
+    toggleFavourite(meta.id)
+    refreshFav()
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {metaErr ? (
@@ -838,7 +846,7 @@ export default function GameLobbyPage() {
       {showTheater ? (
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
           {showInlinePlayer && !showMobileFramelessPlayer ? (
-            <div className="mx-auto w-full max-w-[min(100%,90rem)] shrink-0 px-4 pt-2 sm:px-5 sm:pt-3 md:px-6 lg:px-8">
+            <div className="w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3">
               <div className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
                 <div className="hidden items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3 xl:flex">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -902,8 +910,8 @@ export default function GameLobbyPage() {
                 </div>
                 <div
                   ref={stageRef}
-                  className="relative aspect-video w-full bg-black [&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:z-[250] [&:fullscreen]:m-0 [&:fullscreen]:box-border [&:fullscreen]:h-[100dvh] [&:fullscreen]:min-h-[100dvh] [&:fullscreen]:w-screen [&:fullscreen]:max-w-none [&:fullscreen]:rounded-none [&:fullscreen]:border-0 [&:fullscreen]:bg-black [&:fullscreen]:p-0"
-                  aria-busy={iframeBootPending}
+                  className={`${theaterStageFrameClass} [&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:z-[250] [&:fullscreen]:m-0 [&:fullscreen]:box-border [&:fullscreen]:h-[100dvh] [&:fullscreen]:min-h-[100dvh] [&:fullscreen]:w-screen [&:fullscreen]:max-w-none [&:fullscreen]:rounded-none [&:fullscreen]:border-0 [&:fullscreen]:bg-black [&:fullscreen]:p-0`}
+                  aria-busy={launchPending}
                 >
                   <img
                     src={theaterPosterSrc}
@@ -928,23 +936,6 @@ export default function GameLobbyPage() {
                     allowFullScreen
                     onLoad={() => setIframeStageReady(true)}
                   />
-                  {iframeBootPending ? (
-                    <div
-                      className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/65 p-3 text-center backdrop-blur-[2px] sm:gap-3 sm:p-5"
-                      role="status"
-                      aria-live="polite"
-                      aria-label={t('gameLobby.gameWindowLoadingAria')}
-                    >
-                      <div
-                        className="size-9 animate-spin rounded-full border-2 border-white/20 border-t-casino-primary sm:size-10"
-                        aria-hidden
-                      />
-                      <p className="text-xs font-semibold text-white sm:text-sm">{t('gameLobby.openingGame')}</p>
-                      <p className="max-w-sm px-1 text-[11px] text-white/55 sm:text-xs">
-                        {t('gameLobby.providerBootHint')}
-                      </p>
-                    </div>
-                  ) : null}
                 </div>
                 <div className="flex items-center justify-between gap-2 border-t border-white/[0.07] px-2.5 py-1.5 sm:px-3 sm:py-2">
                   <div className="min-w-0 flex-1">
@@ -1009,7 +1000,7 @@ export default function GameLobbyPage() {
                     ref={stageRef}
                     className="relative min-h-0 min-w-0 flex-1 touch-pan-y"
                     style={{ minHeight: '100dvh' }}
-                    aria-busy={iframeBootPending}
+                    aria-busy={launchPending}
                   >
                     <img
                       src={theaterPosterSrc}
@@ -1076,24 +1067,6 @@ export default function GameLobbyPage() {
                         </button>
                       </div>
                     </div>
-
-                    {iframeBootPending ? (
-                      <div
-                        className="absolute inset-0 z-[40] flex flex-col items-center justify-center gap-2 bg-black/65 p-4 text-center backdrop-blur-[2px]"
-                        role="status"
-                        aria-live="polite"
-                        aria-label={t('gameLobby.gameWindowLoadingAria')}
-                      >
-                        <div
-                          className="size-10 animate-spin rounded-full border-2 border-white/20 border-t-casino-primary"
-                          aria-hidden
-                        />
-                        <p className="text-sm font-semibold text-white">{t('gameLobby.openingGame')}</p>
-                        <p className="max-w-sm text-[11px] leading-relaxed text-white/55">
-                          {t('gameLobby.providerBootHint')}
-                        </p>
-                      </div>
-                    ) : null}
                   </div>
                 </div>,
                 document.body,
@@ -1159,10 +1132,7 @@ export default function GameLobbyPage() {
                     : 'w-full max-w-[17rem] shrink-0'
                 }`}
               >
-                <div
-                  className="relative aspect-[5/6] w-full min-h-[140px] bg-black"
-                  aria-busy={launchPending}
-                >
+                <div className="relative aspect-[5/6] w-full min-h-[140px] bg-black">
                   <PortraitGameThumb
                     url={meta?.thumbnail_url}
                     title={title}
@@ -1219,20 +1189,6 @@ export default function GameLobbyPage() {
                     </div>
                   ) : null}
 
-                  {isAuthenticated && !iframeUrl && launchPending ? (
-                    <div className="absolute inset-0 z-[14] flex flex-col items-center justify-center gap-2 bg-black/65 p-3 text-center backdrop-blur-[2px]">
-                      <div
-                        className="size-10 animate-spin rounded-full border-2 border-white/25 border-t-casino-primary"
-                        aria-hidden
-                      />
-                      <p className="text-xs font-semibold text-white">
-                        {launchModeChoice === 'demo'
-                          ? t('gameLobby.startingFreePlay')
-                          : t('gameLobby.connectingRealPlay')}
-                      </p>
-                      <p className="text-[11px] text-white/55">{t('gameLobby.contactingProvider')}</p>
-                    </div>
-                  ) : null}
                 </div>
               </div>
 
@@ -1289,7 +1245,7 @@ export default function GameLobbyPage() {
             </div>
           </div>
 
-          <div className="mx-auto hidden w-full max-w-[min(100%,90rem)] shrink-0 px-4 pt-2 sm:px-5 sm:pt-3 md:px-6 lg:px-8 xl:block">
+          <div className="hidden w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 xl:block">
             <div
               ref={stageRef}
               className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
@@ -1355,7 +1311,7 @@ export default function GameLobbyPage() {
               </div>
             </div>
 
-            <div className="relative aspect-video w-full bg-black" aria-busy={launchPending}>
+            <div className={`${theaterStageFrameClass}`} aria-busy={launchPending}>
               <img
                 src={theaterPosterSrc}
                 alt=""
@@ -1475,31 +1431,6 @@ export default function GameLobbyPage() {
                 </div>
               ) : null}
 
-              {isAuthenticated && !iframeUrl && launchPending ? (
-                <div
-                  className="absolute inset-0 z-[15] flex flex-col items-center justify-center gap-2 p-3 text-center sm:gap-3 sm:p-5"
-                  role="status"
-                  aria-live="polite"
-                  aria-label={t('gameLobby.connectingProvider')}
-                >
-                  <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" aria-hidden />
-                  <div className="relative flex max-w-md flex-col items-center gap-2 sm:gap-3">
-                    <div
-                      className="size-10 animate-spin rounded-full border-2 border-white/25 border-t-casino-primary sm:size-11"
-                      aria-hidden
-                    />
-                    <p className="text-xs font-semibold text-white sm:text-sm">
-                      {launchModeChoice === 'demo'
-                        ? t('gameLobby.startingFreePlay')
-                        : t('gameLobby.connectingRealPlay')}
-                    </p>
-                    <p className="text-xs font-medium text-white/85 sm:text-sm">{t('gameLobby.contactingProvider')}</p>
-                    <p className="max-w-sm px-1 text-[11px] text-white/55 sm:text-xs">
-                      {t('gameLobby.stagingHint')}
-                    </p>
-                  </div>
-                </div>
-              ) : null}
             </div>
 
             <div className="flex items-center justify-between gap-2 border-t border-white/[0.07] px-2.5 py-1.5 sm:px-3 sm:py-2">
