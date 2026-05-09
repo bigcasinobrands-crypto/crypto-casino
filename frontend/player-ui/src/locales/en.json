@@ -629,10 +629,7 @@
     "statsSubtitleFallback": "Per-title data for catalog id {{id}}.",
     "bogGameIdFragment": " · Blue Ocean game id {{id}}",
     "idHashFragment": " · id_hash {{hash}}",
-    "openingGame": "Opening game…",
-    "gameWindowLoadingAria": "Game window loading",
-    "closeGameAria": "Close game",
-    "providerBootHint": "The provider window can stay dark for a few seconds while the game boots."
+    "closeGameAria": "Close game"
   },
   "duration": {
     "week": "w",

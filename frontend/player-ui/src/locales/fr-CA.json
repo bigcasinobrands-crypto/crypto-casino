@@ -629,10 +629,7 @@
     "statsSubtitleFallback": "Données pour l'id catalogue {{id}}.",
     "bogGameIdFragment": " · id jeu Blue Ocean {{id}}",
     "idHashFragment": " · id_hash {{hash}}",
-    "openingGame": "Ouverture du jeu…",
-    "gameWindowLoadingAria": "Chargement de la fenêtre de jeu",
-    "closeGameAria": "Fermer le jeu",
-    "providerBootHint": "La fenêtre du fournisseur peut rester sombre quelques secondes pendant le démarrage du jeu."
+    "closeGameAria": "Fermer le jeu"
   },
   "duration": {
     "week": "sem",

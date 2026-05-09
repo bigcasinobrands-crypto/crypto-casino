@@ -326,10 +326,6 @@ export default function GameLobbyPage() {
   const [launchFailCode, setLaunchFailCode] = useState<string | undefined>(undefined)
   const [launchRetryNonce, setLaunchRetryNonce] = useState(0)
   const [launchModeChoice, setLaunchModeChoice] = useState<LaunchPlayMode | null>(null)
-  /** After Real/Demo (or auto-start on narrow viewports), enter fullscreen on the iframe shell as soon as the game URL is ready. */
-  const [requestedImmersiveLaunch, setRequestedImmersiveLaunch] = useState(false)
-  /** Provider iframe often paints black until its bundle loads — keep a loading shell until `load`. */
-  const [iframeStageReady, setIframeStageReady] = useState(false)
   const [, bumpFav] = useState(0)
   const refreshFav = useCallback(() => bumpFav((n) => n + 1), [])
   const descriptionFallback = useMemo(() => t('gameLobby.descriptionFallback'), [t])
@@ -421,12 +417,6 @@ export default function GameLobbyPage() {
     setMobileLobbyDescExpanded(false)
   }, [gameId])
 
-  useEffect(() => {
-    setIframeStageReady(false)
-  }, [iframeUrl, gameId])
-
-  useEffect(() => {
-    if (!statsOpen || !isAuthenticated || !gameId) return
     let cancelled = false
     setStatsLoading(true)
     setStatsErr(null)
@@ -913,20 +903,6 @@ export default function GameLobbyPage() {
                   className={`${theaterStageFrameClass} [&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:z-[250] [&:fullscreen]:m-0 [&:fullscreen]:box-border [&:fullscreen]:h-[100dvh] [&:fullscreen]:min-h-[100dvh] [&:fullscreen]:w-screen [&:fullscreen]:max-w-none [&:fullscreen]:rounded-none [&:fullscreen]:border-0 [&:fullscreen]:bg-black [&:fullscreen]:p-0`}
                   aria-busy={launchPending}
                 >
-                  <img
-                    src={theaterPosterSrc}
-                    alt=""
-                    className={`absolute inset-0 z-0 h-full w-full object-cover transition-opacity duration-300 ${
-                      iframeStageReady ? 'opacity-0' : 'opacity-40'
-                    }`}
-                    aria-hidden
-                  />
-                  <div
-                    className={`absolute inset-0 z-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30 ${
-                      iframeStageReady ? 'pointer-events-none opacity-0' : ''
-                    }`}
-                    aria-hidden
-                  />
                   <iframe
                     key={`${iframeUrl}\u0000${launchRetryNonce}`}
                     title={title}
@@ -934,7 +910,6 @@ export default function GameLobbyPage() {
                     className="absolute inset-0 z-10 h-full w-full border-0 bg-black"
                     allow={GAME_IFRAME_ALLOW}
                     allowFullScreen
-                    onLoad={() => setIframeStageReady(true)}
                   />
                 </div>
                 <div className="flex items-center justify-between gap-2 border-t border-white/[0.07] px-2.5 py-1.5 sm:px-3 sm:py-2">
@@ -1002,20 +977,6 @@ export default function GameLobbyPage() {
                     style={{ minHeight: '100dvh' }}
                     aria-busy={launchPending}
                   >
-                    <img
-                      src={theaterPosterSrc}
-                      alt=""
-                      className={`absolute inset-0 z-0 h-full w-full object-cover transition-opacity duration-300 ${
-                        iframeStageReady ? 'opacity-0' : 'opacity-40'
-                      }`}
-                      aria-hidden
-                    />
-                    <div
-                      className={`absolute inset-0 z-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30 ${
-                        iframeStageReady ? 'pointer-events-none opacity-0' : ''
-                      }`}
-                      aria-hidden
-                    />
                     <iframe
                       key={`${iframeUrl}\u0000${launchRetryNonce}`}
                       title={title}
@@ -1023,7 +984,6 @@ export default function GameLobbyPage() {
                       className="absolute inset-0 z-10 h-full w-full border-0 bg-black"
                       allow={GAME_IFRAME_ALLOW}
                       allowFullScreen
-                      onLoad={() => setIframeStageReady(true)}
                     />
                     <div className="pointer-events-none absolute inset-x-0 top-0 z-[25] flex items-center justify-between gap-2 px-2 pt-[max(6px,env(safe-area-inset-top,0px))]">
                       <button
