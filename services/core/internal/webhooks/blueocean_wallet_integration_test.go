@@ -33,24 +33,31 @@ func TestIntegrationBlueOceanWalletBalanceByUserUUID(t *testing.T) {
 		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
 	})
 
-	cfg := &config.Config{BlueOceanCurrency: "EUR"}
+	salt := "integration-test-salt"
+	cfg := &config.Config{BlueOceanCurrency: "EUR", BlueOceanWalletSalt: salt}
 	h := HandleBlueOceanWallet(p, cfg, nil)
 
-	q := "action=balance&remote_id=" + uid
+	q := boSignGET(salt, map[string]string{
+		"action":    "balance",
+		"remote_id": uid,
+	})
 	req := httptest.NewRequest("GET", "/api/blueocean/callback?"+q, nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
 	}
-	var out map[string]string
+	var out struct {
+		Status  int    `json:"status"`
+		Balance string `json:"balance"`
+	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out["status"] != "200" {
-		t.Fatalf("expected status 200, got %q body=%v", out["status"], out)
+	if out.Status != 200 {
+		t.Fatalf("expected status 200, got %v body=%s", out.Status, w.Body.String())
 	}
-	if out["balance"] == "" {
-		t.Fatalf("expected balance key set, got %v", out)
+	if out.Balance == "" {
+		t.Fatalf("expected balance set, got %+v", out)
 	}
 }

@@ -30,8 +30,8 @@ func TestE2EBlueOceanDebitPublishesWageringRedis(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 
-	cfg := &config.Config{BlueOceanCurrency: "USDT"}
-	// Empty salt => no key= signature for GET callback
+	salt := "e2e-wallet-salt"
+	cfg := &config.Config{BlueOceanCurrency: "USDT", BlueOceanWalletSalt: salt}
 	h := HandleBlueOceanWallet(res.Pool, cfg, rdb)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -39,7 +39,14 @@ func TestE2EBlueOceanDebitPublishesWageringRedis(t *testing.T) {
 	sub := rdb.Subscribe(ctx, bonus.ChannelWageringPlayer(res.UserID))
 	defer func() { _ = sub.Close() }()
 
-	q := "action=debit&amount=1000&remote_id=bo-e2e-" + res.UserID + "&game_id=slot1&transaction_id=tx1"
+	rid := "bo-e2e-" + res.UserID
+	q := boSignGET(salt, map[string]string{
+		"action":          "debit",
+		"amount":          "1000",
+		"remote_id":       rid,
+		"game_id":         "slot1",
+		"transaction_id":  "tx1",
+	})
 	req := httptest.NewRequest("GET", "/api/blueocean/callback?"+q, nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

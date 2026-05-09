@@ -283,7 +283,17 @@ func main() {
 		r.Use(playerCORS.Handler)
 
 		// Browsers often open the service root; the API has no SPA here — avoid a bare chi 404.
-		r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
+		// Blue Ocean backoffice sometimes stores only the API origin for seamless wallet; callbacks
+		// may be GET or POST to / or /api/blueocean/callback (see HandleBlueOceanWallet).
+		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if webhooks.ShouldRouteBlueOceanWallet(r) {
+				webhooks.HandleBlueOceanWallet(pool, &cfg, rdb)(w, r)
+				return
+			}
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"service": "core-api",
@@ -306,7 +316,7 @@ func main() {
 		r.Get("/health/ready", readyHandler(pool, rdb))
 		r.Get("/health/operational", operationalHandler(pool, &cfg, bog))
 
-		r.Get("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg, rdb))
+		r.HandleFunc("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg, rdb))
 
 		r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
 		if cfg.UsesPassimpay() {
