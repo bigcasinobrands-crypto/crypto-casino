@@ -156,19 +156,18 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			writeBOWalletJSON(w, 404, 0, "PLAYER_NOT_FOUND")
 			return
 		}
+		ccy := strings.TrimSpace(cfg.BlueOceanCurrency)
+		if ccy == "" {
+			ccy = "EUR"
+		}
 		if ok, _ := playcheck.LaunchAllowed(ctx, pool, cfg, r, userID); !ok {
-			sum, berr := ledger.AvailableBalance(ctx, pool, userID)
+			sum, berr := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy)
 			if berr != nil {
 				writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 				return
 			}
 			writeBOWalletJSON(w, 403, sum, "")
 			return
-		}
-
-		ccy := strings.TrimSpace(cfg.BlueOceanCurrency)
-		if ccy == "" {
-			ccy = "EUR"
 		}
 		action := strings.ToLower(strings.TrimSpace(firstNonEmptyCI(q, "action")))
 		if action == "" {
@@ -192,7 +191,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 
 		switch action {
 		case "", "balance":
-			sum, err := ledger.AvailableBalance(ctx, pool, userID)
+			sum, err := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy)
 			if err != nil {
 				writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 				return
@@ -209,7 +208,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			}
 			if action == "debit" {
 				if ok && amt == 0 {
-					sum, berr := ledger.AvailableBalance(ctx, pool, userID)
+					sum, berr := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy)
 					if berr != nil {
 						writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 						return
@@ -218,14 +217,14 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 					return
 				}
 				if !ok || amt < 0 {
-					sum, _ := ledger.AvailableBalance(ctx, pool, userID)
+					sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy)
 					writeBOWalletJSON(w, 403, sum, "Invalid amount")
 					return
 				}
 			}
 			if action == "credit" {
 				if ok && amt == 0 {
-					sum, berr := ledger.AvailableBalance(ctx, pool, userID)
+					sum, berr := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy)
 					if berr != nil {
 						writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 						return
@@ -234,7 +233,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 					return
 				}
 				if !ok || amt <= 0 {
-					sum, _ := ledger.AvailableBalance(ctx, pool, userID)
+					sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy)
 					writeBOWalletJSON(w, 403, sum, "Invalid amount")
 					return
 				}
@@ -284,7 +283,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			writeBOWalletJSON(w, st, sum, boMsg)
 			return
 		default:
-			sum, _ := ledger.AvailableBalance(ctx, pool, userID)
+			sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy)
 			writeBOWalletJSON(w, 403, sum, "")
 		}
 	}
@@ -520,7 +519,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		return 0, 500, "", err
 	}
 
-	bal, err := ledger.BalanceMinorTx(ctx, tx, userID)
+	bal, err := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy)
 	if err != nil {
 		return 0, 500, "", err
 	}
@@ -557,11 +556,11 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if bal < amount {
 			return bal, 403, "Insufficient funds", nil
 		}
-		bonusBal, err := ledger.BalanceBonusLockedTx(ctx, tx, userID)
+		bonusBal, err := ledger.BalanceBonusLockedSeamlessTx(ctx, tx, userID, ccy)
 		if err != nil {
 			return bal, 500, "", err
 		}
-		cashBal, err := ledger.BalanceCashTx(ctx, tx, userID)
+		cashBal, err := ledger.BalanceCashSeamlessTx(ctx, tx, userID, ccy)
 		if err != nil {
 			return bal, 500, "", err
 		}
@@ -656,17 +655,22 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 
 		if outstandingWin > 0 {
-			if bal < outstandingWin {
-				return bal, 403, "Insufficient funds", nil
+			// Balance after any bet-rollback credits (opening bal would be stale here).
+			curBal, cerr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy)
+			if cerr != nil {
+				return bal, 500, "", cerr
+			}
+			if curBal < outstandingWin {
+				return curBal, 403, "Insufficient funds", nil
 			}
 			_, err = ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, winRBKey, outstandingWin, meta)
 			if err != nil {
-				return bal, 500, "", err
+				return curBal, 500, "", err
 			}
 		}
 	}
 
-	bal, err = ledger.BalanceMinorTx(ctx, tx, userID)
+	bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy)
 	if err != nil {
 		return 0, 500, "", err
 	}
