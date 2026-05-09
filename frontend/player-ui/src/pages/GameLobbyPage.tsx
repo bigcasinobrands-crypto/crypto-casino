@@ -326,6 +326,7 @@ export default function GameLobbyPage() {
   const [launchFailCode, setLaunchFailCode] = useState<string | undefined>(undefined)
   const [launchRetryNonce, setLaunchRetryNonce] = useState(0)
   const [launchModeChoice, setLaunchModeChoice] = useState<LaunchPlayMode | null>(null)
+  const [requestedImmersiveLaunch, setRequestedImmersiveLaunch] = useState(false)
   const [, bumpFav] = useState(0)
   const refreshFav = useCallback(() => bumpFav((n) => n + 1), [])
   const descriptionFallback = useMemo(() => t('gameLobby.descriptionFallback'), [t])
@@ -416,6 +417,9 @@ export default function GameLobbyPage() {
   useEffect(() => {
     setMobileLobbyDescExpanded(false)
   }, [gameId])
+
+  useEffect(() => {
+    if (!statsOpen || !isAuthenticated || !gameId) return
 
     let cancelled = false
     setStatsLoading(true)
@@ -784,8 +788,10 @@ export default function GameLobbyPage() {
       meta?.category?.trim().toLowerCase() === 'live' ||
       meta?.game_type?.trim().toLowerCase() === 'live-casino',
   )
+  /** Max width for the theater card on xl+ so the iframe doesn’t span the full content column. */
+  const desktopTheaterShellClass = 'xl:mx-auto xl:w-full xl:max-w-2xl 2xl:max-w-3xl'
   const theaterStageFrameClass = liveTableTheater
-    ? 'relative w-full bg-black min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))]'
+    ? 'relative w-full bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))] xl:min-h-[260px] xl:max-h-[min(440px,50vh)]'
     : 'relative aspect-video w-full bg-black'
   const popOutButtonTitle = thisGameInMini
     ? t('gameLobby.popOutReturnTheater')
@@ -836,7 +842,7 @@ export default function GameLobbyPage() {
       {showTheater ? (
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
           {showInlinePlayer && !showMobileFramelessPlayer ? (
-            <div className="w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3">
+            <div className={`w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 ${desktopTheaterShellClass}`}>
               <div className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
                 <div className="hidden items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3 xl:flex">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -1205,7 +1211,7 @@ export default function GameLobbyPage() {
             </div>
           </div>
 
-          <div className="hidden w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 xl:block">
+          <div className={`hidden w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 xl:block ${desktopTheaterShellClass}`}>
             <div
               ref={stageRef}
               className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
