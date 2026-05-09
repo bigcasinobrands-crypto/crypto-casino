@@ -788,11 +788,11 @@ export default function GameLobbyPage() {
       meta?.category?.trim().toLowerCase() === 'live' ||
       meta?.game_type?.trim().toLowerCase() === 'live-casino',
   )
-  /** Max width for the theater card on xl+ (~1.4× the prior max-w-2xl / max-w-3xl caps). */
+  /** Max width for the theater card on xl+ (slots scale with width; live table heights track below). */
   const desktopTheaterShellClass =
-    'xl:mx-auto xl:w-full xl:max-w-[58.8rem] 2xl:max-w-[67.2rem]'
+    'xl:mx-auto xl:w-full xl:max-w-[76.44rem] 2xl:max-w-[87.36rem]'
   const theaterStageFrameClass = liveTableTheater
-    ? 'relative w-full bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))] xl:min-h-[364px] xl:max-h-[min(616px,58vh)]'
+    ? 'relative w-full bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))] xl:min-h-[473px] xl:max-h-[min(801px,75vh)]'
     : 'relative aspect-video w-full bg-black'
   const popOutButtonTitle = thisGameInMini
     ? t('gameLobby.popOutReturnTheater')
