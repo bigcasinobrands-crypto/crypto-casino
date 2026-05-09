@@ -120,7 +120,10 @@ export default function PlayersPage() {
         </ComponentCard>
       ) : null}
 
-      <ComponentCard title="Player directory" desc={`${players.length} loaded (max 500)`}>
+      <ComponentCard
+        title="Player directory"
+        desc={`${players.length} loaded (max 500). Open a player profile → Facts & VIP → Account → Blue Ocean sync & verify to provision and test GameHub XAPI for that account.`}
+      >
         {loading ? (
           <div className="placeholder-glow py-5 text-center">
             <span className="placeholder col-6" />

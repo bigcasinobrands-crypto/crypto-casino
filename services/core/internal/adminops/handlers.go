@@ -32,6 +32,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/users", h.ListUsers)
 	r.Get("/users/{id}", h.GetUser)
 	r.Get("/users/{id}/facts", h.GetUserFacts)
+	r.Post("/users/{id}/integrations/blueocean/sync-test", h.SyncBlueOceanPlayer)
 	r.Get("/users/{id}/vip", h.getUserVIP)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/vip", h.patchUserVIP)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/compliance", h.PatchUserCompliance)

@@ -199,6 +199,10 @@ export default function PlayerDetailPage() {
   const [rgBusy, setRgBusy] = useState(false)
   const [erasureBusy, setErasureBusy] = useState(false)
 
+  const [boSyncBusy, setBoSyncBusy] = useState(false)
+  const [boSyncResult, setBoSyncResult] = useState<Record<string, unknown> | null>(null)
+  const [boSyncErr, setBoSyncErr] = useState<string | null>(null)
+
   const [facts, setFacts] = useState<Record<string, unknown> | null>(null)
   const [factsErr, setFactsErr] = useState<string | null>(null)
   const [vipSupportSnap, setVipSupportSnap] = useState<unknown>(null)
@@ -237,6 +241,29 @@ export default function PlayerDetailPage() {
       setFactsErr('Network error')
     }
   }, [apiFetch, id, reportApiFailure])
+
+  const runBlueOceanSyncTest = useCallback(async () => {
+    if (!id) return
+    setBoSyncBusy(true)
+    setBoSyncErr(null)
+    setBoSyncResult(null)
+    const path = `/v1/admin/users/${encodeURIComponent(id)}/integrations/blueocean/sync-test`
+    try {
+      const res = await apiFetch(path, { method: 'POST' })
+      const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      if (!res.ok) {
+        reportApiFailure({ res, parsed, method: 'POST', path })
+        setBoSyncErr(formatApiError(parsed, `HTTP ${res.status}`))
+        return
+      }
+      setBoSyncResult(parsed)
+      void loadFacts()
+    } catch {
+      setBoSyncErr('Network error')
+    } finally {
+      setBoSyncBusy(false)
+    }
+  }, [apiFetch, id, loadFacts, reportApiFailure])
 
   const loadVipSupportSnapshot = useCallback(async () => {
     if (!id) return
@@ -571,6 +598,29 @@ export default function PlayerDetailPage() {
               <div>
                 <p className="text-secondary text-uppercase small fw-semibold mb-2">Account</p>
                 <DefinitionTable rows={accountFactRows(facts as Record<string, unknown>)} flush />
+                <div className="mt-2 d-flex flex-wrap gap-2 align-items-center">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary btn-sm"
+                    disabled={boSyncBusy}
+                    onClick={() => void runBlueOceanSyncTest()}
+                  >
+                    {boSyncBusy ? 'Running…' : 'Blue Ocean sync & verify'}
+                  </button>
+                  <span className="small text-secondary mb-0">
+                    Provisions the GameHub player if missing, then calls <code className="small">playerExists</code>
+                    {'. '}
+                    With <code className="small">BLUEOCEAN_CREATE_PLAYER_USER_PASSWORD</code> set on the API, also runs{' '}
+                    <code className="small">loginPlayer</code>.
+                  </span>
+                </div>
+                {boSyncErr ? <p className="text-danger small mt-2 mb-0">{boSyncErr}</p> : null}
+                {boSyncResult ? (
+                  <div className="mt-2">
+                    <p className="small fw-semibold mb-1">Last Blue Ocean check</p>
+                    <ApiResultSummary data={boSyncResult} embedded />
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
