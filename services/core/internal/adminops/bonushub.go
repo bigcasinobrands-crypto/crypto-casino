@@ -1048,7 +1048,7 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 	if body.GrantAmountMinor > 0 && creditTarget == "cash" {
 		reqCcy := strings.ToUpper(strings.TrimSpace(body.Currency))
 		ccy = h.resolveSeamlessManualCashCurrency()
-		idem := manualCashPlayCreditIdempotencyKey(body.IdempotencyKey, staffID, uid, body.GrantAmountMinor)
+		idem := manualCashPlayCreditIdempotencyKey(body.IdempotencyKey, staffID, uid, body.GrantAmountMinor, ccy)
 		meta := map[string]any{
 			"staff_user_id":    staffID,
 			"credit_target":    "cash",
@@ -1094,6 +1094,10 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 		}
 		if reqCcy != "" && reqCcy != ccy {
 			resp["requested_currency"] = reqCcy
+		}
+		if !inserted {
+			resp["ledger_unchanged_reason"] = "idempotency_duplicate"
+			resp["note"] = "This idempotency key already has a ledger row (same staff, amount, settlement currency, and client key if any). Use a new Idempotency-Key / retry with a fresh grant flow, or pick a different amount if you need another credit."
 		}
 		writeJSON(w, resp)
 		return
@@ -1366,12 +1370,20 @@ func (h *Handler) resolveSeamlessManualCashCurrency() string {
 }
 
 // manualCashPlayCreditIdempotencyKey idempotency for admin cash / seamless credits.
-// Client UUID strongly preferred so two intentional grants of the same amount do not dedupe.
-func manualCashPlayCreditIdempotencyKey(clientKey, staffID, userID string, amountMinor int64) string {
-	if k := strings.TrimSpace(clientKey); k != "" {
-		return "admin:play:credit:client:" + k
+// Ledger currency must be part of the key: a prior line tagged USDT with the old
+// staff/user/amount key would otherwise block a new EUR credit at the same amount
+// (ON CONFLICT DO NOTHING → inserted=false, no in-game balance change).
+// Client UUID path includes amount + currency so a single UUID cannot accidentally
+// dedupe two different amounts; deterministic path uses staff/user/amount/currency.
+func manualCashPlayCreditIdempotencyKey(clientKey, staffID, userID string, amountMinor int64, ledgerCurrency string) string {
+	ccy := strings.ToUpper(strings.TrimSpace(ledgerCurrency))
+	if ccy == "" {
+		ccy = "EUR"
 	}
-	return fmt.Sprintf("admin:play:credit:%s:%s:%d", staffID, userID, amountMinor)
+	if k := strings.TrimSpace(clientKey); k != "" {
+		return fmt.Sprintf("admin:play:credit:client:%s:%d:%s", k, amountMinor, ccy)
+	}
+	return fmt.Sprintf("admin:play:credit:%s:%s:%d:%s", staffID, userID, amountMinor, ccy)
 }
 
 // manualGrantIdempotencyKey resolves the idempotency key for a manual admin
