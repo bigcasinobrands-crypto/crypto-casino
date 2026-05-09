@@ -116,10 +116,13 @@ func TestParseBOAmountCI_FloatMajorUnchangedWithIntMajor(t *testing.T) {
 }
 
 func TestFormatBOBalanceMinor(t *testing.T) {
-	if got := formatBOBalanceMinor(30000); got != "300.00" {
+	if got := formatBOBalanceMinor(30000); got != "300" {
 		t.Fatalf("got %q", got)
 	}
-	if got := formatBOBalanceMinor(0); got != "0.00" {
+	if got := formatBOBalanceMinor(0); got != "0" {
+		t.Fatalf("got %q", got)
+	}
+	if got := formatBOBalanceMinor(40); got != "0.4" {
 		t.Fatalf("got %q", got)
 	}
 	if got := formatBOBalanceMinor(-105); got != "-1.05" {

@@ -53,10 +53,9 @@ type Config struct {
 	// BlueOceanXAPIUserPasswordSHA1 — when true (default), user_password on the wire is SHA1-hex (40 chars) unless the value is already 40 hex chars (BO public XAPI examples). Set false if your operator confirms plaintext on the wire.
 	BlueOceanXAPIUserPasswordSHA1 bool
 	BlueOceanWalletSalt      string // seamless GET callback key=sha1(salt+query)
-	// BlueOceanWalletFloatAmountIsMajorUnits: seamless wallet sends amount/bet/win as decimal major units (e.g. 0.25); multiply by 100 to minor. Integer params are still interpreted as minor units unless BLUEOCEAN_WALLET_INTEGER_AMOUNT_IS_MAJOR is true.
+	// BlueOceanWalletFloatAmountIsMajorUnits: when true, decimal amount/bet/win (e.g. "0.25") are major units (×100 to minor). When false, decimals are interpreted as minor units (legacy).
 	BlueOceanWalletFloatAmountIsMajorUnits bool
-	// BlueOceanWalletIntegerAmountIsMajorUnits: when true, whole-number amount/bet/win (no decimal point) are major units (e.g. BO basic S2S sends amount=10 for 10.00); multiply by 100 to minor. Default false keeps "10" as 10 minor (0.10 display).
-	// Decimal forms (e.g. 10.00 from JSON or query) also use major→minor scaling when this flag is true (see parseBOAmountCI).
+	// BlueOceanWalletIntegerAmountIsMajorUnits: when true, integer and decimal amount/bet/win are major units (×100 to ledger minor) — matches Blue Ocean basic S2S wallet tests (amount=10 ⇒ 10.00). Default true when env unset; set BLUEOCEAN_WALLET_INTEGER_MINOR_UNITS=true only if your operator documents whole-number params as minor units (cents).
 	BlueOceanWalletIntegerAmountIsMajorUnits bool
 	BlueOceanFeaturedIDHashes              []string
 	BlueOceanLobbyTagsJSON                 string // optional JSON map pill_id -> [id_hash]
@@ -279,7 +278,14 @@ func Load() (Config, error) {
 	}
 	c.BlueOceanWalletSalt = strings.TrimSpace(os.Getenv("BLUEOCEAN_WALLET_SALT"))
 	c.BlueOceanWalletFloatAmountIsMajorUnits = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_FLOAT_AMOUNT_IS_MAJOR"))
-	c.BlueOceanWalletIntegerAmountIsMajorUnits = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_INTEGER_AMOUNT_IS_MAJOR"))
+	// Seamless wallet: BO stage/prod examples use major-unit amounts (credit 10 = 10.00). Opt out with BLUEOCEAN_WALLET_INTEGER_MINOR_UNITS=true.
+	if parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_INTEGER_MINOR_UNITS")) {
+		c.BlueOceanWalletIntegerAmountIsMajorUnits = false
+	} else if raw := strings.TrimSpace(os.Getenv("BLUEOCEAN_WALLET_INTEGER_AMOUNT_IS_MAJOR")); raw != "" {
+		c.BlueOceanWalletIntegerAmountIsMajorUnits = parseBoolEnv(raw)
+	} else {
+		c.BlueOceanWalletIntegerAmountIsMajorUnits = true
+	}
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {
 		for _, p := range strings.Split(s, ",") {
 			p = strings.TrimSpace(p)

@@ -285,16 +285,7 @@ func mergeBlueOceanParams(r *http.Request) (url.Values, error) {
 		if err := dec.Decode(&m); err != nil {
 			return nil, err
 		}
-		for k, v := range m {
-			if v == nil {
-				continue
-			}
-			s, ok := blueOceanJSONScalarString(v)
-			if !ok {
-				continue
-			}
-			out.Add(k, s)
-		}
+		addJSONObjectToValues(out, m)
 		return out, nil
 	}
 	if strings.Contains(ct, "application/x-www-form-urlencoded") {
@@ -310,6 +301,34 @@ func mergeBlueOceanParams(r *http.Request) (url.Values, error) {
 		return out, nil
 	}
 	return out, nil
+}
+
+func sortedJSONMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// addJSONObjectToValues flattens one or more levels of JSON objects into url.Values using Set (deterministic key order; nested keys override earlier scalars at the same path level).
+func addJSONObjectToValues(out url.Values, m map[string]any) {
+	for _, k := range sortedJSONMapKeys(m) {
+		v := m[k]
+		if v == nil {
+			continue
+		}
+		if sub, ok := v.(map[string]any); ok {
+			addJSONObjectToValues(out, sub)
+			continue
+		}
+		s, ok := blueOceanJSONScalarString(v)
+		if !ok {
+			continue
+		}
+		out.Set(k, s)
+	}
 }
 
 func blueOceanJSONScalarString(v any) (string, bool) {
@@ -334,51 +353,53 @@ func blueOceanJSONScalarString(v any) (string, bool) {
 }
 
 func parseBOAmountCI(q url.Values, floatIsMajor, intIsMajor bool) (int64, bool) {
-	keys := []string{"amount", "bet", "win", "sum", "money"}
-	for lkWant, vals := range flattenValuesCI(q, keys) {
-		_ = lkWant
-		for _, s := range vals {
-			s = strings.TrimSpace(s)
+	keyOrder := []string{"amount", "bet", "win", "sum", "money"}
+	for _, key := range keyOrder {
+		for _, raw := range valuesForKeyCI(q, key) {
+			s := strings.ReplaceAll(strings.TrimSpace(raw), ",", ".")
 			if s == "" {
 				continue
 			}
-			s = strings.ReplaceAll(s, ",", ".")
-			if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-				n, _ := strconv.ParseInt(s, 10, 64)
-				if intIsMajor {
-					return n * 100, true
-				}
+			if n, ok := tryParseBOAmountString(s, floatIsMajor, intIsMajor); ok {
 				return n, true
 			}
-			f, err := strconv.ParseFloat(s, 64)
-			if err != nil {
-				continue
-			}
-			// INTEGER_AMOUNT_IS_MAJOR must scale "10.00" and float JSON amounts too, not only strings ParseInt accepts.
-			useMajorUnits := floatIsMajor || intIsMajor
-			if !useMajorUnits {
-				return int64(math.Round(f)), true
-			}
-			return int64(math.Round(f * 100)), true
 		}
 	}
 	return 0, false
 }
 
-// flattenValuesCI collects url.Values entries whose key matches any of names (case-insensitive).
-func flattenValuesCI(q url.Values, names []string) map[string][]string {
-	want := map[string]struct{}{}
-	for _, n := range names {
-		want[strings.ToLower(n)] = struct{}{}
-	}
-	out := map[string][]string{}
+func valuesForKeyCI(q url.Values, name string) []string {
+	var out []string
+	want := strings.ToLower(strings.TrimSpace(name))
 	for k, vals := range q {
-		if _, ok := want[strings.ToLower(strings.TrimSpace(k))]; !ok {
+		if strings.ToLower(strings.TrimSpace(k)) != want {
 			continue
 		}
-		out[k] = append(out[k], vals...)
+		for _, v := range vals {
+			if s := strings.TrimSpace(v); s != "" {
+				out = append(out, s)
+			}
+		}
 	}
 	return out
+}
+
+func tryParseBOAmountString(s string, floatIsMajor, intIsMajor bool) (int64, bool) {
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		n, _ := strconv.ParseInt(s, 10, 64)
+		if intIsMajor {
+			return n * 100, true
+		}
+		return n, true
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	if !floatIsMajor && !intIsMajor {
+		return int64(math.Round(f)), true
+	}
+	return int64(math.Round(f * 100)), true
 }
 
 func resolveBlueOceanRemoteUser(ctx context.Context, pool *pgxpool.Pool, remote string) (string, error) {
@@ -534,6 +555,8 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	return bal, 200, "", nil
 }
 
+// formatBOBalanceMinor formats ledger minor units for Blue Ocean JSON balance strings.
+// BO tooling often compares strings loosely but rejects "0.40" vs expected "0.4" — we trim redundant trailing zeros (public examples use whole euros like "300" when no cents).
 func formatBOBalanceMinor(minor int64) string {
 	neg := minor < 0
 	if neg {
@@ -541,7 +564,14 @@ func formatBOBalanceMinor(minor int64) string {
 	}
 	whole := minor / 100
 	frac := minor % 100
-	s := fmt.Sprintf("%d.%02d", whole, frac)
+	var s string
+	if frac == 0 {
+		s = strconv.FormatInt(whole, 10)
+	} else {
+		s = fmt.Sprintf("%d.%02d", whole, frac)
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimSuffix(s, ".")
+	}
 	if neg {
 		return "-" + s
 	}
