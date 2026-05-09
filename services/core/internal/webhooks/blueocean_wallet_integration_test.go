@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,5 +60,52 @@ func TestIntegrationBlueOceanWalletBalanceByUserUUID(t *testing.T) {
 	}
 	if out.Balance == "" {
 		t.Fatalf("expected balance set, got %+v", out)
+	}
+}
+
+// TestIntegrationBlueOceanWalletBalanceByCompactUUIDRemoteID verifies BO seamless wallet resolves
+// remote_id as 32-hex (no hyphens), as used in BO testing tools when XAPI userid is compact.
+// Requires BONUS_E2E_DATABASE_URL.
+func TestIntegrationBlueOceanWalletBalanceByCompactUUIDRemoteID(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+
+	ctx := context.Background()
+	uid := uuid.New().String()
+	compact := strings.ReplaceAll(uid, "-", "")
+	email := "bo-bal-c-" + compact + "@e2e.local"
+	_, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+
+	salt := "integration-test-salt"
+	cfg := &config.Config{BlueOceanCurrency: "EUR", BlueOceanWalletSalt: salt}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+
+	q := boSignGET(salt, map[string]string{
+		"action":    "balance",
+		"remote_id": compact,
+	})
+	req := httptest.NewRequest("GET", "/api/blueocean/callback?"+q, nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Status int `json:"status"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != 200 {
+		t.Fatalf("expected status 200, got %+v body=%s", out, w.Body.String())
 	}
 }

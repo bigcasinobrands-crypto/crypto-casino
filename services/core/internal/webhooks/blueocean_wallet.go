@@ -81,7 +81,9 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			http.Error(w, "invalid key", http.StatusUnauthorized)
 			return
 		}
-		remote := strings.TrimSpace(firstNonEmptyCI(q, "remote_id"))
+		remote := strings.TrimSpace(firstNonEmptyCI(q,
+			"remote_id", "player_id", "playerid", "userid", "user_id",
+		))
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
@@ -375,36 +377,11 @@ func flattenValuesCI(q url.Values, names []string) map[string][]string {
 }
 
 func resolveBlueOceanRemoteUser(ctx context.Context, pool *pgxpool.Pool, remote string) (string, error) {
-	if remote == "" || pool == nil {
-		return "", fmt.Errorf("missing remote")
+	uid, err := blueocean.ResolveWalletRemoteToUserID(ctx, pool, remote)
+	if err != nil {
+		return "", err
 	}
-	candidates := []string{strings.TrimSpace(remote)}
-	if alt := blueocean.AlternateUUIDForm(remote); alt != "" {
-		candidates = append(candidates, alt)
-	}
-	for _, c := range candidates {
-		if c == "" {
-			continue
-		}
-		var userID string
-		err := pool.QueryRow(ctx, `
-			SELECT user_id::text FROM blueocean_player_links WHERE remote_player_id = $1
-		`, c).Scan(&userID)
-		if err == nil && userID != "" {
-			return userID, nil
-		}
-	}
-	for _, c := range candidates {
-		if c == "" {
-			continue
-		}
-		var userID string
-		err := pool.QueryRow(ctx, `SELECT id::text FROM users WHERE id::text = $1`, c).Scan(&userID)
-		if err == nil && userID != "" {
-			return userID, nil
-		}
-	}
-	return "", fmt.Errorf("user not found")
+	return uid, nil
 }
 
 func debitMagnitudeByIdem(ctx context.Context, tx pgx.Tx, idem string) int64 {
