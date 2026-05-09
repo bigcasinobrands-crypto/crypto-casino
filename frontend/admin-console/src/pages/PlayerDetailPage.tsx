@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAdminAuth } from '../authContext'
-import { formatApiError, readApiError } from '../api/errors'
+import { apiErrFromBody, formatApiError, readApiError } from '../api/errors'
 import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
 import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
@@ -250,13 +250,14 @@ export default function PlayerDetailPage() {
     const path = `/v1/admin/users/${encodeURIComponent(id)}/integrations/blueocean/sync-test`
     try {
       const res = await apiFetch(path, { method: 'POST' })
-      const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>
+      const body = await res.json().catch(() => ({}))
       if (!res.ok) {
+        const parsed = apiErrFromBody(body, res.status)
         reportApiFailure({ res, parsed, method: 'POST', path })
         setBoSyncErr(formatApiError(parsed, `HTTP ${res.status}`))
         return
       }
-      setBoSyncResult(parsed)
+      setBoSyncResult(body as Record<string, unknown>)
       void loadFacts()
     } catch {
       setBoSyncErr('Network error')
