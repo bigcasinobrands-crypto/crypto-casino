@@ -778,16 +778,16 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			return bal, 200, "", nil
 		}
 		idemP := fmt.Sprintf("bo:game:credit:%s:%s", keyRemote, ledgerTxn)
-		_, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idemP, amount, meta)
-		if err != nil {
+		if _, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idemP, amount, meta); err != nil {
 			return bal, 500, "", err
 		}
 		sumC, sErr := sumLedgerKeysIN(ctx, tx, boCreditIdemKeys(keyRemote, altRemote, txnWire, ledgerTxn))
 		if sErr != nil {
 			return bal, 500, "", sErr
 		}
-		if sumC < amount {
-			return bal, 500, "", fmt.Errorf("blueocean wallet: credit ledger sum %d < amount %d (txn %s)", sumC, amount, txnWire)
+		// Strict: aggregated credit lines for this txn namespace must equal the requested win (detect double-keys / drift).
+		if sumC != amount {
+			return bal, 500, "", fmt.Errorf("blueocean wallet: credit ledger sum %d != amount %d (txn %s)", sumC, amount, txnWire)
 		}
 	case "rollback":
 		// BO: empty amount on rollback — reverse using stored movements only.
@@ -868,7 +868,13 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			log.Printf("blueocean wallet: redis publish wagering progress: %v", pubErr)
 		}
 	}
-	return bal, 200, "", nil
+	// Re-read balance from primary after commit so the JSON matches BO's ledger (avoids any in-tx vs settled skew;
+	// must stay aligned with standalone balance requests per seamless wallet contract).
+	postBal, perr := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy, multiCurrency)
+	if perr != nil {
+		return 0, 500, "", perr
+	}
+	return postBal, 200, "", nil
 }
 
 // formatBOBalanceMinor formats ledger minor units for Blue Ocean JSON balance strings.
