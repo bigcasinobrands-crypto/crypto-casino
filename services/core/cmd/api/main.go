@@ -564,6 +564,9 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			out["blueocean_seamless_wallet_callback_url"] = base + "/api/blueocean/callback"
 			out["blueocean_admin_xapi_proxy"] = base + "/v1/admin/integrations/blueocean/xapi"
 		}
+		if miss, err := blueocean.CountUsersMissingBlueOceanLink(ctx, pool); err == nil {
+			out["blueocean_users_missing_player_links"] = miss
+		}
 		if lastSync.Valid {
 			out["last_catalog_sync_at"] = lastSync.Time.UTC().Format(time.RFC3339)
 		}

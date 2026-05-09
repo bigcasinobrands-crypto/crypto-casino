@@ -56,6 +56,9 @@ func (h *Handler) BlueOceanStatus(w http.ResponseWriter, r *http.Request) {
 		"blueocean_xapi_session_sync": h.cfg().BlueOceanXAPISessionSync,
 		"blueocean_xapi_methods":      blueocean.ListAllowedXAPIMethodNames(),
 	}
+	if miss, err := blueocean.CountUsersMissingBlueOceanLink(r.Context(), h.Pool); err == nil {
+		out["users_missing_player_links"] = miss
+	}
 	if lastSync != nil {
 		out["last_sync_at"] = lastSync.UTC().Format(time.RFC3339)
 	}
@@ -117,6 +120,58 @@ func (h *Handler) BlueOceanXAPI(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type backfillPlayerLinksReq struct {
+	Limit   int  `json:"limit"`
+	DryRun  bool `json:"dry_run"`
+	SleepMS int  `json:"sleep_ms"`
+}
+
+// BackfillBlueOceanPlayerLinks runs createPlayer for users without blueocean_player_links (superadmin).
+func (h *Handler) BackfillBlueOceanPlayerLinks(w http.ResponseWriter, r *http.Request) {
+	if h.BOG == nil || !h.BOG.Configured() {
+		adminapi.WriteError(w, http.StatusServiceUnavailable, "bog_unconfigured", "Blue Ocean client not configured")
+		return
+	}
+	var body backfillPlayerLinksReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid body")
+		return
+	}
+	limit := body.Limit
+	const maxBatch = 5000
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > maxBatch {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("limit cannot exceed %d per request", maxBatch))
+		return
+	}
+	sleepMS := body.SleepMS
+	if sleepMS < 0 {
+		sleepMS = 0
+	}
+	if sleepMS == 0 && !body.DryRun {
+		sleepMS = 200
+	}
+	opt := blueocean.BackfillMissingPlayerLinksOptions{
+		Limit:        limit,
+		DryRun:       body.DryRun,
+		SleepBetween: time.Duration(sleepMS) * time.Millisecond,
+	}
+	ok, fail, err := blueocean.BackfillMissingPlayerLinks(r.Context(), h.Pool, h.BOG, h.cfg(), opt)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusBadGateway, "backfill_failed", err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{
+		"ok":               true,
+		"dry_run":          body.DryRun,
+		"limit":            limit,
+		"succeeded":        ok,
+		"failed":           fail,
+		"sleep_ms_applied": sleepMS,
+	})
+}
 func (h *Handler) OperationalFlags(w http.ResponseWriter, r *http.Request) {
 	c := h.cfg()
 	writeJSON(w, map[string]any{

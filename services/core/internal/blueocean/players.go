@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/crypto-casino/core/internal/config"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -283,4 +285,76 @@ func EnsurePlayerLink(ctx context.Context, pool *pgxpool.Pool, c *Client, cfg *c
 		ON CONFLICT (user_id) DO UPDATE SET remote_player_id = EXCLUDED.remote_player_id
 	`, uid, remote)
 	return err
+}
+
+const userIDsMissingBlueOceanLinkSQL = `
+SELECT u.id::text FROM users u
+WHERE NOT EXISTS (SELECT 1 FROM blueocean_player_links b WHERE b.user_id = u.id)
+  AND u.account_closed_at IS NULL
+ORDER BY u.created_at ASC`
+
+// CountUsersMissingBlueOceanLink returns how many open accounts have no blueocean_player_links row yet.
+func CountUsersMissingBlueOceanLink(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	if pool == nil {
+		return 0, fmt.Errorf("blueocean: no database pool")
+	}
+	var n int64
+	err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)::bigint FROM users u
+		WHERE NOT EXISTS (SELECT 1 FROM blueocean_player_links b WHERE b.user_id = u.id)
+		  AND u.account_closed_at IS NULL
+	`).Scan(&n)
+	return n, err
+}
+
+// BackfillMissingPlayerLinksOptions controls batch provisioning via createPlayer + link insert.
+type BackfillMissingPlayerLinksOptions struct {
+	// Limit caps how many users are scanned (0 = no cap).
+	Limit int
+	// DryRun only enumerates candidates; no XAPI or DB writes (still runs the SELECT).
+	DryRun bool
+	// SleepBetween pauses after each successful EnsurePlayerLink (ignored on dry-run). Zero disables.
+	SleepBetween time.Duration
+}
+
+// BackfillMissingPlayerLinks provisions Blue Ocean for users without blueocean_player_links (see EnsurePlayerLink).
+// Skips closed accounts (account_closed_at IS NOT NULL). Returns succeeded vs failed EnsurePlayerLink attempts.
+func BackfillMissingPlayerLinks(ctx context.Context, pool *pgxpool.Pool, c *Client, cfg *config.Config, opt BackfillMissingPlayerLinksOptions) (succeeded, failed int, err error) {
+	if pool == nil || c == nil || !c.Configured() || cfg == nil {
+		return 0, 0, fmt.Errorf("blueocean: backfill requires configured client and database pool")
+	}
+	q := userIDsMissingBlueOceanLinkSQL
+	var rows pgx.Rows
+	if opt.Limit > 0 {
+		rows, err = pool.Query(ctx, q+` LIMIT $1`, opt.Limit)
+	} else {
+		rows, err = pool.Query(ctx, q)
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return succeeded, failed, err
+		}
+		if opt.DryRun {
+			succeeded++
+			continue
+		}
+		if err := EnsurePlayerLink(ctx, pool, c, cfg, id); err != nil {
+			failed++
+			continue
+		}
+		succeeded++
+		if opt.SleepBetween > 0 {
+			select {
+			case <-ctx.Done():
+				return succeeded, failed, ctx.Err()
+			case <-time.After(opt.SleepBetween):
+			}
+		}
+	}
+	return succeeded, failed, rows.Err()
 }
