@@ -845,9 +845,11 @@ export default function GameLobbyPage() {
 
       {showTheater ? (
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
-          {showInlinePlayer && !showMobileFramelessPlayer ? (
-            <div className={`w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 ${desktopTheaterShellClass}`}>
-              <div className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
+          {showInlinePlayer ? (
+            <div
+              className={`w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 ${desktopTheaterShellClass} max-xl:fixed max-xl:inset-0 max-xl:z-[330] max-xl:m-0 max-xl:flex max-xl:h-auto max-xl:min-h-0 max-xl:w-full max-xl:max-w-none max-xl:shrink-0 max-xl:flex-col max-xl:bg-black max-xl:px-0 max-xl:pt-0 max-xl:touch-manipulation max-xl:[overscroll-behavior:none]`}
+            >
+              <div className="flex w-full min-h-0 shrink-0 flex-col overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)] max-xl:min-h-0 max-xl:flex-1 max-xl:rounded-none max-xl:border-0 max-xl:shadow-none">
                 <div className="hidden items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3 xl:flex">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <button
@@ -910,7 +912,7 @@ export default function GameLobbyPage() {
                 </div>
                 <div
                   ref={stageRef}
-                  className={`${theaterStageFrameClass} ${theaterStageFullscreenClass}`}
+                  className={`${theaterStageFrameClass} ${theaterStageFullscreenClass} touch-pan-y max-xl:aspect-auto max-xl:min-h-0 max-xl:!min-h-0 max-xl:min-w-0 max-xl:max-h-none max-xl:flex-1`}
                   aria-busy={launchPending}
                 >
                   <iframe
@@ -921,8 +923,50 @@ export default function GameLobbyPage() {
                     allow={GAME_IFRAME_ALLOW}
                     allowFullScreen
                   />
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-[25] flex items-center justify-between gap-2 px-2 pt-[max(6px,env(safe-area-inset-top,0px))] xl:hidden">
+                    <button
+                      type="button"
+                      className="pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-black/55 text-white shadow-[0_4px_16px_rgba(0,0,0,0.45)] ring-1 ring-white/[0.12] backdrop-blur-sm transition hover:bg-black/70"
+                      aria-label={t('gameLobby.closeGameAria')}
+                      onClick={exitMobileImmersivePlayer}
+                    >
+                      <IconChevronLeft size={20} aria-hidden />
+                    </button>
+                    <span className="pointer-events-none max-w-[min(56vw,14rem)] truncate text-center text-[11px] font-semibold text-white/85">
+                      {title}
+                    </span>
+                    <div className="pointer-events-auto flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
+                        title={popOutButtonTitle}
+                        aria-pressed={thisGameInMini}
+                        disabled={!iframeUrl?.trim()}
+                        onClick={() => toggleGamePopOut()}
+                      >
+                        <IconExternalLink size={15} aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
+                        title={
+                          isAuthenticated ? t('gameLobby.statsSignedIn') : t('gameLobby.statsSignedOut')
+                        }
+                        disabled={!gameId}
+                        onClick={() => {
+                          if (!isAuthenticated) {
+                            openAuth('login', { navigateTo: postAuthTarget })
+                            return
+                          }
+                          setStatsOpen(true)
+                        }}
+                      >
+                        <IconBarChart3 size={15} aria-hidden />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between gap-2 border-t border-white/[0.07] px-2.5 py-1.5 sm:px-3 sm:py-2">
+                <div className="hidden items-center justify-between gap-2 border-t border-white/[0.07] px-2.5 py-1.5 sm:px-3 sm:py-2 xl:flex">
                   <div className="min-w-0 flex-1">
                     <h1
                       className={`truncate text-xs font-bold text-white sm:text-sm ${metaLoading ? 'animate-pulse' : ''}`}
@@ -951,7 +995,7 @@ export default function GameLobbyPage() {
                   ) : null}
                 </div>
               </div>
-              <div className={`${lobbyRailInner} shrink-0`}>
+              <div className={`${lobbyRailInner} hidden shrink-0 xl:block`}>
                 <p className="py-1 text-center text-[11px] text-casino-muted sm:text-xs">
                   {t('gameLobby.havingTrouble')}{' '}
                   <button
@@ -974,74 +1018,6 @@ export default function GameLobbyPage() {
               </div>
             </div>
           ) : null}
-
-          {showMobileFramelessPlayer && typeof document !== 'undefined'
-            ? createPortal(
-                <div
-                  className="fixed inset-0 z-[330] flex flex-col bg-black touch-manipulation [overscroll-behavior:none]"
-                  role="presentation"
-                >
-                  <div
-                    ref={stageRef}
-                    className={`relative min-h-0 min-w-0 flex-1 touch-pan-y ${theaterStageFullscreenClass}`}
-                    style={{ minHeight: '100dvh' }}
-                    aria-busy={launchPending}
-                  >
-                    <iframe
-                      key={`${iframeUrl}\u0000${launchRetryNonce}`}
-                      title={title}
-                      src={iframeUrl ?? ''}
-                      className="absolute inset-0 z-10 h-full w-full border-0 bg-black"
-                      allow={GAME_IFRAME_ALLOW}
-                      allowFullScreen
-                    />
-                    <div className="pointer-events-none absolute inset-x-0 top-0 z-[25] flex items-center justify-between gap-2 px-2 pt-[max(6px,env(safe-area-inset-top,0px))]">
-                      <button
-                        type="button"
-                        className="pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-black/55 text-white shadow-[0_4px_16px_rgba(0,0,0,0.45)] ring-1 ring-white/[0.12] backdrop-blur-sm transition hover:bg-black/70"
-                        aria-label={t('gameLobby.closeGameAria')}
-                        onClick={exitMobileImmersivePlayer}
-                      >
-                        <IconChevronLeft size={20} aria-hidden />
-                      </button>
-                      <span className="pointer-events-none max-w-[min(56vw,14rem)] truncate text-center text-[11px] font-semibold text-white/85">
-                        {title}
-                      </span>
-                      <div className="pointer-events-auto flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
-                          title={popOutButtonTitle}
-                          aria-pressed={thisGameInMini}
-                          disabled={!iframeUrl?.trim()}
-                          onClick={() => toggleGamePopOut()}
-                        >
-                          <IconExternalLink size={15} aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
-                          title={
-                            isAuthenticated ? t('gameLobby.statsSignedIn') : t('gameLobby.statsSignedOut')
-                          }
-                          disabled={!gameId}
-                          onClick={() => {
-                            if (!isAuthenticated) {
-                              openAuth('login', { navigateTo: postAuthTarget })
-                              return
-                            }
-                            setStatsOpen(true)
-                          }}
-                        >
-                          <IconBarChart3 size={15} aria-hidden />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>,
-                document.body,
-              )
-            : null}
 
           {!showInlinePlayer ? (
             <>
