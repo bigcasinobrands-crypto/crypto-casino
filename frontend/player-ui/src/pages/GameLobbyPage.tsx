@@ -792,7 +792,7 @@ export default function GameLobbyPage() {
   const desktopTheaterShellClass =
     'xl:mx-auto xl:w-full xl:max-w-[76.44rem] 2xl:max-w-[87.36rem]'
   const theaterStageFrameClass = liveTableTheater
-    ? 'relative w-full bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))] xl:min-h-[473px] xl:max-h-[min(801px,75vh)]'
+    ? 'relative w-full min-h-0 bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))]'
     : 'relative aspect-video w-full bg-black'
   /** Drop theater letterboxing / aspect caps so the iframe can fill the monitor in browser fullscreen. */
   const theaterStageFullscreenClass =
@@ -847,9 +847,9 @@ export default function GameLobbyPage() {
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
           {showInlinePlayer ? (
             <div
-              className={`w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 ${desktopTheaterShellClass} max-xl:fixed max-xl:inset-0 max-xl:z-[330] max-xl:m-0 max-xl:flex max-xl:h-auto max-xl:min-h-0 max-xl:w-full max-xl:max-w-none max-xl:shrink-0 max-xl:flex-col max-xl:bg-black max-xl:px-0 max-xl:pt-0 max-xl:touch-manipulation max-xl:[overscroll-behavior:none]`}
+              className={`w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 ${desktopTheaterShellClass} xl:flex xl:min-h-0 xl:flex-1 xl:flex-col max-xl:fixed max-xl:inset-0 max-xl:z-[330] max-xl:m-0 max-xl:flex max-xl:h-auto max-xl:min-h-0 max-xl:w-full max-xl:max-w-none max-xl:shrink-0 max-xl:flex-col max-xl:bg-black max-xl:px-0 max-xl:pt-0 max-xl:touch-manipulation max-xl:[overscroll-behavior:none]`}
             >
-              <div className="flex w-full min-h-0 shrink-0 flex-col overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)] max-xl:min-h-0 max-xl:flex-1 max-xl:rounded-none max-xl:border-0 max-xl:shadow-none">
+              <div className="flex w-full min-h-0 shrink-0 flex-col overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)] max-xl:min-h-0 max-xl:flex-1 max-xl:rounded-none max-xl:border-0 max-xl:shadow-none xl:min-h-0 xl:shrink xl:flex-1">
                 <div className="hidden items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3 xl:flex">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <button
@@ -912,14 +912,14 @@ export default function GameLobbyPage() {
                 </div>
                 <div
                   ref={stageRef}
-                  className={`${theaterStageFrameClass} ${theaterStageFullscreenClass} touch-pan-y max-xl:aspect-auto max-xl:min-h-0 max-xl:!min-h-0 max-xl:min-w-0 max-xl:max-h-none max-xl:flex-1`}
+                  className={`${theaterStageFrameClass} ${theaterStageFullscreenClass} touch-pan-y max-xl:aspect-auto max-xl:min-h-0 max-xl:!min-h-0 max-xl:min-w-0 max-xl:max-h-none max-xl:flex-1 ${liveTableTheater ? 'xl:flex-1 xl:min-h-[min(480px,40vh)] xl:max-h-[min(92dvh,calc(100dvh-10.5rem))]' : 'xl:flex-none'}`}
                   aria-busy={launchPending}
                 >
                   <iframe
                     key={`${iframeUrl}\u0000${launchRetryNonce}`}
                     title={title}
                     src={iframeUrl ?? ''}
-                    className="absolute inset-0 z-10 h-full w-full border-0 bg-black"
+                    className="absolute inset-0 z-10 block h-full w-full border-0 bg-black"
                     allow={GAME_IFRAME_ALLOW}
                     allowFullScreen
                   />
@@ -1256,7 +1256,7 @@ export default function GameLobbyPage() {
 
             <div
               ref={stageRef}
-              className={`${theaterStageFrameClass} ${theaterStageFullscreenClass}`}
+              className={`${theaterStageFrameClass} ${theaterStageFullscreenClass}${liveTableTheater ? ' xl:min-h-[473px] xl:max-h-[min(801px,75vh)]' : ''}`}
               aria-busy={launchPending}
             >
               <img
