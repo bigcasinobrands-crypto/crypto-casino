@@ -67,6 +67,75 @@ func TestCreatePlayerIndicatesAlreadyExists(t *testing.T) {
 	}
 }
 
+func TestBuildCreatePlayerCallParamsIncludesEmail(t *testing.T) {
+	uid := "550e8400-e29b-41d4-a716-446655440000"
+	cfg := &config.Config{BlueOceanCurrency: "EUR"}
+	params, sent, msg := buildCreatePlayerCallParams(cfg, CreatePlayerRequest{
+		UserID: uid,
+		Email:  "  Saeed@Example.com ",
+	})
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if sent == "" {
+		t.Fatal("expected user_username")
+	}
+	em, ok := params["email"].(string)
+	if !ok || em != "Saeed@Example.com" {
+		t.Fatalf("email param: got %q ok=%v map=%v", em, ok, params["email"])
+	}
+	params2, _, msg2 := buildCreatePlayerCallParams(cfg, CreatePlayerRequest{UserID: uid})
+	if msg2 != "" {
+		t.Fatal(msg2)
+	}
+	if _, has := params2["email"]; has {
+		t.Fatalf("expected no email when req email empty: %v", params2)
+	}
+}
+
+func TestBuildCreatePlayerCallParamsCustomerProfile(t *testing.T) {
+	uid := "550e8400-e29b-41d4-a716-446655440000"
+	cfg := &config.Config{BlueOceanCurrency: "EUR", BlueOceanAgentID: "12"}
+	params, _, msg := buildCreatePlayerCallParams(cfg, CreatePlayerRequest{
+		UserID:      uid,
+		Username:    "alice",
+		Email:       "a@b.co",
+		FirstName:   "Ann",
+		LastName:    "B",
+		Nickname:    "alib",
+		CountryISO2: "de",
+		City:        "Berlin",
+		Region:      "BE",
+		Phone:       "+491234",
+		Gender:      "F",
+		Language:    "de",
+		Birthday:    "1999-01-15",
+	})
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if params["firstname"] != "Ann" || params["lastname"] != "B" || params["nickname"] != "alib" {
+		t.Fatalf("name/nick: %v", params)
+	}
+	if params["country"] != "DE" || params["city"] != "Berlin" || params["region"] != "BE" {
+		t.Fatalf("geo: %v", params)
+	}
+	if params["phone"] != "+491234" || params["gender"] != "f" || params["language"] != "de" {
+		t.Fatalf("contact: %v", params)
+	}
+	if params["birthday"] != "1999-01-15" {
+		t.Fatalf("birthday: %v", params["birthday"])
+	}
+}
+
+func TestBoCustomerFromPreferencesJSON(t *testing.T) {
+	raw := []byte(`{"first_name":"Jo","lastname":"X","phone":"+1","gender":"M","locale":"en-GB"}`)
+	f, l, p, g, lang := boCustomerFromPreferencesJSON(raw)
+	if f != "Jo" || l != "X" || p != "+1" || g != "M" || lang != "en" {
+		t.Fatalf("got %q %q %q %q %q", f, l, p, g, lang)
+	}
+}
+
 func TestMergePlayerParamMap(t *testing.T) {
 	dst := map[string]any{"userid": "1", "user_username": "a"}
 	mergePlayerParamMap(dst, map[string]any{

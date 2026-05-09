@@ -48,11 +48,23 @@ func XAPILoginKeyFromDB(ctx context.Context, pool *pgxpool.Pool, userID string) 
 
 // CreatePlayerRequest is the server-to-server XAPI createPlayer call (form POST).
 // Field names match the BOG operator test form / common XAPI conventions (userid, user_username, currency).
+// Optional profile fields (firstname, lastname, country, etc.) are sent when present — validate names in BO’s API form.
 // ExtraParams are merged last so operators can match brand-specific keys from the BO testing tool without a code change.
 type CreatePlayerRequest struct {
 	UserID   string // users.id (UUID string)
 	Username string // optional; used for user_username when set
-	Email    string // optional fallback for user_username (local-part) when Username is empty
+	Email    string // optional fallback for user_username (local-part) when Username is empty; also sent as `email` when non-empty
+	// Optional — merged into createPlayer when non-empty (typical BO-style keys; confirm with operator).
+	FirstName   string
+	LastName    string
+	Nickname    string // often same as Username; BO “Nickname” column when supported
+	CountryISO2 string
+	City        string
+	Region      string
+	Phone       string
+	Gender      string
+	Language    string
+	Birthday    string // YYYY-MM-DD
 	// ExtraParams merged after env-level BLUEOCEAN_CREATE_PLAYER_EXTRA_JSON (if set); use to add/override fields per call.
 	ExtraParams map[string]any
 }
@@ -180,6 +192,10 @@ func buildCreatePlayerCallParams(cfg *config.Config, req CreatePlayerRequest) (m
 		"userid":         xapiUser,
 		"user_username": display,
 	}
+	if em := strings.TrimSpace(req.Email); em != "" {
+		params["email"] = em
+	}
+	mergeCreatePlayerCustomerDetails(params, req)
 	if cfg != nil {
 		if p := strings.TrimSpace(cfg.BlueOceanCreatePlayerUserPassword); p != "" {
 			params["user_password"] = p
@@ -340,50 +356,27 @@ func EnsurePlayerLink(ctx context.Context, pool *pgxpool.Pool, c *Client, cfg *c
 		if !xapiMissing {
 			return nil
 		}
-		var username, email *string
-		if err := pool.QueryRow(ctx, `
-			SELECT username, email FROM users WHERE id = $1::uuid
-		`, uid).Scan(&username, &email); err != nil {
+		snap, err := loadCreatePlayerUserSnapshot(ctx, pool, uid)
+		if err != nil {
 			return err
 		}
-		uStr, eStr := "", ""
-		if username != nil {
-			uStr = *username
-		}
-		if email != nil {
-			eStr = *email
-		}
-		_, sent, msg := buildCreatePlayerCallParams(cfg, CreatePlayerRequest{
-			UserID: uid, Username: uStr, Email: eStr,
-		})
+		req := snap.toCreatePlayerRequest(uid)
+		_, sent, msg := buildCreatePlayerCallParams(cfg, req)
 		if msg != "" || sent == "" {
 			return nil
 		}
-		_, err := pool.Exec(ctx, `
+		_, err = pool.Exec(ctx, `
 			UPDATE blueocean_player_links SET xapi_user_username = $2
 			WHERE user_id = $1::uuid AND (xapi_user_username IS NULL OR trim(xapi_user_username) = '')
 		`, uid, sent)
 		return err
 	}
-	var username, email *string
-	err := pool.QueryRow(ctx, `
-		SELECT username, email FROM users WHERE id = $1::uuid
-	`, uid).Scan(&username, &email)
+	snap, err := loadCreatePlayerUserSnapshot(ctx, pool, uid)
 	if err != nil {
 		return err
 	}
-	uStr, eStr := "", ""
-	if username != nil {
-		uStr = *username
-	}
-	if email != nil {
-		eStr = *email
-	}
-	res := c.CreatePlayer(ctx, cfg, CreatePlayerRequest{
-		UserID:   uid,
-		Username: uStr,
-		Email:    eStr,
-	})
+	req := snap.toCreatePlayerRequest(uid)
+	res := c.CreatePlayer(ctx, cfg, req)
 	if !res.OK {
 		return fmt.Errorf("blueocean createPlayer: %s", res.ErrorMessage)
 	}
