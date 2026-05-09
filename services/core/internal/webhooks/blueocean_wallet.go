@@ -354,7 +354,9 @@ func parseBOAmountCI(q url.Values, floatIsMajor, intIsMajor bool) (int64, bool) 
 			if err != nil {
 				continue
 			}
-			if !floatIsMajor {
+			// INTEGER_AMOUNT_IS_MAJOR must scale "10.00" and float JSON amounts too, not only strings ParseInt accepts.
+			useMajorUnits := floatIsMajor || intIsMajor
+			if !useMajorUnits {
 				return int64(math.Round(f)), true
 			}
 			return int64(math.Round(f * 100)), true

@@ -56,6 +56,7 @@ type Config struct {
 	// BlueOceanWalletFloatAmountIsMajorUnits: seamless wallet sends amount/bet/win as decimal major units (e.g. 0.25); multiply by 100 to minor. Integer params are still interpreted as minor units unless BLUEOCEAN_WALLET_INTEGER_AMOUNT_IS_MAJOR is true.
 	BlueOceanWalletFloatAmountIsMajorUnits bool
 	// BlueOceanWalletIntegerAmountIsMajorUnits: when true, whole-number amount/bet/win (no decimal point) are major units (e.g. BO basic S2S sends amount=10 for 10.00); multiply by 100 to minor. Default false keeps "10" as 10 minor (0.10 display).
+	// Decimal forms (e.g. 10.00 from JSON or query) also use major→minor scaling when this flag is true (see parseBOAmountCI).
 	BlueOceanWalletIntegerAmountIsMajorUnits bool
 	BlueOceanFeaturedIDHashes              []string
 	BlueOceanLobbyTagsJSON                 string // optional JSON map pill_id -> [id_hash]

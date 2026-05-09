@@ -79,6 +79,15 @@ func TestMergeBlueOceanParamsJSONNoContentType(t *testing.T) {
 	}
 }
 
+func TestParseBOAmountCI_DecimalStringUsesIntMajorScaling(t *testing.T) {
+	q := url.Values{}
+	q.Set("amount", "10.00")
+	n, ok := parseBOAmountCI(q, false, true)
+	if !ok || n != 1000 {
+		t.Fatalf("got %d ok=%v want 1000 minor", n, ok)
+	}
+}
+
 func TestParseBOAmountCI_IntegerStaysMinorByDefault(t *testing.T) {
 	q := url.Values{}
 	q.Set("amount", "10")
