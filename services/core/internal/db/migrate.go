@@ -22,6 +22,10 @@ func RunMigrations(databaseURL string) error {
 		return fmt.Errorf("open db for migrations: %w", err)
 	}
 	defer sqlDB.Close()
+	// Single connection: avoids competing for Supabase session-pooler slots during goose up
+	// (deploy runs migrate before the app pool starts).
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 	if err := goose.Up(sqlDB, "migrations"); err != nil {
 		return fmt.Errorf("goose up: %w", err)
 	}
