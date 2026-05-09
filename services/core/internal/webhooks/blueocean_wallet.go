@@ -34,8 +34,8 @@ import (
 const boWalletErrInternal = "Internal error"
 
 // boWalletTxMaxAttempts handles deadlocks / serialization failures when BO runs concurrent wallet calls
-// against the same player (stress tests).
-const boWalletTxMaxAttempts = 12
+// against the same player (stress tests). Keep generous: pool starvation + many threads can amplify retries.
+const boWalletTxMaxAttempts = 32
 
 func isBOWalletTxRetryable(err error) bool {
 	if err == nil {
