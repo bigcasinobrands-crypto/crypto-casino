@@ -1063,6 +1063,8 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 			adminapi.WriteError(w, http.StatusBadRequest, "grant_failed", err.Error())
 			return
 		}
+		playMulti := h.cfg().BlueOceanMulticurrency
+		afterBal, _ := ledger.BalancePlayableSeamless(ctx, h.Pool, uid, ccy, playMulti)
 		auditMeta := map[string]any{
 			"user_id":              body.UserID,
 			"promotion_version_id": body.PromotionVersionID,
@@ -1091,6 +1093,8 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 			"withdrawable":   body.AllowWithdrawable,
 			"funding_source": "admin_play_credit",
 			"terms_note":     "Credited in settlement currency (" + ccy + ") for Blue Ocean games; UI currency selection does not override.",
+			"playable_balance_minor":    afterBal,
+			"playable_balance_currency": ccy,
 		}
 		if reqCcy != "" && reqCcy != ccy {
 			resp["requested_currency"] = reqCcy

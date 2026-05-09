@@ -111,6 +111,14 @@ function errFromParsedBody(status: number, body: unknown) {
   return null
 }
 
+/** Fresh key each grant attempt so retries are not silenced by ledger idempotency (cash path). */
+function newAdminGrantIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 14)}`
+}
+
 export default function BonusOperationsTools() {
   const { apiFetch, role } = useAdminAuth()
   const isSuper = role === 'superadmin'
@@ -337,6 +345,7 @@ export default function BonusOperationsTools() {
           currency: payload.currency,
           allow_withdrawable: payload.allowWithdrawable,
           credit_target: payload.creditTarget,
+          idempotency_key: newAdminGrantIdempotencyKey(),
         }),
       })
       let j: unknown = null

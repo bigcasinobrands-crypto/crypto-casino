@@ -58,6 +58,13 @@ function errFromParsedBody(status: number, body: unknown) {
   return null
 }
 
+function newAdminGrantIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 14)}`
+}
+
 export default function BonusHubOperationsPage() {
   const { apiFetch, role } = useAdminAuth()
   const isSuper = role === 'superadmin'
@@ -294,6 +301,7 @@ export default function BonusHubOperationsPage() {
           grant_amount_minor: amt,
           currency: mgCurrency.trim() || 'USDT',
           credit_target: isCash ? 'cash' : 'bonus_locked',
+          idempotency_key: newAdminGrantIdempotencyKey(),
         }),
       })
       let j: unknown = null
