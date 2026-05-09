@@ -50,6 +50,8 @@ type Config struct {
 	BlueOceanUserUsernamePrefix string
 	// BlueOceanCreatePlayerUserPassword — optional; BO docs recommend a non-real constant user_password on createPlayer; omit when empty.
 	BlueOceanCreatePlayerUserPassword string
+	// BlueOceanXAPIUserPasswordSHA1 — when true (default), user_password on the wire is SHA1-hex (40 chars) unless the value is already 40 hex chars (BO public XAPI examples). Set false if your operator confirms plaintext on the wire.
+	BlueOceanXAPIUserPasswordSHA1 bool
 	BlueOceanWalletSalt      string // seamless GET callback key=sha1(salt+query)
 	// BlueOceanWalletFloatAmountIsMajorUnits: seamless wallet sends amount/bet/win as decimal major units (e.g. 0.25); multiply by 100 to minor. Integer params are still interpreted as minor units.
 	BlueOceanWalletFloatAmountIsMajorUnits bool
@@ -267,6 +269,11 @@ func Load() (Config, error) {
 	}
 	c.BlueOceanUserUsernamePrefix = strings.TrimSpace(os.Getenv("BLUEOCEAN_USER_USERNAME_PREFIX"))
 	c.BlueOceanCreatePlayerUserPassword = strings.TrimSpace(os.Getenv("BLUEOCEAN_CREATE_PLAYER_USER_PASSWORD"))
+	if raw := strings.TrimSpace(os.Getenv("BLUEOCEAN_XAPI_USER_PASSWORD_SHA1")); raw == "" {
+		c.BlueOceanXAPIUserPasswordSHA1 = true
+	} else {
+		c.BlueOceanXAPIUserPasswordSHA1 = parseBoolEnv(raw)
+	}
 	c.BlueOceanWalletSalt = strings.TrimSpace(os.Getenv("BLUEOCEAN_WALLET_SALT"))
 	c.BlueOceanWalletFloatAmountIsMajorUnits = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_FLOAT_AMOUNT_IS_MAJOR"))
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {

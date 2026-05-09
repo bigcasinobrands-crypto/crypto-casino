@@ -33,6 +33,9 @@ func TestBOGXAPIRequiresSuperadmin(t *testing.T) {
 	if !BOGXAPIRequiresSuperadmin("setSystemPassword") {
 		t.Fatal("expected superadmin")
 	}
+	if BOGXAPIRequiresSuperadmin("getPlayerBalance") {
+		t.Fatal("getPlayerBalance is read-only")
+	}
 	if BOGXAPIRequiresSuperadmin("getGameHistory") {
 		t.Fatal("expected read method")
 	}
@@ -49,7 +52,7 @@ func TestListAllowedXAPIMethodNamesSorted(t *testing.T) {
 
 func TestAllowedBOGXAPIMethodsDropdownParity(t *testing.T) {
 	dropdown := []string{
-		"getGameList", "createPlayer", "playerExists", "loginPlayer", "getGame", "getGameDirect",
+		"getGameList", "createPlayer", "playerExists", "loginPlayer", "getPlayerBalance", "getGame", "getGameDirect",
 		"addFreeRounds", "logoutPlayer", "getDailyBalances", "getDailyReport", "getGameHistory",
 		"getSystemUsername", "setSystemUsername", "setSystemPassword", "removeFreeRounds", "getGameDemo",
 	}

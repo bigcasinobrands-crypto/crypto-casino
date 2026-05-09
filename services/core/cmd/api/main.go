@@ -550,6 +550,7 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			"blueocean_configured":              bog != nil && bog.Configured(),
 			"blueocean_launch_mode":             strings.TrimSpace(strings.ToLower(cfg.BlueOceanLaunchMode)),
 			"blueocean_xapi_session_sync":       cfg.BlueOceanXAPISessionSync,
+			"blueocean_xapi_user_password_sha1": cfg.BlueOceanXAPIUserPasswordSHA1,
 			"blueocean_xapi_methods":            blueocean.ListAllowedXAPIMethodNames(),
 			"real_play_enabled":                 realPlayEnabled,
 			"visible_games_count":               visible,

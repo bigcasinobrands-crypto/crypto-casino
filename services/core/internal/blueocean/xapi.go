@@ -121,7 +121,13 @@ func (c *Client) CallXAPIMethod(ctx context.Context, cfg *config.Config, method 
 		NormalizeLogoutPlayerParams(params)
 		mergeBOUserPasswordIfConfigured(cfg, params)
 	}
+	if m == "getPlayerBalance" {
+		NormalizeLoginPlayerParams(params)
+		mergeBOUserPasswordIfConfigured(cfg, params)
+	}
 	merged := MergeBOGXAPIParams(cfg, params)
+	stripDeprecatedBOGXAPIUserID(merged)
+	finalizeBOUserPasswordParam(cfg, m, merged)
 	return c.finishXAPI(ctx, m, merged)
 }
 
@@ -203,25 +209,44 @@ func NormalizeLogoutPlayerParams(params map[string]any) {
 func (c *Client) PlayerExists(ctx context.Context, cfg *config.Config, userUsername string) XAPIResult {
 	u := strings.TrimSpace(userUsername)
 	params := MergeBOGXAPIParams(cfg, map[string]any{"user_username": u})
+	stripDeprecatedBOGXAPIUserID(params)
 	return c.finishXAPI(ctx, "playerExists", params)
 }
 
 // LoginPlayer calls method loginPlayer. BO public docs use user_username + user_password (+ currency); user_id is deprecated.
-// remoteKey is the value we store from createPlayer / wallet (numeric BO id, compact uuid, or prefixed username).
-func (c *Client) LoginPlayer(ctx context.Context, cfg *config.Config, remoteKey string, extra map[string]any) XAPIResult {
-	u := strings.TrimSpace(remoteKey)
+// loginUsername must be the BO player user_username (same value as createPlayer), not the numeric BO response id.
+func (c *Client) LoginPlayer(ctx context.Context, cfg *config.Config, loginUsername string, extra map[string]any) XAPIResult {
+	u := strings.TrimSpace(loginUsername)
 	params := map[string]any{"user_username": u}
 	mergeOptionalStringParams(params, extra)
 	mergeBOUserPasswordIfConfigured(cfg, params)
-	return c.finishXAPI(ctx, "loginPlayer", MergeBOGXAPIParams(cfg, params))
+	merged := MergeBOGXAPIParams(cfg, params)
+	stripDeprecatedBOGXAPIUserID(merged)
+	finalizeBOUserPasswordParam(cfg, "loginPlayer", merged)
+	return c.finishXAPI(ctx, "loginPlayer", merged)
 }
 
 // LogoutPlayer calls method logoutPlayer (same user_username shape as login per BO wallet player management).
-func (c *Client) LogoutPlayer(ctx context.Context, cfg *config.Config, remoteKey string) XAPIResult {
-	u := strings.TrimSpace(remoteKey)
+func (c *Client) LogoutPlayer(ctx context.Context, cfg *config.Config, loginUsername string) XAPIResult {
+	u := strings.TrimSpace(loginUsername)
 	params := map[string]any{"user_username": u}
 	mergeBOUserPasswordIfConfigured(cfg, params)
-	return c.finishXAPI(ctx, "logoutPlayer", MergeBOGXAPIParams(cfg, params))
+	merged := MergeBOGXAPIParams(cfg, params)
+	stripDeprecatedBOGXAPIUserID(merged)
+	finalizeBOUserPasswordParam(cfg, "logoutPlayer", merged)
+	return c.finishXAPI(ctx, "logoutPlayer", merged)
+}
+
+// GetPlayerBalance calls method getPlayerBalance. BO docs: user must be logged in first; request uses user_username + user_password (+ currency).
+func (c *Client) GetPlayerBalance(ctx context.Context, cfg *config.Config, loginUsername string, extra map[string]any) XAPIResult {
+	u := strings.TrimSpace(loginUsername)
+	params := map[string]any{"user_username": u}
+	mergeOptionalStringParams(params, extra)
+	mergeBOUserPasswordIfConfigured(cfg, params)
+	merged := MergeBOGXAPIParams(cfg, params)
+	stripDeprecatedBOGXAPIUserID(merged)
+	finalizeBOUserPasswordParam(cfg, "getPlayerBalance", merged)
+	return c.finishXAPI(ctx, "getPlayerBalance", merged)
 }
 
 // GetDailyBalances calls method getDailyBalances (typically date=YYYY-MM-DD).
@@ -302,8 +327,9 @@ var AllowedBOGXAPIMethods = map[string]struct{}{
 	"getSystemUsername": {},
 	"setSystemUsername": {},
 	"setSystemPassword": {},
-	"removeFreeRounds":  {},
-	"getGameDemo":       {},
+	"removeFreeRounds":   {},
+	"getGameDemo":        {},
+	"getPlayerBalance":   {},
 }
 
 // ListAllowedXAPIMethodNames returns sorted GameHub method names allowed via the admin XAPI proxy.

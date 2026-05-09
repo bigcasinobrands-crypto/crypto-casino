@@ -206,6 +206,7 @@ func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req Creat
 		return CreatePlayerResult{ErrorMessage: msg}
 	}
 	xapiUser := strings.TrimSpace(fmt.Sprint(params["userid"]))
+	finalizeBOUserPasswordParam(cfg, "createPlayer", params)
 	raw, status, err := c.Call(ctx, "createPlayer", params)
 	if err != nil {
 		return CreatePlayerResult{ErrorMessage: err.Error(), HTTPStatus: status, Raw: raw}

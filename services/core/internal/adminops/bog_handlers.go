@@ -53,7 +53,8 @@ func (h *Handler) BlueOceanStatus(w http.ResponseWriter, r *http.Request) {
 	`).Scan(&lastSync, &errMsg, &n, &cur)
 	out := map[string]any{
 		"bog_configured":              h.BOG != nil && h.BOG.Configured(),
-		"blueocean_xapi_session_sync": h.cfg().BlueOceanXAPISessionSync,
+		"blueocean_xapi_session_sync":       h.cfg().BlueOceanXAPISessionSync,
+		"blueocean_xapi_user_password_sha1": h.cfg().BlueOceanXAPIUserPasswordSHA1,
 		"blueocean_xapi_methods":      blueocean.ListAllowedXAPIMethodNames(),
 	}
 	if miss, err := blueocean.CountUsersMissingBlueOceanLink(r.Context(), h.Pool); err == nil {
