@@ -57,8 +57,10 @@ type Config struct {
 	BlueOceanWalletFloatAmountIsMajorUnits bool
 	// BlueOceanWalletIntegerAmountIsMajorUnits: when true, integer and decimal amount/bet/win are major units (×100 to ledger minor) — matches Blue Ocean basic S2S wallet tests (amount=10 ⇒ 10.00). Default true when env unset; set BLUEOCEAN_WALLET_INTEGER_MINOR_UNITS=true only if your operator documents whole-number params as minor units (cents).
 	BlueOceanWalletIntegerAmountIsMajorUnits bool
-	// BlueOceanWalletAllowNegativeBalance — when true, seamless wallet debits may draw cash below zero after bonus_locked is exhausted (some BO certification sandboxes expect this). Default false; set BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE=true for those stages only.
+	// BlueOceanWalletAllowNegativeBalance — when true, seamless wallet debits may drive playable balance negative (operator / BO tooling stress tests).
 	BlueOceanWalletAllowNegativeBalance bool
+	// BlueOceanWalletLedgerTxnUsesRound — when true, seamless wallet ledger idempotency keys append "::" + round_id whenever round_id is present. Use when the provider reuses transaction_id across parallel bets (Evolution/easy live). Rollbacks must include the same round_id.
+	BlueOceanWalletLedgerTxnUsesRound bool
 	BlueOceanFeaturedIDHashes              []string
 	BlueOceanLobbyTagsJSON                 string // optional JSON map pill_id -> [id_hash]
 	// Catalog sync: getGameList often returns one page only; use paging to load full staging catalogs.
@@ -289,6 +291,7 @@ func Load() (Config, error) {
 		c.BlueOceanWalletIntegerAmountIsMajorUnits = true
 	}
 	c.BlueOceanWalletAllowNegativeBalance = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE"))
+	c.BlueOceanWalletLedgerTxnUsesRound = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_LEDGER_TXN_USES_ROUND"))
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {
 		for _, p := range strings.Split(s, ",") {
 			p = strings.TrimSpace(p)
