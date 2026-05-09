@@ -469,7 +469,7 @@ export default function GameLobbyPage() {
     const el = stageRef.current
     if (!el) return
     if (document.fullscreenElement) void document.exitFullscreen()
-    else void el.requestFullscreen()
+    else void requestGameFullscreen(el)
   }
 
   const theaterPosterSrc = useMemo(() => {
@@ -794,6 +794,9 @@ export default function GameLobbyPage() {
   const theaterStageFrameClass = liveTableTheater
     ? 'relative w-full bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))] xl:min-h-[473px] xl:max-h-[min(801px,75vh)]'
     : 'relative aspect-video w-full bg-black'
+  /** Drop theater letterboxing / aspect caps so the iframe can fill the monitor in browser fullscreen. */
+  const theaterStageFullscreenClass =
+    '[&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:z-[250] [&:fullscreen]:m-0 [&:fullscreen]:box-border [&:fullscreen]:h-[100dvh] [&:fullscreen]:min-h-[100dvh] [&:fullscreen]:min-w-0 [&:fullscreen]:w-screen [&:fullscreen]:max-w-none ![&:fullscreen]:max-h-none [&:fullscreen]:aspect-auto [&:fullscreen]:rounded-none [&:fullscreen]:border-0 [&:fullscreen]:bg-black [&:fullscreen]:p-0'
   const popOutButtonTitle = thisGameInMini
     ? t('gameLobby.popOutReturnTheater')
     : mini && mini.gameId !== gameId
@@ -907,7 +910,7 @@ export default function GameLobbyPage() {
                 </div>
                 <div
                   ref={stageRef}
-                  className={`${theaterStageFrameClass} [&:fullscreen]:fixed [&:fullscreen]:inset-0 [&:fullscreen]:z-[250] [&:fullscreen]:m-0 [&:fullscreen]:box-border [&:fullscreen]:h-[100dvh] [&:fullscreen]:min-h-[100dvh] [&:fullscreen]:w-screen [&:fullscreen]:max-w-none [&:fullscreen]:rounded-none [&:fullscreen]:border-0 [&:fullscreen]:bg-black [&:fullscreen]:p-0`}
+                  className={`${theaterStageFrameClass} ${theaterStageFullscreenClass}`}
                   aria-busy={launchPending}
                 >
                   <iframe
@@ -980,7 +983,7 @@ export default function GameLobbyPage() {
                 >
                   <div
                     ref={stageRef}
-                    className="relative min-h-0 min-w-0 flex-1 touch-pan-y"
+                    className={`relative min-h-0 min-w-0 flex-1 touch-pan-y ${theaterStageFullscreenClass}`}
                     style={{ minHeight: '100dvh' }}
                     aria-busy={launchPending}
                   >
@@ -1213,10 +1216,7 @@ export default function GameLobbyPage() {
           </div>
 
           <div className={`hidden w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 xl:block ${desktopTheaterShellClass}`}>
-            <div
-              ref={stageRef}
-              className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
-            >
+            <div className="w-full shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]">
             <div className="flex items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3">
               <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                 <button
@@ -1278,7 +1278,11 @@ export default function GameLobbyPage() {
               </div>
             </div>
 
-            <div className={`${theaterStageFrameClass}`} aria-busy={launchPending}>
+            <div
+              ref={stageRef}
+              className={`${theaterStageFrameClass} ${theaterStageFullscreenClass}`}
+              aria-busy={launchPending}
+            >
               <img
                 src={theaterPosterSrc}
                 alt=""
