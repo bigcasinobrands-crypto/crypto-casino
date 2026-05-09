@@ -88,6 +88,9 @@ func (h *Handler) SyncBlueOceanPlayer(w http.ResponseWriter, r *http.Request) {
 		pe := h.BOG.PlayerExists(ctx, cfg, loginKey)
 		mergeXAPIStep(out, "player_exists", pe)
 		overall = overall && pe.OK
+		if ensureErr == nil && !pe.OK {
+			out["player_exists_hint"] = "GameHub reports this user_username is not registered. If the link row was created against another BO environment, or createPlayer never succeeded on this skin, BO back-office lists will not show the player. Confirm BLUEOCEAN_* credentials match the Stage GH1 account; set BLUEOCEAN_CREATE_PLAYER_USER_PASSWORD and re-run so loginPlayer can be verified."
+		}
 
 		if runLoginProbe {
 			lp := h.BOG.LoginPlayer(ctx, cfg, loginKey, nil)

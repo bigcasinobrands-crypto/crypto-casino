@@ -71,6 +71,13 @@ func MergeBOGXAPIParams(cfg *config.Config, params map[string]any) map[string]an
 }
 
 func xapiResponseOK(httpStatus int, raw json.RawMessage) bool {
+	return xapiResponseOKForMethod("", httpStatus, raw)
+}
+
+// xapiResponseOKForMethod applies method-specific success rules. In particular playerExists often returns
+// {"error":0,"response":false} when the login handle is unknown; bodyIndicatesSuccess only inspects nested
+// response when it is a map, so booleans were incorrectly treated as success.
+func xapiResponseOKForMethod(method string, httpStatus int, raw json.RawMessage) bool {
 	if httpStatus < 200 || httpStatus >= 300 {
 		return false
 	}
@@ -81,6 +88,9 @@ func xapiResponseOK(httpStatus int, raw json.RawMessage) bool {
 	var m map[string]any
 	if json.Unmarshal(raw, &m) != nil {
 		return true
+	}
+	if strings.TrimSpace(method) == "playerExists" {
+		return playerExistsResponseOK(m)
 	}
 	return bodyIndicatesSuccess(m)
 }
@@ -93,10 +103,13 @@ func (c *Client) finishXAPI(ctx context.Context, method string, params map[strin
 	if err != nil {
 		return XAPIResult{ErrorMessage: err.Error(), HTTPStatus: status, Raw: raw}
 	}
-	ok := xapiResponseOK(status, raw)
+	ok := xapiResponseOKForMethod(method, status, raw)
 	var errMsg string
 	if !ok {
 		errMsg = FormatAPIError(raw, status)
+		if strings.TrimSpace(method) == "playerExists" && errMsg == "" {
+			errMsg = "blueocean: playerExists reports this user_username is not known to GameHub (see response body)"
+		}
 	}
 	return XAPIResult{OK: ok, HTTPStatus: status, Raw: raw, ErrorMessage: errMsg}
 }
