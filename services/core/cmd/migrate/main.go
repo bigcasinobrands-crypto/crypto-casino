@@ -17,7 +17,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-	if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
+	if err := db.RunMigrations(cfg.DatabaseURLForMigrations()); err != nil {
 		log.Fatalf("migrations: %v", err)
 	}
 	log.Println("migrations: ok")

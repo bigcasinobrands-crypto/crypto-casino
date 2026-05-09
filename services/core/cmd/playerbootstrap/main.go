@@ -33,7 +33,7 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	ctx := context.Background()
-	if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
+	if err := db.RunMigrations(cfg.DatabaseURLForMigrations()); err != nil {
 		log.Fatalf("migrations: %v", err)
 	}
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)

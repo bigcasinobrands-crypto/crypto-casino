@@ -33,7 +33,9 @@ func supabaseSessionPoolerMaxClients(cfg *pgxpool.Config) int32 {
 			return int32(n)
 		}
 	}
-	return 15
+	// Stay under typical Supabase session pooler pool_size so rolling deploys can run goose while
+	// the previous instance still holds connections (see MIGRATE_DATABASE_URL for a stronger fix).
+	return 10
 }
 
 func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

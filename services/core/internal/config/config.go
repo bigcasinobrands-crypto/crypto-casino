@@ -13,7 +13,10 @@ import (
 type Config struct {
 	AppEnv          string
 	DatabaseURL     string
-	Port            string
+	// MigrateDatabaseURL — optional. When set, goose migrations use this DSN instead of DatabaseURL
+	// (avoids Supabase session pooler client limits during deploy while the previous instance still holds pooler slots).
+	MigrateDatabaseURL string
+	Port               string
 	JWTSecret       string
 	PlayerJWTSecret string
 	// JWTRSAKeyFile — optional PEM path for RS256 + JWKS; when unset, HS256 only.
@@ -218,9 +221,10 @@ func Load() (Config, error) {
 	_ = godotenv.Load("../../.env")
 
 	c := Config{
-		AppEnv:      strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV"))),
-		DatabaseURL: strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		Port:        strings.TrimSpace(os.Getenv("PORT")),
+		AppEnv:             strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV"))),
+		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		MigrateDatabaseURL: strings.TrimSpace(os.Getenv("MIGRATE_DATABASE_URL")),
+		Port:               strings.TrimSpace(os.Getenv("PORT")),
 		JWTSecret:   strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		RedisURL:    strings.TrimSpace(os.Getenv("REDIS_URL")),
 	}
@@ -547,6 +551,18 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("PLAYER_COOKIE_OMIT_JSON_TOKENS requires PLAYER_COOKIE_AUTH")
 	}
 	return c, nil
+}
+
+// DatabaseURLForMigrations returns the DSN for goose and one-off migrate CLIs.
+// When MIGRATE_DATABASE_URL is set (e.g. Supabase direct host), migrations bypass the app pooler URL.
+func (c *Config) DatabaseURLForMigrations() string {
+	if c == nil {
+		return ""
+	}
+	if strings.TrimSpace(c.MigrateDatabaseURL) != "" {
+		return c.MigrateDatabaseURL
+	}
+	return c.DatabaseURL
 }
 
 // ValidateProduction enforces fail-fast rules when APP_ENV=production.

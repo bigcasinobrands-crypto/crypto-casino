@@ -80,7 +80,10 @@ func main() {
 	if skipMig {
 		log.Printf("WARNING: SKIP_DB_MIGRATIONS_ON_START set — migrations skipped (run npm run migrate:core or ./migrate separately)")
 	} else {
-		if err := db.RunMigrations(cfg.DatabaseURL); err != nil {
+		if strings.TrimSpace(cfg.MigrateDatabaseURL) != "" {
+			log.Printf("startup: running goose with MIGRATE_DATABASE_URL (pooler slot contention workaround)")
+		}
+		if err := db.RunMigrations(cfg.DatabaseURLForMigrations()); err != nil {
 			fmt.Fprintf(os.Stderr, "FATAL migrations: %v\n", err)
 			log.Fatalf("migrations: %v", err)
 		}
