@@ -51,11 +51,18 @@ func (h *Handler) BlueOceanStatus(w http.ResponseWriter, r *http.Request) {
 		SELECT last_sync_at, last_sync_error, last_sync_upserted, last_sync_currency
 		FROM blueocean_integration_state WHERE id = 1
 	`).Scan(&lastSync, &errMsg, &n, &cur)
+	cfg := h.cfg()
+	settlement := strings.ToUpper(strings.TrimSpace(cfg.BlueOceanCurrency))
+	if settlement == "" {
+		settlement = "EUR"
+	}
 	out := map[string]any{
-		"bog_configured":              h.BOG != nil && h.BOG.Configured(),
-		"blueocean_xapi_session_sync":       h.cfg().BlueOceanXAPISessionSync,
-		"blueocean_xapi_user_password_sha1": h.cfg().BlueOceanXAPIUserPasswordSHA1,
-		"blueocean_xapi_methods":      blueocean.ListAllowedXAPIMethodNames(),
+		"bog_configured":                    h.BOG != nil && h.BOG.Configured(),
+		"settlement_currency":               settlement,
+		"multicurrency":                     cfg.BlueOceanMulticurrency,
+		"blueocean_xapi_session_sync":       cfg.BlueOceanXAPISessionSync,
+		"blueocean_xapi_user_password_sha1": cfg.BlueOceanXAPIUserPasswordSHA1,
+		"blueocean_xapi_methods":            blueocean.ListAllowedXAPIMethodNames(),
 	}
 	if miss, err := blueocean.CountUsersMissingBlueOceanLink(r.Context(), h.Pool); err == nil {
 		out["users_missing_player_links"] = miss

@@ -165,6 +165,26 @@ export default function BonusOperationsTools() {
   const [mgLogErr, setMgLogErr] = useState<string | null>(null)
   const [mgLogQuery, setMgLogQuery] = useState('')
 
+  useEffect(() => {
+    if (mgCreditTarget !== 'cash') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiFetch('/v1/admin/integrations/blueocean/status')
+        if (!res.ok || cancelled) return
+        const j = (await res.json()) as { settlement_currency?: string; multicurrency?: boolean }
+        if (j.multicurrency) return
+        const s = (j.settlement_currency || 'EUR').trim().toUpperCase() || 'EUR'
+        if (!cancelled) setMgCurrency(s)
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [mgCreditTarget, apiFetch])
+
   const loadInstances = useCallback(async () => {
     setInstancesErr(null)
     setInstancesLoading(true)

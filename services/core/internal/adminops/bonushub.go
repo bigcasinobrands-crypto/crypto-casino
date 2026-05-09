@@ -1046,6 +1046,7 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	// Seamless / cash wallet path (no bonus instance — matches provider test-style real balance for BO).
 	if body.GrantAmountMinor > 0 && creditTarget == "cash" {
+		ccy = h.resolveSeamlessManualCashCurrency(body.Currency)
 		idem := manualCashPlayCreditIdempotencyKey(body.IdempotencyKey, staffID, uid, body.GrantAmountMinor)
 		meta := map[string]any{
 			"staff_user_id":    staffID,
@@ -1078,6 +1079,7 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{
 			"inserted":       inserted,
 			"mode":           "seamless_cash",
+			"currency":       ccy,
 			"pocket":         "cash",
 			"withdrawable":   body.AllowWithdrawable,
 			"funding_source": "admin_play_credit",
@@ -1337,6 +1339,26 @@ func (h *Handler) bonusHubResolveRiskReview(w http.ResponseWriter, r *http.Reque
 func isPGUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505"
+}
+
+// resolveSeamlessManualCashCurrency picks the ledger currency for admin "cash" credits so
+// BalancePlayableSeamless matches Blue Ocean wallet balance. Single-currency deployments settle
+// only in BLUEOCEAN_CURRENCY; credits tagged otherwise (e.g. USDT from the admin UI default)
+// never appear in BO's EUR balance query.
+func (h *Handler) resolveSeamlessManualCashCurrency(clientCurrency string) string {
+	client := strings.ToUpper(strings.TrimSpace(clientCurrency))
+	cfg := h.cfg()
+	bo := strings.ToUpper(strings.TrimSpace(cfg.BlueOceanCurrency))
+	if bo == "" {
+		bo = "EUR"
+	}
+	if !cfg.BlueOceanMulticurrency {
+		return bo
+	}
+	if client == "" {
+		return bo
+	}
+	return client
 }
 
 // manualCashPlayCreditIdempotencyKey idempotency for admin cash / seamless credits.
