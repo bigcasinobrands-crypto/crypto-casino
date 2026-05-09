@@ -63,7 +63,8 @@ func playerCSRFExempt(method, path string) bool {
 		"/v1/auth/refresh",
 		"/v1/auth/forgot-password",
 		"/v1/auth/reset-password",
-		"/v1/auth/verify-email":
+		"/v1/auth/verify-email",
+		"/v1/referrals/attribution":
 		return true
 	default:
 		return false

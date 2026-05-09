@@ -13,6 +13,7 @@ import {
 } from './lib/playerChromeEvents'
 import { playerApiUrl } from './lib/playerApiUrl'
 import { prefetchCryptoTickersOnce } from './lib/prefetchCryptoTickers'
+import { useReferralAttributionCapture } from './hooks/useReferralAttributionCapture'
 import { useTrafficSessionTracker } from './hooks/useTrafficSessionTracker'
 import { useRakebackBoostLiveToast } from './hooks/useRakebackBoostLiveToast'
 import { useRewardsHub } from './hooks/useRewardsHub'
@@ -182,6 +183,7 @@ function AppShell() {
   const [gameSearchOpen, setGameSearchOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const { accessToken, isAuthenticated } = usePlayerAuth()
+  useReferralAttributionCapture()
   const rewardsHub = useRewardsHub()
   useRakebackBoostLiveToast(isAuthenticated ? rewardsHub.data : null, isAuthenticated)
 

@@ -208,6 +208,9 @@ export default function PlayerDetailPage() {
   const [vipSupportSnap, setVipSupportSnap] = useState<unknown>(null)
   const [vipSnapLoading, setVipSnapLoading] = useState(false)
 
+  const [referralSummary, setReferralSummary] = useState<Record<string, unknown> | null>(null)
+  const [referralSummaryErr, setReferralSummaryErr] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     if (!id) return
     setErr(null)
@@ -280,6 +283,37 @@ export default function PlayerDetailPage() {
       setVipSnapLoading(false)
     }
   }, [apiFetch, id])
+
+  const loadReferralSummary = useCallback(async () => {
+    if (!id) return
+    setReferralSummaryErr(null)
+    try {
+      const path = `/v1/admin/referrals/players/${encodeURIComponent(id)}/summary`
+      const res = await apiFetch(path)
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        reportApiFailure({ res, parsed, method: 'GET', path })
+        setReferralSummaryErr(formatApiError(parsed, `HTTP ${res.status}`))
+        setReferralSummary(null)
+        return
+      }
+      const j = (await res.json()) as { summary?: Record<string, unknown> }
+      setReferralSummary(j.summary && typeof j.summary === 'object' ? j.summary : null)
+    } catch {
+      setReferralSummaryErr('Network error')
+      setReferralSummary(null)
+    }
+  }, [apiFetch, id, reportApiFailure])
+
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled && id) void loadReferralSummary()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [id, loadReferralSummary])
 
   useEffect(() => {
     let cancelled = false
@@ -755,6 +789,29 @@ export default function PlayerDetailPage() {
               Download GDPR export stub (JSON)
             </button>
           </div>
+        ) : null}
+      </ComponentCard>
+
+      <ComponentCard
+        className="mt-6"
+        title="Referral program"
+        desc="Partner link code, tier, pending commission, and referral funnel counts."
+      >
+        {referralSummaryErr ? (
+          <p className="mb-2 text-sm text-red-600 dark:text-red-400">{referralSummaryErr}</p>
+        ) : null}
+        {!referralSummary && !referralSummaryErr ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+        ) : null}
+        {referralSummary ? <DefinitionTable rows={objectToDefinitionRows(referralSummary)} flush /> : null}
+        {id ? (
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm mt-3"
+            onClick={() => void loadReferralSummary()}
+          >
+            Refresh referral summary
+          </button>
         ) : null}
       </ComponentCard>
 

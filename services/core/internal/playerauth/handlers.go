@@ -149,7 +149,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
-	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.Username, body.AcceptTerms, body.AcceptPrivacy, sc)
+	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.Username, body.AcceptTerms, body.AcceptPrivacy, sc, playercookies.ReferralPendingFromRequest(r))
 	if err != nil {
 		if errors.Is(err, ErrTermsNotAccepted) {
 			playerapi.WriteError(w, http.StatusBadRequest, "terms_required", "you must accept the terms and privacy policy")
@@ -184,6 +184,9 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeTokens(w, h, access, refresh, exp)
+	if h.CookieCfg != nil {
+		playercookies.ClearReferralPending(w, h.CookieCfg)
+	}
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {

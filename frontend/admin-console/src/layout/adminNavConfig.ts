@@ -93,6 +93,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
     name: 'Engagement',
     iconClass: 'bi bi-heart',
     subItems: [
+      { name: 'Referral tiers', path: '/engagement/referrals', new: true },
       { name: 'Global chat', path: '/global-chat', new: true },
       { name: 'Challenges', path: '/engagement/challenges', new: true },
     ],

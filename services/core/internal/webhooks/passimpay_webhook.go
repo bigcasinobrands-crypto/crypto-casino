@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/crypto-casino/core/internal/affiliate"
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/compliance"
 	"github.com/crypto-casino/core/internal/config"
@@ -279,6 +280,14 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		if inserted {
 			compliance.EmitAMLLargeDepositAlert(ctx, pool, intentUser, intentCcy, orderID, minor, cfg.KYCLargeDepositThresholdCents)
 			compliance.EmitAMLHighVelocityDepositsAlert(ctx, pool, intentUser, orderID, 24, 5)
+		}
+
+		if inserted {
+			if affErr := affiliate.OnDepositCreditedTx(ctx, txn, intentUser, intentCcy, minor, idemLedger); affErr != nil {
+				log.Printf("passimpay affiliate referral commission: %v", affErr)
+				http.Error(w, "ledger_affiliate_failed", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		if inserted {

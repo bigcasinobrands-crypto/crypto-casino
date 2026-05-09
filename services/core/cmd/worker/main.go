@@ -234,6 +234,11 @@ func main() {
 				return
 			case <-t.C:
 				bg := context.Background()
+				if n, err := affiliate.RefreshReferralTiers(bg, pool); err != nil {
+					log.Printf("affiliate tier refresh: %v", err)
+				} else if n > 0 {
+					log.Printf("affiliate tier refresh: updated %d partners", n)
+				}
 				if n, err := affiliate.AccrueDailyCommissions(bg, pool); err != nil {
 					log.Printf("affiliate accrue: %v", err)
 				} else if n > 0 {

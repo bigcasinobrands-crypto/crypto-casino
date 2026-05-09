@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/crypto-casino/core/internal/config"
@@ -21,6 +22,8 @@ const (
 	RefreshCookieName = "cc_player_refresh"
 	// CSRFCookieName — non-httpOnly; double-submit pair with CSRFHeaderName when PLAYER_COOKIE_AUTH is on.
 	CSRFCookieName = "cc_player_csrf"
+	// ReferralPendingCookieName — httpOnly; first-party referral code pending registration (set by POST /v1/referrals/attribution).
+	ReferralPendingCookieName = "cc_referral_pending"
 	// CSRFHeaderName must match the client header (browser preflight allows it via CORS).
 	CSRFHeaderName = "X-CSRF-Token"
 )
@@ -148,4 +151,75 @@ func SetCSRF(w http.ResponseWriter, cfg *config.Config) error {
 		SameSite: same,
 	})
 	return nil
+}
+
+func referralPendingFlags(cfg *config.Config) (secure bool, same http.SameSite) {
+	if cfg == nil {
+		return false, http.SameSiteLaxMode
+	}
+	secure = cfg.AppEnv == "production"
+	same = http.SameSiteLaxMode
+	switch cfg.PlayerCookieSameSite {
+	case "strict":
+		same = http.SameSiteStrictMode
+	case "none":
+		same = http.SameSiteNoneMode
+		secure = true
+	case "lax":
+		same = http.SameSiteLaxMode
+	}
+	return secure, same
+}
+
+// SetReferralPending stores a referral code for registration binding (30-day TTL).
+func SetReferralPending(w http.ResponseWriter, cfg *config.Config, code string) {
+	if w == nil || cfg == nil {
+		return
+	}
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return
+	}
+	secure, same := referralPendingFlags(cfg)
+	maxAge := int((30 * 24 * time.Hour).Seconds())
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{
+		Name:     ReferralPendingCookieName,
+		Value:    code,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: same,
+	})
+}
+
+// ReferralPendingFromRequest returns the pending referral cookie value if present.
+func ReferralPendingFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	c, err := r.Cookie(ReferralPendingCookieName)
+	if err != nil || c == nil || strings.TrimSpace(c.Value) == "" {
+		return ""
+	}
+	return strings.TrimSpace(c.Value)
+}
+
+// ClearReferralPending expires the referral pending cookie.
+func ClearReferralPending(w http.ResponseWriter, cfg *config.Config) {
+	if w == nil || cfg == nil {
+		return
+	}
+	secure, same := referralPendingFlags(cfg)
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{
+		Name:     ReferralPendingCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: same,
+	})
 }

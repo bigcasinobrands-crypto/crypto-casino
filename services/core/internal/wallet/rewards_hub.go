@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/affiliate"
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playerapi"
@@ -406,8 +407,8 @@ func RewardsHubHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		if races == nil {
 			races = []map[string]any{}
 		}
-		referral, _ := bonus.ListReferralSummaryByUser(ctx, pool, uid)
-		if referral == nil {
+		referral, err := affiliate.HubReferralSummary(ctx, pool, uid)
+		if err != nil || referral == nil {
 			referral = map[string]any{}
 		}
 

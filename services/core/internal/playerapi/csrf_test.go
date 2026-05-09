@@ -78,6 +78,20 @@ func TestPlayerCookieCSRFMiddleware_exemptAuthPath(t *testing.T) {
 	}
 }
 
+func TestPlayerCookieCSRFMiddleware_referralsAttributionExempt(t *testing.T) {
+	cfg := &config.Config{PlayerCookieAuth: true, AppEnv: "development"}
+	h := PlayerCookieCSRFMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/v1/referrals/attribution", nil)
+	req.AddCookie(&http.Cookie{Name: playercookies.AccessCookieName, Value: "tok"})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("got status %d", rr.Code)
+	}
+}
+
 func TestPlayerCookieCSRFMiddleware_missingTokenForbidden(t *testing.T) {
 	cfg := &config.Config{PlayerCookieAuth: true, AppEnv: "development"}
 	var nextCalled bool

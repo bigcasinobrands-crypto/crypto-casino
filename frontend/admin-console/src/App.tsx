@@ -50,6 +50,7 @@ const BonusCampaignStatsPage = lazy(() => import('./pages/BonusCampaignStatsPage
 const BonusHubCompliancePage = lazy(() => import('./pages/BonusHubCompliancePage'))
 const BonusHubRiskPage = lazy(() => import('./pages/BonusHubRiskPage'))
 const ContentCmsPage = lazy(() => import('./pages/ContentCmsPage'))
+const ReferralProgramTiersPage = lazy(() => import('./pages/ReferralProgramTiersPage'))
 
 export default function App() {
   return (
@@ -158,6 +159,7 @@ export default function App() {
                 <Route path="promotions/:id/rules" element={<BonusRulesPage />} />
                 <Route path="promotions/:id" element={<BonusPromotionDetailPage />} />
               </Route>
+              <Route path="/engagement/referrals" element={<ReferralProgramTiersPage />} />
               <Route path="/global-chat" element={<GlobalChatPage />} />
               <Route path="/engagement/challenges/flagged" element={<ChallengesFlaggedPage />} />
               <Route path="/engagement/challenges/new" element={<ChallengeAdminDetailPage />} />

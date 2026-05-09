@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/affiliate"
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fingerprint"
@@ -74,7 +75,7 @@ func (s *Service) rejectIfPwnedPassword(ctx context.Context, password string) er
 	return nil
 }
 
-func (s *Service) Register(ctx context.Context, email, password, username string, acceptTerms, acceptPrivacy bool, sc *SessionContext) (accessToken, refreshToken string, exp int64, err error) {
+func (s *Service) Register(ctx context.Context, email, password, username string, acceptTerms, acceptPrivacy bool, sc *SessionContext, referralCode string) (accessToken, refreshToken string, exp int64, err error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	username = strings.TrimSpace(username)
 	if email == "" {
@@ -126,18 +127,42 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 		emailHMAC = b
 	}
 	var id string
-	err = s.Pool.QueryRow(ctx, `
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return "", "", 0, ErrInvalidCredentials
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	err = tx.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, username, terms_accepted_at, terms_version, privacy_version, email_hmac)
 		VALUES ($1, $2, $3, now(), $4, $5, $6) RETURNING id::text
 	`, email, string(hash), usernameVal, tv, pv, emailHMAC).Scan(&id)
 	if err != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}
-	_, _ = s.Pool.Exec(ctx, `
+	if _, err = tx.Exec(ctx, `
 		INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
 		VALUES ($1::uuid, NULL, 0, 0, now())
 		ON CONFLICT (user_id) DO NOTHING
-	`, id)
+	`, id); err != nil {
+		return "", "", 0, ErrInvalidCredentials
+	}
+	refNorm := affiliate.NormalizeReferralCode(referralCode)
+	if refNorm != "" {
+		if err := affiliate.AttributeReferralTx(ctx, tx, id, refNorm); err != nil {
+			return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", "", 0, fmt.Errorf("%w: %w", ErrSessionPersist, err)
+	}
+	committed = true
+
 	accessToken, refreshToken, exp, err = s.issueSession(ctx, id, sc)
 	if err != nil {
 		return "", "", 0, err

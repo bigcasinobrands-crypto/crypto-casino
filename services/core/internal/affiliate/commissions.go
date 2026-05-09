@@ -51,9 +51,12 @@ func AccrueDailyCommissions(ctx context.Context, pool *pgxpool.Pool) (int, error
 	period := dayStart.Format("2006-01-02")
 
 	rows, err := pool.Query(ctx, `
-		SELECT p.id::text, p.user_id::text, COALESCE(p.revenue_share_bps,0)
+		SELECT p.id::text, p.user_id::text,
+		       COALESCE(t.ngr_revshare_bps, p.revenue_share_bps, 0)::int
 		FROM affiliate_partners p
-		WHERE p.status = 'active' AND COALESCE(p.revenue_share_bps,0) > 0
+		LEFT JOIN referral_program_tiers t ON t.id = p.tier_id AND t.active
+		WHERE p.status = 'active'
+		  AND COALESCE(t.ngr_revshare_bps, p.revenue_share_bps, 0) > 0
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("affiliate: load partners: %w", err)
@@ -248,6 +251,53 @@ func PayPendingGrants(ctx context.Context, pool *pgxpool.Pool, limit int) (int, 
 	return paid, nil
 }
 
+// PayPendingGrantsForPartnerUser pays pending commission grants for the partner
+// profile owned by userID (player "claim" to cash wallet).
+func PayPendingGrantsForPartnerUser(ctx context.Context, pool *pgxpool.Pool, userID string, limit int) (int, error) {
+	if pool == nil || limit <= 0 || strings.TrimSpace(userID) == "" {
+		return 0, nil
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT g.id::text, g.partner_id::text, p.user_id::text, g.currency, g.commission_minor
+		FROM affiliate_commission_grants g
+		JOIN affiliate_partners p ON p.id = g.partner_id
+		WHERE g.status = 'pending' AND g.commission_minor > 0
+		  AND p.status = 'active' AND p.user_id = $1::uuid
+		ORDER BY g.created_at ASC
+		LIMIT $2
+	`, userID, limit)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type grant struct {
+		grantID, partnerID, userID, currency string
+		amount                                int64
+	}
+	var pending []grant
+	for rows.Next() {
+		var g grant
+		if err := rows.Scan(&g.grantID, &g.partnerID, &g.userID, &g.currency, &g.amount); err != nil {
+			return 0, err
+		}
+		pending = append(pending, g)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var paid int
+	for _, g := range pending {
+		if err := payOneGrant(ctx, pool, g.grantID, g.userID, g.currency, g.amount); err != nil {
+			slog.ErrorContext(ctx, "affiliate_payout_user_failed", "grant_id", g.grantID, "err", err)
+			continue
+		}
+		paid++
+	}
+	return paid, nil
+}
+
 func payOneGrant(ctx context.Context, pool *pgxpool.Pool, grantID, userID, currency string, amountMinor int64) error {
 	idem := fmt.Sprintf("affiliate:payout:%s", grantID)
 
@@ -309,7 +359,7 @@ func mustJSONString(v map[string]any) string {
 // partner found via referral_code. Safe to call for users without a code
 // (no-op). Called once at registration time after a successful sign-up.
 func AttributeReferralPool(ctx context.Context, pool *pgxpool.Pool, userID, code string) error {
-	code = strings.TrimSpace(code)
+	code = NormalizeReferralCode(code)
 	if code == "" || pool == nil {
 		return nil
 	}
@@ -317,7 +367,8 @@ func AttributeReferralPool(ctx context.Context, pool *pgxpool.Pool, userID, code
 		INSERT INTO affiliate_referrals (user_id, partner_id, code)
 		SELECT $1::uuid, p.id, p.referral_code
 		FROM affiliate_partners p
-		WHERE p.referral_code = $2 AND p.status = 'active'
+		WHERE upper(trim(p.referral_code)) = $2 AND p.status = 'active'
+		  AND p.user_id IS DISTINCT FROM $1::uuid
 		ON CONFLICT (user_id) DO NOTHING
 	`, userID, code)
 	return err
@@ -327,7 +378,7 @@ func AttributeReferralPool(ctx context.Context, pool *pgxpool.Pool, userID, code
 // used when registration is happening inside a larger transaction (e.g. the
 // sign-up handler creates user+session+attribution in one go).
 func AttributeReferralTx(ctx context.Context, tx pgx.Tx, userID, code string) error {
-	code = strings.TrimSpace(code)
+	code = NormalizeReferralCode(code)
 	if code == "" || tx == nil {
 		return nil
 	}
@@ -335,7 +386,8 @@ func AttributeReferralTx(ctx context.Context, tx pgx.Tx, userID, code string) er
 		INSERT INTO affiliate_referrals (user_id, partner_id, code)
 		SELECT $1::uuid, p.id, p.referral_code
 		FROM affiliate_partners p
-		WHERE p.referral_code = $2 AND p.status = 'active'
+		WHERE upper(trim(p.referral_code)) = $2 AND p.status = 'active'
+		  AND p.user_id IS DISTINCT FROM $1::uuid
 		ON CONFLICT (user_id) DO NOTHING
 	`, userID, code)
 	return err

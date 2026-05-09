@@ -39,6 +39,7 @@ import (
 	"github.com/crypto-casino/core/internal/playercookies"
 	"github.com/crypto-casino/core/internal/pwnedpasswords"
 	"github.com/crypto-casino/core/internal/redisx"
+	"github.com/crypto-casino/core/internal/referrals"
 	"github.com/crypto-casino/core/internal/securityheaders"
 	"github.com/crypto-casino/core/internal/staffauth"
 	"github.com/crypto-casino/core/internal/wallet"
@@ -364,6 +365,7 @@ func main() {
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(httprate.LimitByIP(180, time.Minute))
+				r.With(httprate.LimitByIP(60, time.Minute)).Post("/referrals/attribution", referrals.PostAttributionHandler(pool, &cfg))
 				r.Get("/games", gameSrv.ListHandler())
 				r.Get("/sportsbook/context", gameSrv.SportsbookContextHandler())
 				r.Get("/sportsbook/oddin/public-config", oddinH.PublicConfig)
@@ -421,6 +423,10 @@ func main() {
 				r.Get("/vip/status", wallet.VIPStatusHandler(pool))
 				r.With(httprate.LimitByIP(40, time.Minute)).Post("/vip/rakeback-boost/claim", wallet.VIPRakebackBoostClaimHandler(pool))
 				r.Get("/rewards/hub", wallet.RewardsHubHandler(pool))
+				r.Get("/referrals/me", referrals.GetMeHandler(pool))
+				r.Get("/referrals/referred", referrals.GetReferredHandler(pool))
+				r.Get("/referrals/earnings-series", referrals.GetEarningsSeriesHandler(pool))
+				r.With(httprate.LimitByIP(30, time.Minute)).Post("/referrals/claim", referrals.PostClaimHandler(pool))
 				r.Get("/rewards/calendar", wallet.RewardsCalendarHandler(pool))
 				r.With(httprate.LimitByIP(40, time.Minute)).Post("/rewards/daily/claim", wallet.RewardsDailyClaimHandler(pool))
 				r.With(httprate.LimitByIP(40, time.Minute)).Post("/rewards/rakeback/claim", wallet.RewardsRakebackClaimHandler(pool))

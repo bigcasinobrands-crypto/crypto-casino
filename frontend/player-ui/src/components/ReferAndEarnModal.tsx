@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type FC } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState, type FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useAuthModal } from '../authModalContext'
@@ -26,9 +26,8 @@ function partnerProgramHref(): string {
   return '/affiliate'
 }
 
-/** Design baseline until earnings API exists. */
-const DEFAULT_TIER_PROGRESS_PCT = 15
-const CHART_Y_TICKS = [1, 0.8, 0.6, 0.4, 0.2, 0] as const
+/** Design baseline when API omits tier progress. */
+const DEFAULT_TIER_PROGRESS_PCT = 0
 
 function buildRefUrl(refSlug: string): string {
   if (typeof window === 'undefined') return ''
@@ -58,14 +57,15 @@ function formatUsdAmount(n: number, lng: string): string {
   })
 }
 
-function formatChartTick(n: number, lng: string): string {
-  const locale = lng === 'fr-CA' ? 'fr-CA' : 'en-US'
-  return n.toLocaleString(locale, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: n % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  })
+function formatChartDayLabel(iso: string, lng: string): string {
+  const d = new Date(`${iso}T12:00:00Z`)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', { month: 'short', day: 'numeric' })
+}
+
+function minorToUsdAmount(minor: number): number {
+  if (!Number.isFinite(minor)) return 0
+  return Math.round(minor) / 100
 }
 
 const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
@@ -78,10 +78,12 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
   const tabEarningsId = useId()
   const tabHistoryId = useId()
   const { openAuth } = useAuthModal()
-  const { isAuthenticated, me } = usePlayerAuth()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
   const { data: hub, reload } = useRewardsHub()
   const [tab, setTab] = useState<TabId>('refer')
   const [chartRange, setChartRange] = useState<ChartRange>('7d')
+  const [claimBusy, setClaimBusy] = useState(false)
+  const [chartAccrued, setChartAccrued] = useState<{ date: string; amount_minor: number }[]>([])
 
   useEffect(() => {
     if (!open) return
@@ -108,13 +110,20 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
     void reload()
   }, [open, isAuthenticated, reload])
 
-  const refSlug = useMemo(() => {
-    const code = hub?.referral?.link_code?.trim()
-    if (code) return code
-    const un = me?.username?.trim()
-    if (un) return un
-    return ''
-  }, [hub?.referral?.link_code, me?.username])
+  const loadEarningsChart = useCallback(async () => {
+    if (!isAuthenticated) return
+    const res = await apiFetch(`/v1/referrals/earnings-series?range=${encodeURIComponent(chartRange)}`)
+    if (!res.ok) return
+    const j = (await res.json()) as { accrued_daily?: { date: string; amount_minor: number }[] }
+    setChartAccrued(Array.isArray(j.accrued_daily) ? j.accrued_daily : [])
+  }, [apiFetch, chartRange, isAuthenticated])
+
+  useEffect(() => {
+    if (!open || !isAuthenticated || tab !== 'earnings') return
+    void loadEarningsChart()
+  }, [open, isAuthenticated, tab, loadEarningsChart])
+
+  const refSlug = useMemo(() => hub?.referral?.link_code?.trim() ?? '', [hub?.referral?.link_code])
 
   const referralUrl = refSlug ? buildRefUrl(refSlug) : ''
 
@@ -126,8 +135,30 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
     [stages],
   )
 
-  const availableCredit = 0
-  const lifetimeEarnings = 0
+  const availableCredit = minorToUsdAmount(hub?.referral?.pending_minor ?? 0)
+  const lifetimeEarnings = minorToUsdAmount(hub?.referral?.lifetime_paid_minor ?? 0)
+  const tierProgressPct = Math.min(
+    100,
+    Math.max(0, Math.round(hub?.referral?.tier_progress_pct ?? DEFAULT_TIER_PROGRESS_PCT)),
+  )
+  const tierTitle =
+    hub?.referral?.tier_name?.trim() ||
+    (hub?.referral?.tier_id != null ? `Tier ${hub.referral.tier_id}` : t('affiliateModal.tierLabel', { n: 1 }))
+  const currentNgrPct = (hub?.referral?.ngr_revshare_bps ?? 500) / 100
+  const nextTierName =
+    typeof hub?.referral?.next_tier?.name === 'string' ? hub.referral.next_tier.name.trim() : ''
+  const nextTierRec =
+    hub?.referral?.next_tier && typeof hub.referral.next_tier === 'object'
+      ? (hub.referral.next_tier as Record<string, unknown>)
+      : null
+  const nextNgrBpsRaw = nextTierRec?.ngr_revshare_bps
+  const nextNgrPct =
+    typeof nextNgrBpsRaw === 'number' && Number.isFinite(nextNgrBpsRaw) ? nextNgrBpsRaw / 100 : null
+  const chartMaxMinor = useMemo(() => {
+    const m = Math.max(0, ...chartAccrued.map((p) => p.amount_minor))
+    return m > 0 ? m : 1
+  }, [chartAccrued])
+  const chartMaxUsd = minorToUsdAmount(chartMaxMinor)
 
   const copyUrl = async () => {
     if (!referralUrl) return
@@ -136,6 +167,32 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
       toast.success(t('affiliateModal.copySuccess'))
     } catch {
       toast.error(t('affiliateModal.copyFail'))
+    }
+  }
+
+  const claimAffiliate = async () => {
+    if (!isAuthenticated || claimBusy) return
+    setClaimBusy(true)
+    try {
+      const res = await apiFetch('/v1/referrals/claim', { method: 'POST' })
+      if (!res.ok) {
+        toast.error(t('affiliateModal.claimFail', { defaultValue: 'Could not claim' }))
+        return
+      }
+      const j = (await res.json()) as { grants_paid?: number }
+      const n = j.grants_paid ?? 0
+      toast.success(
+        t('affiliateModal.claimOk', {
+          defaultValue: 'Paid {{count}} reward(s) to your wallet',
+          count: n,
+        }),
+      )
+      await reload()
+      await loadEarningsChart()
+    } catch {
+      toast.error(t('affiliateModal.claimFail', { defaultValue: 'Could not claim' }))
+    } finally {
+      setClaimBusy(false)
     }
   }
 
@@ -331,10 +388,11 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
                   </div>
                   <button
                     type="button"
+                    disabled={!isAuthenticated || claimBusy || availableCredit <= 0}
                     className="shrink-0 rounded-md bg-gradient-to-r from-casino-primary to-casino-primary/85 px-6 py-2.5 text-[13px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={() => toast.message(t('affiliateModal.claimSoon'))}
+                    onClick={() => void claimAffiliate()}
                   >
-                    {t('affiliateModal.claim')}
+                    {claimBusy ? '…' : t('affiliateModal.claim')}
                   </button>
                 </div>
                 <div className={panelCls}>
@@ -347,23 +405,29 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
 
               <div className={`${panelCls} flex min-h-[220px] flex-col`}>
                 <div className={panelHeaderCls}>{t('affiliateModal.commissionTier')}</div>
-                <div className="mt-1 text-xl font-bold text-white">{t('affiliateModal.tierLabel', { n: 1 })}</div>
+                <div className="mt-1 text-xl font-bold text-white">{tierTitle}</div>
                 <div className="mt-auto pt-6">
                   <div className={`${panelHeaderCls} mb-3`}>{t('affiliateModal.tierProgressLabel')}</div>
-                  <div className="mb-3 h-1 w-full overflow-hidden rounded-sm bg-[#1c1a22]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={DEFAULT_TIER_PROGRESS_PCT}>
+                  <div
+                    className="mb-3 h-1 w-full overflow-hidden rounded-sm bg-[#1c1a22]"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={tierProgressPct}
+                  >
                     <div
                       className="h-full rounded-sm bg-casino-primary"
-                      style={{ width: `${DEFAULT_TIER_PROGRESS_PCT}%` }}
+                      style={{ width: `${tierProgressPct}%` }}
                     />
                   </div>
                   <div className="flex justify-between text-xs text-casino-muted">
                     <div className="flex flex-col gap-1">
-                      <span className="font-medium text-white">{t('affiliateModal.tierLabel', { n: 1 })}</span>
-                      <span>5%</span>
+                      <span className="font-medium text-white">{tierTitle}</span>
+                      <span>{currentNgrPct.toFixed(1)}%</span>
                     </div>
                     <div className="flex flex-col gap-1 text-right">
-                      <span className="font-medium text-white">{t('affiliateModal.tierLabel', { n: 2 })}</span>
-                      <span>5.5%</span>
+                      <span className="font-medium text-white">{nextTierName || '—'}</span>
+                      <span>{nextNgrPct != null ? `${nextNgrPct.toFixed(1)}%` : '—'}</span>
                     </div>
                   </div>
                 </div>
@@ -386,7 +450,7 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
             </div>
 
             <div className={`${panelCls} pb-3 pt-4`}>
-              <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-[13px] font-semibold text-white">{t('affiliateModal.chartTitle')}</div>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('affiliateModal.chartTitle')}>
                   {(['30d', '14d', '7d'] as const).map((r) => (
@@ -409,19 +473,47 @@ const ReferAndEarnModal: FC<Props> = ({ open, onClose }) => {
                   ))}
                 </div>
               </div>
-              <div className="flex flex-col gap-6">
-                {CHART_Y_TICKS.map((tick) => (
-                  <div key={tick} className="flex items-center gap-4">
-                    <div
-                      className="h-px min-w-0 flex-1 border-t border-dashed border-white/10"
-                      aria-hidden
-                    />
-                    <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-casino-muted">
-                      {formatChartTick(tick, i18n.language)}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex items-stretch gap-3">
+                <div className="flex flex-col justify-between py-1 text-right text-[11px] tabular-nums text-casino-muted">
+                  <span>{formatUsdAmount(chartMaxUsd, i18n.language)}</span>
+                  <span>{formatUsdAmount(chartMaxUsd * 0.5, i18n.language)}</span>
+                  <span>{formatUsdAmount(0, i18n.language)}</span>
+                </div>
+                <div className="min-h-[160px] min-w-0 flex-1 rounded-lg border border-white/[0.06] bg-[#141218] px-2 pb-1 pt-3">
+                  {chartAccrued.length === 0 ? (
+                    <p className="flex h-[140px] items-center justify-center px-2 text-center text-sm text-casino-muted">
+                      {t('affiliateModal.chartEmpty', { defaultValue: 'No commission in this range yet.' })}
+                    </p>
+                  ) : (
+                    <div className="flex h-[140px] items-end gap-1">
+                      {chartAccrued.map((p) => {
+                        const pct =
+                          p.amount_minor <= 0
+                            ? 0
+                            : Math.max(8, (p.amount_minor / chartMaxMinor) * 100)
+                        return (
+                          <div key={p.date} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                            <div
+                              className="w-full max-w-[28px] rounded-t-sm bg-gradient-to-t from-casino-primary/25 to-casino-primary"
+                              style={{ height: `${pct}%` }}
+                              title={formatUsdAmount(minorToUsdAmount(p.amount_minor), i18n.language)}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
+              {chartAccrued.length > 0 ? (
+                <div className="mt-2 flex gap-1 px-1">
+                  {chartAccrued.map((p) => (
+                    <div key={`lbl-${p.date}`} className="min-w-0 flex-1 text-center text-[10px] text-casino-muted">
+                      <span className="block truncate">{formatChartDayLabel(p.date, i18n.language)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             {hub?.referral?.description?.trim() && isAuthenticated ? (

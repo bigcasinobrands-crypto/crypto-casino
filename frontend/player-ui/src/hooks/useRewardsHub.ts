@@ -165,6 +165,15 @@ export type HubReferralSummary = {
   link_id?: string
   stages?: Record<string, number>
   description?: string
+  /** Commission grants not yet paid to cash (minor units). */
+  pending_minor?: number
+  lifetime_paid_minor?: number
+  tier_id?: number
+  tier_name?: string
+  tier_progress_pct?: number
+  next_tier?: Record<string, unknown>
+  ngr_revshare_bps?: number
+  deposit_revshare_bps?: number
 }
 
 export type RewardsHubPayload = {
@@ -220,11 +229,28 @@ function normalizeReferral(raw: unknown): HubReferralSummary | undefined {
   if (link_id) summary.link_id = link_id
   if (description) summary.description = description
   if (stages) summary.stages = stages
+  if ('pending_minor' in r) summary.pending_minor = parseMinorInt(r.pending_minor)
+  if ('lifetime_paid_minor' in r) summary.lifetime_paid_minor = parseMinorInt(r.lifetime_paid_minor)
+  if (typeof r.tier_id === 'number' && Number.isFinite(r.tier_id)) summary.tier_id = Math.trunc(r.tier_id)
+  if (typeof r.tier_name === 'string' && r.tier_name.trim()) summary.tier_name = r.tier_name.trim()
+  if (typeof r.tier_progress_pct === 'number' && Number.isFinite(r.tier_progress_pct)) {
+    summary.tier_progress_pct = Math.max(0, Math.min(100, r.tier_progress_pct))
+  }
+  if (r.next_tier && typeof r.next_tier === 'object') summary.next_tier = r.next_tier as Record<string, unknown>
+  if (typeof r.ngr_revshare_bps === 'number' && Number.isFinite(r.ngr_revshare_bps)) {
+    summary.ngr_revshare_bps = Math.trunc(r.ngr_revshare_bps)
+  }
+  if (typeof r.deposit_revshare_bps === 'number' && Number.isFinite(r.deposit_revshare_bps)) {
+    summary.deposit_revshare_bps = Math.trunc(r.deposit_revshare_bps)
+  }
   if (
     !summary.link_code &&
     !summary.link_id &&
     !summary.description &&
-    !summary.stages
+    !summary.stages &&
+    summary.pending_minor == null &&
+    summary.lifetime_paid_minor == null &&
+    summary.tier_name == null
   ) {
     return undefined
   }

@@ -1,6 +1,7 @@
-import { useEffect, useId, useMemo, useState, type FC } from 'react'
+import { useCallback, useEffect, useId, useState, type FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { usePlayerAuth } from '../playerAuth'
 import {
   IconCalendar,
   IconChevronDown,
@@ -10,68 +11,14 @@ import {
   IconSearch,
 } from './icons'
 
-type ReferralHistoryRow = {
-  id: string
+type ReferredRow = {
+  user_id: string
   username: string
-  joinedAt: string
-  tier: 1 | 2
-  totalWagered: number
-  commissionEarned: number
+  joined_at: string
+  vip_tier: string
+  total_wagered_minor: number
+  commission_earned_minor: number
 }
-
-/** Sample rows until GET /v1/affiliate/referrals exists. */
-const DEMO_REFERRALS: ReferralHistoryRow[] = [
-  {
-    id: '1',
-    username: 'CryptoWhale99',
-    joinedAt: '2023-10-24',
-    tier: 1,
-    totalWagered: 4520,
-    commissionEarned: 226,
-  },
-  {
-    id: '2',
-    username: 'LunaStakes',
-    joinedAt: '2023-10-22',
-    tier: 1,
-    totalWagered: 1250.5,
-    commissionEarned: 62.52,
-  },
-  {
-    id: '3',
-    username: 'HighRollerX',
-    joinedAt: '2023-10-19',
-    tier: 2,
-    totalWagered: 12400,
-    commissionEarned: 682,
-  },
-  {
-    id: '4',
-    username: 'BettyWins',
-    joinedAt: '2023-10-15',
-    tier: 1,
-    totalWagered: 890,
-    commissionEarned: 44.5,
-  },
-  {
-    id: '5',
-    username: 'JackpotHunter',
-    joinedAt: '2023-10-12',
-    tier: 1,
-    totalWagered: 340.25,
-    commissionEarned: 17.01,
-  },
-  {
-    id: '6',
-    username: 'SpinMaster',
-    joinedAt: '2023-10-05',
-    tier: 1,
-    totalWagered: 0,
-    commissionEarned: 0,
-  },
-]
-
-const DEMO_TOTAL_REFERRALS = 142
 
 type Props = {
   active: boolean
@@ -89,23 +36,28 @@ function userInitials(name: string): string {
   return name.slice(0, 2).toUpperCase() || '?'
 }
 
-function formatUsd(n: number, lng: string, opts?: { minFrac?: number; maxFrac?: number; plus?: boolean }): string {
+function displayLabel(r: ReferredRow): string {
+  const u = r.username?.trim()
+  if (u) return u
+  return r.user_id.slice(0, 8)
+}
+
+function formatUsdFromMinor(minor: number, lng: string, opts?: { plus?: boolean }): string {
+  const n = Math.round(Number(minor) || 0) / 100
   const locale = lng === 'fr-CA' ? 'fr-CA' : 'en-US'
-  const minFrac = opts?.minFrac ?? 2
-  const maxFrac = opts?.maxFrac ?? 2
   const formatted = n.toLocaleString(locale, {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: minFrac,
-    maximumFractionDigits: maxFrac,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   })
   if (opts?.plus && n > 0) return `+${formatted}`
   return formatted
 }
 
 function formatJoinedDate(iso: string, lng: string): string {
-  const d = new Date(`${iso}T12:00:00Z`)
-  if (Number.isNaN(d.getTime())) return iso
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
   return d.toLocaleDateString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
     year: 'numeric',
     month: 'short',
@@ -113,42 +65,92 @@ function formatJoinedDate(iso: string, lng: string): string {
   })
 }
 
+const PAGE_SIZE = 20
+
 export const AffiliateReferralHistoryPanel: FC<Props> = ({ active }) => {
   const { t, i18n } = useTranslation()
   const tableCaptionId = useId()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
   const [search, setSearch] = useState('')
+  const [debouncedQ, setDebouncedQ] = useState('')
   const [page, setPage] = useState(1)
+  const [rows, setRows] = useState<ReferredRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
 
   useEffect(() => {
     if (!active) return
     setSearch('')
+    setDebouncedQ('')
     setPage(1)
   }, [active])
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return DEMO_REFERRALS
-    return DEMO_REFERRALS.filter((r) => r.username.toLowerCase().includes(q))
+  useEffect(() => {
+    const tmr = window.setTimeout(() => setDebouncedQ(search.trim()), 350)
+    return () => window.clearTimeout(tmr)
   }, [search])
 
   useEffect(() => {
     setPage(1)
-  }, [search])
+  }, [debouncedQ])
 
-  const pageSize = 6
-  const totalFiltered = filtered.length
-  const totalForDisplay = search.trim() ? totalFiltered : DEMO_TOTAL_REFERRALS
-  const pageCount = Math.max(1, Math.ceil(totalFiltered / pageSize))
+  const load = useCallback(async () => {
+    if (!isAuthenticated || !active) return
+    setLoading(true)
+    setLoadErr(null)
+    try {
+      const qs = new URLSearchParams({
+        page: String(page),
+        limit: String(PAGE_SIZE),
+      })
+      if (debouncedQ) qs.set('q', debouncedQ)
+      const res = await apiFetch(`/v1/referrals/referred?${qs.toString()}`)
+      if (!res.ok) {
+        setLoadErr(`HTTP ${res.status}`)
+        setRows([])
+        setTotal(0)
+        return
+      }
+      const j = (await res.json()) as {
+        rows?: ReferredRow[]
+        total?: number
+      }
+      setRows(Array.isArray(j.rows) ? j.rows : [])
+      setTotal(typeof j.total === 'number' ? j.total : 0)
+    } catch {
+      setLoadErr('network')
+      setRows([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
+    }
+  }, [active, apiFetch, debouncedQ, isAuthenticated, page])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const safePage = Math.min(page, pageCount)
-  const sliceStart = (safePage - 1) * pageSize
-  const pageRows = filtered.slice(sliceStart, sliceStart + pageSize)
-  const showingFrom = totalFiltered === 0 ? 0 : sliceStart + 1
-  const showingTo = sliceStart + pageRows.length
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage)
+  }, [page, safePage])
+
+  const sliceStart = (safePage - 1) * PAGE_SIZE
+  const showingFrom = total === 0 ? 0 : sliceStart + 1
+  const showingTo = sliceStart + rows.length
 
   if (!active) return null
 
   return (
     <div className="flex flex-col gap-5">
+      {loadErr ? (
+        <p className="text-sm text-red-400" role="alert">
+          {t('affiliateHistoryModal.loadError', { defaultValue: 'Could not load referrals.' })}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <label className="flex h-10 w-full max-w-[300px] items-center gap-3 rounded-lg border border-white/[0.06] bg-[#231f2d] px-4 text-casino-muted lg:flex-1">
           <IconSearch size={18} aria-hidden className="shrink-0 opacity-80" />
@@ -223,19 +225,28 @@ export const AffiliateReferralHistoryPanel: FC<Props> = ({ active }) => {
             </tr>
           </thead>
           <tbody>
-            {pageRows.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={5} className="px-5 py-10 text-center text-sm text-casino-muted">
+                  {t('affiliateHistoryModal.loading', { defaultValue: 'Loading…' })}
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-5 py-10 text-center text-sm text-casino-muted">
                   {t('affiliateHistoryModal.empty')}
                 </td>
               </tr>
             ) : (
-              pageRows.map((row) => {
-                const hue = hashHue(row.username)
-                const initials = userInitials(row.username)
-                const commissionPositive = row.commissionEarned > 0
+              rows.map((row) => {
+                const label = displayLabel(row)
+                const hue = hashHue(row.user_id)
+                const initials = userInitials(label)
+                const commissionMinor = row.commission_earned_minor ?? 0
+                const commissionPositive = commissionMinor > 0
+                const vipName = row.vip_tier?.trim() || '—'
                 return (
-                  <tr key={row.id} className="border-b border-white/[0.06] last:border-b-0">
+                  <tr key={row.user_id} className="border-b border-white/[0.06] last:border-b-0">
                     <td className="px-4 py-4 text-sm sm:px-5">
                       <div className="flex min-w-0 items-center gap-3">
                         <div
@@ -247,19 +258,22 @@ export const AffiliateReferralHistoryPanel: FC<Props> = ({ active }) => {
                         >
                           {initials}
                         </div>
-                        <span className="min-w-0 truncate font-medium text-white">{row.username}</span>
+                        <span className="min-w-0 truncate font-medium text-white">{label}</span>
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-casino-muted sm:px-5">
-                      {formatJoinedDate(row.joinedAt, i18n.language)}
+                      {formatJoinedDate(row.joined_at, i18n.language)}
                     </td>
                     <td className="px-4 py-4 sm:px-5">
-                      <span className="inline-block rounded bg-casino-primary/15 px-2 py-1 text-[11px] font-bold text-casino-primary">
-                        {t('affiliateModal.tierLabel', { n: row.tier })}
+                      <span
+                        className="inline-block max-w-[140px] truncate rounded bg-casino-primary/15 px-2 py-1 text-[11px] font-bold text-casino-primary"
+                        title={vipName}
+                      >
+                        {vipName}
                       </span>
                     </td>
                     <td className="hidden px-4 py-4 text-sm tabular-nums text-white sm:table-cell sm:px-5">
-                      {formatUsd(row.totalWagered, i18n.language)}
+                      {formatUsdFromMinor(row.total_wagered_minor ?? 0, i18n.language)}
                     </td>
                     <td
                       className={`px-4 py-4 text-right text-sm font-semibold tabular-nums sm:px-5 ${
@@ -267,12 +281,12 @@ export const AffiliateReferralHistoryPanel: FC<Props> = ({ active }) => {
                       }`}
                     >
                       {commissionPositive
-                        ? formatUsd(row.commissionEarned, i18n.language, { plus: true })
-                        : formatUsd(0, i18n.language)}
+                        ? formatUsdFromMinor(commissionMinor, i18n.language, { plus: true })
+                        : formatUsdFromMinor(0, i18n.language)}
                     </td>
                   </tr>
                 )
-                           })
+              })
             )}
           </tbody>
         </table>
@@ -286,7 +300,7 @@ export const AffiliateReferralHistoryPanel: FC<Props> = ({ active }) => {
           {t('affiliateHistoryModal.pageInfo', {
             from: showingFrom,
             to: showingTo,
-            total: totalForDisplay,
+            total,
           })}
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -294,43 +308,19 @@ export const AffiliateReferralHistoryPanel: FC<Props> = ({ active }) => {
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/[0.06] bg-[#19171e] text-white transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label={t('affiliateHistoryModal.prevPage')}
-            disabled={safePage <= 1}
+            disabled={safePage <= 1 || loading}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
             <IconChevronLeft size={16} aria-hidden />
           </button>
-          {[1, 2, 3].map((n) => (
-            <button
-              key={n}
-              type="button"
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-md border text-sm font-semibold transition ${
-                safePage === n
-                  ? 'border-casino-primary bg-casino-primary text-white'
-                  : 'border-white/[0.06] bg-[#19171e] text-white hover:bg-white/[0.05]'
-              }`}
-              onClick={() => n <= pageCount && setPage(n)}
-              disabled={n > pageCount}
-              aria-label={t('affiliateHistoryModal.goToPage', { n })}
-              aria-current={safePage === n ? 'page' : undefined}
-            >
-              {n}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/[0.06] bg-[#19171e] text-casino-muted transition hover:bg-white/[0.05] hover:text-white"
-            aria-label={t('affiliateHistoryModal.morePages')}
-            onClick={() => toast.message(t('affiliateHistoryModal.paginationSoon'))}
-          >
-            <span className="text-xs font-bold leading-none" aria-hidden>
-              ···
-            </span>
-          </button>
+          <span className="px-2 text-sm tabular-nums text-white">
+            {safePage} / {pageCount}
+          </span>
           <button
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/[0.06] bg-[#19171e] text-white transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
             aria-label={t('affiliateHistoryModal.nextPage')}
-            disabled={safePage >= pageCount}
+            disabled={safePage >= pageCount || loading}
             onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
           >
             <IconChevronRight size={16} aria-hidden />
