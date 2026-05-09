@@ -134,6 +134,12 @@ function shortUserAgent(ua: string | undefined): string {
 function accountFactRows(facts: Record<string, unknown>): DefinitionRow[] {
   const rows: DefinitionRow[] = []
   if (facts.user_id != null) rows.push({ field: 'Player ID', value: String(facts.user_id), mono: true })
+  const boId = facts.blue_ocean_player_id
+  if (boId != null && String(boId).trim() !== '') {
+    rows.push({ field: 'Blue Ocean player ID', value: String(boId), mono: true })
+  } else {
+    rows.push({ field: 'Blue Ocean player ID', value: '— not linked yet', mono: false })
+  }
   if (facts.last_activity_at != null) {
     rows.push({ field: 'Last activity', value: String(facts.last_activity_at), mono: true })
   }

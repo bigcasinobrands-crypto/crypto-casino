@@ -171,6 +171,18 @@ func (h *Handler) GetUserFacts(w http.ResponseWriter, r *http.Request) {
 		out["latest_risk_signal"] = latestSignal
 	}
 
+	var boRemote string
+	switch err := h.Pool.QueryRow(ctx, `
+		SELECT remote_player_id FROM blueocean_player_links WHERE user_id = $1::uuid
+	`, uid).Scan(&boRemote); err {
+	case nil:
+		out["blue_ocean_player_id"] = boRemote
+	case pgx.ErrNoRows:
+		out["blue_ocean_player_id"] = nil
+	default:
+		out["blue_ocean_player_id"] = nil
+	}
+
 	sessRows, err := h.Pool.Query(ctx, `
 		SELECT id::text, family_id::text, created_at, expires_at, last_seen_at,
 			client_ip, user_agent, country_iso2, region, city, device_type,
