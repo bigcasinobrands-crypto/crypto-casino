@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,7 +13,7 @@ import (
 
 // BalanceStreamHandler sends SSE events whenever the user's balance changes.
 // The client receives `data: {"balance_minor":1234}\n\n` on every change.
-func BalanceStreamHandler(pool *pgxpool.Pool) http.HandlerFunc {
+func BalanceStreamHandler(pool *pgxpool.Pool, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
 		if !ok {
@@ -31,15 +32,16 @@ func BalanceStreamHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 
+		ccy, multi := seamlessPlayerWalletSettings(cfg)
 		lastSig := ""
 		writeBal := func() {
 			ctx := r.Context()
-			bal, err := ledger.BalanceMinor(ctx, pool, uid)
+			bal, err := ledger.BalancePlayableSeamless(ctx, pool, uid, ccy, multi)
 			if err != nil {
 				return
 			}
-			cash, _ := ledger.BalanceCash(ctx, pool, uid)
-			bon, _ := ledger.BalanceBonusLocked(ctx, pool, uid)
+			cash, _ := ledger.BalanceCashSeamless(ctx, pool, uid, ccy, multi)
+			bon, _ := ledger.BalanceBonusLockedSeamless(ctx, pool, uid, ccy, multi)
 			sig := fmt.Sprintf("%d:%d:%d", bal, cash, bon)
 			if sig == lastSig {
 				return

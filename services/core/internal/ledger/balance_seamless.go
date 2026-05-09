@@ -48,6 +48,28 @@ func BalancePlayableSeamless(ctx context.Context, pool *pgxpool.Pool, userID, wa
 	return sum, err
 }
 
+// BalanceCashSeamless is the cash pocket total for the same currency filter as BalancePlayableSeamless.
+func BalanceCashSeamless(ctx context.Context, pool *pgxpool.Pool, userID, walletCCY string, multiCurrency bool) (int64, error) {
+	ccy := strings.ToUpper(strings.TrimSpace(walletCCY))
+	if ccy == "" {
+		ccy = "EUR"
+	}
+	var sum int64
+	err := pool.QueryRow(ctx, seamlessCashSQL, userID, ccy, multiCurrency).Scan(&sum)
+	return sum, err
+}
+
+// BalanceBonusLockedSeamless is the bonus_locked pocket total for the same currency filter.
+func BalanceBonusLockedSeamless(ctx context.Context, pool *pgxpool.Pool, userID, walletCCY string, multiCurrency bool) (int64, error) {
+	ccy := strings.ToUpper(strings.TrimSpace(walletCCY))
+	if ccy == "" {
+		ccy = "EUR"
+	}
+	var sum int64
+	err := pool.QueryRow(ctx, seamlessBonusLockedSQL, userID, ccy, multiCurrency).Scan(&sum)
+	return sum, err
+}
+
 // BalancePlayableSeamlessTx is like BalancePlayableSeamless inside an existing transaction.
 func BalancePlayableSeamlessTx(ctx context.Context, tx pgx.Tx, userID, walletCCY string, multiCurrency bool) (int64, error) {
 	ccy := strings.ToUpper(strings.TrimSpace(walletCCY))
