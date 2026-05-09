@@ -475,11 +475,11 @@ func (s *Service) notifyBlueOceanLoginAsync(userID string) {
 		if err := blueocean.EnsurePlayerLink(ctx, s.Pool, s.BlueOcean, s.Cfg, uid); err != nil {
 			log.Printf("blueocean: ensure player at login user=%s: %v", uid, err)
 		}
-		remote, err := blueocean.RemotePlayerIDFromDB(ctx, s.Pool, uid)
-		if err != nil || remote == "" {
+		loginKey, err := blueocean.XAPILoginKeyFromDB(ctx, s.Pool, uid)
+		if err != nil || loginKey == "" {
 			return
 		}
-		res := s.BlueOcean.LoginPlayer(ctx, s.Cfg, remote, nil)
+		res := s.BlueOcean.LoginPlayer(ctx, s.Cfg, loginKey, nil)
 		if !res.OK {
 			log.Printf("blueocean: loginPlayer failed user=%s: %s", uid, res.ErrorMessage)
 		}
@@ -497,11 +497,11 @@ func (s *Service) notifyBlueOceanLogoutAsync(userID string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		remote, err := blueocean.RemotePlayerIDFromDB(ctx, s.Pool, uid)
-		if err != nil || remote == "" {
+		loginKey, err := blueocean.XAPILoginKeyFromDB(ctx, s.Pool, uid)
+		if err != nil || loginKey == "" {
 			return
 		}
-		res := s.BlueOcean.LogoutPlayer(ctx, s.Cfg, remote)
+		res := s.BlueOcean.LogoutPlayer(ctx, s.Cfg, loginKey)
 		if !res.OK {
 			log.Printf("blueocean: logoutPlayer failed user=%s: %s", uid, res.ErrorMessage)
 		}

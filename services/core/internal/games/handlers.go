@@ -590,7 +590,7 @@ func remotePlayerID(ctx context.Context, pool *pgxpool.Pool, userID string, cfg 
 		return "", err
 	}
 	_, err = pool.Exec(ctx, `
-		INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)
+		INSERT INTO blueocean_player_links (user_id, remote_player_id, xapi_user_username) VALUES ($1::uuid, $2, NULL)
 		ON CONFLICT (user_id) DO UPDATE SET remote_player_id = EXCLUDED.remote_player_id
 	`, userID, want)
 	return want, err

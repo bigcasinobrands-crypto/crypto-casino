@@ -29,6 +29,23 @@ func RemotePlayerIDFromDB(ctx context.Context, pool *pgxpool.Pool, userID string
 	return strings.TrimSpace(remote), nil
 }
 
+// XAPILoginKeyFromDB returns the identifier Blue Ocean expects for loginPlayer, logoutPlayer, and playerExists as user_username.
+// It prefers xapi_user_username (the createPlayer handle we stored). Legacy rows fall back to remote_player_id.
+func XAPILoginKeyFromDB(ctx context.Context, pool *pgxpool.Pool, userID string) (string, error) {
+	if pool == nil {
+		return "", fmt.Errorf("blueocean: no database pool")
+	}
+	var key string
+	err := pool.QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(TRIM(xapi_user_username), ''), TRIM(remote_player_id))
+		FROM blueocean_player_links WHERE user_id = $1::uuid
+	`, strings.TrimSpace(userID)).Scan(&key)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(key), nil
+}
+
 // CreatePlayerRequest is the server-to-server XAPI createPlayer call (form POST).
 // Field names match the BOG operator test form / common XAPI conventions (userid, user_username, currency).
 // ExtraParams are merged last so operators can match brand-specific keys from the BO testing tool without a code change.
@@ -45,9 +62,12 @@ type CreatePlayerResult struct {
 	OK             bool
 	AlreadyExists  bool
 	RemotePlayerID string
-	HTTPStatus     int
-	Raw            json.RawMessage
-	ErrorMessage   string
+	// XAPIUserUsername is the final user_username sent on createPlayer (after prefix / 16-char rule / extras).
+	// BO loginPlayer and playerExists expect this string, not the numeric id in RemotePlayerID.
+	XAPIUserUsername string
+	HTTPStatus       int
+	Raw              json.RawMessage
+	ErrorMessage     string
 }
 
 func mergeCurrencyAgentParams(cfg *config.Config, params map[string]any) {
@@ -140,16 +160,11 @@ func mergePlayerParamMap(dst map[string]any, src map[string]any) {
 	}
 }
 
-// CreatePlayer calls method createPlayer on the GameHub XAPI.
-// We send userid (no underscore) as the stable wallet/XAPI key; BO's deprecated request field is user_id.
-// user_username is capped at 16 characters per BO docs; longer derived names fall back to userid.
-func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req CreatePlayerRequest) CreatePlayerResult {
-	if !c.Configured() {
-		return CreatePlayerResult{ErrorMessage: "blueocean: client not configured"}
-	}
+// buildCreatePlayerCallParams builds the form map for createPlayer (userid, user_username, currency, extras).
+func buildCreatePlayerCallParams(cfg *config.Config, req CreatePlayerRequest) (map[string]any, string, string) {
 	uid := strings.TrimSpace(req.UserID)
 	if uid == "" {
-		return CreatePlayerResult{ErrorMessage: "createPlayer: user id required"}
+		return nil, "", "createPlayer: user id required"
 	}
 	xapiUser := uid
 	if cfg != nil {
@@ -159,7 +174,7 @@ func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req Creat
 	display = applyUserUsernamePrefix(cfg, display)
 	display = boCreatePlayerUserUsername(display, xapiUser)
 	if display == "" {
-		return CreatePlayerResult{ErrorMessage: "createPlayer: could not derive user_username"}
+		return nil, "", "createPlayer: could not derive user_username"
 	}
 	params := map[string]any{
 		"userid":         xapiUser,
@@ -175,6 +190,22 @@ func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req Creat
 		mergePlayerParamMap(params, cfg.BlueOceanCreatePlayerExtraParams)
 	}
 	mergePlayerParamMap(params, req.ExtraParams)
+	sent := strings.TrimSpace(fmt.Sprint(params["user_username"]))
+	return params, sent, ""
+}
+
+// CreatePlayer calls method createPlayer on the GameHub XAPI.
+// We send userid (no underscore) as the stable wallet/XAPI key; BO's deprecated request field is user_id.
+// user_username is capped at 16 characters per BO docs; longer derived names fall back to userid.
+func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req CreatePlayerRequest) CreatePlayerResult {
+	if !c.Configured() {
+		return CreatePlayerResult{ErrorMessage: "blueocean: client not configured"}
+	}
+	params, sentUserUsername, msg := buildCreatePlayerCallParams(cfg, req)
+	if msg != "" {
+		return CreatePlayerResult{ErrorMessage: msg}
+	}
+	xapiUser := strings.TrimSpace(fmt.Sprint(params["userid"]))
 	raw, status, err := c.Call(ctx, "createPlayer", params)
 	if err != nil {
 		return CreatePlayerResult{ErrorMessage: err.Error(), HTTPStatus: status, Raw: raw}
@@ -193,12 +224,13 @@ func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req Creat
 		errMsg = FormatAPIError(raw, status)
 	}
 	return CreatePlayerResult{
-		OK:             ok,
-		AlreadyExists:  exists,
-		RemotePlayerID: remote,
-		HTTPStatus:     status,
-		Raw:            raw,
-		ErrorMessage:   errMsg,
+		OK:               ok,
+		AlreadyExists:    exists,
+		RemotePlayerID:   remote,
+		XAPIUserUsername: sentUserUsername,
+		HTTPStatus:       status,
+		Raw:              raw,
+		ErrorMessage:     errMsg,
 	}
 }
 
@@ -297,7 +329,40 @@ func EnsurePlayerLink(ctx context.Context, pool *pgxpool.Pool, c *Client, cfg *c
 		return err
 	}
 	if exists {
-		return nil
+		var xapiMissing bool
+		if err := pool.QueryRow(ctx, `
+			SELECT (xapi_user_username IS NULL OR trim(xapi_user_username) = '')
+			FROM blueocean_player_links WHERE user_id = $1::uuid
+		`, uid).Scan(&xapiMissing); err != nil {
+			return err
+		}
+		if !xapiMissing {
+			return nil
+		}
+		var username, email *string
+		if err := pool.QueryRow(ctx, `
+			SELECT username, email FROM users WHERE id = $1::uuid
+		`, uid).Scan(&username, &email); err != nil {
+			return err
+		}
+		uStr, eStr := "", ""
+		if username != nil {
+			uStr = *username
+		}
+		if email != nil {
+			eStr = *email
+		}
+		_, sent, msg := buildCreatePlayerCallParams(cfg, CreatePlayerRequest{
+			UserID: uid, Username: uStr, Email: eStr,
+		})
+		if msg != "" || sent == "" {
+			return nil
+		}
+		_, err := pool.Exec(ctx, `
+			UPDATE blueocean_player_links SET xapi_user_username = $2
+			WHERE user_id = $1::uuid AND (xapi_user_username IS NULL OR trim(xapi_user_username) = '')
+		`, uid, sent)
+		return err
 	}
 	var username, email *string
 	err := pool.QueryRow(ctx, `
@@ -322,10 +387,14 @@ func EnsurePlayerLink(ctx context.Context, pool *pgxpool.Pool, c *Client, cfg *c
 		return fmt.Errorf("blueocean createPlayer: %s", res.ErrorMessage)
 	}
 	remote := strings.TrimSpace(res.RemotePlayerID)
+	xu := strings.TrimSpace(res.XAPIUserUsername)
 	_, err = pool.Exec(ctx, `
-		INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)
-		ON CONFLICT (user_id) DO UPDATE SET remote_player_id = EXCLUDED.remote_player_id
-	`, uid, remote)
+		INSERT INTO blueocean_player_links (user_id, remote_player_id, xapi_user_username)
+		VALUES ($1::uuid, $2, NULLIF($3, ''))
+		ON CONFLICT (user_id) DO UPDATE SET
+			remote_player_id = EXCLUDED.remote_player_id,
+			xapi_user_username = COALESCE(NULLIF(EXCLUDED.xapi_user_username, ''), blueocean_player_links.xapi_user_username)
+	`, uid, remote, xu)
 	return err
 }
 
