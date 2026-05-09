@@ -79,6 +79,33 @@ func TestMergeBlueOceanParamsJSONNoContentType(t *testing.T) {
 	}
 }
 
+func TestParseBOAmountCI_IntegerStaysMinorByDefault(t *testing.T) {
+	q := url.Values{}
+	q.Set("amount", "10")
+	n, ok := parseBOAmountCI(q, false, false)
+	if !ok || n != 10 {
+		t.Fatalf("got %d ok=%v", n, ok)
+	}
+}
+
+func TestParseBOAmountCI_IntegerMajorForBOBasicS2S(t *testing.T) {
+	q := url.Values{}
+	q.Set("amount", "10")
+	n, ok := parseBOAmountCI(q, false, true)
+	if !ok || n != 1000 {
+		t.Fatalf("got %d ok=%v want 1000 minor", n, ok)
+	}
+}
+
+func TestParseBOAmountCI_FloatMajorUnchangedWithIntMajor(t *testing.T) {
+	q := url.Values{}
+	q.Set("amount", "0.25")
+	n, ok := parseBOAmountCI(q, true, true)
+	if !ok || n != 25 {
+		t.Fatalf("got %d ok=%v", n, ok)
+	}
+}
+
 func TestFormatBOBalanceMinor(t *testing.T) {
 	if got := formatBOBalanceMinor(30000); got != "300.00" {
 		t.Fatalf("got %q", got)

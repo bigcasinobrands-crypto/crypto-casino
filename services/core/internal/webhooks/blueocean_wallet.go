@@ -141,7 +141,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			if action == "rollback" {
 				amt, ok = 0, true
 			} else {
-				amt, ok = parseBOAmountCI(q, cfg.BlueOceanWalletFloatAmountIsMajorUnits)
+				amt, ok = parseBOAmountCI(q, cfg.BlueOceanWalletFloatAmountIsMajorUnits, cfg.BlueOceanWalletIntegerAmountIsMajorUnits)
 			}
 			if action == "debit" {
 				if ok && amt == 0 {
@@ -333,7 +333,7 @@ func blueOceanJSONScalarString(v any) (string, bool) {
 	}
 }
 
-func parseBOAmountCI(q url.Values, floatIsMajor bool) (int64, bool) {
+func parseBOAmountCI(q url.Values, floatIsMajor, intIsMajor bool) (int64, bool) {
 	keys := []string{"amount", "bet", "win", "sum", "money"}
 	for lkWant, vals := range flattenValuesCI(q, keys) {
 		_ = lkWant
@@ -345,6 +345,9 @@ func parseBOAmountCI(q url.Values, floatIsMajor bool) (int64, bool) {
 			s = strings.ReplaceAll(s, ",", ".")
 			if _, err := strconv.ParseInt(s, 10, 64); err == nil {
 				n, _ := strconv.ParseInt(s, 10, 64)
+				if intIsMajor {
+					return n * 100, true
+				}
 				return n, true
 			}
 			f, err := strconv.ParseFloat(s, 64)
