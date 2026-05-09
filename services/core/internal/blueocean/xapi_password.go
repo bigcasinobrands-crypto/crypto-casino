@@ -35,7 +35,7 @@ func XAPIWireUserPassword(cfg *config.Config, password string) string {
 // finalizeBOUserPasswordParam hashes or passes through user_password on params when present (see XAPIWireUserPassword).
 func finalizeBOUserPasswordParam(cfg *config.Config, method string, params map[string]any) {
 	switch strings.TrimSpace(method) {
-	case "createPlayer", "loginPlayer", "logoutPlayer", "getPlayerBalance":
+	case "createPlayer", "loginPlayer", "logoutPlayer", "getPlayerBalance", "getGameHistory":
 	default:
 		return
 	}

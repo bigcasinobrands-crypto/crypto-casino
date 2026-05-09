@@ -125,6 +125,17 @@ func (c *Client) CallXAPIMethod(ctx context.Context, cfg *config.Config, method 
 		NormalizeLoginPlayerParams(params)
 		mergeBOUserPasswordIfConfigured(cfg, params)
 	}
+	if m == "getDailyReport" {
+		NormalizeGetDailyReportParams(params)
+		if _, has := params["associateid"]; !has {
+			params["associateid"] = int64(0)
+		}
+	}
+	if m == "getGameHistory" {
+		NormalizeLoginPlayerParams(params)
+		NormalizeGetGameHistoryParams(params)
+		mergeBOUserPasswordIfConfigured(cfg, params)
+	}
 	merged := MergeBOGXAPIParams(cfg, params)
 	stripDeprecatedBOGXAPIUserID(merged)
 	finalizeBOUserPasswordParam(cfg, m, merged)
@@ -256,8 +267,22 @@ func (c *Client) GetDailyBalances(ctx context.Context, cfg *config.Config, date 
 	return c.finishXAPI(ctx, "getDailyBalances", MergeBOGXAPIParams(cfg, params))
 }
 
-// GetDailyReport calls method getDailyReport.
-func (c *Client) GetDailyReport(ctx context.Context, cfg *config.Config, dateStart, dateEnd, status string, extra map[string]any) XAPIResult {
+// GetDailyReport calls method getDailyReport (Reports - Wallet).
+// BO docs: required date Y-m-d (must not be today); optional associateid (default 0); currency via MergeBOGXAPIParams.
+func (c *Client) GetDailyReport(ctx context.Context, cfg *config.Config, date string, extra map[string]any) XAPIResult {
+	params := map[string]any{"date": strings.TrimSpace(date)}
+	mergeOptionalStringParams(params, extra)
+	NormalizeGetDailyReportParams(params)
+	if _, has := params["associateid"]; !has {
+		params["associateid"] = int64(0)
+	}
+	merged := MergeBOGXAPIParams(cfg, params)
+	return c.finishXAPI(ctx, "getDailyReport", merged)
+}
+
+// GetPaymentTransactions calls method getPaymentTransactions (Reports - Wallet).
+// BO docs: date_start / date_end in MySQL datetime format, optional status, currency.
+func (c *Client) GetPaymentTransactions(ctx context.Context, cfg *config.Config, dateStart, dateEnd, status string, extra map[string]any) XAPIResult {
 	params := map[string]any{
 		"date_start": strings.TrimSpace(dateStart),
 		"date_end":   strings.TrimSpace(dateEnd),
@@ -266,18 +291,27 @@ func (c *Client) GetDailyReport(ctx context.Context, cfg *config.Config, dateSta
 		params["status"] = s
 	}
 	mergeOptionalStringParams(params, extra)
-	return c.finishXAPI(ctx, "getDailyReport", MergeBOGXAPIParams(cfg, params))
+	return c.finishXAPI(ctx, "getPaymentTransactions", MergeBOGXAPIParams(cfg, params))
 }
 
-// GetGameHistory calls method getGameHistory.
-func (c *Client) GetGameHistory(ctx context.Context, cfg *config.Config, remoteUserID, dateStart, dateEnd string, extra map[string]any) XAPIResult {
+// GetGameHistory calls method getGameHistory (Reports - Wallet 5.4).
+// BO docs: user_username + user_password (same as loginPlayer), date_start required (Y-m-d H:i:s UTC), optional date_end, gameid, gamesession_id, provider/vendor, pagination, etc.
+func (c *Client) GetGameHistory(ctx context.Context, cfg *config.Config, loginUsername, dateStartUTC, dateEndUTC string, extra map[string]any) XAPIResult {
 	params := map[string]any{
-		"userid":     strings.TrimSpace(remoteUserID),
-		"date_start": strings.TrimSpace(dateStart),
-		"date_end":   strings.TrimSpace(dateEnd),
+		"user_username": strings.TrimSpace(loginUsername),
+		"date_start":    strings.TrimSpace(dateStartUTC),
+	}
+	if de := strings.TrimSpace(dateEndUTC); de != "" {
+		params["date_end"] = de
 	}
 	mergeOptionalStringParams(params, extra)
-	return c.finishXAPI(ctx, "getGameHistory", MergeBOGXAPIParams(cfg, params))
+	NormalizeLoginPlayerParams(params)
+	NormalizeGetGameHistoryParams(params)
+	mergeBOUserPasswordIfConfigured(cfg, params)
+	merged := MergeBOGXAPIParams(cfg, params)
+	stripDeprecatedBOGXAPIUserID(merged)
+	finalizeBOUserPasswordParam(cfg, "getGameHistory", merged)
+	return c.finishXAPI(ctx, "getGameHistory", merged)
 }
 
 // GetSystemUsername calls method getSystemUsername.
@@ -313,23 +347,24 @@ func (c *Client) SetSystemPassword(ctx context.Context, cfg *config.Config, syst
 
 // AllowedBOGXAPIMethods is the set of methods exposed via the admin XAPI proxy (dropdown parity with BO testing tool).
 var AllowedBOGXAPIMethods = map[string]struct{}{
-	"getGameList":       {},
-	"createPlayer":      {},
-	"playerExists":      {},
-	"loginPlayer":       {},
-	"getGame":           {},
-	"getGameDirect":     {},
-	"addFreeRounds":     {},
-	"logoutPlayer":      {},
-	"getDailyBalances":  {},
-	"getDailyReport":    {},
-	"getGameHistory":    {},
-	"getSystemUsername": {},
-	"setSystemUsername": {},
-	"setSystemPassword": {},
-	"removeFreeRounds":   {},
-	"getGameDemo":        {},
-	"getPlayerBalance":   {},
+	"getGameList":            {},
+	"createPlayer":           {},
+	"playerExists":           {},
+	"loginPlayer":            {},
+	"getGame":                {},
+	"getGameDirect":          {},
+	"addFreeRounds":          {},
+	"logoutPlayer":           {},
+	"getDailyBalances":       {},
+	"getDailyReport":         {},
+	"getPaymentTransactions": {},
+	"getGameHistory":         {},
+	"getSystemUsername":      {},
+	"setSystemUsername":      {},
+	"setSystemPassword":      {},
+	"removeFreeRounds":       {},
+	"getGameDemo":            {},
+	"getPlayerBalance":       {},
 }
 
 // ListAllowedXAPIMethodNames returns sorted GameHub method names allowed via the admin XAPI proxy.

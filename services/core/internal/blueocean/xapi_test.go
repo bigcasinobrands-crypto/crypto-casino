@@ -39,6 +39,9 @@ func TestBOGXAPIRequiresSuperadmin(t *testing.T) {
 	if BOGXAPIRequiresSuperadmin("getGameHistory") {
 		t.Fatal("expected read method")
 	}
+	if BOGXAPIRequiresSuperadmin("getPaymentTransactions") {
+		t.Fatal("expected read method")
+	}
 }
 
 func TestListAllowedXAPIMethodNamesSorted(t *testing.T) {
@@ -53,7 +56,7 @@ func TestListAllowedXAPIMethodNamesSorted(t *testing.T) {
 func TestAllowedBOGXAPIMethodsDropdownParity(t *testing.T) {
 	dropdown := []string{
 		"getGameList", "createPlayer", "playerExists", "loginPlayer", "getPlayerBalance", "getGame", "getGameDirect",
-		"addFreeRounds", "logoutPlayer", "getDailyBalances", "getDailyReport", "getGameHistory",
+		"addFreeRounds", "logoutPlayer", "getDailyBalances", "getDailyReport", "getGameHistory", "getPaymentTransactions",
 		"getSystemUsername", "setSystemUsername", "setSystemPassword", "removeFreeRounds", "getGameDemo",
 	}
 	for _, m := range dropdown {
@@ -138,5 +141,51 @@ func TestNormalizeLogoutPlayerParams(t *testing.T) {
 	}
 	if _, has := p["userid"]; has {
 		t.Fatal("expected legacy userid removed")
+	}
+}
+
+func TestNormalizeGetDailyReportParams(t *testing.T) {
+	p := map[string]any{
+		"date_start":  "2012-08-09 00:00:00",
+		"date_end":    "2012-08-10",
+		"status":      "x",
+		"associateId": int64(7),
+	}
+	NormalizeGetDailyReportParams(p)
+	if p["date"] != "2012-08-09" {
+		t.Fatalf("date: %v", p["date"])
+	}
+	if _, has := p["date_start"]; has {
+		t.Fatal("expected date_start removed")
+	}
+	if _, has := p["date_end"]; has {
+		t.Fatal("expected date_end removed")
+	}
+	if _, has := p["status"]; has {
+		t.Fatal("expected status removed (not in BO getDailyReport)")
+	}
+	if p["associateid"] != int64(7) {
+		t.Fatalf("associateid: %v", p["associateid"])
+	}
+}
+
+func TestNormalizeGetGameHistoryParams(t *testing.T) {
+	p := map[string]any{
+		"game_id":  "2159",
+		"provider": "pq",
+		"userid":   "999",
+	}
+	NormalizeGetGameHistoryParams(p)
+	if p["gameid"] != "2159" {
+		t.Fatalf("gameid: %v", p["gameid"])
+	}
+	if _, has := p["game_id"]; has {
+		t.Fatal("expected game_id removed")
+	}
+	if p["vendor"] != "pq" {
+		t.Fatalf("vendor: %v", p["vendor"])
+	}
+	if _, has := p["userid"]; has {
+		t.Fatal("expected userid stripped for getGameHistory")
 	}
 }
