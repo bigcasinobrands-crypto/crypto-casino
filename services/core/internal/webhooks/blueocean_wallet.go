@@ -146,10 +146,10 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 		remote := strings.TrimSpace(firstNonEmptyCI(q,
 			"remote_id", "player_id", "playerid", "username", "user_name", "userid", "user_id",
 		))
-		// Longer than typical HTTP client timeouts: BO concurrent / stress tests hammer one player and
-		// may queue on users row FOR UPDATE or hit transient deadlocks (retried in applyBOSeamlessWithRetry).
-		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
-		defer cancel()
+		// Deadline comes from chi middleware on the wallet routes (see cmd/api — 3m seamless group).
+		// Do not add a shorter nested WithTimeout here: it caps work below the time needed when many
+		// concurrent callbacks queue on pool acquire + FOR UPDATE.
+		ctx := r.Context()
 
 		userID, err := resolveBlueOceanRemoteUser(ctx, pool, remote)
 		if err != nil || userID == "" {

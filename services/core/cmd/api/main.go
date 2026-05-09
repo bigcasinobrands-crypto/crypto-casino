@@ -277,15 +277,14 @@ func main() {
 		staffH.Mount(r, jwtIss, jtiRev)
 	})
 
-	// All other routes get a 60s context deadline.
+	// Blue Ocean seamless wallet: many concurrent debits serialize on one user's row + pool acquire
+	// queues. A 60s context cap causes DeadlineExceeded before commit (cert tooling shows empty
+	// responses / wrong end balance). Use a longer deadline only for these entrypoints — must be
+	// outside the global 60s group because chi uses the minimum of nested timeout deadlines.
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.Timeout(60 * time.Second))
-		// Player SPA calls GET /health/operational cross-origin; without this, only /v1/* had CORS and the browser shows CORS errors while /v1/games succeeds.
+		r.Use(middleware.Timeout(3 * time.Minute))
 		r.Use(playerCORS.Handler)
-
-		// Browsers often open the service root; the API has no SPA here — avoid a bare chi 404.
-		// Blue Ocean backoffice sometimes stores only the API origin for seamless wallet; callbacks
-		// may be GET or POST to / or /api/blueocean/callback (see HandleBlueOceanWallet).
+		// Browsers often open the service root; BO may GET/POST / with query/body only.
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			if webhooks.ShouldRouteBlueOceanWallet(r) {
 				webhooks.HandleBlueOceanWallet(pool, &cfg, rdb)(w, r)
@@ -301,6 +300,15 @@ func main() {
 				"health":  "/health",
 			})
 		})
+		r.HandleFunc("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg, rdb))
+	})
+
+	// All other routes get a 60s context deadline.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(60 * time.Second))
+		// Player SPA calls GET /health/operational cross-origin; without this, only /v1/* had CORS and the browser shows CORS errors while /v1/games succeeds.
+		r.Use(playerCORS.Handler)
+
 		r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -316,8 +324,6 @@ func main() {
 		})
 		r.Get("/health/ready", readyHandler(pool, rdb))
 		r.Get("/health/operational", operationalHandler(pool, &cfg, bog))
-
-		r.HandleFunc("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg, rdb))
 
 		r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
 		if cfg.UsesPassimpay() {
