@@ -32,8 +32,8 @@ import (
 	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/obs"
 	"github.com/crypto-casino/core/internal/oddin"
-	"github.com/crypto-casino/core/internal/pii"
 	"github.com/crypto-casino/core/internal/paymentflags"
+	"github.com/crypto-casino/core/internal/pii"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playerauth"
 	"github.com/crypto-casino/core/internal/playercookies"
@@ -216,6 +216,7 @@ func main() {
 		EmailLookupSecret: cfg.PIIEmailLookupSecret,
 		Fingerprint:       fpClient,
 		Cfg:               &cfg,
+		BlueOcean:         bog,
 	}
 	if cfg.HIBPCheckPasswords {
 		playerSvc.Pwned = pwnedpasswords.NewChecker()
@@ -548,6 +549,8 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			"disable_game_launch":               cfg.DisableGameLaunch,
 			"blueocean_configured":              bog != nil && bog.Configured(),
 			"blueocean_launch_mode":             strings.TrimSpace(strings.ToLower(cfg.BlueOceanLaunchMode)),
+			"blueocean_xapi_session_sync":       cfg.BlueOceanXAPISessionSync,
+			"blueocean_xapi_methods":            blueocean.ListAllowedXAPIMethodNames(),
 			"real_play_enabled":                 realPlayEnabled,
 			"visible_games_count":               visible,
 			"blueocean_visible_games_count":     blueoceanVisible,
@@ -559,6 +562,7 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 		if base := strings.TrimSpace(cfg.APIPublicBase); base != "" {
 			out["api_public_base"] = base
 			out["blueocean_seamless_wallet_callback_url"] = base + "/api/blueocean/callback"
+			out["blueocean_admin_xapi_proxy"] = base + "/v1/admin/integrations/blueocean/xapi"
 		}
 		if lastSync.Valid {
 			out["last_catalog_sync_at"] = lastSync.Time.UTC().Format(time.RFC3339)

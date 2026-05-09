@@ -13,8 +13,8 @@ import (
 
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/config"
-	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playcheck"
+	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -368,7 +368,7 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg)
+		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "player link failed")
 			return
@@ -529,7 +529,7 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, rerr := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg)
+		remote, rerr := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
 		if rerr != nil {
 			out["blue_ocean_error"] = "could not resolve player id for provider"
 			writeOut()
@@ -571,20 +571,20 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 	}
 }
 
-func remotePlayerID(ctx context.Context, pool *pgxpool.Pool, userID string, cfg *config.Config) (string, error) {
+func remotePlayerID(ctx context.Context, pool *pgxpool.Pool, userID string, cfg *config.Config, bog *blueocean.Client) (string, error) {
 	want := strings.TrimSpace(userID)
 	if cfg != nil {
 		want = blueocean.FormatUserIDForXAPI(want, cfg.BlueOceanUserIDNoHyphens)
 	}
+	if bog != nil && bog.Configured() && cfg != nil {
+		if err := blueocean.EnsurePlayerLink(ctx, pool, bog, cfg, userID); err != nil {
+			return "", err
+		}
+	}
 	var remote string
 	err := pool.QueryRow(ctx, `SELECT remote_player_id FROM blueocean_player_links WHERE user_id = $1::uuid`, userID).Scan(&remote)
 	if err == nil && remote != "" {
-		if remote != want {
-			if _, uerr := pool.Exec(ctx, `UPDATE blueocean_player_links SET remote_player_id = $2 WHERE user_id = $1::uuid`, userID, want); uerr != nil {
-				return "", uerr
-			}
-		}
-		return want, nil
+		return strings.TrimSpace(remote), nil
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err

@@ -69,9 +69,9 @@ type regReq struct {
 }
 
 type loginReq struct {
-	Email        string `json:"email"`
-	Password     string `json:"password"`
-	CaptchaToken string `json:"captcha_token"`
+	Email                string `json:"email"`
+	Password             string `json:"password"`
+	CaptchaToken         string `json:"captcha_token"`
 	FingerprintRequestID string `json:"fingerprint_request_id"`
 	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
 }
@@ -267,9 +267,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	if rt == "" && h.CookieCfg != nil && h.CookieCfg.PlayerCookieAuth {
 		rt = playercookies.RefreshFromCookie(r)
 	}
-	if err := h.Svc.Logout(r.Context(), rt); err != nil {
+	uid, err := h.Svc.Logout(r.Context(), rt)
+	if err != nil {
 		playerapi.WriteError(w, http.StatusUnauthorized, "invalid_token", "invalid refresh token")
 		return
+	}
+	if uid != "" {
+		h.Svc.notifyBlueOceanLogoutAsync(uid)
 	}
 	if h.CookieCfg != nil {
 		playercookies.ClearAuth(w, h.CookieCfg)

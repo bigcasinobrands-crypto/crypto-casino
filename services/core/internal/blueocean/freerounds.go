@@ -13,10 +13,10 @@ import (
 // AddFreeRoundsRequest is a server-to-server XAPI addFreeRounds call (form POST, method=addFreeRounds).
 // Field names follow the BOG integration test form: title, player id, game id, available rounds, optional validity window.
 type AddFreeRoundsRequest struct {
-	Title   string
-	UserID  string // remote player id (same as getGame `userid`)
-	GameID  int64  // Blue Ocean catalog id (getGame `gameid`)
-	Rounds  int
+	Title  string
+	UserID string // remote player id (same as getGame `userid`)
+	GameID int64  // Blue Ocean catalog id (getGame `gameid`)
+	Rounds int
 	// Optional; when nil, validfrom/validto are omitted (provider default window).
 	ValidFrom, ValidTo *string
 }
@@ -81,6 +81,79 @@ func (c *Client) AddFreeRounds(ctx context.Context, cfg *config.Config, req AddF
 		errMsg = FormatAPIError(raw, status)
 	}
 	return AddFreeRoundsResult{OK: ok, ProviderRef: ref, HTTPStatus: status, Raw: raw, ErrorMessage: errMsg}
+}
+
+// RemoveFreeRoundsRequest mirrors addFreeRounds for method removeFreeRounds (BO testing tool).
+type RemoveFreeRoundsRequest struct {
+	Title   string
+	UserID  string // remote player id
+	GameID  int64
+	Rounds  int    // rounds to remove / target; provider-defined
+	TitleID string // optional provider reference when removing by id
+	// Optional validity window if supported by the brand XAPI.
+	ValidFrom, ValidTo *string
+}
+
+// RemoveFreeRoundsResult is a best-effort parse of the JSON body.
+type RemoveFreeRoundsResult struct {
+	OK           bool
+	HTTPStatus   int
+	Raw          json.RawMessage
+	ErrorMessage string
+}
+
+// RemoveFreeRounds calls method removeFreeRounds.
+func (c *Client) RemoveFreeRounds(ctx context.Context, cfg *config.Config, req RemoveFreeRoundsRequest) RemoveFreeRoundsResult {
+	if !c.Configured() {
+		return RemoveFreeRoundsResult{ErrorMessage: "blueocean: client not configured"}
+	}
+	if req.UserID == "" || req.GameID <= 0 || req.Rounds <= 0 {
+		return RemoveFreeRoundsResult{ErrorMessage: "removeFreeRounds: user id, game id, rounds required"}
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = "Remove free rounds"
+	}
+	params := map[string]any{
+		"title":     title,
+		"userid":    req.UserID,
+		"gameid":    req.GameID,
+		"available": req.Rounds,
+	}
+	if cfg != nil {
+		if cur := strings.TrimSpace(cfg.BlueOceanCurrency); cur != "" {
+			params["currency"] = cur
+		}
+		if cfg.BlueOceanMulticurrency {
+			params["multicurrency"] = 1
+		}
+		if aid := strings.TrimSpace(cfg.BlueOceanAgentID); aid != "" {
+			if n, err := strconv.ParseInt(aid, 10, 64); err == nil && n > 0 {
+				params["agentid"] = n
+			} else {
+				params["associateid"] = aid
+			}
+		}
+	}
+	if req.ValidFrom != nil && *req.ValidFrom != "" {
+		params["validfrom"] = *req.ValidFrom
+	}
+	if req.ValidTo != nil && *req.ValidTo != "" {
+		params["validto"] = *req.ValidTo
+	}
+	if tid := strings.TrimSpace(req.TitleID); tid != "" {
+		params["title_id"] = tid
+	}
+	raw, status, err := c.Call(ctx, "removeFreeRounds", params)
+	if err != nil {
+		return RemoveFreeRoundsResult{ErrorMessage: err.Error(), HTTPStatus: status, Raw: raw}
+	}
+	ok := status >= 200 && status < 300 && addFreeRoundsResponseOK(raw)
+	var errMsg string
+	if !ok {
+		errMsg = FormatAPIError(raw, status)
+	}
+	return RemoveFreeRoundsResult{OK: ok, HTTPStatus: status, Raw: raw, ErrorMessage: errMsg}
 }
 
 // addFreeRoundsResponseOK interprets common BOG JSON: error == 0 or missing, optional nested response.

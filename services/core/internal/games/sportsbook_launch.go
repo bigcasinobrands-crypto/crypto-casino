@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/crypto-casino/core/internal/blueocean"
-	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playcheck"
+	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -203,7 +203,7 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg)
+		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return

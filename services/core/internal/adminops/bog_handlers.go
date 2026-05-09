@@ -52,7 +52,9 @@ func (h *Handler) BlueOceanStatus(w http.ResponseWriter, r *http.Request) {
 		FROM blueocean_integration_state WHERE id = 1
 	`).Scan(&lastSync, &errMsg, &n, &cur)
 	out := map[string]any{
-		"bog_configured": h.BOG != nil && h.BOG.Configured(),
+		"bog_configured":              h.BOG != nil && h.BOG.Configured(),
+		"blueocean_xapi_session_sync": h.cfg().BlueOceanXAPISessionSync,
+		"blueocean_xapi_methods":      blueocean.ListAllowedXAPIMethodNames(),
 	}
 	if lastSync != nil {
 		out["last_sync_at"] = lastSync.UTC().Format(time.RFC3339)
@@ -69,11 +71,57 @@ func (h *Handler) BlueOceanStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// BlueOceanXAPI proxies a whitelisted GameHub XAPI method (same surface as BO's REST testing form).
+// POST body: { "method": "getDailyReport", "params": { ... } }. Currency/agent defaults come from server config when omitted.
+func (h *Handler) BlueOceanXAPI(w http.ResponseWriter, r *http.Request) {
+	if h.BOG == nil || !h.BOG.Configured() {
+		adminapi.WriteError(w, http.StatusServiceUnavailable, "bog_unconfigured", "Blue Ocean client not configured")
+		return
+	}
+	var body struct {
+		Method string         `json:"method"`
+		Params map[string]any `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid body")
+		return
+	}
+	method := strings.TrimSpace(body.Method)
+	if method == "" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "method required")
+		return
+	}
+	if _, ok := blueocean.AllowedBOGXAPIMethods[method]; !ok {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_method", "method not allowed for proxy")
+		return
+	}
+	role, _ := adminapi.StaffRoleFromContext(r.Context())
+	if blueocean.BOGXAPIRequiresSuperadmin(method) && role != "superadmin" {
+		adminapi.WriteError(w, http.StatusForbidden, "forbidden", "this Blue Ocean method requires superadmin")
+		return
+	}
+	params := body.Params
+	if params == nil {
+		params = map[string]any{}
+	}
+	res := h.BOG.CallXAPIMethod(r.Context(), h.cfg(), method, params)
+	var data any
+	if len(res.Raw) > 0 {
+		_ = json.Unmarshal(res.Raw, &data)
+	}
+	writeJSON(w, map[string]any{
+		"ok":           res.OK,
+		"http_status":  res.HTTPStatus,
+		"data":         data,
+		"error_detail": res.ErrorMessage,
+	})
+}
+
 func (h *Handler) OperationalFlags(w http.ResponseWriter, r *http.Request) {
 	c := h.cfg()
 	writeJSON(w, map[string]any{
-		"maintenance_mode":    c.MaintenanceMode,
-		"disable_game_launch": c.DisableGameLaunch,
+		"maintenance_mode":      c.MaintenanceMode,
+		"disable_game_launch":   c.DisableGameLaunch,
 		"blueocean_launch_mode": c.BlueOceanLaunchMode,
 		// API process env; worker must use the same value in production for auto-forfeit to match operator expectations.
 		"bonus_max_bet_violations_auto_forfeit": c.BonusMaxBetViolationsAutoForfeit,
@@ -188,8 +236,8 @@ func (h *Handler) PatchGameHidden(w http.ResponseWriter, r *http.Request) {
 
 type patchThumbnailOverrideReq struct {
 	// ClearThumbnailOverride removes staff URL so catalog feed thumbnail shows again.
-	ClearThumbnailOverride bool `json:"clear_thumbnail_override"`
-	ThumbnailURLOverride     string `json:"thumbnail_url_override"`
+	ClearThumbnailOverride bool   `json:"clear_thumbnail_override"`
+	ThumbnailURLOverride   string `json:"thumbnail_url_override"`
 }
 
 func (h *Handler) PatchGameThumbnailOverride(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/jtiredis"
@@ -19,6 +20,7 @@ import (
 	"github.com/crypto-casino/core/internal/mail"
 	"github.com/crypto-casino/core/internal/passhash"
 	"github.com/crypto-casino/core/internal/pii"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -26,8 +28,10 @@ const refreshTTL = 7 * 24 * time.Hour
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrTermsNotAccepted = errors.New("terms not accepted")
+
 // ErrSessionPersist is returned when DB insert or token signing fails after the user is authenticated (e.g. missing player_sessions columns).
 var ErrSessionPersist = errors.New("session persist failed")
+
 // ErrSessionNotFound is returned when revoking a session that does not exist or belongs to another user.
 var ErrSessionNotFound = errors.New("session not found")
 
@@ -52,6 +56,8 @@ type Service struct {
 	// Fingerprint + app config for enriching player_sessions (optional).
 	Fingerprint *fingerprint.Client
 	Cfg         *config.Config
+	// BlueOcean optional; when configured, registers new players on the GameHub (createPlayer) after sign-up.
+	BlueOcean *blueocean.Client
 }
 
 func (s *Service) rejectIfPwnedPassword(ctx context.Context, password string) error {
@@ -143,6 +149,16 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 			_ = s.sendVerificationEmail(ctx, uid, em)
 		}(id, email)
 	}
+	if s.BlueOcean != nil && s.BlueOcean.Configured() && s.Cfg != nil {
+		uid := id
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			if err := blueocean.EnsurePlayerLink(ctx, s.Pool, s.BlueOcean, s.Cfg, uid); err != nil {
+				log.Printf("blueocean: ensure player after register user=%s: %v", uid, err)
+			}
+		}()
+	}
 	return accessToken, refreshToken, exp, nil
 }
 
@@ -176,7 +192,12 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string, s
 	if err := s.assertUserPlayAllowed(ctx, id); err != nil {
 		return "", "", 0, err
 	}
-	return s.issueSession(ctx, id, sc)
+	access, refresh, exp, err := s.issueSession(ctx, id, sc)
+	if err != nil {
+		return "", "", 0, err
+	}
+	s.notifyBlueOceanLoginAsync(id)
+	return access, refresh, exp, nil
 }
 
 func (s *Service) issueSession(ctx context.Context, userID string, sc *SessionContext) (access, refresh string, exp int64, err error) {
@@ -296,19 +317,21 @@ func bearerRawFromHeader(authHeader string) string {
 	return strings.TrimSpace(authHeader[len(p):])
 }
 
-func (s *Service) Logout(ctx context.Context, refreshPlain string) error {
+func (s *Service) Logout(ctx context.Context, refreshPlain string) (userID string, err error) {
 	refreshPlain = strings.TrimSpace(refreshPlain)
 	if refreshPlain == "" {
-		return ErrInvalidCredentials
+		return "", ErrInvalidCredentials
 	}
-	tag, err := s.Pool.Exec(ctx, `DELETE FROM player_sessions WHERE refresh_token_hash = $1`, hashRefresh(refreshPlain))
+	err = s.Pool.QueryRow(ctx, `
+		DELETE FROM player_sessions WHERE refresh_token_hash = $1 RETURNING user_id::text
+	`, hashRefresh(refreshPlain)).Scan(&userID)
 	if err != nil {
-		return err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrInvalidCredentials
+		}
+		return "", err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrInvalidCredentials
-	}
-	return nil
+	return userID, nil
 }
 
 // ListSessions returns non-expired refresh-token rows with device/geo metadata for the account owner UI and admin.
@@ -348,7 +371,7 @@ func (s *Service) ListSessions(ctx context.Context, userID string) ([]map[string
 			"device_type":             dev,
 			"fingerprint_visitor_id":  fvid,
 			"geo_source":              gsrc,
-			"has_fingerprint_request":   hasFP,
+			"has_fingerprint_request": hasFP,
 		}
 		out = append(out, m)
 	}
@@ -436,6 +459,53 @@ func (s *Service) sessionFields(ctx context.Context, sc *SessionContext) (
 		}
 	}
 	return clientIP, userAgent, fpVid, fpRid, country, region, city, device, geoSource
+}
+
+func (s *Service) notifyBlueOceanLoginAsync(userID string) {
+	if s == nil || s.BlueOcean == nil || !s.BlueOcean.Configured() || s.Cfg == nil || !s.Cfg.BlueOceanXAPISessionSync {
+		return
+	}
+	uid := strings.TrimSpace(userID)
+	if uid == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		if err := blueocean.EnsurePlayerLink(ctx, s.Pool, s.BlueOcean, s.Cfg, uid); err != nil {
+			log.Printf("blueocean: ensure player at login user=%s: %v", uid, err)
+		}
+		remote, err := blueocean.RemotePlayerIDFromDB(ctx, s.Pool, uid)
+		if err != nil || remote == "" {
+			return
+		}
+		res := s.BlueOcean.LoginPlayer(ctx, s.Cfg, remote, nil)
+		if !res.OK {
+			log.Printf("blueocean: loginPlayer failed user=%s: %s", uid, res.ErrorMessage)
+		}
+	}()
+}
+
+func (s *Service) notifyBlueOceanLogoutAsync(userID string) {
+	if s == nil || s.BlueOcean == nil || !s.BlueOcean.Configured() || s.Cfg == nil || !s.Cfg.BlueOceanXAPISessionSync {
+		return
+	}
+	uid := strings.TrimSpace(userID)
+	if uid == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		remote, err := blueocean.RemotePlayerIDFromDB(ctx, s.Pool, uid)
+		if err != nil || remote == "" {
+			return
+		}
+		res := s.BlueOcean.LogoutPlayer(ctx, s.Cfg, remote)
+		if !res.OK {
+			log.Printf("blueocean: logoutPlayer failed user=%s: %s", uid, res.ErrorMessage)
+		}
+	}()
 }
 
 func newRefreshToken() (plain string, hashHex string, err error) {

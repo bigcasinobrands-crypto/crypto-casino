@@ -38,12 +38,18 @@ func TestLoad_omitJSONTokensAllowedWithCookieAuth(t *testing.T) {
 }
 
 func TestValidateProduction_requiresRSAOrEscape(t *testing.T) {
+	t.Setenv("WEBHOOK_BLUEOCEAN_SECRET", strings.Repeat("w", 32))
+	boSalt := strings.Repeat("s", 16)
 	c := &Config{
 		AppEnv:                    "production",
 		JWTSecret:                 strings.Repeat("y", 32),
 		RedisURL:                  "redis://localhost:6379",
 		JWTRSAKeyFile:             "",
 		AllowJWTHS256InProduction: false,
+		BlueOceanWalletSalt:       boSalt,
+		JWTPlayerAudience:         "players",
+		JWTStaffAudience:          "staff",
+		WalletAddressKEK:          strings.Repeat("a", 64),
 	}
 	if err := c.ValidateProduction(); err == nil {
 		t.Fatal("expected error without JWTRSAKeyFile")
@@ -196,16 +202,22 @@ func TestLoad_blueOceanUserIDNoHyphens(t *testing.T) {
 }
 
 func TestValidateProduction_passimpayRequiresCredentials(t *testing.T) {
+	t.Setenv("WEBHOOK_BLUEOCEAN_SECRET", strings.Repeat("w", 32))
 	base := &Config{
-		AppEnv:        "production",
-		JWTSecret:     strings.Repeat("y", 32),
-		RedisURL:      "redis://localhost:6379",
-		JWTRSAKeyFile: "/path/to/key.pem",
-		PaymentProvider: "passimpay",
+		AppEnv:              "production",
+		JWTSecret:           strings.Repeat("y", 32),
+		RedisURL:            "redis://localhost:6379",
+		JWTRSAKeyFile:       "/path/to/key.pem",
+		BlueOceanWalletSalt: strings.Repeat("s", 16),
+		JWTPlayerAudience:   "players",
+		JWTStaffAudience:    "staff",
+		WalletAddressKEK:    strings.Repeat("a", 64),
+		PaymentProvider:     "passimpay",
 		// PassimPay not configured
 		PassimpayPlatformID: 0,
 		PassimpaySecretKey:  "",
 		PassimpayAPIBaseURL: "https://api.passimpay.io",
+		PassimpayFailClosed: true,
 	}
 	if err := base.ValidateProduction(); err == nil {
 		t.Fatal("expected error when passimpay selected but not configured")
@@ -218,12 +230,17 @@ func TestValidateProduction_passimpayRequiresCredentials(t *testing.T) {
 }
 
 func TestValidateProduction_paymentProviderNoneSkipsPassimpay(t *testing.T) {
+	t.Setenv("WEBHOOK_BLUEOCEAN_SECRET", strings.Repeat("w", 32))
 	c := &Config{
-		AppEnv:            "production",
-		JWTSecret:         strings.Repeat("y", 32),
-		RedisURL:          "redis://localhost:6379",
-		JWTRSAKeyFile:     "/path/to/key.pem",
-		PaymentProvider:   "none",
+		AppEnv:              "production",
+		JWTSecret:           strings.Repeat("y", 32),
+		RedisURL:            "redis://localhost:6379",
+		JWTRSAKeyFile:       "/path/to/key.pem",
+		BlueOceanWalletSalt: strings.Repeat("s", 16),
+		JWTPlayerAudience:   "players",
+		JWTStaffAudience:    "staff",
+		WalletAddressKEK:    strings.Repeat("a", 64),
+		PaymentProvider:     "none",
 		PassimpayPlatformID: 0,
 		PassimpaySecretKey:  "",
 		PassimpayAPIBaseURL: "https://api.passimpay.io",
@@ -234,13 +251,18 @@ func TestValidateProduction_paymentProviderNoneSkipsPassimpay(t *testing.T) {
 }
 
 func TestValidateProduction_requiresFingerprintSecretWhenMandatory(t *testing.T) {
+	t.Setenv("WEBHOOK_BLUEOCEAN_SECRET", strings.Repeat("w", 32))
 	c := &Config{
 		AppEnv:                       "production",
 		JWTSecret:                    strings.Repeat("y", 32),
 		RedisURL:                     "redis://localhost:6379",
 		JWTRSAKeyFile:                "/path/to/key.pem",
+		BlueOceanWalletSalt:          strings.Repeat("s", 16),
+		JWTPlayerAudience:            "players",
+		JWTStaffAudience:             "staff",
+		WalletAddressKEK:             strings.Repeat("a", 64),
 		RequireFingerprintPlayerAuth: true,
-		FingerprintSecretAPIKey:       "",
+		FingerprintSecretAPIKey:      "",
 	}
 	if err := c.ValidateProduction(); err == nil {
 		t.Fatal("expected error when mandatory fingerprint lacks FINGERPRINT_SECRET_API_KEY")

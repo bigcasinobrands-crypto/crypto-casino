@@ -11,11 +11,11 @@ import (
 )
 
 type Config struct {
-	AppEnv            string
-	DatabaseURL       string
-	Port              string
-	JWTSecret         string
-	PlayerJWTSecret   string
+	AppEnv          string
+	DatabaseURL     string
+	Port            string
+	JWTSecret       string
+	PlayerJWTSecret string
 	// JWTRSAKeyFile — optional PEM path for RS256 + JWKS; when unset, HS256 only.
 	JWTRSAKeyFile     string
 	JWTIssuer         string
@@ -27,7 +27,7 @@ type Config struct {
 	// Player auth baseline
 	PublicPlayerURL string
 	// APIPublicBase — optional public origin for this API (no trailing slash). Used for absolute URLs (bonus uploads, docs).
-	APIPublicBase string
+	APIPublicBase   string
 	TurnstileSecret string
 	SMTPHost        string
 	SMTPPort        string
@@ -37,20 +37,20 @@ type Config struct {
 	TermsVersion    string
 	PrivacyVersion  string
 	// Blue Ocean Gaming XAPI (server-to-server)
-	BlueOceanAPIBaseURL       string
-	BlueOceanAPILogin         string
-	BlueOceanAPIPassword      string
-	BlueOceanAgentID          string
-	BlueOceanCurrency         string
-	BlueOceanMulticurrency    bool
-	BlueOceanLaunchMode       string // "demo" | "real"
+	BlueOceanAPIBaseURL    string
+	BlueOceanAPILogin      string
+	BlueOceanAPIPassword   string
+	BlueOceanAgentID       string
+	BlueOceanCurrency      string
+	BlueOceanMulticurrency bool
+	BlueOceanLaunchMode    string // "demo" | "real"
 	// BlueOceanUserIDNoHyphens — when true, UUID-shaped remote player ids are sent to XAPI without hyphens (some BO sandboxes reject dashed UUIDs).
 	BlueOceanUserIDNoHyphens bool
-	BlueOceanWalletSalt       string // seamless GET callback key=sha1(salt+query)
+	BlueOceanWalletSalt      string // seamless GET callback key=sha1(salt+query)
 	// BlueOceanWalletFloatAmountIsMajorUnits: seamless wallet sends amount/bet/win as decimal major units (e.g. 0.25); multiply by 100 to minor. Integer params are still interpreted as minor units.
 	BlueOceanWalletFloatAmountIsMajorUnits bool
-	BlueOceanFeaturedIDHashes []string
-	BlueOceanLobbyTagsJSON    string // optional JSON map pill_id -> [id_hash]
+	BlueOceanFeaturedIDHashes              []string
+	BlueOceanLobbyTagsJSON                 string // optional JSON map pill_id -> [id_hash]
 	// Catalog sync: getGameList often returns one page only; use paging to load full staging catalogs.
 	BlueOceanCatalogPageSize    int    // 0 = single request (no limit/offset params); default 500
 	BlueOceanCatalogPagingStyle string // offset | page | from — query param shape for paging
@@ -64,6 +64,10 @@ type Config struct {
 	BlueOceanSportsbookCatalogGameID   string // optional internal games.id for the main sportsbook tile
 	BlueOceanSportsbookXAPIMethod      string // optional: non-empty → Call(method, params) instead of getGame/getGameDemo
 	BlueOceanSportsbookXAPIExtraParams map[string]any
+	// BlueOceanCreatePlayerExtraParams — optional JSON (BLUEOCEAN_CREATE_PLAYER_EXTRA_JSON) merged into every createPlayer call after currency/agent; per-request extras win.
+	BlueOceanCreatePlayerExtraParams map[string]any
+	// BlueOceanXAPISessionSync — when true (default), player login/logout calls BO loginPlayer/logoutPlayer. Set false if BO discourages frequent session pings.
+	BlueOceanXAPISessionSync bool
 	// Operations
 	MaintenanceMode       bool
 	DisableGameLaunch     bool
@@ -92,16 +96,16 @@ type Config struct {
 	// Logo.dev secret (Bearer) for search/describe APIs only — never expose to clients; optional until you use those APIs.
 	LogoDevSecretKey string
 	// PAYMENT_PROVIDER: empty defaults to passimpay in Load(); use none to disable PassimPay (wallet returns 503 for passimpay routes until configured).
-	PaymentProvider  string
-	PassimpayEnabled bool
-	PassimpayAPIBaseURL    string // default https://api.passimpay.io
-	PassimpayPlatformID    int
-	PassimpaySecretKey     string // outbound API signing (never expose to clients)
-	PassimpayWebhookSecret string // verifies inbound webhook x-signature (often same as API key — set explicitly)
-	PassimpayCallbackPublicBase string // public API origin PassimPay will call back (staff configures exact URL in dashboard)
-	PassimpayDepositMethod      string // h2h | invoice (invoice link path not wired yet — use h2h)
+	PaymentProvider               string
+	PassimpayEnabled              bool
+	PassimpayAPIBaseURL           string // default https://api.passimpay.io
+	PassimpayPlatformID           int
+	PassimpaySecretKey            string // outbound API signing (never expose to clients)
+	PassimpayWebhookSecret        string // verifies inbound webhook x-signature (often same as API key — set explicitly)
+	PassimpayCallbackPublicBase   string // public API origin PassimPay will call back (staff configures exact URL in dashboard)
+	PassimpayDepositMethod        string // h2h | invoice (invoice link path not wired yet — use h2h)
 	PassimpayDefaultInvoiceExpiry int    // minutes; placeholder until invoice endpoints are added
-	PassimpayWithdrawalsEnabled bool
+	PassimpayWithdrawalsEnabled   bool
 	PassimpayRequestTimeoutMs     int
 	PassimpayFailClosed           bool // when true (default prod), webhook without valid signature rejects
 
@@ -187,7 +191,7 @@ type Config struct {
 	// OddinDefaultCountry — ISO 3166-1 alpha-2 (e.g. GB, MT) used when traffic_sessions has no
 	// country and as Oddin iframe fallback; avoids hard-coding US for brands that block it.
 	OddinDefaultCountry string
-	OddinDarkMode        bool
+	OddinDarkMode       bool
 }
 
 // DepositAssetCanonicalKeys are standard symbol_network combinations surfaced in admin UI (aligned with payment_currencies.symbol/network).
@@ -298,6 +302,17 @@ func Load() (Config, error) {
 		if err := json.Unmarshal([]byte(raw), &m); err == nil && len(m) > 0 {
 			c.BlueOceanSportsbookXAPIExtraParams = m
 		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("BLUEOCEAN_CREATE_PLAYER_EXTRA_JSON")); raw != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err == nil && len(m) > 0 {
+			c.BlueOceanCreatePlayerExtraParams = m
+		}
+	}
+	if strings.TrimSpace(os.Getenv("BLUEOCEAN_XAPI_SESSION_SYNC")) == "" {
+		c.BlueOceanXAPISessionSync = true
+	} else {
+		c.BlueOceanXAPISessionSync = parseBoolEnv(os.Getenv("BLUEOCEAN_XAPI_SESSION_SYNC"))
 	}
 	c.BlueOceanBonusSyncEnabled = parseBoolEnv(os.Getenv("BLUEOCEAN_BONUS_SYNC_ENABLED"))
 	c.MaintenanceMode = parseBoolEnv(os.Getenv("MAINTENANCE_MODE"))
@@ -739,4 +754,3 @@ func (c *Config) OddinOperatorIPAllowed(ip string) bool {
 	}
 	return false
 }
-

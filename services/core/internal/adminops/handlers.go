@@ -62,6 +62,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/integrations/payments/deposit-intents", h.ListPaymentDepositIntents)
 	r.Get("/integrations/payments/withdrawals", h.ListPaymentWithdrawals)
 	r.Post("/integrations/blueocean/sync-catalog", h.SyncBlueOceanCatalog)
+	r.Post("/integrations/blueocean/xapi", h.BlueOceanXAPI)
 	r.Get("/integrations/blueocean/status", h.BlueOceanStatus)
 	r.Get("/system/operational-flags", h.OperationalFlags)
 	r.Get("/ops/risk-assessments", h.ListRiskAssessments)
