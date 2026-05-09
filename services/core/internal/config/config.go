@@ -61,6 +61,8 @@ type Config struct {
 	BlueOceanWalletAllowNegativeBalance bool
 	// BlueOceanWalletLedgerTxnUsesRound — when true, seamless wallet ledger idempotency keys append "::" + round_id whenever round_id is present. Use when the provider reuses transaction_id across parallel bets (Evolution/easy live). Rollbacks must include the same round_id.
 	BlueOceanWalletLedgerTxnUsesRound bool
+	// BlueOceanWalletSkipBonusBetGuards — when true, seamless wallet omits active-bonus max-bet and excluded-game checks. Use only for operator certification sandboxes; production should keep this false so promo rules still apply.
+	BlueOceanWalletSkipBonusBetGuards bool
 	BlueOceanFeaturedIDHashes              []string
 	BlueOceanLobbyTagsJSON                 string // optional JSON map pill_id -> [id_hash]
 	// Catalog sync: getGameList often returns one page only; use paging to load full staging catalogs.
@@ -292,6 +294,7 @@ func Load() (Config, error) {
 	}
 	c.BlueOceanWalletAllowNegativeBalance = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE"))
 	c.BlueOceanWalletLedgerTxnUsesRound = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_LEDGER_TXN_USES_ROUND"))
+	c.BlueOceanWalletSkipBonusBetGuards = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_SKIP_BONUS_BET_GUARDS"))
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {
 		for _, p := range strings.Split(s, ",") {
 			p = strings.TrimSpace(p)
