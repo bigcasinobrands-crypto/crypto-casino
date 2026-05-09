@@ -3,6 +3,7 @@ package adminops
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/crypto-casino/core/internal/adminapi"
 	"github.com/crypto-casino/core/internal/affiliate"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // GET /v1/admin/referrals/tiers
@@ -24,6 +26,12 @@ func (h *Handler) listReferralProgramTiers(w http.ResponseWriter, r *http.Reques
 		ORDER BY sort_order ASC, id ASC
 	`)
 	if err != nil {
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "42P01" {
+			adminapi.WriteError(w, http.StatusServiceUnavailable, "schema_missing",
+				"Table referral_program_tiers is missing. Apply core migration 00078_referral_program_tiers.sql (goose up), then retry.")
+			return
+		}
 		adminapi.WriteError(w, http.StatusInternalServerError, "server_error", "query failed")
 		return
 	}

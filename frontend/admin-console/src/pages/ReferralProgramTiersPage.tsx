@@ -65,7 +65,18 @@ export default function ReferralProgramTiersPage() {
     try {
       const res = await apiFetch('/v1/admin/referrals/tiers')
       if (!res.ok) {
-        setErr(`HTTP ${res.status}`)
+        let detail = `HTTP ${res.status}`
+        try {
+          const j = (await res.json()) as { error?: { code?: string; message?: string } }
+          const msg = j?.error?.message?.trim()
+          if (msg) detail = `${detail}: ${msg}`
+        } catch {
+          if (res.status === 502 || res.status === 503) {
+            detail =
+              `${detail} — API may be down, restarting, or behind a bad gateway. If this page is new, apply DB migration 00078 (referral_program_tiers) and redeploy the core API.`
+          }
+        }
+        setErr(detail)
         setTiers([])
         return
       }
