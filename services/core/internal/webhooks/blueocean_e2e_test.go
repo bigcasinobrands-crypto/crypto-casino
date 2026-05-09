@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/bonuse2e"
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -124,5 +126,68 @@ func TestE2EBlueOceanDuplicateDebitIdempotent(t *testing.T) {
 	}
 	if b1.Balance != b2.Balance {
 		t.Fatalf("duplicate debit changed balance: first=%v second=%v", b1.Balance, b2.Balance)
+	}
+}
+
+// TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured matches BO GH1-style sandboxes that expect
+// an empty wallet to accept a debit and report a negative balance when this opt-in is enabled.
+func TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-neg-" + uid + "@e2e.local"
+	_, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+
+	rid := "bo-neg-" + strings.ReplaceAll(uid, "-", "")
+	_, err = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	salt := "e2e-neg-salt"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletAllowNegativeBalance:      true,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+
+	q := boSignGET(salt, map[string]string{
+		"action":         "debit",
+		"amount":         "5",
+		"remote_id":      rid,
+		"transaction_id": "tx-neg-1",
+		"game_id":        "181796",
+		"currency":       "EUR",
+	})
+	req := httptest.NewRequest("GET", "/?"+q, nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != "200" || out.Balance != "-5" {
+		t.Fatalf("got status=%q balance=%q body=%s", out.Status, out.Balance, w.Body.String())
 	}
 }
