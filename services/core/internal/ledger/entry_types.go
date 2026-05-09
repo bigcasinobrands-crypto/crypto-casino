@@ -64,6 +64,10 @@ const (
 
 	// Provider fees (debit on house user)
 	EntryTypeProviderFee = "provider.fee"
+
+	// EntryTypeAdminPlayCredit — superadmin manual credit to cash for real-money
+	// seamless wallet play (e.g. Blue Ocean) without a bonus instance / WR rules.
+	EntryTypeAdminPlayCredit = "admin.play_credit"
 )
 
 // CasinoStakeEntryTypes returns entry types that count as casino stakes.

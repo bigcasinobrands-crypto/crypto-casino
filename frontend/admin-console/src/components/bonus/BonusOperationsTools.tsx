@@ -53,6 +53,7 @@ type PendingGrantConfirm = {
   grantAmountMinor: number
   currency: string
   allowWithdrawable: boolean
+  creditTarget: 'bonus_locked' | 'cash'
   existing: BonusInstance[]
 }
 
@@ -153,6 +154,8 @@ export default function BonusOperationsTools() {
   const [mgAmount, setMgAmount] = useState('')
   const [mgCurrency, setMgCurrency] = useState('USDT')
   const [mgAllowWithdrawable, setMgAllowWithdrawable] = useState(false)
+  /** Cash / seamless wallet (Blue Ocean real play, no promo bet rules). Default matches legacy bonus_locked grants. */
+  const [mgCreditTarget, setMgCreditTarget] = useState<'bonus_locked' | 'cash'>('bonus_locked')
   const [mgBusy, setMgBusy] = useState(false)
   const [mgResult, setMgResult] = useState<unknown>(null)
   const [mgErr, setMgErr] = useState<string | null>(null)
@@ -299,6 +302,7 @@ export default function BonusOperationsTools() {
     grantAmountMinor: number
     currency: string
     allowWithdrawable: boolean
+    creditTarget: 'bonus_locked' | 'cash'
   }) => {
     setMgErr(null)
     setMgResult(null)
@@ -313,6 +317,7 @@ export default function BonusOperationsTools() {
           grant_amount_minor: payload.grantAmountMinor,
           currency: payload.currency,
           allow_withdrawable: payload.allowWithdrawable,
+          credit_target: payload.creditTarget,
         }),
       })
       let j: unknown = null
@@ -340,40 +345,49 @@ export default function BonusOperationsTools() {
     const amt = Number.parseInt(mgAmount, 10)
     const uid = mgUserId.trim()
     const ccy = mgCurrency.trim() || 'USDT'
-    if (!uid || Number.isNaN(pvid) || pvid <= 0 || Number.isNaN(amt) || amt <= 0) {
-      setMgErr('user_id, promotion_version_id, and positive grant_amount_minor are required')
+    const isCash = mgCreditTarget === 'cash'
+    if (!uid || Number.isNaN(amt) || amt <= 0) {
+      setMgErr('user_id and positive grant_amount_minor are required')
+      return
+    }
+    if (!isCash && (Number.isNaN(pvid) || pvid <= 0)) {
+      setMgErr('promotion_version_id is required for bonus wallet grants')
       return
     }
 
-    // Safety pre-check: warn before issuing a likely duplicate grant.
-    try {
-      const q = new URLSearchParams({ user_id: uid, limit: '200' })
-      const res = await apiFetch(`/v1/admin/bonushub/instances?${q.toString()}`)
-      if (res.ok) {
-        const j = (await res.json()) as { instances?: BonusInstance[] }
-        const existing = (j.instances ?? []).filter((x) => x.promotion_version_id === pvid)
-        if (existing.length > 0) {
-          setPendingGrantConfirm({
-            userId: uid,
-            promotionVersionId: pvid,
-            grantAmountMinor: amt,
-            currency: ccy,
-            allowWithdrawable: mgAllowWithdrawable,
-            existing,
-          })
-          return
+    // Safety pre-check: warn before issuing a likely duplicate grant (bonus path only).
+    if (!isCash) {
+      try {
+        const q = new URLSearchParams({ user_id: uid, limit: '200' })
+        const res = await apiFetch(`/v1/admin/bonushub/instances?${q.toString()}`)
+        if (res.ok) {
+          const j = (await res.json()) as { instances?: BonusInstance[] }
+          const existing = (j.instances ?? []).filter((x) => x.promotion_version_id === pvid)
+          if (existing.length > 0) {
+            setPendingGrantConfirm({
+              userId: uid,
+              promotionVersionId: pvid,
+              grantAmountMinor: amt,
+              currency: ccy,
+              allowWithdrawable: mgAllowWithdrawable,
+              creditTarget: 'bonus_locked',
+              existing,
+            })
+            return
+          }
         }
+      } catch {
+        // Fail open to avoid blocking urgent manual remediation due to lookup error.
       }
-    } catch {
-      // Fail open to avoid blocking urgent manual remediation due to lookup error.
     }
 
     await performManualGrant({
       userId: uid,
-      promotionVersionId: pvid,
+      promotionVersionId: isCash ? 0 : pvid,
       grantAmountMinor: amt,
       currency: ccy,
       allowWithdrawable: mgAllowWithdrawable,
+      creditTarget: isCash ? 'cash' : 'bonus_locked',
     })
   }
 
@@ -723,6 +737,41 @@ export default function BonusOperationsTools() {
           {!isSuper ? <p className="mb-3 small text-warning">Superadmin only.</p> : null}
           {mgErr ? <p className="mb-3 text-sm text-danger">{mgErr}</p> : null}
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className={labelCls}>Credit target</label>
+              <div className="d-flex flex-wrap gap-3">
+                <div className="form-check">
+                  <input
+                    id="mg-ct-bonus"
+                    className="form-check-input"
+                    type="radio"
+                    checked={mgCreditTarget === 'bonus_locked'}
+                    onChange={() => setMgCreditTarget('bonus_locked')}
+                  />
+                  <label className="form-check-label small" htmlFor="mg-ct-bonus">
+                    Bonus wallet (promotion + WR; max bet / excluded games apply)
+                  </label>
+                </div>
+                <div className="form-check">
+                  <input
+                    id="mg-ct-cash"
+                    className="form-check-input"
+                    type="radio"
+                    checked={mgCreditTarget === 'cash'}
+                    onChange={() => setMgCreditTarget('cash')}
+                  />
+                  <label className="form-check-label small" htmlFor="mg-ct-cash">
+                    Cash / seamless wallet (Blue Ocean real play — no promo bet guards)
+                  </label>
+                </div>
+              </div>
+              {mgCreditTarget === 'cash' ? (
+                <p className="small text-secondary mt-2 mb-0">
+                  Match <strong>currency</strong> to your seamless wallet (<code>BLUEOCEAN_CURRENCY</code> / multicurrency),
+                  or the balance may not appear in-game.
+                </p>
+              ) : null}
+            </div>
             <div>
               <label className={labelCls}>Player (UUID / email / username)</label>
               <input
@@ -777,8 +826,8 @@ export default function BonusOperationsTools() {
               ) : null}
               <p className="small text-secondary mt-1 mb-0">Selected player UUID: {mgUserId || '—'}</p>
             </div>
-            <div>
-              <label className={labelCls}>Bonus to re-grant</label>
+            <div className={mgCreditTarget === 'cash' ? 'opacity-50 user-select-none' : ''} style={mgCreditTarget === 'cash' ? { pointerEvents: 'none' } : undefined}>
+              <label className={labelCls}>Bonus to re-grant {mgCreditTarget === 'cash' ? <span className="text-secondary">(bonus path only)</span> : null}</label>
               <input
                 className={`${inputCls} mb-2`}
                 value={mgPromotionQuery}
@@ -820,14 +869,27 @@ export default function BonusOperationsTools() {
               <p className="small text-secondary mt-1 mb-0">Selected promotion version: {mgPvid || '—'}</p>
             </div>
             <div>
-              <label className={labelCls}>Bonus amount (minor units · play-only)</label>
+              <label className={labelCls}>
+                {mgCreditTarget === 'cash' ? 'Amount (minor units · cash / seamless)' : 'Bonus amount (minor units · play-only)'}
+              </label>
               <input type="number" className={inputCls} value={mgAmount} onChange={(e) => setMgAmount(e.target.value)} />
               <p className="small text-secondary mt-1 mb-0">
-                Funded from the <strong>casino bonus wallet</strong> and credited to <strong>bonus_locked</strong> only
-                (play-only, non-withdrawable as direct cash).
+                {mgCreditTarget === 'cash' ? (
+                  <>
+                    Credited to <strong>cash</strong>. Blue Ocean debits this first (real-money seamless path), same idea as
+                    operator-funded test balance.
+                  </>
+                ) : (
+                  <>
+                    Funded from the <strong>casino bonus wallet</strong> and credited to <strong>bonus_locked</strong> only
+                    (play-only, non-withdrawable as direct cash).
+                  </>
+                )}
               </p>
               <p className="small text-secondary mt-1 mb-0">
-                Release/withdraw eligibility is controlled by the promotion&apos;s wagering rules and terms.
+                {mgCreditTarget === 'cash'
+                  ? 'Withdraw / compliance follows normal cash wallet rules in your environment.'
+                  : 'Release/withdraw eligibility is controlled by the promotion&apos;s wagering rules and terms.'}
               </p>
               <div className="form-check mt-2">
                 <input
@@ -993,6 +1055,7 @@ export default function BonusOperationsTools() {
                       grantAmountMinor: pendingGrantConfirm.grantAmountMinor,
                       currency: pendingGrantConfirm.currency,
                       allowWithdrawable: pendingGrantConfirm.allowWithdrawable,
+                      creditTarget: pendingGrantConfirm.creditTarget,
                     })
                     setPendingGrantConfirm(null)
                   }}

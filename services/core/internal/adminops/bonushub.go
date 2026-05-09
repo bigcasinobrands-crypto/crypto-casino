@@ -995,6 +995,9 @@ type manualGrantReq struct {
 	PromotionVersionID int64  `json:"promotion_version_id"`
 	GrantAmountMinor   int64  `json:"grant_amount_minor"`
 	Currency           string `json:"currency"`
+	// CreditTarget: "bonus_locked" (default) — promo instance + bonus pocket;
+	// "cash" — ledger cash only (Blue Ocean seamless / real play, no WR or promo bet guards).
+	CreditTarget string `json:"credit_target"`
 	AllowWithdrawable  bool   `json:"allow_withdrawable"`
 	// IdempotencyKey is OPTIONAL but strongly preferred. Front-end should
 	// generate a UUID once when the grant modal opens and resend the same
@@ -1013,21 +1016,76 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body manualGrantReq
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.UserID) == "" || body.PromotionVersionID <= 0 {
-		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "user_id, promotion_version_id required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.UserID) == "" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "user_id required")
 		return
 	}
 	ccy := strings.TrimSpace(body.Currency)
 	if ccy == "" {
 		ccy = "USDT"
 	}
+	ccy = strings.ToUpper(ccy)
 	ctx := r.Context()
 	uid := strings.TrimSpace(body.UserID)
+	creditTarget := strings.ToLower(strings.TrimSpace(body.CreditTarget))
+	if creditTarget == "" {
+		creditTarget = "bonus_locked"
+	}
+	if creditTarget != "bonus_locked" && creditTarget != "cash" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "credit_target must be bonus_locked or cash")
+		return
+	}
+	cashAmountGrant := body.GrantAmountMinor > 0 && creditTarget == "cash"
+	if !cashAmountGrant && body.PromotionVersionID <= 0 {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "promotion_version_id required")
+		return
+	}
 	withdrawOverride := "block_withdraw"
 	if body.AllowWithdrawable {
 		withdrawOverride = ""
 	}
-	// Cash grant path
+	// Seamless / cash wallet path (no bonus instance — matches provider test-style real balance for BO).
+	if body.GrantAmountMinor > 0 && creditTarget == "cash" {
+		idem := manualCashPlayCreditIdempotencyKey(body.IdempotencyKey, staffID, uid, body.GrantAmountMinor)
+		meta := map[string]any{
+			"staff_user_id":    staffID,
+			"credit_target":    "cash",
+			"entry_type":       ledger.EntryTypeAdminPlayCredit,
+			"allow_withdrawable": body.AllowWithdrawable,
+		}
+		inserted, err := ledger.ApplyCredit(ctx, h.Pool, uid, ccy, ledger.EntryTypeAdminPlayCredit, idem, body.GrantAmountMinor, meta)
+		if err != nil {
+			adminapi.WriteError(w, http.StatusBadRequest, "grant_failed", err.Error())
+			return
+		}
+		auditMeta := map[string]any{
+			"user_id":              body.UserID,
+			"promotion_version_id": body.PromotionVersionID,
+			"grant_amount_minor":   body.GrantAmountMinor,
+			"currency":             ccy,
+			"credit_target":        "cash",
+			"funding_source":       "admin_play_credit",
+			"credit_pocket":        "cash",
+			"withdrawable":         body.AllowWithdrawable,
+			"allow_withdrawable":   body.AllowWithdrawable,
+			"seamless_note":        "Spendable in Blue Ocean real mode like operator test balance; use currency aligned with BLUEOCEAN_CURRENCY / multicurrency settings.",
+		}
+		metaJSON, _ := json.Marshal(auditMeta)
+		h.auditExec(ctx, "bonushub.manual_grant", `
+			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
+			VALUES ($1::uuid, 'bonushub.manual_grant', 'ledger_entries', $2::jsonb)
+		`, staffID, metaJSON)
+		writeJSON(w, map[string]any{
+			"inserted":       inserted,
+			"mode":           "seamless_cash",
+			"pocket":         "cash",
+			"withdrawable":   body.AllowWithdrawable,
+			"funding_source": "admin_play_credit",
+			"terms_note":     "No bonus instance; bets are not limited by active promotion max bet or game exclusions.",
+		})
+		return
+	}
+	// Bonus (promo) grant path
 	if body.GrantAmountMinor > 0 {
 		idem := manualGrantIdempotencyKey(body.IdempotencyKey, staffID, body.PromotionVersionID, uid)
 		inserted, err := bonus.GrantFromPromotionVersion(ctx, h.Pool, bonus.GrantArgs{
@@ -1279,6 +1337,15 @@ func (h *Handler) bonusHubResolveRiskReview(w http.ResponseWriter, r *http.Reque
 func isPGUniqueViolation(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && pe.Code == "23505"
+}
+
+// manualCashPlayCreditIdempotencyKey idempotency for admin cash / seamless credits.
+// Client UUID strongly preferred so two intentional grants of the same amount do not dedupe.
+func manualCashPlayCreditIdempotencyKey(clientKey, staffID, userID string, amountMinor int64) string {
+	if k := strings.TrimSpace(clientKey); k != "" {
+		return "admin:play:credit:client:" + k
+	}
+	return fmt.Sprintf("admin:play:credit:%s:%s:%d", staffID, userID, amountMinor)
 }
 
 // manualGrantIdempotencyKey resolves the idempotency key for a manual admin

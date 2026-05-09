@@ -120,6 +120,7 @@ function classifyDisplayType(entryType: string, amountMinor: number): TxDisplayT
   if (entryType === 'promo.daily_hunt_cash') return 'bonus'
   if (entryType === 'vip.level_up_cash') return 'bonus'
   if (entryType === 'challenge.prize') return 'received'
+  if (entryType === 'admin.play_credit') return 'received'
   if (entryType === 'promo.convert' && amountMinor > 0) return 'bonus_release'
   if (entryType === 'promo.convert' && amountMinor < 0) return 'sent'
   if (entryType.startsWith('promo')) return 'bonus'
@@ -164,6 +165,8 @@ function transactionTypeLabel(entryType: string, amountMinor: number, tx: Transa
       return t('tx.vipLevelUpCash')
     case 'promo.grant':
       return t('tx.bonusCredited')
+    case 'admin.play_credit':
+      return t('tx.adminPlayCredit')
     case 'promo.forfeit':
       return t('tx.bonusForfeited')
     case 'promo.expire':
