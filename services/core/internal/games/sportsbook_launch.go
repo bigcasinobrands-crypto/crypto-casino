@@ -203,7 +203,7 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
+		remote, boLogin, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -219,6 +219,9 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 				"currency":   "EUR",
 				"userid":     rUser,
 				"playforfun": mode != "real",
+			}
+			if lu := strings.TrimSpace(boLogin); lu != "" {
+				params["user_username"] = lu
 			}
 			if s.Cfg != nil {
 				if c := strings.TrimSpace(s.Cfg.BlueOceanCurrency); c != "" {
@@ -268,7 +271,7 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		launchURL, err := s.blueOceanLaunchFromBogID(r.Context(), remote, res.BogID, mode, res.PlayForFun)
+		launchURL, err := s.blueOceanLaunchFromBogID(r.Context(), remote, boLogin, res.BogID, mode, res.PlayForFun)
 		if err != nil {
 			if errors.Is(err, errDemoNotSupported) {
 				playerapi.WriteError(w, http.StatusConflict, "demo_unavailable", "demo not supported for this product")

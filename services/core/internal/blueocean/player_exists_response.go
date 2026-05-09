@@ -1,9 +1,25 @@
 package blueocean
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
+
+// PlayerExistsTruth reads a playerExists JSON body after an HTTP 2xx from GameHub.
+// apiOK is false when the envelope indicates an API error or malformed JSON.
+// When apiOK is true, exists reports whether the login handle is registered with the provider.
+func PlayerExistsTruth(raw json.RawMessage) (exists bool, apiOK bool) {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil || !bodyIndicatesSuccess(m) {
+		return false, false
+	}
+	r, has := m["response"]
+	if !has {
+		return false, true
+	}
+	return playerExistsTruthyResponse(r), true
+}
 
 // playerExistsResponseOK interprets GameHub playerExists JSON. Providers often return HTTP 200 with error:0
 // and response:false or response:"No" when the login handle is not registered — unlike most XAPI calls where

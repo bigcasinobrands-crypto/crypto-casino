@@ -50,7 +50,9 @@ func mergeBlueOceanAgentParams(cfg *config.Config, params map[string]any) {
 }
 
 // blueOceanLaunchFromBogID calls getGameDemo / getGame and returns the iframe URL from Blue Ocean XAPI.
-func (s *Server) blueOceanLaunchFromBogID(ctx context.Context, remoteUser string, bogID int64, mode string, playFunSupported bool) (string, error) {
+// xapiLoginUsername is the createPlayer user_username when known (see blueocean_player_links.xapi_user_username).
+// Many operator setups require both userid (stable wallet key) and user_username (login handle) on getGame / getGameDemo, matching loginPlayer.
+func (s *Server) blueOceanLaunchFromBogID(ctx context.Context, remoteUser string, xapiLoginUsername string, bogID int64, mode string, playFunSupported bool) (string, error) {
 	if s.BOG == nil || !s.BOG.Configured() {
 		return "", errBogUnconfigured
 	}
@@ -68,6 +70,9 @@ func (s *Server) blueOceanLaunchFromBogID(ctx context.Context, remoteUser string
 		"gameid":     bogID,
 		"playforfun": true,
 		"userid":     xapiUser,
+	}
+	if lu := strings.TrimSpace(xapiLoginUsername); lu != "" {
+		params["user_username"] = lu
 	}
 	if s.Cfg != nil {
 		if c := strings.TrimSpace(s.Cfg.BlueOceanCurrency); c != "" {

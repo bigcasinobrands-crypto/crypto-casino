@@ -35,6 +35,28 @@ func TestPlayerExistsResponseOK(t *testing.T) {
 	}
 }
 
+func TestPlayerExistsTruth(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		wantEx   bool
+		wantAPIR bool
+	}{
+		{"exists bool", `{"error":0,"response":true}`, true, true},
+		{"not exists", `{"error":0,"response":false}`, false, true},
+		{"api error", `{"error":1,"response":true}`, false, false},
+		{"no response key", `{"error":0}`, false, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ex, apiOK := PlayerExistsTruth(json.RawMessage(tc.raw))
+			if ex != tc.wantEx || apiOK != tc.wantAPIR {
+				t.Fatalf("got exists=%v apiOK=%v want exists=%v apiOK=%v", ex, apiOK, tc.wantEx, tc.wantAPIR)
+			}
+		})
+	}
+}
+
 func TestXapiResponseOKForMethodPlayerExists(t *testing.T) {
 	raw := json.RawMessage(`{"error":0,"response":false}`)
 	if xapiResponseOKForMethod("playerExists", 200, raw) {

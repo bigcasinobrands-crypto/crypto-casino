@@ -368,13 +368,13 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
+		remote, boLogin, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "player link failed")
 			return
 		}
 
-		launchURL, err := s.blueOceanLaunchFromBogID(r.Context(), remote, bogID, mode, playFun)
+		launchURL, err := s.blueOceanLaunchFromBogID(r.Context(), remote, boLogin, bogID, mode, playFun)
 		if err != nil {
 			if errors.Is(err, errDemoNotSupported) {
 				playerapi.WriteError(w, http.StatusConflict, "demo_unavailable", "demo not supported for this game")
@@ -529,7 +529,7 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 			return
 		}
 
-		remote, rerr := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
+		remote, boLogin, rerr := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
 		if rerr != nil {
 			out["blue_ocean_error"] = "could not resolve player id for provider"
 			writeOut()
@@ -549,6 +549,9 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 			"gameid":     bogID,
 			"playforfun": true,
 			"userid":     demoUser,
+		}
+		if lu := strings.TrimSpace(boLogin); lu != "" {
+			demo["user_username"] = lu
 		}
 		if s.Cfg != nil && s.Cfg.BlueOceanMulticurrency {
 			demo["multicurrency"] = 1
@@ -571,27 +574,32 @@ func (s *Server) BlueOceanGameInfoHandler() http.HandlerFunc {
 	}
 }
 
-func remotePlayerID(ctx context.Context, pool *pgxpool.Pool, userID string, cfg *config.Config, bog *blueocean.Client) (string, error) {
+// remotePlayerID returns the XAPI userid string (remote_player_id) and optional BO login handle (xapi_user_username)
+// after EnsurePlayerLink. The login handle is included on getGame/getGameDemo when operators require user_username.
+func remotePlayerID(ctx context.Context, pool *pgxpool.Pool, userID string, cfg *config.Config, bog *blueocean.Client) (remoteID string, xapiLoginUsername string, err error) {
 	want := strings.TrimSpace(userID)
 	if cfg != nil {
 		want = blueocean.FormatUserIDForXAPI(want, cfg.BlueOceanUserIDNoHyphens)
 	}
 	if bog != nil && bog.Configured() && cfg != nil {
 		if err := blueocean.EnsurePlayerLink(ctx, pool, bog, cfg, userID); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
-	var remote string
-	err := pool.QueryRow(ctx, `SELECT remote_player_id FROM blueocean_player_links WHERE user_id = $1::uuid`, userID).Scan(&remote)
+	var remote, xu string
+	err = pool.QueryRow(ctx, `
+		SELECT remote_player_id, COALESCE(NULLIF(TRIM(xapi_user_username), ''), '')
+		FROM blueocean_player_links WHERE user_id = $1::uuid
+	`, userID).Scan(&remote, &xu)
 	if err == nil && remote != "" {
-		return strings.TrimSpace(remote), nil
+		return strings.TrimSpace(remote), strings.TrimSpace(xu), nil
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return "", err
+		return "", "", err
 	}
 	_, err = pool.Exec(ctx, `
 		INSERT INTO blueocean_player_links (user_id, remote_player_id, xapi_user_username) VALUES ($1::uuid, $2, NULL)
 		ON CONFLICT (user_id) DO UPDATE SET remote_player_id = EXCLUDED.remote_player_id
 	`, userID, want)
-	return want, err
+	return want, "", err
 }

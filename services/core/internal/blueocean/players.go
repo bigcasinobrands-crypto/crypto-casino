@@ -378,6 +378,26 @@ func EnsurePlayerLink(ctx context.Context, pool *pgxpool.Pool, c *Client, cfg *c
 	req := snap.toCreatePlayerRequest(uid)
 	res := c.CreatePlayer(ctx, cfg, req)
 	if !res.OK {
+		_, sentUN, pmsg := buildCreatePlayerCallParams(cfg, req)
+		if pmsg == "" && sentUN != "" {
+			pe := c.PlayerExists(ctx, cfg, sentUN)
+			if pe.HTTPStatus >= 200 && pe.HTTPStatus < 300 && len(pe.Raw) > 0 {
+				if exists, apiOK := PlayerExistsTruth(pe.Raw); apiOK && exists {
+					xapiUser := uid
+					if cfg != nil {
+						xapiUser = FormatUserIDForXAPI(uid, cfg.BlueOceanUserIDNoHyphens)
+					}
+					_, err = pool.Exec(ctx, `
+						INSERT INTO blueocean_player_links (user_id, remote_player_id, xapi_user_username)
+						VALUES ($1::uuid, $2, NULLIF($3, ''))
+						ON CONFLICT (user_id) DO UPDATE SET
+							remote_player_id = EXCLUDED.remote_player_id,
+							xapi_user_username = COALESCE(NULLIF(EXCLUDED.xapi_user_username, ''), blueocean_player_links.xapi_user_username)
+					`, uid, xapiUser, sentUN)
+					return err
+				}
+			}
+		}
 		return fmt.Errorf("blueocean createPlayer: %s", res.ErrorMessage)
 	}
 	remote := strings.TrimSpace(res.RemotePlayerID)
