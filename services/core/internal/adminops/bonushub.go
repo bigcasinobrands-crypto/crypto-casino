@@ -1022,7 +1022,8 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	ccy := strings.TrimSpace(body.Currency)
 	if ccy == "" {
-		ccy = "USDT"
+		// Match Blue Ocean seamless settlement — USDT bonuses do not spend in EUR/ETH game wallets.
+		ccy = h.resolveSeamlessManualCashCurrency()
 	}
 	ccy = strings.ToUpper(ccy)
 	ctx := r.Context()

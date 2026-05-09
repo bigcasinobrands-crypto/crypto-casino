@@ -280,7 +280,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
   const { pathname } = useLocation()
   const onDepositRoute = pathname.startsWith('/wallet/deposit')
   const depositNavActive = onDepositRoute || depositFlowActive
-  const { isAuthenticated, balanceMinor, balanceBreakdown } = usePlayerAuth()
+  const { isAuthenticated, balanceMinor, balanceBreakdown, playableBalanceCurrency } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const { currencies } = usePassimpayCurrencies(isAuthenticated)
   const extraLogoSymbols = useMemo(() => {
@@ -529,6 +529,9 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
   /** Overall wallet balance $0.00 (minor units) — show perimeter pulse on every breakpoint. */
   const showZeroBalanceAlert = isAuthenticated && balanceMinor !== null && balanceMinor === 0
 
+  const balanceDisplaySymbol =
+    isAuthenticated && playableBalanceCurrency ? playableBalanceCurrency : active.symbol
+
   /** Left tray: compact on desktop; tablet can still grow in centered header slot. */
   const chipInnerClosed =
     'relative z-[1] flex min-h-8 min-w-0 w-auto max-w-full flex-1 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 md:min-h-9 md:self-stretch md:w-auto md:rounded-none md:border-0 md:bg-transparent md:py-1.5 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-9 max-[1279px]:md:flex-1 max-[1279px]:md:py-1.5 max-[1279px]:md:pl-1 max-[1279px]:md:pr-2 min-[1280px]:md:min-h-9 min-[1280px]:md:w-auto min-[1280px]:max-w-[min(11.5rem,calc(100vw-14rem))] min-[1280px]:md:flex-none min-[1280px]:md:shrink min-[1280px]:md:py-1.5 min-[1280px]:md:pl-1.5 min-[1280px]:md:pr-1.5'
@@ -538,11 +541,15 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
     <div className="flex min-h-8 min-w-0 flex-1 items-center gap-1 md:min-h-9 md:gap-1 max-[1279px]:md:flex-1 min-[1280px]:md:flex-none min-[1280px]:md:gap-1">
       <div className="flex min-w-0 flex-col items-start leading-tight">
         <span className="truncate text-[10px] font-semibold tabular-nums text-white max-[1279px]:md:text-[10px] md:text-xs min-[1280px]:text-xs">
-          {formatWalletChipAmount(isAuthenticated ? balanceMinor : 0, showBalancesUsd, active.symbol)}
+          {formatWalletChipAmount(isAuthenticated ? balanceMinor : 0, showBalancesUsd, balanceDisplaySymbol)}
         </span>
         {isAuthenticated && balanceBreakdown && balanceBreakdown.bonusLockedMinor > 0 ? (
           <span className="max-w-full truncate text-[8px] tabular-nums text-white/45 md:text-[9px] lg:text-[10px]">
-            Bonus {formatPlayableBalanceMinor(balanceBreakdown.bonusLockedMinor, true)}
+            Bonus{' '}
+            {formatPlayableBalanceMinor(
+              balanceBreakdown.bonusLockedMinor,
+              showBalancesUsd || isUsdDollarPrefixedSymbol(balanceDisplaySymbol),
+            )}
           </span>
         ) : null}
       </div>
@@ -755,7 +762,11 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
                     const key = `${w.paymentId}-${w.symbol}-${w.network}`
                     const isActive = walletOptionsMatch(w, active)
                     const tokenLogo = resolveCryptoLogoUrl(logoUrls, w.symbol, w.network)
-                    const bal = formatWalletChipAmount(isActive ? balanceMinor : 0, showBalancesUsd, w.symbol)
+                    const bal = formatWalletChipAmount(
+                      isActive ? balanceMinor : 0,
+                      showBalancesUsd,
+                      isActive ? balanceDisplaySymbol : w.symbol,
+                    )
                     const showNetHint = (tokenSymbolDupCount.get(w.symbol) ?? 0) > 1
                     return (
                       <button

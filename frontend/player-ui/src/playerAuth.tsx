@@ -64,6 +64,8 @@ type P = {
   avatarUrlRevision: number
   balanceMinor: number | null
   balanceBreakdown: BalanceBreakdown | null
+  /** Ledger currency for playable balance (BLUEOCEAN_CURRENCY / seamless); may differ from deposit rail symbol in header. */
+  playableBalanceCurrency: string | null
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>
   /** Apply a new avatar path immediately after upload (before `/me` poll). Updates cache and revision for display URLs. */
   setAvatarUrl: (avatarPath: string) => void
@@ -93,6 +95,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
   const [avatarUrlRevision, setAvatarUrlRevision] = useState(0)
   const [balanceMinor, setBal] = useState<number | null>(null)
   const [balanceBreakdown, setBalanceBreakdown] = useState<BalanceBreakdown | null>(null)
+  const [playableBalanceCurrency, setPlayableBalanceCurrency] = useState<string | null>(null)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshInnerRef = useRef<() => Promise<boolean>>(async () => false)
 
@@ -113,6 +116,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     setAvatarUrlRevision(0)
     setBal(null)
     setBalanceBreakdown(null)
+    setPlayableBalanceCurrency(null)
   }, [clearRefreshTimer])
 
   const setAvatarUrl = useCallback((avatarPath: string) => {
@@ -259,8 +263,11 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
           balance_minor: number
           cash_minor?: number
           bonus_locked_minor?: number
+          currency?: string
         }
         setBal(j.balance_minor)
+        const c = typeof j.currency === 'string' && j.currency.trim() ? j.currency.trim().toUpperCase() : null
+        setPlayableBalanceCurrency(c)
         const cash = typeof j.cash_minor === 'number' ? j.cash_minor : j.balance_minor
         const bonus = typeof j.bonus_locked_minor === 'number' ? j.bonus_locked_minor : 0
         setBalanceBreakdown({ cashMinor: cash, bonusLockedMinor: bonus })
@@ -527,9 +534,13 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
                     balance_minor?: number
                     cash_minor?: number
                     bonus_locked_minor?: number
+                    currency?: string
                   }
                   if (typeof j.balance_minor === 'number') {
                     setBal(j.balance_minor)
+                  }
+                  if (typeof j.currency === 'string' && j.currency.trim()) {
+                    setPlayableBalanceCurrency(j.currency.trim().toUpperCase())
                   }
                   if (
                     typeof j.cash_minor === 'number' &&
@@ -569,6 +580,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       avatarUrlRevision,
       balanceMinor,
       balanceBreakdown,
+      playableBalanceCurrency,
       apiFetch,
       setAvatarUrl,
       login,
@@ -584,6 +596,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       avatarUrlRevision,
       balanceMinor,
       balanceBreakdown,
+      playableBalanceCurrency,
       apiFetch,
       setAvatarUrl,
       login,

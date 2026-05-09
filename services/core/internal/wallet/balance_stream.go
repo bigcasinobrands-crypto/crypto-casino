@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -42,12 +43,18 @@ func BalanceStreamHandler(pool *pgxpool.Pool, cfg *config.Config) http.HandlerFu
 			}
 			cash, _ := ledger.BalanceCashSeamless(ctx, pool, uid, ccy, multi)
 			bon, _ := ledger.BalanceBonusLockedSeamless(ctx, pool, uid, ccy, multi)
-			sig := fmt.Sprintf("%d:%d:%d", bal, cash, bon)
+			sig := fmt.Sprintf("%s:%d:%d:%d", ccy, bal, cash, bon)
 			if sig == lastSig {
 				return
 			}
 			lastSig = sig
-			fmt.Fprintf(w, "data: {\"balance_minor\":%d,\"cash_minor\":%d,\"bonus_locked_minor\":%d}\n\n", bal, cash, bon)
+			payload, _ := json.Marshal(map[string]any{
+				"balance_minor":      bal,
+				"cash_minor":         cash,
+				"bonus_locked_minor": bon,
+				"currency":           ccy,
+			})
+			fmt.Fprintf(w, "data: %s\n\n", payload)
 			flusher.Flush()
 		}
 		writeBal()
