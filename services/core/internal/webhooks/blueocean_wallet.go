@@ -421,6 +421,22 @@ func debitMagnitudeByIdem(ctx context.Context, tx pgx.Tx, idem string) int64 {
 	return -sum
 }
 
+// boTxnNetLedgerMinor sums ledger lines for this Blue Ocean game transaction (cash+bonus debit plus matching rollbacks).
+// Negative ⇒ player funds are still reduced by this txn (an active debit). Zero ⇒ never debited, or fully rolled back.
+// Used so duplicate debit requests with the same transaction_id replay without re-applying (BO advanced idempotency tests).
+func boTxnNetLedgerMinor(ctx context.Context, tx pgx.Tx, remote, txnID string) (int64, error) {
+	cKey := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, txnID)
+	bKey := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID)
+	rcKey := fmt.Sprintf("bo:game:rollback:cash:%s:%s", remote, txnID)
+	rbKey := fmt.Sprintf("bo:game:rollback:bonus:%s:%s", remote, txnID)
+	var sum int64
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
+		WHERE idempotency_key IN ($1, $2, $3, $4)
+	`, cKey, bKey, rcKey, rbKey).Scan(&sum)
+	return sum, err
+}
+
 func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy, action, remote, txnID string, amount int64, gameID string) (balance int64, status int, msg string, err error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -447,6 +463,16 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	switch action {
 	case "debit":
 		if amount == 0 {
+			return bal, 200, "", nil
+		}
+		net, nerr := boTxnNetLedgerMinor(ctx, tx, remote, txnID)
+		if nerr != nil {
+			return bal, 500, "", nerr
+		}
+		if net < 0 {
+			if amount != -net {
+				return bal, 403, "Invalid amount", nil
+			}
 			return bal, 200, "", nil
 		}
 		srcRef := remote + ":" + txnID
@@ -582,11 +608,13 @@ func writeBOWalletJSON(w http.ResponseWriter, status int, balanceMinor int64, ms
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	type body struct {
-		Status  int    `json:"status"`
-		Balance string `json:"balance"`
-		Msg     string `json:"msg,omitempty"`
+		Status  int     `json:"status"`
+		Balance float64 `json:"balance"`
+		Msg     string  `json:"msg,omitempty"`
 	}
-	out := body{Status: status, Balance: formatBOBalanceMinor(balanceMinor)}
+	// JSON number (major units) — BO dashboard tests often compare with strict type equality vs calculated floats.
+	// Very large balances may exceed float64 integer precision; operator cashout limits make this acceptable for play wallets.
+	out := body{Status: status, Balance: float64(balanceMinor) / 100.0}
 	if strings.TrimSpace(msg) != "" {
 		out.Msg = msg
 	}

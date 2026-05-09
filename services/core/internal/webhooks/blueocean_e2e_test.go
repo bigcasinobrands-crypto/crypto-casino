@@ -67,3 +67,62 @@ func TestE2EBlueOceanDebitPublishesWageringRedis(t *testing.T) {
 		t.Fatalf("bad payload: %s", msg.Payload)
 	}
 }
+
+// TestE2EBlueOceanDuplicateDebitIdempotent replays the same debit (same transaction_id); balance must not drop twice (BO advanced wallet tests).
+func TestE2EBlueOceanDuplicateDebitIdempotent(t *testing.T) {
+	res := bonuse2e.NewUserWithFixedNoDepositGrant(t)
+	res.RegisterCleanup(t)
+	_, _ = res.Pool.Exec(res.Ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2) ON CONFLICT (user_id) DO UPDATE SET remote_player_id = EXCLUDED.remote_player_id`,
+		res.UserID, "bo-e2e-dup-"+res.UserID)
+
+	salt := "e2e-wallet-dup-salt"
+	cfg := &config.Config{BlueOceanCurrency: "USDT", BlueOceanWalletSalt: salt}
+	h := HandleBlueOceanWallet(res.Pool, cfg, nil)
+
+	rid := "bo-e2e-dup-" + res.UserID
+	qs := func() string {
+		return boSignGET(salt, map[string]string{
+			"action":         "debit",
+			"amount":         "1000",
+			"remote_id":      rid,
+			"game_id":        "slot1",
+			"transaction_id": "tx-dup-1",
+		})
+	}
+	req1 := httptest.NewRequest("GET", "/?"+qs(), nil)
+	w1 := httptest.NewRecorder()
+	h.ServeHTTP(w1, req1)
+	if w1.Code != 200 {
+		t.Fatalf("first: code=%d body=%s", w1.Code, w1.Body.String())
+	}
+	var b1 struct {
+		Status  int     `json:"status"`
+		Balance float64 `json:"balance"`
+	}
+	if err := json.Unmarshal(w1.Body.Bytes(), &b1); err != nil {
+		t.Fatal(err)
+	}
+	if b1.Status != 200 {
+		t.Fatalf("first: status=%v body=%s", b1.Status, w1.Body.String())
+	}
+
+	req2 := httptest.NewRequest("GET", "/?"+qs(), nil)
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, req2)
+	if w2.Code != 200 {
+		t.Fatalf("second: code=%d body=%s", w2.Code, w2.Body.String())
+	}
+	var b2 struct {
+		Status  int     `json:"status"`
+		Balance float64 `json:"balance"`
+	}
+	if err := json.Unmarshal(w2.Body.Bytes(), &b2); err != nil {
+		t.Fatal(err)
+	}
+	if b2.Status != 200 {
+		t.Fatalf("second: status=%v body=%s", b2.Status, w2.Body.String())
+	}
+	if b1.Balance != b2.Balance {
+		t.Fatalf("duplicate debit changed balance: first=%v second=%v", b1.Balance, b2.Balance)
+	}
+}
