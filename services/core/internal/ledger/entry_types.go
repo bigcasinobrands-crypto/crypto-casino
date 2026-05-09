@@ -31,6 +31,8 @@ const (
 	EntryTypeGameCredit   = "game.credit"
 	EntryTypeGameWin      = "game.win"
 	EntryTypeGameRollback = "game.rollback"
+	// EntryTypeGameWinRollback — reversal of a prior BO seamless credit (win) for the same transaction_id (cash debit).
+	EntryTypeGameWinRollback = "game.win_rollback"
 
 	// Sportsbook (Oddin) — clean product split from casino
 	EntryTypeSportsbookDebit    = "sportsbook.debit"

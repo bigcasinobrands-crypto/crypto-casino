@@ -144,9 +144,9 @@ SELECT
 	(SELECT rep_d30 FROM repeat_stats),
 	COALESCE((SELECT
 		SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END) -
-		SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
+		SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END)
 		FROM ledger_entries le
-		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback') AND ` + clauseWithAlias(all, "le", start, end) + `), 0),
+		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback') AND ` + clauseWithAlias(all, "le", start, end) + `), 0),
 	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries ubi
 		WHERE ubi.entry_type = 'promo.grant' AND ubi.pocket = 'bonus_locked' AND ubi.amount_minor > 0 AND ` + clauseWithAlias(all, "ubi", start, end) + `), 0),
 	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries re

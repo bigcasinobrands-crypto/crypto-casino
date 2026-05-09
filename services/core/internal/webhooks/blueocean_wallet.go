@@ -410,6 +410,14 @@ func resolveBlueOceanRemoteUser(ctx context.Context, pool *pgxpool.Pool, remote 
 	return uid, nil
 }
 
+func sumLedgerIdem(ctx context.Context, tx pgx.Tx, idem string) (int64, error) {
+	var s int64
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries WHERE idempotency_key = $1
+	`, idem).Scan(&s)
+	return s, err
+}
+
 func debitMagnitudeByIdem(ctx context.Context, tx pgx.Tx, idem string) int64 {
 	var sum int64
 	_ = tx.QueryRow(ctx, `
@@ -530,37 +538,66 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			return bal, 500, "", err
 		}
 	case "rollback":
-		// BO: do not rely on rollback request amount; use stored debit only. If none, 404.
+		// BO: empty amount on rollback — reverse using stored movements only.
+		// 1) Bet rollback: reverse prior debit (bonus + cash lines).
+		// 2) Win rollback: reverse prior credit for this transaction_id (tests: "rollback previous win").
+		creditKey := fmt.Sprintf("bo:game:credit:%s:%s", remote, txnID)
+		winRBKey := fmt.Sprintf("bo:game:rollback:win:%s:%s", remote, txnID)
 		bKey := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID)
 		cKey := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, txnID)
+
+		creditSum, rerr := sumLedgerIdem(ctx, tx, creditKey)
+		if rerr != nil {
+			return bal, 500, "", rerr
+		}
+		winReversedSum, rerr := sumLedgerIdem(ctx, tx, winRBKey)
+		if rerr != nil {
+			return bal, 500, "", rerr
+		}
+		outstandingWin := creditSum + winReversedSum // e.g. +1000 + (-1000) after win rollback
+
 		fb := debitMagnitudeByIdem(ctx, tx, bKey)
 		fc := debitMagnitudeByIdem(ctx, tx, cKey)
-		if fb+fc == 0 {
+
+		if fb+fc == 0 && creditSum == 0 {
 			return bal, 404, "TRANSACTION_NOT_FOUND", nil
 		}
-		if fb > 0 {
-			idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s", remote, txnID)
-			ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
-			if rerr != nil {
-				return bal, 500, "", rerr
+
+		if fb+fc > 0 {
+			if fb > 0 {
+				idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s", remote, txnID)
+				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
+				if rerr != nil {
+					return bal, 500, "", rerr
+				}
+				if ins {
+					notifyWageringProgress = true
+					if err := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, fb); err != nil {
+						return bal, 500, "", err
+					}
+				}
 			}
-			if ins {
-				notifyWageringProgress = true
-				if err := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, fb); err != nil {
-					return bal, 500, "", err
+			if fc > 0 {
+				idemRC := fmt.Sprintf("bo:game:rollback:cash:%s:%s", remote, txnID)
+				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
+				if rerr != nil {
+					return bal, 500, "", rerr
+				}
+				if ins {
+					if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
+						return bal, 500, "", err
+					}
 				}
 			}
 		}
-		if fc > 0 {
-			idemRC := fmt.Sprintf("bo:game:rollback:cash:%s:%s", remote, txnID)
-			ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
-			if rerr != nil {
-				return bal, 500, "", rerr
+
+		if outstandingWin > 0 {
+			if bal < outstandingWin {
+				return bal, 403, "Insufficient funds", nil
 			}
-			if ins {
-				if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
-					return bal, 500, "", err
-				}
+			_, err = ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, winRBKey, outstandingWin, meta)
+			if err != nil {
+				return bal, 500, "", err
 			}
 		}
 	}

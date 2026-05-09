@@ -97,7 +97,7 @@ func accrueOnePartner(ctx context.Context, pool *pgxpool.Pool, partnerID, partne
 		       COUNT(DISTINCT le.user_id)::int AS user_count,
 		       COALESCE(SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet','sportsbook.debit')
 		                         THEN ABS(le.amount_minor) ELSE 0 END),0)::bigint AS wager,
-		       COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win','sportsbook.credit')
+		       COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit')
 		                         THEN le.amount_minor ELSE 0 END),0)::bigint AS win,
 		       COALESCE(SUM(CASE WHEN le.entry_type IN ('game.rollback','sportsbook.rollback')
 		                         THEN ABS(le.amount_minor) ELSE 0 END),0)::bigint AS rb
@@ -105,7 +105,7 @@ func accrueOnePartner(ctx context.Context, pool *pgxpool.Pool, partnerID, partne
 		JOIN ledger_entries le ON le.user_id = ar.user_id
 		WHERE ar.partner_id = $1::uuid
 		  AND le.pocket = 'cash'
-		  AND le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback',
+		  AND le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback',
 		                        'sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 		  AND le.created_at >= $2 AND le.created_at < $3
 		GROUP BY le.currency

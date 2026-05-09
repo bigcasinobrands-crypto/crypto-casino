@@ -45,20 +45,20 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
 			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 				AND created_at > now()-interval '24 hours'), 0),
 			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 				AND created_at > now()-interval '7 days'), 0),
 			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 				AND created_at > now()-interval '30 days'), 0),
 			COALESCE((SELECT SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
-				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END)
-				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')), 0),
+				- SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END)
+				FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')), 0),
 
 			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
 				WHERE entry_type IN ('game.debit','game.bet','sportsbook.debit')
@@ -280,8 +280,8 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 	ggrRows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date,
 			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)
-		FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)
+		FROM ledger_entries WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 		AND created_at >= $1 AND created_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
@@ -412,15 +412,15 @@ func (h *Handler) DashboardTopGames(w http.ResponseWriter, r *http.Request) {
 	ggrRows, err := h.Pool.Query(ctx, `
 		SELECT g.id, g.title, g.provider,
 			COALESCE(SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet') THEN ABS(le.amount_minor) WHEN le.entry_type = 'game.rollback' THEN -ABS(le.amount_minor) ELSE 0 END), 0) AS total_bets,
-			COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win') THEN le.amount_minor ELSE 0 END), 0) AS total_wins
+			COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win','game.win_rollback') THEN le.amount_minor ELSE 0 END), 0) AS total_wins
 		FROM ledger_entries le
 		JOIN games g ON g.id = le.metadata->>'game_id'
-		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback')
+		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback')
 			AND le.metadata->>'game_id' IS NOT NULL
 			AND le.created_at >= $1 AND le.created_at <= $2
 		GROUP BY g.id, g.title, g.provider
 		ORDER BY (COALESCE(SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet') THEN ABS(le.amount_minor) WHEN le.entry_type = 'game.rollback' THEN -ABS(le.amount_minor) ELSE 0 END),0)
-			- COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win') THEN le.amount_minor ELSE 0 END),0)) DESC
+			- COALESCE(SUM(CASE WHEN le.entry_type IN ('game.credit','game.win','game.win_rollback') THEN le.amount_minor ELSE 0 END),0)) DESC
 		LIMIT $3`, start, end, limit)
 	if err == nil {
 		for ggrRows.Next() {
@@ -554,10 +554,10 @@ func (h *Handler) GameRTPStats(w http.ResponseWriter, r *http.Request) {
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback') THEN amount_minor ELSE 0 END), 0),
 			COUNT(DISTINCT user_id)
 		FROM ledger_entries
-		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND metadata->>'game_id' = $1
+		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback') AND metadata->>'game_id' = $1
 	`, gameID).Scan(&totalBets, &totalWins, &uniquePlayers)
 	if err != nil {
 		writeJSON(w, map[string]any{
@@ -581,9 +581,9 @@ func (h *Handler) GameRTPStats(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.Pool.Query(ctx, `
 		SELECT date_trunc('day', created_at)::date,
 			COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet') THEN ABS(amount_minor) WHEN entry_type = 'game.rollback' THEN -ABS(amount_minor) ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win') THEN amount_minor ELSE 0 END), 0)
+			COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback') THEN amount_minor ELSE 0 END), 0)
 		FROM ledger_entries
-		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback') AND metadata->>'game_id' = $1
+		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback') AND metadata->>'game_id' = $1
 			AND created_at > now()-interval '30 days'
 		GROUP BY 1 ORDER BY 1`, gameID)
 	if err == nil {

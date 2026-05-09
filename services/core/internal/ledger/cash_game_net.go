@@ -16,7 +16,7 @@ func SumCashGameNetForWindow(ctx context.Context, q Querier, userID string, star
 	err := q.QueryRow(ctx, `
 		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
 		WHERE user_id = $1::uuid AND pocket = 'cash'
-		  AND entry_type IN ('game.debit', 'game.bet', 'game.credit', 'game.win', 'game.rollback',
+		  AND entry_type IN ('game.debit', 'game.bet', 'game.credit', 'game.win', 'game.rollback', 'game.win_rollback',
 		                     'sportsbook.debit', 'sportsbook.credit', 'sportsbook.rollback')
 		  AND created_at >= $2 AND created_at < $3
 	`, userID, start, end).Scan(&net)

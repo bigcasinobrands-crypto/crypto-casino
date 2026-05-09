@@ -205,12 +205,12 @@ func CheckLossLimit(ctx context.Context, q querier, userID string, incomingStake
 		err := q.QueryRow(ctx, `
 			SELECT
 				COALESCE(SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) ELSE 0 END), 0)::bigint,
-				COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)::bigint,
+				COALESCE(SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)::bigint,
 				COALESCE(SUM(CASE WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN ABS(amount_minor) ELSE 0 END), 0)::bigint
 			FROM ledger_entries
 			WHERE user_id = $1::uuid
 			  AND pocket = 'cash'
-			  AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+			  AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
 			  AND created_at >= $2
 		`, userID, windowStart).Scan(&debits, &credits, &rollbacks)
 		if err != nil {
