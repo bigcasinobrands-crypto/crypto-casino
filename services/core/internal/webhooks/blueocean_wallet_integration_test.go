@@ -49,18 +49,17 @@ func TestIntegrationBlueOceanWalletBalanceByUserUUID(t *testing.T) {
 		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
 	}
 	var out struct {
-		Status  int     `json:"status"`
-		Balance float64 `json:"balance"`
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != 200 {
-		t.Fatalf("expected status 200, got %v body=%s", out.Status, w.Body.String())
+	if out.Status != "200" {
+		t.Fatalf("expected status 200, got %q body=%s", out.Status, w.Body.String())
 	}
-	// New user has zero playable balance before any ledger credit.
-	if out.Balance != 0 {
-		t.Fatalf("expected balance 0, got %v", out.Balance)
+	if out.Balance != "0" {
+		t.Fatalf("expected balance 0, got %q", out.Balance)
 	}
 }
 
@@ -101,12 +100,12 @@ func TestIntegrationBlueOceanWalletBalanceByCompactUUIDRemoteID(t *testing.T) {
 		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
 	}
 	var out struct {
-		Status int `json:"status"`
+		Status string `json:"status"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != 200 {
+	if out.Status != "200" {
 		t.Fatalf("expected status 200, got %+v body=%s", out, w.Body.String())
 	}
 }

@@ -96,13 +96,13 @@ func TestE2EBlueOceanDuplicateDebitIdempotent(t *testing.T) {
 		t.Fatalf("first: code=%d body=%s", w1.Code, w1.Body.String())
 	}
 	var b1 struct {
-		Status  int     `json:"status"`
-		Balance float64 `json:"balance"`
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
 	}
 	if err := json.Unmarshal(w1.Body.Bytes(), &b1); err != nil {
 		t.Fatal(err)
 	}
-	if b1.Status != 200 {
+	if b1.Status != "200" {
 		t.Fatalf("first: status=%v body=%s", b1.Status, w1.Body.String())
 	}
 
@@ -113,13 +113,13 @@ func TestE2EBlueOceanDuplicateDebitIdempotent(t *testing.T) {
 		t.Fatalf("second: code=%d body=%s", w2.Code, w2.Body.String())
 	}
 	var b2 struct {
-		Status  int     `json:"status"`
-		Balance float64 `json:"balance"`
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
 	}
 	if err := json.Unmarshal(w2.Body.Bytes(), &b2); err != nil {
 		t.Fatal(err)
 	}
-	if b2.Status != 200 {
+	if b2.Status != "200" {
 		t.Fatalf("second: status=%v body=%s", b2.Status, w2.Body.String())
 	}
 	if b1.Balance != b2.Balance {

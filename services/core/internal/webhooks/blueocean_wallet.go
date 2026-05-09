@@ -709,17 +709,22 @@ func writeBOWalletJSON(w http.ResponseWriter, status int, balanceMinor int64, ms
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	type body struct {
-		Status  int     `json:"status"`
-		Balance float64 `json:"balance"`
-		Msg     string  `json:"msg,omitempty"`
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+		Msg     string `json:"msg,omitempty"`
 	}
-	// JSON number (major units) — BO dashboard tests often compare with strict type equality vs calculated floats.
-	// Very large balances may exceed float64 integer precision; operator cashout limits make this acceptable for play wallets.
-	out := body{Status: status, Balance: float64(balanceMinor) / 100.0}
+	// Blue Ocean public examples use string status and string balance, e.g. {"status":"200","balance":"300"}.
+	// Emitting the same types on every call avoids strict equality failures in BO staging tools (mixed number/string).
+	out := body{
+		Status:  strconv.Itoa(status),
+		Balance: formatBOBalanceMinor(balanceMinor),
+	}
 	if strings.TrimSpace(msg) != "" {
 		out.Msg = msg
 	}
-	_ = json.NewEncoder(w).Encode(out)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(out)
 }
 
 // verifyBlueOceanWalletKey checks key = sha1(salt + signingString). Blue Ocean’s PHP sample uses
