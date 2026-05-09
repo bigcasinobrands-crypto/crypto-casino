@@ -91,6 +91,39 @@ func boDisplayUsername(username, email, userID string) string {
 	return "player_" + id
 }
 
+// blueOceanUserUsernameMaxLen is from BO public createPlayer docs: user_username must be ≤16 chars; longer handles → use player id.
+const blueOceanUserUsernameMaxLen = 16
+
+// boCreatePlayerUserUsername applies the 16-char rule: if display is empty or too long, use xapiUser (formatted users.id).
+// See BOG createPlayer() — when the handle exceeds the limit, send your player's ID as user_username.
+func boCreatePlayerUserUsername(display, xapiUser string) string {
+	d := strings.TrimSpace(display)
+	x := strings.TrimSpace(xapiUser)
+	if x == "" {
+		return d
+	}
+	if d == "" || len(d) > blueOceanUserUsernameMaxLen {
+		return x
+	}
+	return d
+}
+
+// applyUserUsernamePrefix prepends BLUEOCEAN_USER_USERNAME_PREFIX when configured (BO Api user "Prefix").
+func applyUserUsernamePrefix(cfg *config.Config, display string) string {
+	if cfg == nil {
+		return strings.TrimSpace(display)
+	}
+	p := strings.TrimSpace(cfg.BlueOceanUserUsernamePrefix)
+	d := strings.TrimSpace(display)
+	if p == "" || d == "" {
+		return d
+	}
+	if len(d) >= len(p) && strings.EqualFold(d[:len(p)], p) {
+		return d
+	}
+	return p + d
+}
+
 // mergePlayerParamMap copies non-empty values from src into dst (shallow). Empty strings are skipped.
 func mergePlayerParamMap(dst map[string]any, src map[string]any) {
 	if dst == nil || src == nil {
@@ -108,6 +141,8 @@ func mergePlayerParamMap(dst map[string]any, src map[string]any) {
 }
 
 // CreatePlayer calls method createPlayer on the GameHub XAPI.
+// We send userid (no underscore) as the stable wallet/XAPI key; BO's deprecated request field is user_id.
+// user_username is capped at 16 characters per BO docs; longer derived names fall back to userid.
 func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req CreatePlayerRequest) CreatePlayerResult {
 	if !c.Configured() {
 		return CreatePlayerResult{ErrorMessage: "blueocean: client not configured"}
@@ -121,12 +156,19 @@ func (c *Client) CreatePlayer(ctx context.Context, cfg *config.Config, req Creat
 		xapiUser = FormatUserIDForXAPI(uid, cfg.BlueOceanUserIDNoHyphens)
 	}
 	display := boDisplayUsername(req.Username, req.Email, uid)
+	display = applyUserUsernamePrefix(cfg, display)
+	display = boCreatePlayerUserUsername(display, xapiUser)
 	if display == "" {
 		return CreatePlayerResult{ErrorMessage: "createPlayer: could not derive user_username"}
 	}
 	params := map[string]any{
-		"userid":        xapiUser,
+		"userid":         xapiUser,
 		"user_username": display,
+	}
+	if cfg != nil {
+		if p := strings.TrimSpace(cfg.BlueOceanCreatePlayerUserPassword); p != "" {
+			params["user_password"] = p
+		}
 	}
 	mergeCurrencyAgentParams(cfg, params)
 	if cfg != nil {

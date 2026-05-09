@@ -78,3 +78,62 @@ func TestLoginPlayerUnconfiguredClient(t *testing.T) {
 		t.Fatalf("got %q", res.ErrorMessage)
 	}
 }
+
+func TestNormalizePlayerExistsParams(t *testing.T) {
+	p := map[string]any{"userid": "domendomen2"}
+	NormalizePlayerExistsParams(p)
+	if p["user_username"] != "domendomen2" {
+		t.Fatalf("user_username: %v", p["user_username"])
+	}
+	if _, has := p["userid"]; has {
+		t.Fatal("expected legacy userid removed")
+	}
+	p2 := map[string]any{"user_username": "keep"}
+	NormalizePlayerExistsParams(p2)
+	if p2["user_username"] != "keep" {
+		t.Fatal("unchanged")
+	}
+}
+
+func TestNormalizeLoginPlayerParams(t *testing.T) {
+	p := map[string]any{"userid": "domendomen2"}
+	NormalizeLoginPlayerParams(p)
+	if p["user_username"] != "domendomen2" {
+		t.Fatalf("user_username: %v", p["user_username"])
+	}
+	if _, has := p["userid"]; has {
+		t.Fatal("expected legacy userid removed")
+	}
+	p2 := map[string]any{"user_username": "already"}
+	NormalizeLoginPlayerParams(p2)
+	if p2["user_username"] != "already" {
+		t.Fatal("unchanged")
+	}
+}
+
+func TestMergeBOUserPasswordIfConfigured(t *testing.T) {
+	cfg := &config.Config{BlueOceanCreatePlayerUserPassword: "d87ee8d"}
+	p := map[string]any{"user_username": "u"}
+	mergeBOUserPasswordIfConfigured(cfg, p)
+	if p["user_password"] != "d87ee8d" {
+		t.Fatalf("user_password: %v", p["user_password"])
+	}
+	mergeBOUserPasswordIfConfigured(&config.Config{}, map[string]any{})
+	// no panic; empty cfg should not set key
+	p2 := map[string]any{"user_username": "x"}
+	mergeBOUserPasswordIfConfigured(&config.Config{}, p2)
+	if _, has := p2["user_password"]; has {
+		t.Fatal("expected no password when unset")
+	}
+}
+
+func TestNormalizeLogoutPlayerParams(t *testing.T) {
+	p := map[string]any{"userid": "dom3"}
+	NormalizeLogoutPlayerParams(p)
+	if p["user_username"] != "dom3" {
+		t.Fatalf("user_username: %v", p["user_username"])
+	}
+	if _, has := p["userid"]; has {
+		t.Fatal("expected legacy userid removed")
+	}
+}

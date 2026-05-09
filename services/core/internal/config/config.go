@@ -46,6 +46,10 @@ type Config struct {
 	BlueOceanLaunchMode    string // "demo" | "real"
 	// BlueOceanUserIDNoHyphens — when true, UUID-shaped remote player ids are sent to XAPI without hyphens (some BO sandboxes reject dashed UUIDs).
 	BlueOceanUserIDNoHyphens bool
+	// BlueOceanUserUsernamePrefix — optional; prepended to createPlayer user_username (often matches BO Api user "Prefix", e.g. 9w7r).
+	BlueOceanUserUsernamePrefix string
+	// BlueOceanCreatePlayerUserPassword — optional; BO docs recommend a non-real constant user_password on createPlayer; omit when empty.
+	BlueOceanCreatePlayerUserPassword string
 	BlueOceanWalletSalt      string // seamless GET callback key=sha1(salt+query)
 	// BlueOceanWalletFloatAmountIsMajorUnits: seamless wallet sends amount/bet/win as decimal major units (e.g. 0.25); multiply by 100 to minor. Integer params are still interpreted as minor units.
 	BlueOceanWalletFloatAmountIsMajorUnits bool
@@ -261,6 +265,8 @@ func Load() (Config, error) {
 	} else {
 		c.BlueOceanUserIDNoHyphens = parseBoolEnv(os.Getenv("BLUEOCEAN_USERID_NO_HYPHENS"))
 	}
+	c.BlueOceanUserUsernamePrefix = strings.TrimSpace(os.Getenv("BLUEOCEAN_USER_USERNAME_PREFIX"))
+	c.BlueOceanCreatePlayerUserPassword = strings.TrimSpace(os.Getenv("BLUEOCEAN_CREATE_PLAYER_USER_PASSWORD"))
 	c.BlueOceanWalletSalt = strings.TrimSpace(os.Getenv("BLUEOCEAN_WALLET_SALT"))
 	c.BlueOceanWalletFloatAmountIsMajorUnits = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_FLOAT_AMOUNT_IS_MAJOR"))
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {

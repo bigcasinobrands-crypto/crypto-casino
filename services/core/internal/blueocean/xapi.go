@@ -3,6 +3,7 @@ package blueocean
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -106,27 +107,121 @@ func (c *Client) CallXAPIMethod(ctx context.Context, cfg *config.Config, method 
 	if m == "" {
 		return XAPIResult{ErrorMessage: "blueocean: empty method"}
 	}
+	if params == nil {
+		params = map[string]any{}
+	}
+	if m == "playerExists" {
+		NormalizePlayerExistsParams(params)
+	}
+	if m == "loginPlayer" {
+		NormalizeLoginPlayerParams(params)
+		mergeBOUserPasswordIfConfigured(cfg, params)
+	}
+	if m == "logoutPlayer" {
+		NormalizeLogoutPlayerParams(params)
+		mergeBOUserPasswordIfConfigured(cfg, params)
+	}
 	merged := MergeBOGXAPIParams(cfg, params)
 	return c.finishXAPI(ctx, m, merged)
 }
 
-// PlayerExists calls method playerExists for the given remote/XAPI userid.
-func (c *Client) PlayerExists(ctx context.Context, cfg *config.Config, remoteUserID string) XAPIResult {
-	params := MergeBOGXAPIParams(cfg, map[string]any{"userid": strings.TrimSpace(remoteUserID)})
+// NormalizePlayerExistsParams maps legacy param names to BO-documented playerExists fields.
+// Public BO docs require user_username (+ currency via MergeBOGXAPIParams); older examples used userid.
+// See https://blueoceangaming.atlassian.net/wiki/spaces/iGPPD/pages/1209172251/2.2+playerExists
+func NormalizePlayerExistsParams(params map[string]any) {
+	if params == nil {
+		return
+	}
+	if paramNonemptyBOString(params["user_username"]) {
+		return
+	}
+	if paramNonemptyBOString(params["userid"]) {
+		params["user_username"] = strings.TrimSpace(fmt.Sprint(params["userid"]))
+		delete(params, "userid")
+		return
+	}
+	if paramNonemptyBOString(params["username"]) {
+		params["user_username"] = strings.TrimSpace(fmt.Sprint(params["username"]))
+		delete(params, "username")
+	}
+}
+
+func paramNonemptyBOString(v any) bool {
+	if v == nil {
+		return false
+	}
+	if s, ok := v.(string); ok {
+		return strings.TrimSpace(s) != ""
+	}
+	out := strings.TrimSpace(fmt.Sprint(v))
+	return out != "" && out != "<nil>"
+}
+
+// mergeBOUserPasswordIfConfigured adds user_password when BO docs require it (loginPlayer, getPlayerBalance, etc.)
+// and the admin body did not supply one. Use the same constant as createPlayer (BLUEOCEAN_CREATE_PLAYER_USER_PASSWORD).
+func mergeBOUserPasswordIfConfigured(cfg *config.Config, params map[string]any) {
+	if cfg == nil || params == nil {
+		return
+	}
+	if paramNonemptyBOString(params["user_password"]) {
+		return
+	}
+	if pw := strings.TrimSpace(cfg.BlueOceanCreatePlayerUserPassword); pw != "" {
+		params["user_password"] = pw
+	}
+}
+
+// NormalizeLoginPlayerParams maps legacy userid to BO-documented loginPlayer fields (user_username; user_id deprecated).
+func NormalizeLoginPlayerParams(params map[string]any) {
+	if params == nil {
+		return
+	}
+	if paramNonemptyBOString(params["user_username"]) {
+		return
+	}
+	if paramNonemptyBOString(params["userid"]) {
+		params["user_username"] = strings.TrimSpace(fmt.Sprint(params["userid"]))
+		delete(params, "userid")
+	}
+}
+
+// NormalizeLogoutPlayerParams maps legacy userid to user_username for logoutPlayer where BO uses the same shape.
+func NormalizeLogoutPlayerParams(params map[string]any) {
+	if params == nil {
+		return
+	}
+	if paramNonemptyBOString(params["user_username"]) {
+		return
+	}
+	if paramNonemptyBOString(params["userid"]) {
+		params["user_username"] = strings.TrimSpace(fmt.Sprint(params["userid"]))
+		delete(params, "userid")
+	}
+}
+
+// PlayerExists calls method playerExists. Per BO public docs the lookup key is user_username (not userid).
+func (c *Client) PlayerExists(ctx context.Context, cfg *config.Config, userUsername string) XAPIResult {
+	u := strings.TrimSpace(userUsername)
+	params := MergeBOGXAPIParams(cfg, map[string]any{"user_username": u})
 	return c.finishXAPI(ctx, "playerExists", params)
 }
 
-// LoginPlayer calls method loginPlayer. Optional extra keys (e.g. session_id) are merged when non-empty.
-func (c *Client) LoginPlayer(ctx context.Context, cfg *config.Config, remoteUserID string, extra map[string]any) XAPIResult {
-	params := map[string]any{"userid": strings.TrimSpace(remoteUserID)}
+// LoginPlayer calls method loginPlayer. BO public docs use user_username + user_password (+ currency); user_id is deprecated.
+// remoteKey is the value we store from createPlayer / wallet (numeric BO id, compact uuid, or prefixed username).
+func (c *Client) LoginPlayer(ctx context.Context, cfg *config.Config, remoteKey string, extra map[string]any) XAPIResult {
+	u := strings.TrimSpace(remoteKey)
+	params := map[string]any{"user_username": u}
 	mergeOptionalStringParams(params, extra)
+	mergeBOUserPasswordIfConfigured(cfg, params)
 	return c.finishXAPI(ctx, "loginPlayer", MergeBOGXAPIParams(cfg, params))
 }
 
-// LogoutPlayer calls method logoutPlayer.
-func (c *Client) LogoutPlayer(ctx context.Context, cfg *config.Config, remoteUserID string) XAPIResult {
-	params := MergeBOGXAPIParams(cfg, map[string]any{"userid": strings.TrimSpace(remoteUserID)})
-	return c.finishXAPI(ctx, "logoutPlayer", params)
+// LogoutPlayer calls method logoutPlayer (same user_username shape as login per BO wallet player management).
+func (c *Client) LogoutPlayer(ctx context.Context, cfg *config.Config, remoteKey string) XAPIResult {
+	u := strings.TrimSpace(remoteKey)
+	params := map[string]any{"user_username": u}
+	mergeBOUserPasswordIfConfigured(cfg, params)
+	return c.finishXAPI(ctx, "logoutPlayer", MergeBOGXAPIParams(cfg, params))
 }
 
 // GetDailyBalances calls method getDailyBalances (typically date=YYYY-MM-DD).
