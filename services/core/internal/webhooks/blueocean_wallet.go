@@ -25,9 +25,71 @@ import (
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playcheck"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// boWalletErrInternal is surfaced in JSON for Blue Ocean tooling (same casing as their dashboards).
+const boWalletErrInternal = "Internal error"
+
+// boWalletTxMaxAttempts handles deadlocks / serialization failures when BO runs concurrent wallet calls
+// against the same player (stress tests).
+const boWalletTxMaxAttempts = 12
+
+func isBOWalletTxRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "40001": // serialization_failure
+			return true
+		case "40P01": // deadlock_detected
+			return true
+		case "55P03": // lock_not_available (NOWAIT); rare but safe to retry
+			return true
+		}
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "deadlock") {
+		return true
+	}
+	return false
+}
+
+func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy, action, remote, txnID string, amount int64, gameID string) (balance int64, status int, msg string, err error) {
+	var sum int64
+	var st int
+	var boMsg string
+	var lastErr error
+	for attempt := 0; attempt < boWalletTxMaxAttempts; attempt++ {
+		if attempt > 0 {
+			shift := min(attempt-1, 6)
+			backoff := time.Duration(1<<shift) * time.Millisecond
+			if backoff > 100*time.Millisecond {
+				backoff = 100 * time.Millisecond
+			}
+			select {
+			case <-ctx.Done():
+				return sum, st, boMsg, context.Cause(ctx)
+			case <-time.After(backoff):
+			}
+		}
+		sum, st, boMsg, lastErr = applyBOSeamless(ctx, pool, rdb, userID, ccy, action, remote, txnID, amount, gameID)
+		if lastErr == nil {
+			return sum, st, boMsg, nil
+		}
+		if !isBOWalletTxRetryable(lastErr) {
+			return sum, st, boMsg, lastErr
+		}
+		log.Printf("blueocean wallet: transient DB error, retrying (%d/%d): %v", attempt+1, boWalletTxMaxAttempts, lastErr)
+	}
+	return sum, st, boMsg, lastErr
+}
 
 // ShouldRouteBlueOceanWallet is used for GET/POST / when Blue Ocean stores only the API origin.
 // It returns true if the request should hit the seamless wallet handler instead of the API root stub.
@@ -84,7 +146,9 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 		remote := strings.TrimSpace(firstNonEmptyCI(q,
 			"remote_id", "player_id", "playerid", "userid", "user_id",
 		))
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		// Longer than typical HTTP client timeouts: BO concurrent / stress tests hammer one player and
+		// may queue on users row FOR UPDATE or hit transient deadlocks (retried in applyBOSeamlessWithRetry).
+		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		defer cancel()
 
 		userID, err := resolveBlueOceanRemoteUser(ctx, pool, remote)
@@ -95,7 +159,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 		if ok, _ := playcheck.LaunchAllowed(ctx, pool, cfg, r, userID); !ok {
 			sum, berr := ledger.AvailableBalance(ctx, pool, userID)
 			if berr != nil {
-				writeBOWalletJSON(w, 500, 0, "internal error")
+				writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 				return
 			}
 			writeBOWalletJSON(w, 403, sum, "")
@@ -130,7 +194,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 		case "", "balance":
 			sum, err := ledger.AvailableBalance(ctx, pool, userID)
 			if err != nil {
-				writeBOWalletJSON(w, 500, 0, "internal error")
+				writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 				return
 			}
 			writeBOWalletJSON(w, 200, sum, "")
@@ -147,7 +211,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				if ok && amt == 0 {
 					sum, berr := ledger.AvailableBalance(ctx, pool, userID)
 					if berr != nil {
-						writeBOWalletJSON(w, 500, 0, "internal error")
+						writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 						return
 					}
 					writeBOWalletJSON(w, 200, sum, "")
@@ -163,7 +227,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				if ok && amt == 0 {
 					sum, berr := ledger.AvailableBalance(ctx, pool, userID)
 					if berr != nil {
-						writeBOWalletJSON(w, 500, 0, "internal error")
+						writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
 						return
 					}
 					writeBOWalletJSON(w, 200, sum, "")
@@ -176,10 +240,10 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				}
 			}
 
-			sum, st, boMsg, err := applyBOSeamless(ctx, pool, rdb, userID, ccy, action, remote, txnID, amt, gameID)
+			sum, st, boMsg, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, ccy, action, remote, txnID, amt, gameID)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
-				writeBOWalletJSON(w, 500, sum, "internal error")
+				writeBOWalletJSON(w, 500, sum, boWalletErrInternal)
 				return
 			}
 			if st == 200 {

@@ -1,13 +1,34 @@
 package webhooks
 
 import (
+	"context"
 	"crypto/sha1"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+func TestIsBOWalletTxRetryable(t *testing.T) {
+	if isBOWalletTxRetryable(nil) {
+		t.Fatal("nil")
+	}
+	if isBOWalletTxRetryable(context.DeadlineExceeded) {
+		t.Fatal("deadline")
+	}
+	if !isBOWalletTxRetryable(&pgconn.PgError{Code: "40P01"}) {
+		t.Fatal("deadlock code")
+	}
+	if !isBOWalletTxRetryable(&pgconn.PgError{Code: "40001"}) {
+		t.Fatal("serialization")
+	}
+	if isBOWalletTxRetryable(&pgconn.PgError{Code: "23505"}) {
+		t.Fatal("unique violation not retryable")
+	}
+}
 
 func TestQueryValsGetCI(t *testing.T) {
 	q := url.Values{}

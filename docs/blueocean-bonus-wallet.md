@@ -7,6 +7,7 @@
 - Response: JSON `{"status":<int>,"balance":<number>}` with **balance in major units** as a JSON number (e.g. `{"status":200,"balance":300}` or `{"status":200,"balance":0.4}`), optional `msg`. Numeric encoding matches strict comparisons in Blue Ocean test tooling. **HTTP** responses use status **200**; business outcome is in the JSON `status` field (per [BO seamless overview](https://blueoceangaming.atlassian.net/wiki/spaces/iGPPD/pages/1209172128/Seamless+integration)). **Zero-amount debits** return JSON `status` 200 and unchanged balance.
 - **Rollback** (empty `amount` is fine): **bet rollback** restores funds from stored `bo:game:debit:*` lines for `transaction_id`; **win rollback** debits back a prior `bo:game:credit` for the same id (`game.win_rollback` in ledger). Unknown `transaction_id` → JSON `status` **404** and `TRANSACTION_NOT_FOUND`. Repeating the same rollback after it already applied → **200** and current balance (idempotent replay).
 - Idempotency: `bo:game:debit:{cash|bonus}:{remote}:{txnID}`, `bo:game:credit:…`, `bo:game:rollback:{bonus|cash}:…`, `bo:game:rollback:win:…`. **Duplicate debit** requests with the same `transaction_id` return the current balance without applying the stake again.
+- **Concurrent / stress tests:** the handler uses a longer callback timeout and **retries** transient Postgres errors (deadlock `40P01`, serialization `40001`) so parallel BO requests for the same player do not surface as JSON `500 Internal error` spuriously.
 
 ## Game launch (player)
 
