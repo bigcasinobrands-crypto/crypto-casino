@@ -15,6 +15,7 @@ import { augmentFingerprintRequiredError, getAuthFingerprintPayload } from './li
 import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './lib/playerFetch'
 import { messageCannotReachApi } from './lib/playerNetworkCopy'
 import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
+import { mergeServerFavouritesOnLogin } from './lib/gameStorage'
 
 const ACCESS = 'player_access_token'
 const REFRESH = 'player_refresh_token'
@@ -288,6 +289,18 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     () => Boolean(accessToken) || (playerCredentialsMode && me !== null),
     [accessToken, me],
   )
+
+  useEffect(() => {
+    if (!me?.id) return
+    let cancelled = false
+    void (async () => {
+      await mergeServerFavouritesOnLogin(apiFetch)
+      if (cancelled) return
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [me?.id, apiFetch])
 
   const login = useCallback(
     async (

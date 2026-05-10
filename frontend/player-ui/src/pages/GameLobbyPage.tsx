@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
+import { useFavouritesRevision } from '../hooks/useFavouritesRevision'
 import { GameThumbInteractiveShell } from '../components/GameThumbInteractiveShell'
 import { PortraitGameThumb } from '../components/PortraitGameThumb'
 import {
@@ -26,7 +27,7 @@ import {
   PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT,
   type PlayerChromeImmersiveCasinoPlayDetail,
 } from '../lib/playerChromeEvents'
-import { isFavourite, pushRecent, toggleFavourite } from '../lib/gameStorage'
+import { isFavourite, pushRecent, toggleFavouriteWithServerSync } from '../lib/gameStorage'
 import { playerFetch } from '../lib/playerFetch'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
@@ -331,8 +332,7 @@ export default function GameLobbyPage() {
   const [launchRetryNonce, setLaunchRetryNonce] = useState(0)
   const [launchModeChoice, setLaunchModeChoice] = useState<LaunchPlayMode | null>(null)
   const [requestedImmersiveLaunch, setRequestedImmersiveLaunch] = useState(false)
-  const [, bumpFav] = useState(0)
-  const refreshFav = useCallback(() => bumpFav((n) => n + 1), [])
+  useFavouritesRevision()
   const descriptionFallback = useMemo(() => t('gameLobby.descriptionFallback'), [t])
   /** Encodes how we fetch “recommended” tiles: same studio → else same category → else newest catalog slice. */
   const relatedFetchKey = useMemo(() => {
@@ -844,8 +844,11 @@ export default function GameLobbyPage() {
       openAuth('login', { navigateTo: postAuthTarget })
       return
     }
-    toggleFavourite(meta.id)
-    refreshFav()
+    toggleFavouriteWithServerSync(meta.id, {
+      isAuthenticated,
+      apiFetch,
+      onSyncFailed: () => toastPlayerNetworkError(t('profile.networkErrorShort'), 'favourite sync'),
+    })
   }
 
   return (

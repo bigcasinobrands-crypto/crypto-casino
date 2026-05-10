@@ -7,10 +7,12 @@ import { GameThumbInteractiveShell } from './GameThumbInteractiveShell'
 import { PortraitGameThumb } from './PortraitGameThumb'
 import { RequireAuthLink } from './RequireAuthLink'
 import { playerApiUrl } from '../lib/playerApiUrl'
-import { isFavourite, toggleFavourite } from '../lib/gameStorage'
+import { useFavouritesRevision } from '../hooks/useFavouritesRevision'
+import { isFavourite, toggleFavouriteWithServerSync } from '../lib/gameStorage'
 import { usePlayerAuth } from '../playerAuth'
 import { useAuthModal } from '../authModalContext'
 import { saveCatalogReturnBeforeGameOpen } from '../lib/catalogReturn'
+import { toastPlayerNetworkError } from '../notifications/playerToast'
 
 type GameRow = {
   id: string
@@ -41,9 +43,8 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
   const [games, setGames] = useState<GameRow[]>([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [, bumpFav] = useState(0)
-  const refreshFav = useCallback(() => bumpFav((n) => n + 1), [])
-  const { isAuthenticated } = usePlayerAuth()
+  useFavouritesRevision()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
   const { openAuth } = useAuthModal()
 
   useEffect(() => {
@@ -267,8 +268,12 @@ const GameSearchOverlay: FC<Props> = ({ open, onClose, initialQuery }) => {
                             openAuth('login', { navigateTo: lobbyTo })
                             return
                           }
-                          toggleFavourite(g.id)
-                          refreshFav()
+                          toggleFavouriteWithServerSync(g.id, {
+                            isAuthenticated,
+                            apiFetch,
+                            onSyncFailed: () =>
+                              toastPlayerNetworkError(t('profile.networkErrorShort'), 'favourite sync'),
+                          })
                         }}
                       >
                         {isFavourite(g.id) ? '★' : '☆'}

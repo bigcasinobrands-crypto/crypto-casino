@@ -25,13 +25,14 @@ import {
   getFavouriteIds,
   getRecentIds,
   isFavourite,
-  toggleFavourite,
+  toggleFavouriteWithServerSync,
 } from '../lib/gameStorage'
 import LobbyHomeSections from '../components/LobbyHomeSections'
 import { GameCardSkeleton } from '../components/GameCardSkeleton'
 import PromoHero from '../components/PromoHero'
 import HomeCryptoPaymentsBanner from '../components/HomeCryptoPaymentsBanner'
 import { useCompleteInitialLoad } from '../context/InitialAppLoadContext'
+import { useFavouritesRevision } from '../hooks/useFavouritesRevision'
 import ChallengesPageContent from '../components/challenges/ChallengesPageContent'
 import { GameThumbInteractiveShell } from '../components/GameThumbInteractiveShell'
 import { PortraitGameThumb } from '../components/PortraitGameThumb'
@@ -189,15 +190,14 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
 
   const completeInitialLoad = useCompleteInitialLoad()
 
-  const { isAuthenticated, refreshProfile } = usePlayerAuth()
+  const { isAuthenticated, refreshProfile, apiFetch } = usePlayerAuth()
   const { openAuth } = useAuthModal()
   const [games, setGames] = useState<Game[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [listLoading, setListLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
-  const [, bump] = useState(0)
-  const refreshFav = useCallback(() => bump((n) => n + 1), [])
+  const favRev = useFavouritesRevision()
 
   const secRaw = section ?? 'games'
   const sectionValid = SECTION_SET.has(secRaw)
@@ -380,6 +380,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     searchParams,
     isDashboardHome,
     operationalData?.last_catalog_sync_at,
+    favRev,
   ])
 
   const loadMore = useCallback(async () => {
@@ -536,11 +537,12 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
                         openAuth('login', { navigateTo: lobbyTo })
                         return
                       }
-                      toggleFavourite(g.id)
-                      refreshFav()
-                      if (sec === 'favourites') {
-                        setGames((prev) => prev.filter((x) => x.id !== g.id))
-                      }
+                      toggleFavouriteWithServerSync(g.id, {
+                        isAuthenticated,
+                        apiFetch,
+                        onSyncFailed: () =>
+                          toastPlayerNetworkError(t('profile.networkErrorShort'), 'favourite sync'),
+                      })
                     }}
                   >
                     {isFavourite(g.id) ? '★' : '☆'}

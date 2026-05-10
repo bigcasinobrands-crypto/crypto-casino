@@ -36,6 +36,7 @@ import (
 	"github.com/crypto-casino/core/internal/pii"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playerauth"
+	"github.com/crypto-casino/core/internal/playerfavourites"
 	"github.com/crypto-casino/core/internal/playercookies"
 	"github.com/crypto-casino/core/internal/pwnedpasswords"
 	"github.com/crypto-casino/core/internal/redisx"
@@ -435,6 +436,7 @@ func main() {
 				r.Get("/wallet/transactions", wallet.TransactionsHandler(pool))
 				r.Get("/wallet/game-history", wallet.GameHistoryHandler(pool))
 				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
+				playerfavourites.Mount(r, pool)
 				r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
 				// Per-user rate limit (5 attempts / 10 min) prevents a single user from
 				// hammering the withdraw endpoint regardless of IP rotation. The IP-based
