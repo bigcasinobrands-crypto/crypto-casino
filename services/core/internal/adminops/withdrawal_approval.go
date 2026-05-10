@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
+	"github.com/crypto-casino/core/internal/playernotify"
 	"github.com/crypto-casino/core/internal/wallet"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -234,6 +235,8 @@ func (h *Handler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
 		slog.ErrorContext(ctx, "admin_audit_log_insert_failed", "action", "withdrawal.reject", "wd_id", wdID, "err", err)
 	}
 	_ = adminapi.ConsumeStepUpForAction(ctx, h.Pool, "withdrawal.reject")
+
+	playernotify.WithdrawalRejected(h.Pool, h.Mail, h.Cfg, userID, wdID, ccy, amountMinor, body.Reason)
 
 	writeJSON(w, map[string]any{"ok": true, "withdrawal_id": wdID, "admin_decision": "rejected", "status": "REJECTED_BY_ADMIN"})
 }

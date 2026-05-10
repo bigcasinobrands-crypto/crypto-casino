@@ -20,7 +20,9 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/jobs"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/mail"
 	"github.com/crypto-casino/core/internal/obs"
+	"github.com/crypto-casino/core/internal/playernotify"
 	"github.com/crypto-casino/core/internal/payments/passimpay"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,7 +33,7 @@ import (
 // Credits ONLY via ledger; idempotent per logical funding key orderId + txhash (fallback orderId + body digest).
 //
 // https://passimpay.gitbook.io/passimpay-api/webhook
-func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Client) http.HandlerFunc {
+func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Client, sender mail.Sender) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -81,7 +83,7 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		// "type" field. Any other type is acknowledged but ignored.
 		// Ref: https://passimpay.gitbook.io/passimpay-api/webhook-1
 		if cbType == "withdraw" || cbType == "withdrawal" {
-			handlePassimpayWithdrawalCallback(r, pool, cfg, w, raw, m, bodyDigest, sigOK)
+			handlePassimpayWithdrawalCallback(r, pool, cfg, sender, w, raw, m, bodyDigest, sigOK)
 			return
 		}
 		if cbType != "" && cbType != "deposit" {
@@ -309,6 +311,10 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		if err := txn.Commit(ctx); err != nil {
 			http.Error(w, "commit_failed", http.StatusInternalServerError)
 			return
+		}
+
+		if inserted {
+			playernotify.DepositCredited(pool, sender, cfg, intentUser, orderID, intentCcy, minor)
 		}
 
 		if !inserted {

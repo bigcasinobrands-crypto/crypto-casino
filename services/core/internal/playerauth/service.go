@@ -193,11 +193,14 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string, s
 		return "", "", 0, ErrInvalidCredentials
 	}
 	var id, phash, emailStored string
+	var tfaEnabled, tfaAdminLocked bool
 	err = s.Pool.QueryRow(ctx, `
-		SELECT id::text, password_hash, email FROM users
+		SELECT id::text, password_hash, email,
+		       COALESCE(email_2fa_enabled, false), COALESCE(email_2fa_admin_locked, false)
+		FROM users
 		WHERE lower(email) = lower($1)
 		   OR (username IS NOT NULL AND lower(username) = lower($1))
-	`, identifier).Scan(&id, &phash, &emailStored)
+	`, identifier).Scan(&id, &phash, &emailStored, &tfaEnabled, &tfaAdminLocked)
 	if err != nil {
 		return "", "", 0, ErrInvalidCredentials
 	}
@@ -216,6 +219,17 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string, s
 	}
 	if err := s.assertUserPlayAllowed(ctx, id); err != nil {
 		return "", "", 0, err
+	}
+	if tfaEnabled && !tfaAdminLocked {
+		tok, err := s.StartEmailMFALogin(ctx, id, emailStored)
+		if err != nil {
+			if errors.Is(err, ErrEmailMFADeliveryUnavailable) {
+				return "", "", 0, ErrEmailMFADeliveryUnavailable
+			}
+			log.Printf("playerauth: email MFA login start: %v", err)
+			return "", "", 0, ErrSessionPersist
+		}
+		return "", "", 0, &NeedPlayerEmailMFAError{MFAToken: tok}
 	}
 	access, refresh, exp, err := s.issueSession(ctx, id, sc)
 	if err != nil {

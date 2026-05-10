@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { useAuthModal } from '../authModalContext'
 import { formatApiError, readApiError } from '../api/errors'
@@ -8,7 +9,7 @@ import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/p
 import { TurnstileField } from './TurnstileField'
 import { playerApiOriginConfigured } from '../lib/playerApiUrl'
 import { usePlayerAuth } from '../playerAuth'
-import { IconCheck, IconEye, IconEyeOff, IconLock, IconUser } from './icons'
+import { IconCheck, IconEye, IconEyeOff, IconLock, IconShieldCheck, IconUser } from './icons'
 
 function AuthError({ children }: { children: ReactNode }) {
   return (
@@ -100,7 +101,7 @@ export function LoginForm({
     return { pathname: location.pathname, search: `?${q.toString()}` }
   }, [location.pathname, location.search])
 
-  const { login } = usePlayerAuth()
+  const { login, completeLoginEmailMfa } = usePlayerAuth()
   const [email, setEmail] = useState(() => {
     try {
       return localStorage.getItem(rememberStorageKey) ?? ''
@@ -114,6 +115,18 @@ export function LoginForm({
   const [captcha, setCaptcha] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [step, setStep] = useState<'credentials' | 'email_mfa'>('credentials')
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+
+  function persistRememberEmail() {
+    try {
+      if (remember && email.trim()) localStorage.setItem(rememberStorageKey, email.trim())
+      else localStorage.removeItem(rememberStorageKey)
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -121,17 +134,35 @@ export function LoginForm({
     setLoading(true)
     const r = await login(email, password, captcha ?? undefined)
     setLoading(false)
-    if (!r.ok) {
+    if (r.kind === 'error') {
       toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/login')
       setErr(formatApiError(r.error, t('auth.signInFailed')))
       return
     }
-    try {
-      if (remember && email.trim()) localStorage.setItem(rememberStorageKey, email.trim())
-      else localStorage.removeItem(rememberStorageKey)
-    } catch {
-      /* ignore */
+    if (r.kind === 'email_mfa') {
+      setMfaToken(r.mfa_token)
+      setStep('email_mfa')
+      setMfaCode('')
+      setCaptcha(null)
+      return
     }
+    persistRememberEmail()
+    schedulePostAuthContinuation()
+  }
+
+  async function onSubmitEmailMfa(e: React.FormEvent) {
+    e.preventDefault()
+    if (!mfaToken) return
+    setErr(null)
+    setLoading(true)
+    const r = await completeLoginEmailMfa(mfaToken, mfaCode, captcha ?? undefined)
+    setLoading(false)
+    if (!r.ok) {
+      toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/login/email-mfa')
+      setErr(formatApiError(r.error, t('auth.login.emailMfaFailed')))
+      return
+    }
+    persistRememberEmail()
     schedulePostAuthContinuation()
   }
 
@@ -145,6 +176,48 @@ export function LoginForm({
         </AuthError>
       ) : null}
       {err ? <AuthError>{err}</AuthError> : null}
+      {step === 'email_mfa' ? (
+        <form
+          onSubmit={(e) => void onSubmitEmailMfa(e)}
+          className="rounded-casino-md border border-white/[0.08] bg-black/20 p-3 sm:p-3.5 flex flex-col gap-2.5 sm:gap-3 md:gap-2 md:p-3"
+        >
+          <p className="text-[11px] leading-snug text-casino-muted sm:text-xs">{t('auth.login.emailMfaHint')}</p>
+          <div className="flex flex-col gap-1 sm:gap-1.5">
+            <FieldLabel htmlFor={`${idPrefix}-login-mfa-code`}>{t('auth.login.emailMfaCodeLabel')}</FieldLabel>
+            <InputRow>
+              <IconShieldCheck size={14} className="max-sm:scale-90 shrink-0 text-casino-muted" aria-hidden />
+              <input
+                id={`${idPrefix}-login-mfa-code`}
+                className={authInputClass}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={8}
+                required
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder={t('auth.login.emailMfaCodePlaceholder')}
+              />
+            </InputRow>
+          </div>
+          <TurnstileField onToken={setCaptcha} />
+          <button
+            type="button"
+            className="text-left text-[11px] font-semibold text-casino-muted underline-offset-2 hover:text-casino-foreground hover:underline sm:text-xs"
+            onClick={() => {
+              setStep('credentials')
+              setMfaToken(null)
+              setMfaCode('')
+              setCaptcha(null)
+              setErr(null)
+            }}
+          >
+            {t('auth.login.emailMfaBack')}
+          </button>
+          <button type="submit" disabled={loading || mfaCode.length !== 6} className={authPrimaryBtnClass}>
+            {loading ? t('auth.login.emailMfaVerifying') : t('auth.login.emailMfaVerifyCta')}
+          </button>
+        </form>
+      ) : (
       <form
         onSubmit={(e) => void onSubmit(e)}
         className="rounded-casino-md border border-white/[0.08] bg-black/20 p-3 sm:p-3.5 flex flex-col gap-2.5 sm:gap-3 md:gap-2 md:p-3"
@@ -232,6 +305,7 @@ export function LoginForm({
           {loading ? t('auth.login.signingIn') : t('auth.login.signInCta')}
         </button>
       </form>
+      )}
 
       <Link
         to={registerTo}
@@ -300,6 +374,9 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
       setErr(formatApiError(r.error, t('auth.registerForm.registrationFailed')))
       return
     }
+    toast.message(t('auth.registerForm.verifyEmailToastTitle'), {
+      description: t('auth.registerForm.verifyEmailToastBody'),
+    })
     schedulePostAuthContinuation()
   }
 

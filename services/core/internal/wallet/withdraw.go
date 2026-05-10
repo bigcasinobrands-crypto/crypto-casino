@@ -10,6 +10,7 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fingerprint"
+	"github.com/crypto-casino/core/internal/mail"
 	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/crypto-casino/core/internal/playerapi"
@@ -26,7 +27,7 @@ type withdrawReq struct {
 }
 
 // WithdrawHandler debits the ledger and submits crypto payout via PassimPay when configured.
-func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, tickers *market.CryptoTickers, fp *fingerprint.Client) http.HandlerFunc {
+func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, tickers *market.CryptoTickers, fp *fingerprint.Client, sender mail.Sender) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, ok := playerapi.UserIDFromContext(r.Context())
 		if !ok {
@@ -39,7 +40,7 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, tickers *market.Cry
 			return
 		}
 		if cfg != nil && cfg.UsesPassimpay() {
-			withdrawalPassimpay(w, r, pool, cfg, tickers, fp)
+			withdrawalPassimpay(w, r, pool, cfg, tickers, fp, sender)
 			return
 		}
 		playerapi.WriteError(w, http.StatusServiceUnavailable, "passimpay_required",

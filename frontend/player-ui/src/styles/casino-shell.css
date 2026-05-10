@@ -293,6 +293,15 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  /*
+   * Oddin /esports on phones: scroll shell is overflow-y-hidden and bottom nav is position:fixed.
+   * The default ~5.25rem bottom padding only clears scrollable body pages — here it leaves a strip of
+   * unpainted padding that shows pure black (--color-casino-bg) between the preload (#07090f) and the nav.
+   */
+  .casino-shell-scroll.casino-shell-scroll--oddin-bifrost-mobile {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   .casino-shell-scroll--no-bottom-nav {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

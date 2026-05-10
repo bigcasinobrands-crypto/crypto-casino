@@ -38,6 +38,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/users/{id}/vip", h.getUserVIP)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/vip", h.patchUserVIP)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/compliance", h.PatchUserCompliance)
+	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/email-2fa", h.PatchPlayerEmail2FA)
 	r.Get("/vip/tiers", h.listVIPTiers)
 	r.With(adminapi.RequireAnyRole("superadmin")).Post("/vip/tiers", h.createVIPTier)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/vip/tiers/{id}", h.patchVIPTier)

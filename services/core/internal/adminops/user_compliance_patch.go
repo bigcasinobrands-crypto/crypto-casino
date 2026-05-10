@@ -2,12 +2,14 @@ package adminops
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
+	"github.com/crypto-casino/core/internal/playernotify"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -39,6 +41,8 @@ func (h *Handler) PatchUserCompliance(w http.ResponseWriter, r *http.Request) {
 	var setParts []string
 	var args []any
 	argN := 1
+	var notifySelfExcl *time.Time
+	var notifyClosure *time.Time
 
 	if b, ok := raw["self_excluded_until"]; ok {
 		if string(b) == "null" {
@@ -60,6 +64,7 @@ func (h *Handler) PatchUserCompliance(w http.ResponseWriter, r *http.Request) {
 					adminapi.WriteError(w, http.StatusBadRequest, "invalid_date", "self_excluded_until must be RFC3339")
 					return
 				}
+				notifySelfExcl = &t
 				setParts = append(setParts, `self_excluded_until = $`+strconv.Itoa(argN))
 				args = append(args, t)
 				argN++
@@ -87,6 +92,7 @@ func (h *Handler) PatchUserCompliance(w http.ResponseWriter, r *http.Request) {
 					adminapi.WriteError(w, http.StatusBadRequest, "invalid_date", "account_closed_at must be RFC3339")
 					return
 				}
+				notifyClosure = &t
 				setParts = append(setParts, `account_closed_at = $`+strconv.Itoa(argN))
 				args = append(args, t)
 				argN++
@@ -119,6 +125,20 @@ func (h *Handler) PatchUserCompliance(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
 		VALUES ($1::uuid, 'user.compliance_patch', 'player', $2)
 	`, staffID, meta)
+
+	if notifyClosure != nil || notifySelfExcl != nil {
+		var lines []string
+		if notifyClosure != nil {
+			lines = append(lines, fmt.Sprintf("Your account closure is recorded effective %s UTC.", notifyClosure.UTC().Format(time.RFC1123)))
+		}
+		if notifySelfExcl != nil {
+			lines = append(lines, fmt.Sprintf("A responsible-gambling self-exclusion is active until %s UTC.", notifySelfExcl.UTC().Format(time.RFC1123)))
+		}
+		if reason != "" {
+			lines = append(lines, "Note from operator: "+reason)
+		}
+		playernotify.AccountRestricted(h.Pool, h.Mail, h.Cfg, uid, strings.Join(lines, "\n\n"))
+	}
 
 	writeJSON(w, map[string]any{"ok": true})
 }

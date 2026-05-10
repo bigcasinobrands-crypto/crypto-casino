@@ -17,10 +17,12 @@ import (
 	"github.com/crypto-casino/core/internal/cryptokit"
 	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/mail"
 	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/payments/passimpay"
 	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/crypto-casino/core/internal/playerapi"
+	"github.com/crypto-casino/core/internal/playernotify"
 	"github.com/crypto-casino/core/internal/reconcile"
 	"github.com/crypto-casino/core/internal/riskassessment"
 	"github.com/google/uuid"
@@ -40,6 +42,7 @@ func withdrawalPassimpay(
 	cfg *config.Config,
 	tickers *market.CryptoTickers,
 	fp *fingerprint.Client,
+	sender mail.Sender,
 ) {
 	if cfg == nil || !cfg.PassimPayConfigured() {
 		playerapi.WriteError(w, http.StatusServiceUnavailable, "passimpay_unconfigured", "PassimPay withdrawals are not configured")
@@ -335,6 +338,7 @@ func withdrawalPassimpay(
 				"currency":        ccy,
 				"held_for_review": "operator_daily_payout_cap_exceeded",
 			})
+			playernotify.WithdrawalSubmitted(pool, sender, cfg, uid, pid.String(), ccy, body.AmountMinor, "Pending operator review — daily payout volume limit")
 			return
 		}
 	}
@@ -374,6 +378,8 @@ func withdrawalPassimpay(
 	_, _ = pool.Exec(r.Context(), `
 		UPDATE payment_withdrawals SET provider_transaction_id = $2, status = 'SUBMITTED_TO_PROVIDER', updated_at = now()
 		WHERE provider_order_id = $1`, idem, txProv)
+
+	playernotify.WithdrawalSentToProvider(pool, sender, cfg, uid, pid.String(), ccy, body.AmountMinor)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{

@@ -343,7 +343,7 @@ func main() {
 
 		r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
 		if cfg.UsesPassimpay() {
-			r.Post("/v1/webhooks/passimpay", webhooks.HandlePassimpayWebhook(pool, &cfg, rdb))
+			r.Post("/v1/webhooks/passimpay", webhooks.HandlePassimpayWebhook(pool, &cfg, rdb, mailSender))
 		}
 
 		// Oddin operator wallet (S2S): canonical routes are POST /v1/oddin/*. Oddin often configures
@@ -392,6 +392,7 @@ func main() {
 				r.Use(httprate.LimitByIP(40, time.Minute))
 				r.Post("/register", playerH.Register)
 				r.Post("/login", playerH.Login)
+				r.Post("/login/email-mfa", playerH.LoginEmailMFA)
 				r.Post("/refresh", playerH.Refresh)
 				r.Post("/logout", playerH.Logout)
 				r.Post("/verify-email", playerH.VerifyEmail)
@@ -407,6 +408,9 @@ func main() {
 					r.Patch("/profile/preferences", playerH.UpdatePreferences)
 					r.Post("/profile/redeem-promo", playerH.RedeemPromo)
 					r.Post("/verify-email/resend", playerH.ResendVerification)
+					r.Post("/email-2fa/begin-enable", playerH.Email2FABeginEnable)
+					r.Post("/email-2fa/confirm-enable", playerH.Email2FAConfirmEnable)
+					r.Post("/email-2fa/disable", playerH.Email2FADisable)
 					r.Get("/sessions", playerH.ListSessions)
 					r.Delete("/sessions/{sessionID}", playerH.RevokeSession)
 				})
@@ -453,7 +457,7 @@ func main() {
 				// hammering the withdraw endpoint regardless of IP rotation. The IP-based
 				// limit on the surrounding group still throttles bursts from any one IP.
 				r.With(playerapi.LimitByUserID(5, 10*time.Minute)).
-					Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, cmcTickers, fpClient))
+					Post("/wallet/withdraw", wallet.WithdrawHandler(pool, &cfg, cmcTickers, fpClient, mailSender))
 				r.With(httprate.LimitByIP(30, time.Minute)).Post("/sportsbook/oddin/session-token", oddinH.SessionToken)
 				r.Group(func(r chi.Router) {
 					r.Use(httprate.LimitByIP(60, time.Minute))

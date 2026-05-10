@@ -31,6 +31,8 @@ type MeProfile struct {
 	AvatarURL           *string
 	VIPTierID           *int
 	VIPTierName         *string
+	Email2FAEnabled     bool
+	Email2FAAdminLocked bool
 }
 
 func (s *Service) MeProfile(ctx context.Context, userID string) (MeProfile, error) {
@@ -39,12 +41,14 @@ func (s *Service) MeProfile(ctx context.Context, userID string) (MeProfile, erro
 	var rawAvatar *string
 	err := s.Pool.QueryRow(ctx, `
 		SELECT u.id::text, u.public_participant_id::text, u.email, u.created_at, u.email_verified_at, u.username, u.avatar_url,
+			COALESCE(u.email_2fa_enabled, false), COALESCE(u.email_2fa_admin_locked, false),
 			pvs.tier_id, vt.name
 		FROM users u
 		LEFT JOIN player_vip_state pvs ON pvs.user_id = u.id
 		LEFT JOIN vip_tiers vt ON vt.id = pvs.tier_id
 		WHERE u.id = $1::uuid
-	`, userID).Scan(&p.ID, &p.PublicParticipantID, &p.Email, &p.CreatedAt, &ev, &p.Username, &rawAvatar, &p.VIPTierID, &p.VIPTierName)
+	`, userID).Scan(&p.ID, &p.PublicParticipantID, &p.Email, &p.CreatedAt, &ev, &p.Username, &rawAvatar,
+		&p.Email2FAEnabled, &p.Email2FAAdminLocked, &p.VIPTierID, &p.VIPTierName)
 	p.EmailVerifiedAt = ev
 	if err != nil {
 		return p, err
@@ -222,7 +226,7 @@ func (s *Service) sendVerificationEmail(ctx context.Context, userID, email strin
 		return err
 	}
 	link := strings.TrimRight(s.PublicPlayerURL, "/") + "/verify-email?token=" + plain
-	if !pol.Verification.Enabled {
+	if !emailpolicy.VerificationEnabled(pol) {
 		return nil
 	}
 	subject := emailpolicy.VerificationSubject(pol)
@@ -315,7 +319,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 	if err != nil {
 		return err
 	}
-	if !pol.PasswordReset.Enabled {
+	if !emailpolicy.PasswordResetEnabled(pol) {
 		return nil
 	}
 	var uid string

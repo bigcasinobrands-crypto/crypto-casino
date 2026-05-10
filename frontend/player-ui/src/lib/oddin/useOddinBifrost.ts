@@ -86,10 +86,16 @@ export function useOddinBifrost(
 
       switch (t) {
         case 'LOADED':
-          setIframeReady(true)
+          // Defer dropping the shell loader until after Oddin's iframe has painted;
+          // LOADED can arrive slightly before first composited frame (mobile flash).
           setPhase('ready')
           setLoadMessage(null)
-          o.onLoaded?.()
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              setIframeReady(true)
+              o.onLoaded?.()
+            })
+          })
           void postClientEvent('LOADED', {})
           break
         case 'ERROR': {

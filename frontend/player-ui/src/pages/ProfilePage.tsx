@@ -2224,13 +2224,19 @@ function SettingsGeneral({
 /* ---- Security ---- */
 
 function SettingsSecurity() {
-  const { apiFetch } = usePlayerAuth()
+  const { t } = useTranslation()
+  const { apiFetch, me, refreshProfile } = usePlayerAuth()
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [confirmPw, setConfirmPw] = useState('')
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [tfaCode, setTfaCode] = useState('')
+  const [setupToken, setSetupToken] = useState<string | null>(null)
+  const [tfaMsg, setTfaMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [tfaBusy, setTfaBusy] = useState(false)
+  const tfaEnabled = Boolean(me?.email_2fa_enabled)
+  const tfaLocked = Boolean(me?.email_2fa_admin_locked)
 
   const savePassword = useCallback(async () => {
     setPwMsg(null)
@@ -2260,6 +2266,92 @@ function SettingsSecurity() {
       setSaving(false)
     }
   }, [apiFetch, currentPw, newPw, confirmPw])
+
+  const sendEnableCode = useCallback(async () => {
+    setTfaMsg(null)
+    setTfaBusy(true)
+    try {
+      const res = await apiFetch('/v1/auth/email-2fa/begin-enable', { method: 'POST' })
+      const j = (await res.json().catch(() => null)) as { setup_token?: string; message?: string } | null
+      if (!res.ok) {
+        const msg =
+          j?.message ??
+          (res.status === 409
+            ? t('settings.email2fa.alreadyOn')
+            : res.status === 403
+              ? t('settings.email2fa.locked')
+              : t('settings.email2fa.sendFailed'))
+        setTfaMsg({ ok: false, text: msg })
+        return
+      }
+      const tok = typeof j?.setup_token === 'string' ? j.setup_token.trim() : ''
+      if (!tok) {
+        setTfaMsg({ ok: false, text: t('settings.email2fa.sendFailed') })
+        return
+      }
+      setSetupToken(tok)
+      setTfaCode('')
+      setTfaMsg({ ok: true, text: t('settings.email2fa.codeSent') })
+    } catch {
+      setTfaMsg({ ok: false, text: t('profile.networkErrorShort') })
+    } finally {
+      setTfaBusy(false)
+    }
+  }, [apiFetch, t])
+
+  const confirmEnable = useCallback(async () => {
+    if (!setupToken) return
+    setTfaMsg(null)
+    setTfaBusy(true)
+    try {
+      const res = await apiFetch('/v1/auth/email-2fa/confirm-enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ setup_token: setupToken, code: tfaCode }),
+      })
+      const j = (await res.json().catch(() => null)) as { message?: string } | null
+      if (!res.ok) {
+        setTfaMsg({
+          ok: false,
+          text: j?.message ?? t('settings.email2fa.invalidCode'),
+        })
+        return
+      }
+      setSetupToken(null)
+      setTfaCode('')
+      setTfaMsg({ ok: true, text: t('settings.email2fa.enabledOk') })
+      await refreshProfile()
+    } catch {
+      setTfaMsg({ ok: false, text: t('profile.networkErrorShort') })
+    } finally {
+      setTfaBusy(false)
+    }
+  }, [apiFetch, refreshProfile, setupToken, tfaCode, t])
+
+  const disableTfa = useCallback(async () => {
+    setTfaMsg(null)
+    setTfaBusy(true)
+    try {
+      const res = await apiFetch('/v1/auth/email-2fa/disable', { method: 'POST' })
+      const j = (await res.json().catch(() => null)) as { message?: string } | null
+      if (!res.ok) {
+        setTfaMsg({
+          ok: false,
+          text: j?.message ?? t('settings.email2fa.disableFailed'),
+        })
+        return
+      }
+      setTfaMsg({ ok: true, text: t('settings.email2fa.disabledOk') })
+      await refreshProfile()
+    } catch {
+      setTfaMsg({ ok: false, text: t('profile.networkErrorShort') })
+    } finally {
+      setTfaBusy(false)
+    }
+  }, [apiFetch, refreshProfile, t])
+
+  const tfaOutlineBtn =
+    'mt-1 w-fit rounded-casino-md border border-casino-primary/40 px-6 py-2.5 text-sm font-bold text-casino-primary transition hover:bg-casino-primary/10 disabled:pointer-events-none disabled:opacity-45'
 
   return (
     <>
@@ -2303,34 +2395,88 @@ function SettingsSecurity() {
 
       <div className="my-8 border-t border-white/[0.06]" />
 
-      <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">Two Factor</h3>
-      <p className="mb-5 text-sm text-casino-muted">
-        To keep your account extra secure, keep a two factor authentication enabled.
-      </p>
+      <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">{t('settings.email2fa.title')}</h3>
+      <p className="mb-5 text-sm text-casino-muted">{t('settings.email2fa.subtitle')}</p>
+      {tfaLocked ? (
+        <p className="mb-4 rounded-casino-md border border-amber-500/35 bg-amber-950/25 px-3 py-2 text-xs text-amber-100">
+          {t('settings.email2fa.lockedBanner')}
+        </p>
+      ) : null}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-bold text-casino-muted">Authenticator App Code</label>
-          <div className="flex h-11 items-center gap-2 rounded-casino-sm border border-casino-border bg-white/[0.015] px-4">
-            <IconShieldCheck size={16} className="shrink-0 text-casino-muted" />
-            <span className="select-all font-mono text-sm tracking-wider text-casino-muted">
-              BU9D22DQF2NNKONDFDM4U4N4C7
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          <label className="text-[13px] font-bold text-casino-muted">Two Factor Code</label>
-          <SettingsInput
-            placeholder="Enter 6-digit code"
-            value={tfaCode}
-            onChange={setTfaCode}
-          />
-        </div>
-        <button
-          type="button"
-          className="mt-1 w-fit rounded-casino-md border border-casino-primary/40 px-6 py-2.5 text-sm font-bold text-casino-primary transition hover:bg-casino-primary/10"
-        >
-          Activate
-        </button>
+        {tfaEnabled ? (
+          <>
+            <div className="flex flex-col gap-2">
+              <label className="text-[13px] font-bold text-casino-muted">{t('settings.email2fa.statusLabel')}</label>
+              <div className="flex min-h-11 items-center gap-2 rounded-casino-sm border border-casino-border bg-white/[0.015] px-4">
+                <IconShieldCheck size={16} className="shrink-0 text-casino-primary" />
+                <span className="text-sm text-casino-foreground">{t('settings.email2fa.statusOn')}</span>
+              </div>
+            </div>
+            <button type="button" disabled={tfaBusy || tfaLocked} onClick={() => void disableTfa()} className={tfaOutlineBtn}>
+              {tfaBusy ? t('settings.email2fa.working') : t('settings.email2fa.turnOff')}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-col gap-2">
+              <label className="text-[13px] font-bold text-casino-muted">{t('settings.email2fa.emailVerificationLabel')}</label>
+              <div className="flex min-h-11 items-center gap-2 rounded-casino-sm border border-casino-border bg-white/[0.015] px-4">
+                <IconShieldCheck size={16} className="shrink-0 text-casino-muted" />
+                <span className="text-sm text-casino-muted">
+                  {setupToken ? t('settings.email2fa.sentHint') : t('settings.email2fa.idleHint')}
+                </span>
+              </div>
+            </div>
+            {!setupToken ? (
+              <button
+                type="button"
+                disabled={tfaBusy || tfaLocked}
+                onClick={() => void sendEnableCode()}
+                className={tfaOutlineBtn}
+              >
+                {tfaBusy ? t('settings.email2fa.working') : t('settings.email2fa.sendCode')}
+              </button>
+            ) : (
+              <>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[13px] font-bold text-casino-muted">{t('settings.email2fa.codeLabel')}</label>
+                  <SettingsInput
+                    placeholder={t('settings.email2fa.codePlaceholder')}
+                    value={tfaCode}
+                    onChange={(v) => setTfaCode(v.replace(/\D/g, '').slice(0, 6))}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={tfaBusy || tfaLocked || tfaCode.length !== 6}
+                    onClick={() => void confirmEnable()}
+                    className={tfaOutlineBtn}
+                  >
+                    {tfaBusy ? t('settings.email2fa.working') : t('settings.email2fa.activate')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={tfaBusy}
+                    className="mt-1 rounded-casino-md px-4 py-2.5 text-sm font-semibold text-casino-muted underline-offset-2 hover:text-casino-foreground hover:underline"
+                    onClick={() => {
+                      setSetupToken(null)
+                      setTfaCode('')
+                      setTfaMsg(null)
+                    }}
+                  >
+                    {t('settings.email2fa.cancelSetup')}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+        {tfaMsg ? (
+          <span className={`text-xs font-semibold ${tfaMsg.ok ? 'text-casino-success' : 'text-casino-destructive'}`}>
+            {tfaMsg.text}
+          </span>
+        ) : null}
       </div>
     </>
   )
@@ -2423,6 +2569,7 @@ function SettingsPrivacy() {
 /* ---- Preference ---- */
 
 function SettingsPreference() {
+  const { t } = useTranslation()
   const { apiFetch } = usePlayerAuth()
   const [prefs, setPrefs] = useState<Record<string, boolean>>({
     email_notifications: false,
@@ -2473,10 +2620,15 @@ function SettingsPreference() {
     [apiFetch],
   )
 
-  const items: { key: string; label: string; desc: string }[] = [
+  const items: { key: string; label: string; desc: string; detail?: string }[] = [
     { key: 'email_notifications', label: 'Email Notifications', desc: 'Receive promotional emails and updates' },
     { key: 'sound_effects', label: 'Sound Effects', desc: 'Play sounds during gameplay' },
-    { key: 'transaction_alerts', label: 'Transaction Alerts', desc: 'Get notified for deposits and withdrawals' },
+    {
+      key: 'transaction_alerts',
+      label: 'Transaction Alerts',
+      desc: 'Get notified for deposits and withdrawals',
+      detail: t('profile.prefs.transactionAlertsComplianceNote'),
+    },
   ]
 
   return (
@@ -2485,9 +2637,12 @@ function SettingsPreference() {
       <div className="flex flex-col gap-5">
         {items.map((item) => (
           <div key={item.key} className="flex items-center justify-between rounded-casino-md border border-casino-border bg-white/[0.02] px-4 py-3.5">
-            <div className="flex flex-col gap-0.5">
+            <div className="flex min-w-0 flex-col gap-0.5 pr-3">
               <span className="text-sm font-bold text-casino-foreground">{item.label}</span>
               <span className="text-xs text-casino-muted">{item.desc}</span>
+              {item.detail ? (
+                <span className="text-[11px] leading-relaxed text-casino-muted/90">{item.detail}</span>
+              ) : null}
             </div>
             <ToggleSwitch
               on={!!prefs[item.key]}
@@ -2798,9 +2953,11 @@ function SettingsVerify({
   onResendVerification: () => void
   resendMsg: string | null
 }) {
+  const { t } = useTranslation()
   return (
     <>
       <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">Verification</h3>
+      <p className="mb-4 text-xs leading-relaxed text-casino-muted">{t('profile.verification.nonBlockingHint')}</p>
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between rounded-casino-md border border-casino-border bg-white/[0.02] px-4 py-3.5">
           <span className="text-sm font-bold text-casino-foreground">Email Verification</span>

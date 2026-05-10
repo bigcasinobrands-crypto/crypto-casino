@@ -102,7 +102,7 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
 
       <div
         id="bifrost"
-        className="relative min-h-0 flex-1 w-full min-w-0 overflow-hidden [&_iframe]:block [&_iframe]:h-full [&_iframe]:min-h-0 [&_iframe]:w-full [&_iframe]:border-0"
+        className="relative isolate min-h-0 flex-1 w-full min-w-0 overflow-hidden overscroll-none touch-manipulation select-none [&_iframe]:block [&_iframe]:h-full [&_iframe]:max-h-full [&_iframe]:min-h-0 [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:touch-manipulation [&_iframe]:border-0"
       />
     </div>
   )

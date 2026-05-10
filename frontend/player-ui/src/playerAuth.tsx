@@ -59,7 +59,14 @@ export type MeResponse = {
   /** Resolved VIP tier name (from player_vip_state + vip_tiers); updates with periodic profile refresh. */
   vip_tier?: string
   vip_tier_id?: number
+  email_2fa_enabled?: boolean
+  email_2fa_admin_locked?: boolean
 }
+
+export type LoginResult =
+  | { kind: 'session' }
+  | { kind: 'email_mfa'; mfa_token: string; expires_in_seconds: number }
+  | { kind: 'error'; error: ApiErr | null }
 
 export type BalanceBreakdown = {
   cashMinor: number
@@ -83,6 +90,11 @@ type P = {
   login: (
     email: string,
     password: string,
+    captchaToken?: string,
+  ) => Promise<LoginResult>
+  completeLoginEmailMfa: (
+    mfaToken: string,
+    code: string,
     captchaToken?: string,
   ) => Promise<{ ok: true } | { ok: false; error: ApiErr | null }>
   register: (input: {
@@ -240,6 +252,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         res.status === 401 &&
         !path.includes('/v1/auth/refresh') &&
         !path.includes('/v1/auth/login') &&
+        !path.includes('/v1/auth/login/email-mfa') &&
         !path.includes('/v1/auth/register')
       ) {
         const ok = await refreshAccessInner()
@@ -328,9 +341,103 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
   }, [me?.id, apiFetch])
 
   const login = useCallback(
+    async (email: string, password: string, captchaToken?: string): Promise<LoginResult> => {
+      let res: Response
+      try {
+        const fpRes = await getAuthFingerprintPayload()
+        if (!fpRes.ok) {
+          return {
+            kind: 'error',
+            error: {
+              code: 'fingerprint_required',
+              status: 400,
+              message: fpRes.message,
+            },
+          }
+        }
+        res = await playerFetch('/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            ...(captchaToken ? { captcha_token: captchaToken } : {}),
+            ...fpRes.extra,
+          }),
+        })
+      } catch {
+        return {
+          kind: 'error',
+          error: {
+            code: 'network',
+            status: 0,
+            message: messageCannotReachApi(),
+          },
+        }
+      }
+      if (!res.ok) {
+        const missingOrigin =
+          import.meta.env.PROD &&
+          !playerApiOriginConfigured() &&
+          (res.status === 404 || res.status === 405)
+        return {
+          kind: 'error',
+          error: augmentFingerprintRequiredError(
+            await apiErrFromResponse(
+              res,
+              missingOrigin
+                ? 'Sign-in hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel to your core API https origin and redeploy; add this player URL to PLAYER_CORS_ORIGINS on the API.'
+                : undefined,
+            ),
+          ),
+        }
+      }
+      const j = (await res.json()) as {
+        email_mfa_required?: boolean
+        mfa_token?: string
+        expires_in_seconds?: number
+        access_token?: string
+        refresh_token?: string
+        expires_at?: number
+      }
+      if (j.email_mfa_required && typeof j.mfa_token === 'string' && j.mfa_token.trim()) {
+        return {
+          kind: 'email_mfa',
+          mfa_token: j.mfa_token.trim(),
+          expires_in_seconds: typeof j.expires_in_seconds === 'number' ? j.expires_in_seconds : 600,
+        }
+      }
+      if (!Number.isFinite(j.expires_at)) {
+        return {
+          kind: 'error',
+          error: {
+            code: 'invalid_session',
+            message: 'Incomplete token response',
+            status: 0,
+          } as ApiErr,
+        }
+      }
+      if (!playerCredentialsMode && (!j.access_token?.trim() || !j.refresh_token?.trim())) {
+        return {
+          kind: 'error',
+          error: {
+            code: 'invalid_session',
+            message: 'Incomplete token response',
+            status: 0,
+          } as ApiErr,
+        }
+      }
+      applySessionTokens(j.access_token ?? '', j.refresh_token ?? '', j.expires_at!)
+      await refreshProfile()
+      return { kind: 'session' }
+    },
+    [applySessionTokens, refreshProfile],
+  )
+
+  const completeLoginEmailMfa = useCallback(
     async (
-      email: string,
-      password: string,
+      mfaToken: string,
+      code: string,
       captchaToken?: string,
     ): Promise<{ ok: true } | { ok: false; error: ApiErr | null }> => {
       let res: Response
@@ -346,12 +453,12 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             },
           }
         }
-        res = await playerFetch('/v1/auth/login', {
+        res = await playerFetch('/v1/auth/login/email-mfa', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email,
-            password,
+            mfa_token: mfaToken,
+            code,
             ...(captchaToken ? { captcha_token: captchaToken } : {}),
             ...fpRes.extra,
           }),
@@ -377,7 +484,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             await apiErrFromResponse(
               res,
               missingOrigin
-                ? 'Sign-in hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel to your core API https origin and redeploy; add this player URL to PLAYER_CORS_ORIGINS on the API.'
+                ? 'Sign-in hit the player site, not the API. Set VITE_PLAYER_API_ORIGIN in Vercel to your core API https origin and redeploy.'
                 : undefined,
             ),
           ),
@@ -628,6 +735,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       apiFetch,
       setAvatarUrl,
       login,
+      completeLoginEmailMfa,
       register,
       logout,
       refreshProfile,
@@ -644,6 +752,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
       apiFetch,
       setAvatarUrl,
       login,
+      completeLoginEmailMfa,
       register,
       logout,
       refreshProfile,

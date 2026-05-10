@@ -281,7 +281,13 @@
     "ghColCategory": "Catégorie",
     "ghColSessions": "Sessions",
     "ghColAvgPlay": "Temps de jeu moy.",
-    "ghColLastPlayed": "Dernière partie"
+    "ghColLastPlayed": "Dernière partie",
+    "verification": {
+      "nonBlockingHint": "Vous pouvez continuer à jouer pendant que la vérification du courriel est en attente — vérifiez à tout moment ici."
+    },
+    "prefs": {
+      "transactionAlertsComplianceNote": "S'applique uniquement aux courriels de reçus de dépôt et de retrait facultatifs. La vérification du courriel, la réinitialisation du mot de passe et les avis importants sont toujours envoyés lorsque requis."
+    }
   },
   "auth": {
     "close": "Fermer",
@@ -313,7 +319,14 @@
       "registerLink": "S'inscrire",
       "registerAria": "Créer un compte — inscription",
       "showPassword": "Afficher le mot de passe",
-      "hidePassword": "Masquer le mot de passe"
+      "hidePassword": "Masquer le mot de passe",
+      "emailMfaHint": "Nous avons envoyé un code à 6 chiffres à l'adresse associée à ce compte. Entrez-le ci-dessous pour terminer la connexion.",
+      "emailMfaCodeLabel": "Code à deux facteurs",
+      "emailMfaCodePlaceholder": "Entrez le code à 6 chiffres",
+      "emailMfaVerifyCta": "Vérifier et se connecter",
+      "emailMfaVerifying": "Vérification…",
+      "emailMfaBack": "Utiliser un autre mot de passe",
+      "emailMfaFailed": "Impossible de vérifier le code"
     },
     "registerForm": {
       "email": "Courriel",
@@ -334,7 +347,9 @@
       "signInLink": "Se connecter",
       "signInAria": "Se connecter — vous avez déjà un compte",
       "showPassword": "Afficher le mot de passe",
-      "hidePassword": "Masquer le mot de passe"
+      "hidePassword": "Masquer le mot de passe",
+      "verifyEmailToastTitle": "Compte créé",
+      "verifyEmailToastBody": "Nous avons envoyé un lien de vérification à votre adresse. Vous pouvez continuer à explorer — la vérification peut attendre."
     },
     "forgotForm": {
       "email": "Courriel",
@@ -430,7 +445,32 @@
     "networkError": "Erreur réseau",
     "save": "Enregistrer",
     "saving": "Enregistrement…",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "email2fa": {
+      "title": "Deuxième facteur",
+      "subtitle": "Pour plus de sécurité, activez la vérification par courriel à la connexion. Un code à usage unique sera envoyé à chaque connexion.",
+      "lockedBanner": "Les paramètres du deuxième facteur ont été restreints par l'équipe pour ce compte. Contactez-nous pour lever la restriction.",
+      "statusLabel": "État",
+      "statusOn": "La vérification par courriel à la connexion est activée.",
+      "emailVerificationLabel": "Vérification par courriel",
+      "idleHint": "Activez pour recevoir un code par courriel avant chaque connexion.",
+      "sentHint": "Vérifiez votre boîte de réception — nous avons envoyé un code à 6 chiffres.",
+      "sendCode": "Envoyer le courriel de vérification",
+      "codeLabel": "Code à deux facteurs",
+      "codePlaceholder": "Entrez le code à 6 chiffres",
+      "activate": "Activer",
+      "turnOff": "Désactiver",
+      "cancelSetup": "Annuler",
+      "working": "Traitement…",
+      "codeSent": "Courriel de vérification envoyé.",
+      "enabledOk": "La vérification par courriel à la connexion est activée.",
+      "disabledOk": "La vérification par courriel à la connexion est désactivée.",
+      "sendFailed": "Impossible d'envoyer le courriel de vérification.",
+      "invalidCode": "Code invalide ou expiré.",
+      "disableFailed": "Impossible de désactiver. Le compte est peut-être restreint.",
+      "alreadyOn": "La vérification par courriel est déjà activée.",
+      "locked": "Les changements au deuxième facteur sont restreints pour ce compte."
+    }
   },
   "tx": {
     "display": {

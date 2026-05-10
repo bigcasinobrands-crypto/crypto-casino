@@ -7,9 +7,65 @@ import PageMeta from '../components/common/PageMeta'
 import { Toggle } from '../components/common/Toggle'
 import { StatusBadge } from '../components/dashboard'
 
+type WalletNotifications = {
+  withdrawal_submitted: boolean
+  withdrawal_completed: boolean
+  withdrawal_rejected: boolean
+  withdrawal_provider_failed: boolean
+  deposit_credited: boolean
+}
+
+type ComplianceNotifications = {
+  account_restricted: boolean
+}
+
 type TransactionalSpec = {
   verification: { enabled: boolean; subject?: string }
   password_reset: { enabled: boolean; subject?: string }
+  wallet_notifications: WalletNotifications
+  compliance_notifications: ComplianceNotifications
+}
+
+function defaultTransactional(): TransactionalSpec {
+  return {
+    verification: { enabled: true, subject: '' },
+    password_reset: { enabled: true, subject: '' },
+    wallet_notifications: {
+      withdrawal_submitted: false,
+      withdrawal_completed: false,
+      withdrawal_rejected: false,
+      withdrawal_provider_failed: false,
+      deposit_credited: false,
+    },
+    compliance_notifications: { account_restricted: false },
+  }
+}
+
+function mergeTransactional(raw: Partial<TransactionalSpec> | undefined): TransactionalSpec {
+  const d = defaultTransactional()
+  if (!raw) return d
+  return {
+    verification: {
+      enabled: raw.verification?.enabled ?? d.verification.enabled,
+      subject: raw.verification?.subject ?? d.verification.subject,
+    },
+    password_reset: {
+      enabled: raw.password_reset?.enabled ?? d.password_reset.enabled,
+      subject: raw.password_reset?.subject ?? d.password_reset.subject,
+    },
+    wallet_notifications: {
+      withdrawal_submitted: raw.wallet_notifications?.withdrawal_submitted ?? d.wallet_notifications.withdrawal_submitted,
+      withdrawal_completed: raw.wallet_notifications?.withdrawal_completed ?? d.wallet_notifications.withdrawal_completed,
+      withdrawal_rejected: raw.wallet_notifications?.withdrawal_rejected ?? d.wallet_notifications.withdrawal_rejected,
+      withdrawal_provider_failed:
+        raw.wallet_notifications?.withdrawal_provider_failed ?? d.wallet_notifications.withdrawal_provider_failed,
+      deposit_credited: raw.wallet_notifications?.deposit_credited ?? d.wallet_notifications.deposit_credited,
+    },
+    compliance_notifications: {
+      account_restricted:
+        raw.compliance_notifications?.account_restricted ?? d.compliance_notifications.account_restricted,
+    },
+  }
 }
 
 type EmailStatus = {
@@ -54,7 +110,7 @@ export default function EmailSettingsPage() {
       }
       const body = (await res.json()) as EmailStatus
       setStatus(body)
-      setDraft(body.transactional)
+      setDraft(mergeTransactional(body.transactional))
     } finally {
       setLoading(false)
     }
@@ -249,11 +305,161 @@ export default function EmailSettingsPage() {
                       />
                     </td>
                   </tr>
+                  <tr className="table-light">
+                    <td colSpan={3} className="fw-semibold pt-3 pb-1">
+                      Wallet receipts <span className="fw-normal text-muted small">(PassimPay — off by default)</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div className="fw-medium">Withdrawal submitted</div>
+                      <div className="text-muted small">Queued / sent to provider / treasury daily-cap hold</div>
+                    </td>
+                    <td>
+                      <Toggle
+                        checked={draft.wallet_notifications.withdrawal_submitted}
+                        disabled={!isSuper}
+                        onChange={(v) =>
+                          setDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  wallet_notifications: { ...d.wallet_notifications, withdrawal_submitted: v },
+                                }
+                              : d,
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="text-muted small">Plain text</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div className="fw-medium">Withdrawal completed</div>
+                      <div className="text-muted small">On-chain success webhook</div>
+                    </td>
+                    <td>
+                      <Toggle
+                        checked={draft.wallet_notifications.withdrawal_completed}
+                        disabled={!isSuper}
+                        onChange={(v) =>
+                          setDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  wallet_notifications: { ...d.wallet_notifications, withdrawal_completed: v },
+                                }
+                              : d,
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="text-muted small">Plain text</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div className="fw-medium">Withdrawal cancelled (staff)</div>
+                      <div className="text-muted small">Before provider submission — ledger unlocked</div>
+                    </td>
+                    <td>
+                      <Toggle
+                        checked={draft.wallet_notifications.withdrawal_rejected}
+                        disabled={!isSuper}
+                        onChange={(v) =>
+                          setDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  wallet_notifications: { ...d.wallet_notifications, withdrawal_rejected: v },
+                                }
+                              : d,
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="text-muted small">Plain text</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div className="fw-medium">Withdrawal provider failure</div>
+                      <div className="text-muted small">Terminal fail after payout attempt — compensation path</div>
+                    </td>
+                    <td>
+                      <Toggle
+                        checked={draft.wallet_notifications.withdrawal_provider_failed}
+                        disabled={!isSuper}
+                        onChange={(v) =>
+                          setDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  wallet_notifications: { ...d.wallet_notifications, withdrawal_provider_failed: v },
+                                }
+                              : d,
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="text-muted small">Plain text</td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div className="fw-medium">Deposit credited</div>
+                      <div className="text-muted small">First ledger credit per webhook idempotency key</div>
+                    </td>
+                    <td>
+                      <Toggle
+                        checked={draft.wallet_notifications.deposit_credited}
+                        disabled={!isSuper}
+                        onChange={(v) =>
+                          setDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  wallet_notifications: { ...d.wallet_notifications, deposit_credited: v },
+                                }
+                              : d,
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="text-muted small">Plain text</td>
+                  </tr>
+                  <tr className="table-light">
+                    <td colSpan={3} className="fw-semibold pt-3 pb-1">
+                      Compliance <span className="fw-normal text-muted small">(off by default)</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>
+                      <div className="fw-medium">Account restriction notice</div>
+                      <div className="text-muted small">Self-exclusion or closure timestamps applied in admin compliance</div>
+                    </td>
+                    <td>
+                      <Toggle
+                        checked={draft.compliance_notifications.account_restricted}
+                        disabled={!isSuper}
+                        onChange={(v) =>
+                          setDraft((d) =>
+                            d
+                              ? {
+                                  ...d,
+                                  compliance_notifications: { ...d.compliance_notifications, account_restricted: v },
+                                }
+                              : d,
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="text-muted small">Plain text</td>
+                  </tr>
                 </tbody>
               </table>
               <p className="text-muted small mb-0 mt-3">
                 When verification sends are off, tokens are still issued but no outbound mail is sent — useful during cutovers.
-                When password reset is off, no reset tokens are created.
+                When password reset is off, no reset tokens are created. Wallet and compliance rows only send when enabled here;
+                messages are plain text (no Resend HTML templates yet). Wallet receipts also require the player&apos;s{' '}
+                <strong>Transaction Alerts</strong> preference (Profile → Preferences); verification and compliance notices ignore it.
               </p>
             </div>
           </div>

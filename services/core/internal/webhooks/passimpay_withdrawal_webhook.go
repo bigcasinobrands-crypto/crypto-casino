@@ -32,6 +32,8 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/mail"
+	"github.com/crypto-casino/core/internal/playernotify"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -40,6 +42,7 @@ func handlePassimpayWithdrawalCallback(
 	r *http.Request,
 	pool *pgxpool.Pool,
 	cfg *config.Config,
+	sender mail.Sender,
 	w http.ResponseWriter,
 	raw []byte,
 	m map[string]any,
@@ -121,7 +124,9 @@ func handlePassimpayWithdrawalCallback(
 		// LEDGER_SETTLE_FAILED (a P6 retry case) — in which case we attempt the
 		// settle again. Idempotent.
 		if !isWithdrawalAlreadyTerminal(status) {
-			updateWithdrawalToCompleted(ctx, pool, orderID, txhash, providerTxID, confirmations)
+			if wdID, ok := updateWithdrawalToCompleted(ctx, pool, orderID, txhash, providerTxID, confirmations); ok {
+				playernotify.WithdrawalCompleted(pool, sender, cfg, userID, wdID, ccy, amountMinor)
+			}
 		} else {
 			log.Printf("passimpay withdraw webhook: COMPLETED arrived for already-terminal status=%s order=%s", status, orderID)
 		}
@@ -172,7 +177,8 @@ func handlePassimpayWithdrawalCallback(
 			http.Error(w, "compensation_failed", http.StatusInternalServerError)
 			return
 		}
-		_, _ = pool.Exec(ctx, `
+		var failedWD string
+		if err := pool.QueryRow(ctx, `
 			UPDATE payment_withdrawals SET
 				status = 'FAILED_BY_PROVIDER',
 				tx_hash = NULLIF($2,''),
@@ -181,7 +187,14 @@ func handlePassimpayWithdrawalCallback(
 				metadata = COALESCE(metadata,'{}'::jsonb) || jsonb_build_object('provider_terminal_fail', true),
 				updated_at = now()
 			WHERE provider = 'passimpay' AND provider_order_id = $1
-		`, orderID, txhash, confirmations, failureReason)
+			  AND status NOT IN ('COMPLETED','FAILED','FAILED_BY_PROVIDER','REJECTED_BY_ADMIN')
+			RETURNING withdrawal_id::text
+		`, orderID, txhash, confirmations, failureReason).Scan(&failedWD); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			log.Printf("passimpay withdraw webhook: FAILED_BY_PROVIDER update order=%s: %v", orderID, err)
+		}
+		if strings.TrimSpace(failedWD) != "" {
+			playernotify.WithdrawalProviderFailed(pool, sender, cfg, userID, failedWD, ccy, amountMinor, failureReason)
+		}
 		markProcessed(ctx, pool, dedupID, "COMPENSATED", raw)
 
 	default:
@@ -205,8 +218,8 @@ func handlePassimpayWithdrawalCallback(
 	_, _ = w.Write([]byte(`{"ok":true}`))
 }
 
-func updateWithdrawalToCompleted(ctx context.Context, pool *pgxpool.Pool, orderID, txhash, providerTxID string, confirmations int) {
-	_, err := pool.Exec(ctx, `
+func updateWithdrawalToCompleted(ctx context.Context, pool *pgxpool.Pool, orderID, txhash, providerTxID string, confirmations int) (withdrawalID string, updated bool) {
+	err := pool.QueryRow(ctx, `
 		UPDATE payment_withdrawals SET
 			status = 'COMPLETED',
 			tx_hash = COALESCE(NULLIF($2,''), tx_hash),
@@ -215,10 +228,15 @@ func updateWithdrawalToCompleted(ctx context.Context, pool *pgxpool.Pool, orderI
 			updated_at = now()
 		WHERE provider = 'passimpay' AND provider_order_id = $1
 		  AND status NOT IN ('COMPLETED','FAILED','FAILED_BY_PROVIDER','REJECTED_BY_ADMIN')
-	`, orderID, txhash, confirmations, providerTxID)
+		RETURNING withdrawal_id::text
+	`, orderID, txhash, confirmations, providerTxID).Scan(&withdrawalID)
 	if err != nil {
-		log.Printf("passimpay withdraw webhook: update COMPLETED order=%s: %v", orderID, err)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			log.Printf("passimpay withdraw webhook: update COMPLETED order=%s: %v", orderID, err)
+		}
+		return "", false
 	}
+	return withdrawalID, true
 }
 
 func isWithdrawalAlreadyTerminal(status string) bool {

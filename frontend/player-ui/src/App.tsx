@@ -618,6 +618,8 @@ function AppShell() {
                 oddinBifrostShell ? 'overscroll-y-none' : 'overscroll-y-contain'
               } ${
                 oddinBifrostShell ? 'overflow-y-hidden' : 'overflow-y-auto'
+              } ${
+                oddinBifrostShell && isMobileChrome ? 'casino-shell-scroll--oddin-bifrost-mobile' : ''
               } ${showBottomNav ? '' : 'casino-shell-scroll--no-bottom-nav'}`}
             >
               <div className="relative z-[210] shrink-0">

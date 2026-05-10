@@ -440,16 +440,22 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	var created time.Time
 	var selfExcl, closed *time.Time
 	var uname, avatar *string
+	var email2FAEnabled, email2FAAdminLocked bool
 	err := h.Pool.QueryRow(r.Context(), `
-		SELECT email, created_at, self_excluded_until, account_closed_at, username, avatar_url
+		SELECT email, created_at, self_excluded_until, account_closed_at, username, avatar_url,
+			COALESCE(email_2fa_enabled, false), COALESCE(email_2fa_admin_locked, false)
 		FROM users WHERE id = $1::uuid
-	`, id).Scan(&email, &created, &selfExcl, &closed, &uname, &avatar)
+	`, id).Scan(&email, &created, &selfExcl, &closed, &uname, &avatar, &email2FAEnabled, &email2FAAdminLocked)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusNotFound, "not_found", "user not found")
 		return
 	}
 	out := map[string]any{
-		"id": id, "email": email, "created_at": created.UTC().Format(time.RFC3339),
+		"id":                     id,
+		"email":                  email,
+		"created_at":             created.UTC().Format(time.RFC3339),
+		"email_2fa_enabled":      email2FAEnabled,
+		"email_2fa_admin_locked": email2FAAdminLocked,
 	}
 	if uname != nil {
 		out["username"] = *uname

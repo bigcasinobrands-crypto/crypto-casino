@@ -197,6 +197,8 @@ export default function PlayerDetailPage() {
   const [rgSelfExInput, setRgSelfExInput] = useState('')
   const [rgClosedInput, setRgClosedInput] = useState('')
   const [rgBusy, setRgBusy] = useState(false)
+  const [email2faBusy, setEmail2faBusy] = useState(false)
+  const [email2faMsg, setEmail2faMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [erasureBusy, setErasureBusy] = useState(false)
 
   const [boSyncBusy, setBoSyncBusy] = useState(false)
@@ -426,6 +428,41 @@ export default function PlayerDetailPage() {
       setComplianceMsg({ kind: 'err', text: 'Network error' })
     } finally {
       setRgBusy(false)
+    }
+  }
+
+  const patchPlayerEmail2FA = async (action: 'force_disable' | 'clear_admin_lock') => {
+    if (!id || !isSuper) return
+    const explain =
+      action === 'force_disable'
+        ? 'Turn OFF email sign-in verification for this player and block them from re-enrolling until the lock is cleared.'
+        : 'Clear the admin lock only (does not turn verification on). The player can manage email 2FA again.'
+    if (!window.confirm(`${explain}\n\nContinue?`)) return
+    setEmail2faBusy(true)
+    setEmail2faMsg(null)
+    try {
+      const path = `/v1/admin/users/${encodeURIComponent(id)}/email-2fa`
+      const res = await apiFetch(path, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const parsed = apiErrFromBody(body, res.status)
+        reportApiFailure({ res, parsed, method: 'PATCH', path })
+        setEmail2faMsg({ kind: 'err', text: formatApiError(parsed, `HTTP ${res.status}`) })
+        return
+      }
+      setEmail2faMsg({
+        kind: 'ok',
+        text: action === 'force_disable' ? 'Email 2FA forced off and enrollment locked.' : 'Admin lock cleared.',
+      })
+      await load()
+    } catch {
+      setEmail2faMsg({ kind: 'err', text: 'Network error' })
+    } finally {
+      setEmail2faBusy(false)
     }
   }
 
@@ -1067,6 +1104,61 @@ export default function PlayerDetailPage() {
             </div>
           ) : null}
         </div>
+      </ComponentCard>
+
+      </ComponentCard>
+
+      <ComponentCard
+        className="mt-6"
+        title="Email sign-in verification (2FA)"
+        desc="Superadmin only. Force-disable clears the player setting and blocks self-service enrollment until the lock is cleared."
+      >
+        {!isSuper ? (
+          <p className="text-sm text-amber-700 dark:text-amber-400">Superadmin role required.</p>
+        ) : (
+          <div className="space-y-3 text-sm">
+            <DefinitionTable
+              flush
+              rows={[
+                {
+                  field: 'Email 2FA enabled',
+                  value: definitionValueBoolean(Boolean(data?.email_2fa_enabled)),
+                  mono: false,
+                },
+                {
+                  field: 'Admin enrollment lock',
+                  value: definitionValueBoolean(Boolean(data?.email_2fa_admin_locked)),
+                  mono: false,
+                },
+              ]}
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={email2faBusy}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                onClick={() => void patchPlayerEmail2FA('force_disable')}
+              >
+                {email2faBusy ? 'Working…' : 'Force turn off + lock enrollment'}
+              </button>
+              <button
+                type="button"
+                disabled={email2faBusy}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-600"
+                onClick={() => void patchPlayerEmail2FA('clear_admin_lock')}
+              >
+                Clear admin lock
+              </button>
+            </div>
+            {email2faMsg ? (
+              <p
+                className={`text-sm ${email2faMsg.kind === 'ok' ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+              >
+                {email2faMsg.text}
+              </p>
+            ) : null}
+          </div>
+        )}
       </ComponentCard>
 
       <ComponentCard

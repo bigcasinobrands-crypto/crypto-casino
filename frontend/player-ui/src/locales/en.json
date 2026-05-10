@@ -281,7 +281,13 @@
     "ghColCategory": "Category",
     "ghColSessions": "Sessions",
     "ghColAvgPlay": "Avg Play Time",
-    "ghColLastPlayed": "Last Played"
+    "ghColLastPlayed": "Last Played",
+    "verification": {
+      "nonBlockingHint": "You can keep playing while email verification is pending — verify anytime here."
+    },
+    "prefs": {
+      "transactionAlertsComplianceNote": "Only affects optional deposit and withdrawal receipt emails. Verification, password reset, and important account notices are still sent when required."
+    }
   },
   "auth": {
     "close": "Close",
@@ -313,7 +319,14 @@
       "registerLink": "Register",
       "registerAria": "Create an account — register",
       "showPassword": "Show password",
-      "hidePassword": "Hide password"
+      "hidePassword": "Hide password",
+      "emailMfaHint": "We emailed a 6-digit code to the address on this account. Enter it below to finish signing in.",
+      "emailMfaCodeLabel": "Two Factor Code",
+      "emailMfaCodePlaceholder": "Enter 6-digit code",
+      "emailMfaVerifyCta": "Verify & sign in",
+      "emailMfaVerifying": "Verifying…",
+      "emailMfaBack": "Use a different password",
+      "emailMfaFailed": "Could not verify code"
     },
     "registerForm": {
       "email": "Email",
@@ -334,7 +347,9 @@
       "signInLink": "Sign in",
       "signInAria": "Sign in — already have an account",
       "showPassword": "Show password",
-      "hidePassword": "Hide password"
+      "hidePassword": "Hide password",
+      "verifyEmailToastTitle": "Account created",
+      "verifyEmailToastBody": "We sent a verification link to your inbox. You can keep exploring — verifying is optional for now."
     },
     "forgotForm": {
       "email": "Email",
@@ -430,7 +445,32 @@
     "networkError": "Network error",
     "save": "Save",
     "saving": "Saving…",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "email2fa": {
+      "title": "Two Factor",
+      "subtitle": "To keep your account extra secure, enable email verification at sign-in. Each login sends a one-time code to your email.",
+      "lockedBanner": "Two-factor settings were restricted by support on this account. Contact us if you need this lifted.",
+      "statusLabel": "Status",
+      "statusOn": "Email sign-in verification is on.",
+      "emailVerificationLabel": "Email verification",
+      "idleHint": "Turn on to receive a code by email before each sign-in.",
+      "sentHint": "Check your inbox — we sent a 6-digit code.",
+      "sendCode": "Send verification email",
+      "codeLabel": "Two Factor Code",
+      "codePlaceholder": "Enter 6-digit code",
+      "activate": "Activate",
+      "turnOff": "Turn off",
+      "cancelSetup": "Cancel",
+      "working": "Working…",
+      "codeSent": "Verification email sent.",
+      "enabledOk": "Email sign-in verification is now on.",
+      "disabledOk": "Email sign-in verification is off.",
+      "sendFailed": "Could not send verification email.",
+      "invalidCode": "Invalid or expired code.",
+      "disableFailed": "Could not turn off. Your account may be restricted.",
+      "alreadyOn": "Email verification is already enabled.",
+      "locked": "Two-factor changes are restricted on your account."
+    }
   },
   "tx": {
     "display": {

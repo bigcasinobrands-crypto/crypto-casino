@@ -82,6 +82,19 @@ type refreshReq struct {
 	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
 }
 
+type loginEmailMFAReq struct {
+	MFAToken             string `json:"mfa_token"`
+	Code                 string `json:"code"`
+	CaptchaToken         string `json:"captcha_token"`
+	FingerprintRequestID string `json:"fingerprint_request_id"`
+	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
+}
+
+type email2faConfirmEnableReq struct {
+	SetupToken string `json:"setup_token"`
+	Code       string `json:"code"`
+}
+
 type tokenRes struct {
 	AccessToken  string `json:"access_token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
@@ -207,6 +220,21 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
 	access, refresh, exp, err := h.Svc.Login(r.Context(), body.Email, body.Password, sc)
 	if err != nil {
+		var need *NeedPlayerEmailMFAError
+		if errors.As(err, &need) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"email_mfa_required": true,
+				"mfa_token":          need.MFAToken,
+				"expires_in_seconds": 600,
+			})
+			return
+		}
+		if errors.Is(err, ErrEmailMFADeliveryUnavailable) {
+			playerapi.WriteError(w, http.StatusServiceUnavailable, "email_mfa_unavailable", "Email sign-in verification is on for this account but outbound mail is not configured.")
+			return
+		}
 		if errors.Is(err, ErrInvalidCredentials) {
 			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
 			return
@@ -305,12 +333,14 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	out := map[string]any{
-		"id":                p.ID,
-		"participant_id":    p.PublicParticipantID,
-		"email":             p.Email,
-		"created_at":        p.CreatedAt.UTC().Format(time.RFC3339),
-		"email_verified":    verified,
-		"email_verified_at": verifiedAt,
+		"id":                     p.ID,
+		"participant_id":         p.PublicParticipantID,
+		"email":                  p.Email,
+		"created_at":             p.CreatedAt.UTC().Format(time.RFC3339),
+		"email_verified":         verified,
+		"email_verified_at":      verifiedAt,
+		"email_2fa_enabled":      p.Email2FAEnabled,
+		"email_2fa_admin_locked": p.Email2FAAdminLocked,
 	}
 	if p.Username != nil {
 		out["username"] = *p.Username
@@ -553,6 +583,123 @@ func (h *Handler) RedeemPromo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		playerapi.WriteError(w, http.StatusBadRequest, "invalid_code", "invalid promo code")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) LoginEmailMFA(w http.ResponseWriter, r *http.Request) {
+	var body loginEmailMFAReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	if h.rejectIfFingerprintMissing(w, body.FingerprintRequestID) {
+		return
+	}
+	if h.Captcha != nil && h.Captcha.Required() {
+		if err := h.Captcha.Verify(r.Context(), body.CaptchaToken, requestIP(r)); err != nil {
+			playerapi.WriteError(w, http.StatusBadRequest, "captcha_failed", "captcha verification failed")
+			return
+		}
+	}
+	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
+	access, refresh, exp, err := h.Svc.VerifyEmailMFALogin(r.Context(), body.MFAToken, body.Code, sc)
+	if err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid or expired verification code")
+			return
+		}
+		if errors.Is(err, ErrSessionPersist) {
+			log.Printf("playerauth: email MFA login session persist: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "session_failed", sessionPersistUserMsg(err, false))
+			return
+		}
+		log.Printf("playerauth: email MFA verify failed: %v", err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "verification failed")
+		return
+	}
+	writeTokens(w, h, access, refresh, exp)
+}
+
+func (h *Handler) Email2FABeginEnable(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	p, err := h.Svc.MeProfile(r.Context(), id)
+	if err != nil {
+		playerapi.WriteError(w, http.StatusNotFound, "not_found", "user not found")
+		return
+	}
+	tok, err := h.Svc.StartEmail2FAEnable(r.Context(), id, p.Email)
+	if err != nil {
+		if errors.Is(err, ErrEmail2FAAdminLocked) {
+			playerapi.WriteError(w, http.StatusForbidden, "email_2fa_admin_locked", "two-factor changes are restricted on your account")
+			return
+		}
+		if errors.Is(err, ErrEmail2FAAlreadyEnabled) {
+			playerapi.WriteError(w, http.StatusConflict, "email_2fa_already_enabled", "email sign-in verification is already on")
+			return
+		}
+		if errors.Is(err, ErrEmailMFADeliveryUnavailable) {
+			playerapi.WriteError(w, http.StatusServiceUnavailable, "mail_unavailable", "email delivery is not configured")
+			return
+		}
+		log.Printf("playerauth: begin email 2fa enable: %v", err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not send code")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"setup_token":        tok,
+		"expires_in_seconds": 600,
+	})
+}
+
+func (h *Handler) Email2FAConfirmEnable(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	var body email2faConfirmEnableReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		playerapi.WriteError(w, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	if err := h.Svc.ConfirmEmail2FAEnable(r.Context(), id, body.SetupToken, body.Code); err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			playerapi.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "invalid or expired verification code")
+			return
+		}
+		if errors.Is(err, ErrEmail2FAAdminLocked) {
+			playerapi.WriteError(w, http.StatusForbidden, "email_2fa_admin_locked", "two-factor changes are restricted on your account")
+			return
+		}
+		log.Printf("playerauth: confirm email 2fa enable: %v", err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not enable")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) Email2FADisable(w http.ResponseWriter, r *http.Request) {
+	id, ok := playerapi.UserIDFromContext(r.Context())
+	if !ok {
+		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+		return
+	}
+	if err := h.Svc.DisableEmail2FA(r.Context(), id); err != nil {
+		if errors.Is(err, ErrEmail2FAAdminLocked) {
+			playerapi.WriteError(w, http.StatusForbidden, "email_2fa_admin_locked", "two-factor changes are restricted on your account")
+			return
+		}
+		log.Printf("playerauth: disable email 2fa: %v", err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "could not disable")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
