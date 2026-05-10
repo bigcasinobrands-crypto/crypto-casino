@@ -181,7 +181,9 @@ INSERT INTO traffic_sessions (
   landing_path, last_path, utm_source, utm_medium, utm_campaign, utm_content, utm_term, page_views,
   fingerprint_visitor_id, fingerprint_request_id, geo_source
 ) VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9,$10,$11,$12,1,
-  NULLIF($13,''), NULLIF($14,''), NULLIF($15,''))
+  COALESCE(NULLIF($13,''), ''),
+  COALESCE(NULLIF($14,''), ''),
+  COALESCE(NULLIF($15,''), ''))
 ON CONFLICT (session_key) DO UPDATE SET
   last_at = now(),
   last_path = EXCLUDED.last_path,
@@ -198,15 +200,15 @@ ON CONFLICT (session_key) DO UPDATE SET
     WHEN NULLIF(EXCLUDED.device_type,'') IS NOT NULL AND EXCLUDED.device_type <> 'unknown' THEN EXCLUDED.device_type
     ELSE traffic_sessions.device_type
   END,
-  fingerprint_visitor_id = COALESCE(NULLIF(traffic_sessions.fingerprint_visitor_id,''), NULLIF(EXCLUDED.fingerprint_visitor_id,'')),
+  fingerprint_visitor_id = COALESCE(NULLIF(traffic_sessions.fingerprint_visitor_id,''), NULLIF(EXCLUDED.fingerprint_visitor_id,''), ''),
   fingerprint_request_id = COALESCE(NULLIF(EXCLUDED.fingerprint_request_id,''), traffic_sessions.fingerprint_request_id),
-  geo_source = CASE
+  geo_source = COALESCE(CASE
     WHEN EXCLUDED.country_iso2 IS NULL THEN traffic_sessions.geo_source
     WHEN traffic_sessions.country_iso2 IS NULL OR BTRIM(COALESCE(traffic_sessions.country_iso2, '')) = '' THEN COALESCE(NULLIF(EXCLUDED.geo_source,''), traffic_sessions.geo_source)
     WHEN COALESCE(EXCLUDED.geo_source, '') IN ('edge', 'fingerprint') THEN NULLIF(EXCLUDED.geo_source,'')
     WHEN COALESCE(traffic_sessions.geo_source, '') = 'locale' AND COALESCE(EXCLUDED.geo_source, '') = 'locale' THEN NULLIF(EXCLUDED.geo_source,'')
     ELSE traffic_sessions.geo_source
-  END
+  END, '')
 `
 
 	_, err = tx.Exec(ctx, insertSQL,

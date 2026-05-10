@@ -15,6 +15,7 @@ import (
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playerapi"
+	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -246,7 +247,7 @@ func RewardsHubHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
 			return
 		}
-		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		cc := sitestatus.GeoCountryISO2FromRequest(r)
 		days := 7
 		if v := r.URL.Query().Get("calendar_days"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 31 {

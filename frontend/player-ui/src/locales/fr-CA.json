@@ -20,7 +20,6 @@
       "rewards": "Mes bonus",
       "affiliate": "Parrainez et gagnez",
       "vip": "VIP",
-      "farming": "Farm",
       "raffle": "Tombola 25 K$"
     },
     "extras": {
@@ -49,7 +48,7 @@
     "comingSoon": "Bientôt disponible",
     "socialProof": {
       "regionLabel": "Aperçu d’activité du lobby",
-      "betsWagered": "Mises jouées",
+      "betsWagered": "Mises\u00a0jouées",
       "online": "En ligne"
     }
   },
@@ -663,6 +662,7 @@
       "maintenance": "Le site est en maintenance. Réessayez plus tard.",
       "launch_disabled": "Le lancement du jeu est temporairement désactivé.",
       "geo_blocked": "Les jeux ne sont pas disponibles dans votre région.",
+      "ip_blocked": "Les jeux ne sont pas disponibles depuis ce réseau.",
       "self_excluded": "Votre compte est auto-exclu du jeu.",
       "account_closed": "Ce compte est fermé.",
       "bog_unconfigured": "Les jeux ne sont pas disponibles (fournisseur non configuré).",

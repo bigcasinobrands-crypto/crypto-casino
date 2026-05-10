@@ -2,11 +2,15 @@ import type { FC, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { playerApiUrl } from '../../lib/playerApiUrl'
-import { IconBell, IconHexagon, IconMessageSquare, IconSend, IconSettings } from '../icons'
+import { useSiteContent } from '../../hooks/useSiteContent'
+import { IconBell, IconMessageSquare, IconSend, IconSettings } from '../icons'
+import { PlayerHeaderWordmark } from '../PlayerHeaderLogo'
 
 type Props = {
   maintenanceUntil: string | null | undefined
   supportEmail: string
+  /** When true, MAINTENANCE_MODE env on the API overrides the admin DB toggle until unset + restart. */
+  envMaintenanceLock?: boolean
 }
 
 function parseUntil(iso: string | null | undefined): Date | null {
@@ -15,7 +19,9 @@ function parseUntil(iso: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail }) => {
+export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail, envMaintenanceLock }) => {
+  const { getContent } = useSiteContent()
+  const brandFooter = (getContent<string>('branding.site_name', '') ?? '').trim() || 'vybebet'
   const target = useMemo(() => parseUntil(maintenanceUntil ?? null), [maintenanceUntil])
   const [now, setNow] = useState(() => Date.now())
 
@@ -57,7 +63,7 @@ export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail })
         toast.error(j?.error?.message ?? 'Could not subscribe. Try again later.')
         return
       }
-      toast.success("You're on the list — we'll email you when we're live.")
+      toast.success("You're on the list. We'll email you when we're live.")
       setEmail('')
     } catch {
       toast.error('Network error. Try again.')
@@ -69,45 +75,56 @@ export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail })
   const year = new Date().getFullYear()
 
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-[#0a0910] px-5 py-16 text-white antialiased">
-      {/* Decorative washes — no backdrop-filter blur */}
+    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-[#07090f] px-4 py-8 text-casino-foreground antialiased sm:px-5 sm:py-12 lg:py-16">
       <div
-        className="pointer-events-none absolute left-[-300px] top-[-300px] z-0 h-[800px] w-[800px] rounded-full bg-[#9b4dff] opacity-[0.12]"
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#0b0f1a] via-[#07090f] to-[#05060a]"
         aria-hidden
       />
       <div
-        className="pointer-events-none absolute bottom-[-200px] right-[-100px] z-0 h-[600px] w-[600px] rounded-full bg-[#7b2cff] opacity-[0.10]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,rgba(99,102,241,0.14),transparent_55%)]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_120%,rgba(15,23,42,0.88),transparent_65%)]"
         aria-hidden
       />
 
-      <div className="pointer-events-none absolute left-10 top-10 z-10 flex items-center gap-3 text-[28px] font-extrabold tracking-wide max-[520px]:left-5 max-[520px]:top-6">
-        <IconHexagon size={32} className="text-[#9b4dff]" aria-hidden />
-        <span>VybeBet</span>
+      <div className="pointer-events-none absolute left-5 top-6 z-10 sm:left-10 sm:top-10">
+        <PlayerHeaderWordmark size="header" />
       </div>
 
-      <main className="relative z-10 mx-auto w-full max-w-[640px] rounded-2xl border border-white/[0.06] bg-[#1c1924] px-10 py-14 text-center shadow-[0_32px_64px_rgba(0,0,0,0.6)] max-sm:px-6 max-sm:py-10">
-        <div className="mx-auto mb-6 flex h-[88px] w-[88px] items-center justify-center rounded-full border border-[#9b4dff]/20 bg-[#9b4dff]/10 text-[#9b4dff]">
-          <IconSettings size={40} aria-hidden />
+      <main className="relative z-10 mx-auto w-full max-w-[520px] rounded-2xl border border-casino-border bg-casino-surface px-5 py-8 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_48px_rgba(0,0,0,0.45)] sm:max-w-[580px] sm:px-8 sm:py-10 lg:max-w-[640px] lg:px-10 lg:py-12">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-casino-chip shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] ring-2 ring-casino-primary/35 sm:mb-6 sm:h-[72px] sm:w-[72px] lg:h-[84px] lg:w-[84px]">
+          <IconSettings size={36} className="text-casino-primary" aria-hidden />
         </div>
-        <h1 className="mb-4 text-3xl font-bold text-white">Scheduled Maintenance</h1>
-        <p className="mx-auto mb-10 max-w-[480px] text-base leading-relaxed text-[#8e86a8]">
+        <h1 className="mb-3 text-xl font-bold text-casino-foreground sm:mb-4 sm:text-2xl lg:text-3xl">Scheduled Maintenance</h1>
+        {envMaintenanceLock ? (
+          <p className="mx-auto mb-4 max-w-[440px] rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-left text-xs leading-relaxed text-amber-100/95">
+            This downtime is also enforced by the <strong className="font-semibold">MAINTENANCE_MODE</strong> server environment
+            variable. Clearing the admin toggle alone may not reopen the site until that env flag is removed on the API host and
+            the process is restarted.
+          </p>
+        ) : null}
+        <p className="mx-auto mb-8 max-w-[440px] text-sm leading-relaxed text-casino-muted sm:mb-9 sm:text-base lg:max-w-[480px]">
           We are currently upgrading our platform to provide you with an even better gaming experience. All funds and
           accounts are safe. We&apos;ll be back online shortly.
         </p>
 
-        <div className="mb-10 flex flex-wrap items-center justify-center gap-4">
+        <div className="mb-8 flex flex-wrap items-center justify-center gap-2 sm:mb-9 sm:gap-3 lg:mb-10 lg:gap-4">
           <TimeBox value={h} label="Hours" />
-          <span className="mb-[-16px] text-3xl font-bold text-[#8e86a8]" aria-hidden>
+          <span className="mb-[-12px] text-xl font-bold text-casino-muted sm:mb-[-14px] sm:text-2xl lg:mb-[-16px] lg:text-3xl" aria-hidden>
             :
           </span>
           <TimeBox value={m} label="Minutes" />
-          <span className="mb-[-16px] text-3xl font-bold text-[#8e86a8]" aria-hidden>
+          <span className="mb-[-12px] text-xl font-bold text-casino-muted sm:mb-[-14px] sm:text-2xl lg:mb-[-16px] lg:text-3xl" aria-hidden>
             :
           </span>
           <TimeBox value={s} label="Seconds" />
         </div>
         {!target ? (
-          <p className="mb-6 text-sm text-[#8e86a8]">End time not scheduled — we&apos;ll enable access from here soon.</p>
+          <p className="mb-6 text-sm text-casino-muted">
+            End time not scheduled. We&apos;ll enable access from here soon.
+          </p>
         ) : null}
 
         <label htmlFor="maint-notify-email" className="sr-only">
@@ -120,14 +137,14 @@ export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail })
           placeholder="your@email.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="mb-4 w-full max-w-sm rounded-lg border border-white/[0.06] bg-[#231f2d] px-4 py-3 text-center text-sm text-white outline-none ring-violet-500/40 placeholder:text-[#8e86a8]/70 focus:border-violet-500/35 focus:ring-2"
+          className="mb-4 w-full max-w-sm rounded-lg border border-casino-border bg-casino-chip px-4 py-3 text-center text-sm text-casino-foreground outline-none ring-casino-primary/40 placeholder:text-casino-muted focus:border-casino-primary/35 focus:ring-2"
         />
 
         <button
           type="button"
           disabled={busy}
           onClick={() => void onNotify()}
-          className="mx-auto flex h-12 items-center justify-center gap-2.5 rounded-lg bg-gradient-to-r from-[#9b4dff] to-[#7b2cff] px-8 text-base font-semibold text-white shadow-[0_4px_16px_rgba(155,77,255,0.25)] transition hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mx-auto flex h-11 items-center justify-center gap-2 rounded-[10px] bg-gradient-to-r from-casino-primary to-casino-primary-dim px-6 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_4px_16px_rgba(123,97,255,0.22)] transition hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50 disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:gap-2.5 sm:px-8 sm:text-base"
         >
           <IconBell size={18} aria-hidden />
           Notify Me When Live
@@ -148,8 +165,8 @@ export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail })
         </div>
       </main>
 
-      <p className="pointer-events-none absolute bottom-10 z-10 text-sm text-[#8e86a8] max-sm:bottom-6">
-        © {year} VybeBet. All rights reserved.
+      <p className="pointer-events-none absolute bottom-6 z-10 text-xs text-casino-muted sm:bottom-8 sm:text-sm lg:bottom-10">
+        © {year} {brandFooter}. All rights reserved.
       </p>
     </div>
   )
@@ -158,14 +175,14 @@ export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail })
 function TimeBox({ value, label }: { value: number; label: string }) {
   const text = String(value).padStart(2, '0')
   return (
-    <div className="flex h-[110px] w-[110px] flex-col items-center justify-center gap-2 rounded-xl border border-white/[0.06] bg-[#19171e] shadow-[0_8px_24px_rgba(0,0,0,0.2)] max-[420px]:h-[92px] max-[420px]:w-[92px]">
+    <div className="flex h-[76px] w-[76px] flex-col items-center justify-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:h-[92px] sm:w-[92px] sm:gap-2 lg:h-[110px] lg:w-[110px]">
       <span
-        className="bg-gradient-to-r from-[#9b4dff] to-[#7b2cff] bg-clip-text text-[40px] font-bold leading-none text-transparent max-[420px]:text-[32px]"
+        className="bg-gradient-to-r from-casino-primary to-casino-accent bg-clip-text text-[28px] font-bold leading-none text-transparent sm:text-[34px] lg:text-[40px]"
         aria-live="polite"
       >
         {text}
       </span>
-      <span className="text-xs font-semibold uppercase tracking-wider text-[#8e86a8]">{label}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-casino-muted sm:text-xs">{label}</span>
     </div>
   )
 }
@@ -187,7 +204,7 @@ function RoundSocial({
       target="_blank"
       rel="noreferrer"
       aria-label={label}
-      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.06] bg-[#19171e] text-[#8e86a8] transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400/70"
+      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.06] bg-casino-chip text-casino-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition hover:text-casino-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/50"
     >
       {icon}
     </a>

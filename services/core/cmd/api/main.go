@@ -37,9 +37,9 @@ import (
 	"github.com/crypto-casino/core/internal/pii"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playerauth"
+	"github.com/crypto-casino/core/internal/playercookies"
 	"github.com/crypto-casino/core/internal/playerfavourites"
 	"github.com/crypto-casino/core/internal/playerkyc"
-	"github.com/crypto-casino/core/internal/playercookies"
 	"github.com/crypto-casino/core/internal/pwnedpasswords"
 	"github.com/crypto-casino/core/internal/redisx"
 	"github.com/crypto-casino/core/internal/referrals"
@@ -282,6 +282,7 @@ func main() {
 	// Long-lived connections (WebSocket, SSE) bypass the 60s Timeout middleware.
 	r.Group(func(r chi.Router) {
 		r.Use(playerCORS.Handler)
+		r.Use(playerapi.PlayerSiteBarrierMiddleware(pool, &cfg))
 		r.Get("/v1/chat/ws", chat.HandleWebSocket(chatHub, pool, jwtIss, jtiRev, rdb))
 	})
 
@@ -369,6 +370,7 @@ func main() {
 		r.Route("/v1", func(r chi.Router) {
 			r.Use(playerCORS.Handler)
 			r.Use(playerapi.PlayerCookieCSRFMiddleware(&cfg))
+			r.Use(playerapi.PlayerSiteBarrierMiddleware(pool, &cfg))
 			r.Group(func(r chi.Router) {
 				r.Use(httprate.LimitByIP(120, time.Minute))
 				adminH.MountPublicRoutes(r)
@@ -617,9 +619,10 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			automatedGrantsEnabled = pf.AutomatedGrantsEnabled
 		}
 
-		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		cc := sitestatus.GeoCountryISO2FromRequest(r)
 		geoBlocked := sitestatus.GeoBlocked(ctx, pool, cfg, cc)
 		maintEff := sitestatus.MaintenanceEffective(ctx, pool, cfg)
+		ipBlocked, _ := sitestatus.PlayerIPBlocked(ctx, pool, r)
 		var maintUntil any = nil
 		if u := sitestatus.MaintenanceUntilFromDB(ctx, pool); u != nil {
 			maintUntil = u.UTC().Format(time.RFC3339)
@@ -627,8 +630,10 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 
 		out := map[string]any{
 			"maintenance_mode":                  maintEff,
+			"maintenance_mode_env":              cfg != nil && cfg.MaintenanceMode,
 			"maintenance_until":                 maintUntil,
 			"geo_blocked":                       geoBlocked,
+			"ip_blocked":                        ipBlocked,
 			"geo_country":                       cc,
 			"disable_game_launch":               cfg.DisableGameLaunch,
 			"blueocean_configured":              bog != nil && bog.Configured(),
@@ -664,6 +669,7 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
 		_ = json.NewEncoder(w).Encode(out)
 	}
 }

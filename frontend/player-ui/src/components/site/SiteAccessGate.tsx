@@ -1,21 +1,23 @@
 import type { FC, ReactNode } from 'react'
 import { useSharedOperationalHealth } from '../../context/OperationalHealthContext'
+import PlayerBootPreloadVisual from '../PlayerBootPreloadVisual'
+import { IpRestrictedScreen } from './IpRestrictedScreen'
 import { MaintenanceScreen } from './MaintenanceScreen'
 import { RegionRestrictedScreen } from './RegionRestrictedScreen'
 
 const SUPPORT_EMAIL =
   (import.meta.env.VITE_PUBLIC_SUPPORT_EMAIL as string | undefined)?.trim() || 'support@vybebet.com'
 
+/** Same branded preload as {@link PlayerBootOverlay}; gate blocks children until ops-health resolves. */
 function GateLoading() {
   return (
     <div
-      className="flex min-h-dvh flex-col items-center justify-center bg-[#0b0a0d] text-white"
+      className="flex h-dvh min-h-dvh w-full max-w-[100vw] flex-col overflow-hidden bg-black"
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-violet-400" />
-      <p className="mt-4 text-sm text-white/60">Loading…</p>
+      <PlayerBootPreloadVisual className="min-h-full min-w-full flex-1" />
     </div>
   )
 }
@@ -33,8 +35,19 @@ export const SiteAccessGate: FC<{ children: ReactNode }> = ({ children }) => {
     return <RegionRestrictedScreen countryCode={country} supportEmail={SUPPORT_EMAIL} />
   }
 
+  const ipBlocked = Boolean(data?.ip_blocked)
+  if (ipBlocked) {
+    return <IpRestrictedScreen supportEmail={SUPPORT_EMAIL} />
+  }
+
   if (data?.maintenance_mode) {
-    return <MaintenanceScreen maintenanceUntil={data.maintenance_until ?? null} supportEmail={SUPPORT_EMAIL} />
+    return (
+      <MaintenanceScreen
+        maintenanceUntil={data.maintenance_until ?? null}
+        supportEmail={SUPPORT_EMAIL}
+        envMaintenanceLock={Boolean(data.maintenance_mode_env)}
+      />
+    )
   }
 
   return children

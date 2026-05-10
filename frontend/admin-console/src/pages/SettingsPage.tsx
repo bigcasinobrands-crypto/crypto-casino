@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAdminAuth } from '../authContext'
-import { useOperationalFlags } from '../hooks/useOperationalFlags'
+import { useOperationalFlags, type OperationalFlags } from '../hooks/useOperationalFlags'
 import { StatusBadge } from '../components/dashboard'
 import { formatRelativeTime } from '../lib/format'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
@@ -20,6 +20,10 @@ import { PLAYER_BRANDING_DEFAULT_LOGO_PREVIEW } from '../lib/playerBrandLogo'
 const primaryBtn = 'btn btn-primary btn-sm'
 
 const outlineBtn = 'btn btn-outline-secondary btn-sm'
+
+/** Settings panels: outline primary save + outline secondary discard (matches Bonuses / Audit patterns). */
+const settingsSaveBtn = 'btn btn-outline-primary btn-sm'
+const settingsDiscardBtn = 'btn btn-outline-secondary btn-sm'
 
 const dangerBtn = 'btn btn-danger btn-sm'
 
@@ -40,6 +44,15 @@ type SettingsMap = Record<string, Record<string, SettingEntry>>
 
 type ContentEntry = { content: unknown; updated_at?: string; updated_by?: string }
 type ContentMap = Record<string, Record<string, ContentEntry>>
+
+/** GET /v1/admin/settings and /content return grouped maps at the JSON root; older clients expected `{ groups }`. */
+function normalizeAdminGroupedResponse<T extends Record<string, unknown>>(raw: unknown): T {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {} as T
+  const o = raw as Record<string, unknown>
+  const g = o.groups
+  if (g && typeof g === 'object' && !Array.isArray(g)) return g as T
+  return o as T
+}
 
 type HeroSlide = {
   image_url: string
@@ -71,6 +84,17 @@ function getSettingVal<T>(groups: SettingsMap, cat: string, key: string, fallbac
   const entry = groups?.[cat]?.[fullKey] ?? groups?.[cat]?.[key]
   if (!entry || entry.value === undefined || entry.value === null) return fallback
   return entry.value as T
+}
+
+/** Normalizes site_settings booleans when JSON comes through as string/number. */
+function coerceBoolSetting(v: unknown): boolean {
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'number') return v !== 0
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase()
+    return s === 'true' || s === '1' || s === 'yes'
+  }
+  return false
 }
 
 function getSettingMeta(groups: SettingsMap, cat: string, key: string) {
@@ -168,17 +192,31 @@ function LoadingSkeleton() {
 // Main Component
 // ---------------------------------------------------------------------------
 
-function SettingsAttentionStrip({ settings }: { settings: SettingsMap }) {
-  const maintenance = !!getSettingVal(settings, 'system', 'maintenance_mode', false)
-  const deposits = !!getSettingVal(settings, 'payments', 'deposits_enabled', true)
-  const withdrawals = !!getSettingVal(settings, 'payments', 'withdrawals_enabled', true)
-  const realPlay = !!getSettingVal(settings, 'games', 'real_play_enabled', true)
+function SettingsAttentionStrip({
+  settings,
+  operationalFlags,
+}: {
+  settings: SettingsMap
+  operationalFlags: OperationalFlags | null
+}) {
+  const maintenance =
+    operationalFlags != null && typeof operationalFlags.maintenance_mode === 'boolean'
+      ? operationalFlags.maintenance_mode
+      : coerceBoolSetting(getSettingVal(settings, 'system', 'maintenance_mode', false))
+  const deposits = coerceBoolSetting(getSettingVal(settings, 'payments', 'deposits_enabled', true))
+  const withdrawals = coerceBoolSetting(getSettingVal(settings, 'payments', 'withdrawals_enabled', true))
+  const realPlay = coerceBoolSetting(getSettingVal(settings, 'games', 'real_play_enabled', true))
   const risky = maintenance || !deposits || !withdrawals || !realPlay
   if (!risky) return null
   return (
     <div className="alert alert-warning small py-2 mb-3 d-flex flex-wrap align-items-center gap-2">
       <strong>Platform flags:</strong>
       {maintenance ? <span className="badge text-bg-danger">Maintenance on</span> : null}
+      {maintenance && operationalFlags?.maintenance_mode_env ? (
+        <span className="badge text-bg-secondary" title="Unset MAINTENANCE_MODE on the API process to allow the DB toggle to control the player gate.">
+          Env override
+        </span>
+      ) : null}
       {!deposits ? <span className="badge text-bg-warning">Deposits off</span> : null}
       {!withdrawals ? <span className="badge text-bg-warning">Withdrawals off</span> : null}
       {!realPlay ? <span className="badge text-bg-warning">Real play off</span> : null}
@@ -256,8 +294,8 @@ export default function SettingsPage() {
     try {
       const res = await apiFetch('/v1/admin/settings')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const j = (await res.json()) as { groups: SettingsMap }
-      setSettings(j.groups ?? {})
+      const j = await res.json()
+      setSettings(normalizeAdminGroupedResponse<SettingsMap>(j))
     } catch (e) {
       console.error('settings fetch', e)
     }
@@ -267,8 +305,8 @@ export default function SettingsPage() {
     try {
       const res = await apiFetch('/v1/admin/content')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const j = (await res.json()) as { groups: ContentMap }
-      setContent(j.groups ?? {})
+      const j = await res.json()
+      setContent(normalizeAdminGroupedResponse<ContentMap>(j))
     } catch (e) {
       console.error('content fetch', e)
     }
@@ -283,8 +321,10 @@ export default function SettingsPage() {
   // Setting mutators
   // -----------------------------------------------------------------------
 
+  type PatchSettingOpts = { quietSuccess?: boolean; skipRefresh?: boolean }
+
   const patchSetting = useCallback(
-    async (key: string, value: unknown) => {
+    async (key: string, value: unknown, opts?: PatchSettingOpts) => {
       try {
         const res = await apiFetch('/v1/admin/settings', {
           method: 'PATCH',
@@ -297,8 +337,8 @@ export default function SettingsPage() {
           toast.error(`Failed to update ${key}: ${msg}`)
           return false
         }
-        toast.success(`Updated ${key}`)
-        await fetchSettings()
+        if (!opts?.quietSuccess) toast.success(`Updated ${key}`)
+        if (!opts?.skipRefresh) await fetchSettings()
         return true
       } catch (e) {
         toast.error(`Error updating ${key}`)
@@ -424,20 +464,40 @@ function SystemControlsTab({
   apiFetch,
 }: {
   settings: SettingsMap
-  patchSetting: (key: string, value: unknown) => Promise<boolean>
+  patchSetting: (key: string, value: unknown, opts?: { quietSuccess?: boolean; skipRefresh?: boolean }) => Promise<boolean>
   isSuper: boolean
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>
 }) {
+  const { flags: operationalFlags, reload: reloadOperationalFlags } = useOperationalFlags(apiFetch)
+
+  const maintenanceEffective = useMemo(() => {
+    if (operationalFlags != null && typeof operationalFlags.maintenance_mode === 'boolean') {
+      return operationalFlags.maintenance_mode
+    }
+    return coerceBoolSetting(getSettingVal(settings, 'system', 'maintenance_mode', false))
+  }, [operationalFlags, settings])
+
   return (
     <>
-      <SettingsAttentionStrip settings={settings} />
+      <SettingsAttentionStrip settings={settings} operationalFlags={operationalFlags} />
       <div className="row g-3">
         <div className="col-lg-3 d-none d-lg-block">
           <SettingsSystemOutline />
         </div>
         <div className="col-lg-9">
-          <KillSwitchesPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
-          <MaintenanceSchedulePanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
+          <KillSwitchesPanel
+            settings={settings}
+            patchSetting={patchSetting}
+            isSuper={isSuper}
+            operationalFlags={operationalFlags}
+            reloadOperationalFlags={reloadOperationalFlags}
+          />
+          <MaintenanceSchedulePanel
+            settings={settings}
+            patchSetting={patchSetting}
+            isSuper={isSuper}
+            maintenanceEffective={maintenanceEffective}
+          />
           <SecurityAccessPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
           <WithdrawalLimitsPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
           <SocialProofPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
@@ -508,23 +568,82 @@ const KILL_SWITCHES = [
   { key: 'chat_enabled', label: 'Chat Enabled', cat: 'chat' },
 ] as const
 
+function deriveKillSwitchDraft(groups: SettingsMap, operationalFlags: OperationalFlags | null): Record<string, boolean> {
+  const out: Record<string, boolean> = {}
+  for (const sw of KILL_SWITCHES) {
+    const raw = getSettingVal(groups, sw.cat, sw.key, false)
+    const db = coerceBoolSetting(raw)
+    if (sw.key === 'maintenance_mode') {
+      const eff = operationalFlags?.maintenance_mode
+      out[sw.key] = typeof eff === 'boolean' ? eff : db
+    } else {
+      out[sw.key] = db
+    }
+  }
+  return out
+}
+
 function KillSwitchesPanel({
   settings,
   patchSetting,
   isSuper,
+  operationalFlags,
+  reloadOperationalFlags,
 }: {
   settings: SettingsMap
-  patchSetting: (key: string, value: unknown) => Promise<boolean>
+  patchSetting: (key: string, value: unknown, opts?: { quietSuccess?: boolean; skipRefresh?: boolean }) => Promise<boolean>
   isSuper: boolean
+  operationalFlags: OperationalFlags | null
+  reloadOperationalFlags: () => Promise<void>
 }) {
-  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const serverDraft = useMemo(() => deriveKillSwitchDraft(settings, operationalFlags), [settings, operationalFlags])
+  const [draft, setDraft] = useState(serverDraft)
+  const [saving, setSaving] = useState(false)
+  /** True after any toggle; keeps Discard enabled if user toggles back to server values (dirtyKeys empty). */
+  const [hasLocalEdits, setHasLocalEdits] = useState(false)
 
-  const toggleSwitch = async (fullKey: string, shortKey: string, currentVal: boolean) => {
-    if (!isSuper) return toast.error('Superadmin required')
-    setBusyKey(shortKey)
-    await patchSetting(fullKey, !currentVal)
-    setBusyKey(null)
+  useEffect(() => {
+    if (!hasLocalEdits) {
+      setDraft(serverDraft)
+    }
+  }, [serverDraft, hasLocalEdits])
+
+  const dirtyKeys = useMemo(
+    () => KILL_SWITCHES.filter((sw) => draft[sw.key] !== serverDraft[sw.key]).map((sw) => sw.key),
+    [draft, serverDraft],
+  )
+
+  const discard = () => {
+    setHasLocalEdits(false)
+    setDraft(serverDraft)
   }
+
+  const saveAll = async () => {
+    if (!isSuper) {
+      toast.error('Superadmin required')
+      return
+    }
+    if (dirtyKeys.length === 0) return
+    setSaving(true)
+    try {
+      const changed = KILL_SWITCHES.filter((sw) => dirtyKeys.includes(sw.key))
+      for (let i = 0; i < changed.length; i++) {
+        const sw = changed[i]
+        const fullKey = `${sw.cat}.${sw.key}`
+        const isLast = i === changed.length - 1
+        const ok = await patchSetting(fullKey, draft[sw.key], { quietSuccess: true, skipRefresh: !isLast })
+        if (!ok) return
+      }
+      toast.success(`Saved ${changed.length} kill switch${changed.length === 1 ? '' : 'es'}`)
+      setHasLocalEdits(false)
+      await reloadOperationalFlags()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveDisabled = !isSuper || saving || dirtyKeys.length === 0
+  const discardDisabled = !isSuper || saving || (!hasLocalEdits && dirtyKeys.length === 0)
 
   const statusLine = (sw: (typeof KILL_SWITCHES)[number], val: boolean) => {
     if (sw.key === 'maintenance_mode') {
@@ -538,14 +657,37 @@ function KillSwitchesPanel({
   }
 
   return (
-    <Section id="settings-kill-switches" title="Kill Switches" desc="Master toggles for platform features" defaultOpen>
+    <Section
+      id="settings-kill-switches"
+      title="Kill Switches"
+      desc="Master toggles for platform features. Flip switches, then Save changes to apply."
+      defaultOpen
+    >
+      {operationalFlags?.maintenance_mode_env ? (
+        <div className="alert alert-warning small mb-3 py-2" role="status">
+          <strong>MAINTENANCE_MODE</strong> is enabled on this API process environment. The player site stays in maintenance
+          until that env flag is cleared on the server, even if the toggle below shows <strong>Off</strong> in the database.
+          Use your hosting/env files (for example <code className="small">services/core/.env</code>) to unset it, then restart
+          the API.
+        </div>
+      ) : null}
+      {!isSuper ? (
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
+          Superadmin role required to edit kill switches.
+        </p>
+      ) : (
+        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          Switches reflect your draft until you save. Values mirror live gates once loaded (maintenance includes env + DB).
+          Green badge and switch right mean <strong>On</strong>. Gray badge and switch left mean <strong>Off</strong>.
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-3">
         {KILL_SWITCHES.map((sw) => {
-          const fullKey = `${sw.cat}.${sw.key}`
-          const val = !!getSettingVal(settings, sw.cat, sw.key, false)
+          const val = draft[sw.key] ?? serverDraft[sw.key]
           const meta = getSettingMeta(settings, sw.cat, sw.key)
           const maintenanceWarn = sw.key === 'maintenance_mode' && val
           const st = statusLine(sw, val)
+          const rowDirty = draft[sw.key] !== serverDraft[sw.key]
           return (
             <div
               key={sw.key}
@@ -553,45 +695,104 @@ function KillSwitchesPanel({
                 'flex min-h-[4.5rem] flex-col gap-3 rounded-xl border px-4 py-3 transition-colors sm:min-h-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3',
                 maintenanceWarn
                   ? 'border-amber-400/70 bg-amber-50/90 dark:border-amber-700/60 dark:bg-amber-950/35'
-                  : 'border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-white/[0.02]',
+                  : rowDirty
+                    ? 'border-blue-300/80 bg-blue-50/60 dark:border-blue-600/50 dark:bg-blue-950/25'
+                    : 'border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-white/[0.02]',
               ].join(' ')}
             >
-              <div className="min-w-0 flex-1 space-y-1">
+              <div className="min-w-0 flex-1 space-y-2">
                 <div className="text-sm font-medium leading-snug text-gray-800 dark:text-gray-100">{sw.label}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={[
+                      'inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                      val
+                        ? 'bg-emerald-500/18 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+                        : 'bg-gray-500/15 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400',
+                    ].join(' ')}
+                  >
+                    {val ? 'On' : 'Off'}
+                  </span>
+                  {rowDirty ? (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                      Unsaved
+                    </span>
+                  ) : null}
+                </div>
                 <p className={`text-xs font-medium ${st.cls}`}>{st.text}</p>
                 {meta?.updated_at ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500">
-                    {formatRelativeTime(meta.updated_at)}
+                    Saved {formatRelativeTime(meta.updated_at)}
                     {meta.updated_by ? ` · ${meta.updated_by}` : ''}
                   </p>
                 ) : null}
               </div>
-              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-200/80 pt-3 dark:border-white/[0.06] sm:border-t-0 sm:pt-0">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 sm:hidden">
-                  {val ? 'On' : 'Off'}
-                </span>
+              <div className="flex shrink-0 items-center justify-end gap-3 border-t border-gray-200/80 pt-3 dark:border-white/[0.06] sm:border-t-0 sm:pt-0">
                 <Toggle
                   checked={val}
-                  ariaLabel={sw.label}
-                  disabled={busyKey === sw.key || !isSuper}
-                  onChange={() => void toggleSwitch(fullKey, sw.key, val)}
+                  ariaLabel={`${sw.label}: ${val ? 'on' : 'off'}`}
+                  disabled={!isSuper}
+                  onChange={(next) => {
+                    setHasLocalEdits(true)
+                    setDraft((d) => ({ ...d, [sw.key]: next }))
+                  }}
                 />
               </div>
             </div>
           )
         })}
       </div>
+
+      <div className="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-4 dark:border-white/[0.08]">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={`${settingsSaveBtn} ${saveDisabled ? 'opacity-60' : ''}`}
+            disabled={saveDisabled}
+            onClick={() => void saveAll()}
+          >
+            {saving ? 'Saving…' : dirtyKeys.length === 0 ? 'Save changes' : `Save changes (${dirtyKeys.length})`}
+          </button>
+          <button
+            type="button"
+            className={`${settingsDiscardBtn} ${discardDisabled ? 'opacity-60' : ''}`}
+            disabled={discardDisabled}
+            onClick={discard}
+          >
+            Discard
+          </button>
+        </div>
+        {isSuper ? (
+          <p className="mb-0 text-xs text-gray-500 dark:text-gray-400">
+            {dirtyKeys.length > 0
+              ? `${dirtyKeys.length} switch${dirtyKeys.length === 1 ? '' : 'es'} differ from what is saved. Save to apply or Discard to revert.`
+              : hasLocalEdits
+                ? 'Draft matches saved values. Use Discard to reload from the server or adjust a switch again.'
+                : 'Turn a switch on or off to enable Save and Discard.'}
+          </p>
+        ) : null}
+      </div>
     </Section>
   )
 }
 
 function parseBlockedCountriesRaw(raw: unknown): string[] {
+  if (raw == null) return []
   if (Array.isArray(raw)) {
     return raw.map((x) => String(x).toUpperCase().trim()).filter((x) => x.length === 2)
   }
   if (typeof raw === 'string') {
-    return raw
-      .split(/[,\s]+/)
+    const t = raw.trim()
+    if (t.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(t) as unknown
+        if (Array.isArray(parsed)) return parseBlockedCountriesRaw(parsed)
+      } catch {
+        /* fall through to delimiter split */
+      }
+    }
+    return t
+      .split(/[,\s;]+/)
       .map((s) => s.toUpperCase().trim())
       .filter((s) => s.length === 2)
   }
@@ -619,6 +820,7 @@ function IpRuleList({
   saving,
   onSave,
   saveKey,
+  onDraftEdit,
 }: {
   label: string
   hint?: string
@@ -628,6 +830,8 @@ function IpRuleList({
   saving: boolean
   onSave: () => void
   saveKey: string
+  /** Called when chips or draft input mutates the pending list (before save). */
+  onDraftEdit?: () => void
 }) {
   const [draft, setDraft] = useState('')
   const add = () => {
@@ -641,6 +845,7 @@ function IpRuleList({
       setDraft('')
       return
     }
+    onDraftEdit?.()
     setLines([...lines, s])
     setDraft('')
   }
@@ -660,7 +865,10 @@ function IpRuleList({
                 type="button"
                 disabled={disabled}
                 className="text-red-600 hover:underline disabled:opacity-50"
-                onClick={() => setLines(lines.filter((x) => x !== line))}
+                onClick={() => {
+                  onDraftEdit?.()
+                  setLines(lines.filter((x) => x !== line))
+                }}
                 aria-label={`Remove ${line}`}
               >
                 ×
@@ -684,7 +892,7 @@ function IpRuleList({
         <button type="button" className={outlineBtn} disabled={disabled} onClick={add}>
           Add
         </button>
-        <button type="button" className={primaryBtn} disabled={disabled || saving} onClick={onSave}>
+        <button type="button" className={settingsSaveBtn} disabled={disabled || saving} onClick={onSave}>
           {saving ? 'Saving…' : 'Save list'}
         </button>
       </div>
@@ -697,12 +905,15 @@ function MaintenanceSchedulePanel({
   settings,
   patchSetting,
   isSuper,
+  maintenanceEffective,
 }: {
   settings: SettingsMap
   patchSetting: (key: string, value: unknown) => Promise<boolean>
   isSuper: boolean
+  /** Live maintenance (DB + MAINTENANCE_MODE env), matches player gate. */
+  maintenanceEffective: boolean
 }) {
-  const maintenanceOn = !!getSettingVal(settings, 'system', 'maintenance_mode', false)
+  const maintenanceOn = maintenanceEffective
   const untilRaw = getSettingVal(settings, 'system', 'maintenance_until', '') as string
   const [localDt, setLocalDt] = useState('')
   const [busy, setBusy] = useState(false)
@@ -798,33 +1009,66 @@ function SecurityAccessPanel({
   patchSetting: (key: string, value: unknown) => Promise<boolean>
   isSuper: boolean
 }) {
+  const serverBlocked = useMemo(
+    () => parseBlockedCountriesRaw(getSettingVal(settings, 'security', 'blocked_countries', '')),
+    [settings],
+  )
+  const serverIpBlack = useMemo(
+    () => linesFromSetting(getSettingVal(settings, 'security', 'ip_blacklist', '')),
+    [settings],
+  )
+  const serverIpWhite = useMemo(
+    () => linesFromSetting(getSettingVal(settings, 'security', 'ip_whitelist', '')),
+    [settings],
+  )
+
   const [blockedCodes, setBlockedCodes] = useState<string[]>([])
   const [ipBlacklistLines, setIpBlacklistLines] = useState<string[]>([])
   const [ipWhitelistLines, setIpWhitelistLines] = useState<string[]>([])
+  const [blockedDirty, setBlockedDirty] = useState(false)
+  const [ipBlackDirty, setIpBlackDirty] = useState(false)
+  const [ipWhiteDirty, setIpWhiteDirty] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
 
   useEffect(() => {
-    setBlockedCodes(parseBlockedCountriesRaw(getSettingVal(settings, 'security', 'blocked_countries', '')))
-    setIpBlacklistLines(linesFromSetting(getSettingVal(settings, 'security', 'ip_blacklist', '')))
-    setIpWhitelistLines(linesFromSetting(getSettingVal(settings, 'security', 'ip_whitelist', '')))
-  }, [settings])
+    if (!blockedDirty) setBlockedCodes(serverBlocked)
+  }, [serverBlocked, blockedDirty])
+
+  useEffect(() => {
+    if (!ipBlackDirty) setIpBlacklistLines(serverIpBlack)
+  }, [serverIpBlack, ipBlackDirty])
+
+  useEffect(() => {
+    if (!ipWhiteDirty) setIpWhitelistLines(serverIpWhite)
+  }, [serverIpWhite, ipWhiteDirty])
 
   const corsOrigins = getSettingVal(settings, 'security', 'cors_origins', '') as string
 
-  const saveKey = async (fullKey: string, value: string) => {
-    if (!isSuper) return toast.error('Superadmin required')
+  const saveKey = async (fullKey: string, value: string): Promise<boolean> => {
+    if (!isSuper) {
+      toast.error('Superadmin required')
+      return false
+    }
     const short = fullKey.replace(/^security\./, '')
     setSaving(short)
-    await patchSetting(fullKey, value)
+    const ok = await patchSetting(fullKey, value)
     setSaving(null)
+    if (ok) {
+      if (short === 'blocked_countries') setBlockedDirty(false)
+      if (short === 'ip_blacklist') setIpBlackDirty(false)
+      if (short === 'ip_whitelist') setIpWhiteDirty(false)
+    }
+    return ok
   }
 
   const toggleBlocked = (code: string) => {
+    setBlockedDirty(true)
     const c = code.toUpperCase()
     setBlockedCodes((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))
   }
 
   const applyRegionBlocked = (region: CountryRegion, add: boolean) => {
+    setBlockedDirty(true)
     const codes = COUNTRY_OPTIONS.filter((x) => x.region === region).map((x) => x.code)
     setBlockedCodes((prev) => {
       const s = new Set(prev)
@@ -846,8 +1090,13 @@ function SecurityAccessPanel({
         <div>
           <label className={labelCls}>Blocked countries (launch + eligibility)</label>
           <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
-            Players with matching <code className="rounded bg-gray-100 px-1 dark:bg-white/10">X-Geo-Country</code> cannot open
-            real/demo play when this list is enforced server-side. Save applies ISO codes as a comma-separated setting.
+            Enforcement uses the viewer&apos;s country from edge headers when present:{' '}
+            <code className="rounded bg-gray-100 px-1 dark:bg-white/10">X-Geo-Country</code>, Cloudflare{' '}
+            <code className="rounded bg-gray-100 px-1 dark:bg-white/10">CF-IPCountry</code>, CloudFront{' '}
+            <code className="rounded bg-gray-100 px-1 dark:bg-white/10">CloudFront-Viewer-Country</code>, or Vercel{' '}
+            <code className="rounded bg-gray-100 px-1 dark:bg-white/10">X-Vercel-IP-Country</code>. Local Vite can stub a
+            country with <code className="rounded bg-gray-100 px-1 dark:bg-white/10">DEV_GEO_COUNTRY=GB</code> in{' '}
+            <code className="rounded bg-gray-100 px-1 dark:bg-white/10">frontend/player-ui/.env.development</code>.
           </p>
           <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {REGIONS_SEC.map((reg) => (
@@ -880,7 +1129,7 @@ function SecurityAccessPanel({
           <div className="mt-4 flex flex-col gap-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3 dark:border-gray-700 dark:bg-white/[0.03] sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 space-y-1">
               <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                Pending selection (save to apply)
+                {blockedDirty ? 'Unsaved edits — save to write denylist' : 'Saved denylist (database)'}
               </p>
               <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
                 {blockedCodes.length === 0
@@ -908,7 +1157,7 @@ function SecurityAccessPanel({
             </div>
             <button
               type="button"
-              className={`${primaryBtn} shrink-0`}
+              className={`${settingsSaveBtn} shrink-0`}
               disabled={saving === 'blocked_countries' || !isSuper}
               onClick={() => void saveKey('security.blocked_countries', blockedCodes.join(','))}
             >
@@ -926,6 +1175,7 @@ function SecurityAccessPanel({
           saving={saving === 'ip_blacklist'}
           saveKey="security.ip_blacklist"
           onSave={() => void saveKey('security.ip_blacklist', ipBlacklistLines.join('\n'))}
+          onDraftEdit={() => setIpBlackDirty(true)}
         />
 
         <IpRuleList
@@ -937,6 +1187,7 @@ function SecurityAccessPanel({
           saving={saving === 'ip_whitelist'}
           saveKey="security.ip_whitelist"
           onSave={() => void saveKey('security.ip_whitelist', ipWhitelistLines.join('\n'))}
+          onDraftEdit={() => setIpWhiteDirty(true)}
         />
 
         <div>
@@ -1258,8 +1509,10 @@ function PaymentFlagsPanel({
   isSuper: boolean
 }) {
   const [flags, setFlags] = useState<Record<string, boolean>>({})
+  const [draft, setDraft] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
-  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [hasLocalEdits, setHasLocalEdits] = useState(false)
 
   const fetchFlags = useCallback(async () => {
     try {
@@ -1275,38 +1528,76 @@ function PaymentFlagsPanel({
   }, [apiFetch])
 
   useEffect(() => {
-    fetchFlags()
+    void fetchFlags()
   }, [fetchFlags])
 
-  const toggleFlag = async (key: string, val: boolean) => {
-    if (!isSuper) return toast.error('Superadmin required')
-    setBusyKey(key)
+  useEffect(() => {
+    if (Object.keys(flags).length === 0) return
+    if (!hasLocalEdits) {
+      setDraft(flags)
+    }
+  }, [flags, hasLocalEdits])
+
+  const filteredEntries = useMemo(
+    () => Object.entries(flags).filter(([k]) => !PAYMENT_FLAGS_FROM_KILL_SWITCHES.has(k)),
+    [flags],
+  )
+
+  const dirtyKeys = useMemo(
+    () => filteredEntries.filter(([k, v]) => draft[k] !== v).map(([k]) => k),
+    [filteredEntries, draft],
+  )
+
+  const discard = () => {
+    setHasLocalEdits(false)
+    setDraft(flags)
+  }
+
+  const saveAll = async () => {
+    if (!isSuper) {
+      toast.error('Superadmin required')
+      return
+    }
+    const body: Record<string, boolean> = {}
+    for (const [k, v] of filteredEntries) {
+      if (draft[k] !== v) body[k] = draft[k] ?? false
+    }
+    if (Object.keys(body).length === 0) return
+    setSaving(true)
     try {
       const res = await apiFetch('/v1/admin/ops/payment-flags', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [key]: !val }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) {
-        toast.error('Failed to update payment flag')
-      } else {
-        toast.success(`Updated ${key}`)
-        await fetchFlags()
+        toast.error('Failed to save payment flags')
+        return
       }
+      toast.success(`Saved ${Object.keys(body).length} payment flag${Object.keys(body).length === 1 ? '' : 's'}`)
+      await fetchFlags()
+      setHasLocalEdits(false)
     } catch {
-      toast.error('Error updating payment flag')
+      toast.error('Error saving payment flags')
+    } finally {
+      setSaving(false)
     }
-    setBusyKey(null)
   }
+
+  const saveDisabled = !isSuper || saving || dirtyKeys.length === 0
+  const discardDisabled = !isSuper || saving || (!hasLocalEdits && dirtyKeys.length === 0)
+
+  const allEntries = useMemo(() => Object.entries(flags), [flags])
 
   if (loading) return <SkeletonCard />
   if (Object.keys(flags).length === 0) return null
 
-  const allEntries = Object.entries(flags)
-  const filteredEntries = allEntries.filter(([k]) => !PAYMENT_FLAGS_FROM_KILL_SWITCHES.has(k))
-
   return (
-    <Section id="settings-payments" title="Payment Flags" desc="Provider-specific toggles not covered by Kill Switches">
+    <Section
+      id="settings-payments"
+      title="Payment Flags"
+      desc="Provider-specific toggles not covered by Kill Switches. Adjust switches, then Save changes."
+    >
       {filteredEntries.length === 0 ? (
         <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-400">
           All operational rails in this environment are exposed under{' '}
@@ -1315,17 +1606,48 @@ function PaymentFlagsPanel({
         </p>
       ) : (
         <>
+          {!isSuper ? (
+            <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">Superadmin role required to edit payment flags.</p>
+          ) : (
+            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+              Draft changes stay local until you save. Green badge means <strong>On</strong>.
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-3">
-            {filteredEntries.map(([key, val]) => {
+            {filteredEntries.map(([key, serverVal]) => {
               const label = key.replace(/_/g, ' ')
+              const val = draft[key] ?? serverVal
+              const rowDirty = draft[key] !== serverVal
               return (
                 <div
                   key={key}
-                  className="flex min-h-[4.5rem] flex-col gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-white/[0.02] sm:min-h-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                  className={[
+                    'flex min-h-[4.5rem] flex-col gap-3 rounded-xl border px-4 py-3 sm:min-h-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3',
+                    rowDirty
+                      ? 'border-blue-300/80 bg-blue-50/60 dark:border-blue-600/50 dark:bg-blue-950/25'
+                      : 'border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-white/[0.02]',
+                  ].join(' ')}
                 >
-                  <div className="min-w-0 flex-1 space-y-1">
+                  <div className="min-w-0 flex-1 space-y-2">
                     <div className="text-sm font-medium capitalize leading-snug text-gray-800 dark:text-gray-100">
                       {label}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={[
+                          'inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                          val
+                            ? 'bg-emerald-500/18 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+                            : 'bg-gray-500/15 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400',
+                        ].join(' ')}
+                      >
+                        {val ? 'On' : 'Off'}
+                      </span>
+                      {rowDirty ? (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                          Unsaved
+                        </span>
+                      ) : null}
                     </div>
                     <p
                       className={`text-xs font-medium ${val ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'}`}
@@ -1333,21 +1655,52 @@ function PaymentFlagsPanel({
                       {val ? 'Enabled' : 'Disabled'}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-200/80 pt-3 dark:border-white/[0.06] sm:border-t-0 sm:pt-0">
-                    <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 sm:hidden">
-                      {val ? 'On' : 'Off'}
-                    </span>
+                  <div className="flex shrink-0 items-center justify-end gap-3 border-t border-gray-200/80 pt-3 dark:border-white/[0.06] sm:border-t-0 sm:pt-0">
                     <Toggle
                       checked={val}
-                      ariaLabel={label}
-                      disabled={busyKey === key || !isSuper}
-                      onChange={() => toggleFlag(key, val)}
+                      ariaLabel={`${label}: ${val ? 'on' : 'off'}`}
+                      disabled={!isSuper}
+                      onChange={(next) => {
+                        setHasLocalEdits(true)
+                        setDraft((p) => ({ ...p, [key]: next }))
+                      }}
                     />
                   </div>
                 </div>
               )
             })}
           </div>
+
+          <div className="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-4 dark:border-white/[0.08]">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className={`${settingsSaveBtn} ${saveDisabled ? 'opacity-60' : ''}`}
+                disabled={saveDisabled}
+                onClick={() => void saveAll()}
+              >
+                {saving ? 'Saving…' : dirtyKeys.length === 0 ? 'Save changes' : `Save changes (${dirtyKeys.length})`}
+              </button>
+              <button
+                type="button"
+                className={`${settingsDiscardBtn} ${discardDisabled ? 'opacity-60' : ''}`}
+                disabled={discardDisabled}
+                onClick={discard}
+              >
+                Discard
+              </button>
+            </div>
+            {isSuper ? (
+              <p className="mb-0 text-xs text-gray-500 dark:text-gray-400">
+                {dirtyKeys.length > 0
+                  ? `${dirtyKeys.length} flag${dirtyKeys.length === 1 ? '' : 's'} pending. Save to apply or Discard to revert.`
+                  : hasLocalEdits
+                    ? 'Draft matches saved values. Use Discard to reload from the server or adjust a switch again.'
+                    : 'Turn a switch on or off to enable Save and Discard.'}
+              </p>
+            ) : null}
+          </div>
+
           {allEntries.length > filteredEntries.length ? (
             <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
               Deposits, withdrawals, real play, bonuses, and automated grants are edited under Kill Switches only.

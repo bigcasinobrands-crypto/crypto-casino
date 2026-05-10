@@ -42,6 +42,24 @@ export default defineConfig(({ mode }) => {
 
   // Default 9090 matches many local core .env PORT values; override with DEV_API_PROXY in .env.development.
   const apiTarget = (env.DEV_API_PROXY || 'http://127.0.0.1:9090').replace(/\/$/, '')
+  const rawGeo = (env.DEV_GEO_COUNTRY ?? process.env.DEV_GEO_COUNTRY ?? '').trim().toUpperCase()
+  const devGeoCountry = /^[A-Z]{2}$/.test(rawGeo) ? rawGeo : ''
+
+  const geoDevProxyHooks =
+    devGeoCountry.length === 2
+      ? {
+          configure(proxy: { on: (ev: string, fn: (...args: unknown[]) => void) => void }) {
+            proxy.on('proxyReq', (...args: unknown[]) => {
+              const proxyReq = args[0] as { setHeader: (name: string, value: string) => void }
+              const req = args[1] as { headers: Record<string, unknown> }
+              const existing = req.headers['x-geo-country']
+              if (existing != null && String(existing).trim() !== '') return
+              proxyReq.setHeader('X-Geo-Country', devGeoCountry)
+            })
+          },
+        }
+      : {}
+
   return {
     build: {
       sourcemap: mode !== 'production',
@@ -50,8 +68,8 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       proxy: {
-        '/v1': { target: apiTarget, changeOrigin: true, ws: true },
-        '/health': { target: apiTarget, changeOrigin: true },
+        '/v1': { target: apiTarget, changeOrigin: true, ws: true, ...geoDevProxyHooks },
+        '/health': { target: apiTarget, changeOrigin: true, ...geoDevProxyHooks },
       },
     },
   }

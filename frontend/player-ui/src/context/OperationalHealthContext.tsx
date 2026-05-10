@@ -10,10 +10,10 @@ const OperationalHealthContext = createContext<OperationalHealthContextValue | n
 
 export function OperationalHealthProvider({
   children,
-  pollMs = 45_000,
+  pollMs = 3500,
 }: {
   children: ReactNode
-  /** Align with {@link SiteAccessGate} refresh cadence. */
+  /** How often to poll `/health/operational` (maintenance/geo/kill-switch mirrors). */
   pollMs?: number
 }) {
   const { data, ready } = useOperationalHealth(pollMs)

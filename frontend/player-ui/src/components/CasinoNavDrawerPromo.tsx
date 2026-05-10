@@ -6,13 +6,12 @@ import type { CasinoNavCategory } from '../lib/casinoNav'
 import { casinoNavRoute } from '../lib/casinoNav'
 import { translateNavItemLabel } from '../lib/navI18n'
 import { PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT, PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT } from '../lib/playerChromeEvents'
-import { IconCrown, IconGift, IconTicket, IconTractor, IconUsers } from './icons'
+import { IconCrown, IconGift, IconTicket, IconUsers } from './icons'
 
 const PROMO_ICONS: Record<string, (size: number) => ReactNode> = {
   rewards: (s) => <IconGift size={s} aria-hidden />,
   affiliate: (s) => <IconUsers size={s} aria-hidden />,
   vip: (s) => <IconCrown size={s} aria-hidden />,
-  farming: (s) => <IconTractor size={s} aria-hidden />,
   raffle: (s) => <IconTicket size={s} aria-hidden />,
 }
 

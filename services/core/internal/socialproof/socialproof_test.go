@@ -40,3 +40,13 @@ func TestMergeJSONDefaults(t *testing.T) {
 		t.Fatalf("target %d", cfg.OnlineTarget)
 	}
 }
+
+func TestMergeJSONPreservesEnabledDefaultWhenOmitted(t *testing.T) {
+	cfg := MergeJSON([]byte(`{"online_target":220}`))
+	if !cfg.Enabled {
+		t.Fatal("expected default enabled true when omitted")
+	}
+	if cfg.OnlineTarget != 220 {
+		t.Fatalf("target %d", cfg.OnlineTarget)
+	}
+}

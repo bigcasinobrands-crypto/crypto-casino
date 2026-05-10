@@ -26,12 +26,21 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Enabled:                false,
+		Enabled:                true,
 		OnlineTarget:           180,
 		OnlineVariancePct:      22,
 		OnlineBucketSecs:       90,
 		WagerDisplayMultiplier: 1,
 	}
+}
+
+// configPatch unmarshals site_settings JSON; pointers mean “omit preserves default”.
+type configPatch struct {
+	Enabled                *bool    `json:"enabled,omitempty"`
+	OnlineTarget           *int     `json:"online_target,omitempty"`
+	OnlineVariancePct      *float64 `json:"online_variance_pct,omitempty"`
+	OnlineBucketSecs       *int     `json:"online_bucket_secs,omitempty"`
+	WagerDisplayMultiplier *float64 `json:"wager_display_multiplier,omitempty"`
 }
 
 // MergeJSON overlays keys from raw JSON onto defaults (missing fields keep defaults).
@@ -40,22 +49,24 @@ func MergeJSON(raw []byte) Config {
 	if len(raw) == 0 {
 		return cfg
 	}
-	var patch Config
+	var patch configPatch
 	if json.Unmarshal(raw, &patch) != nil {
 		return cfg
 	}
-	if patch.OnlineTarget > 0 {
-		cfg.OnlineTarget = patch.OnlineTarget
+	if patch.Enabled != nil {
+		cfg.Enabled = *patch.Enabled
 	}
-	cfg.Enabled = patch.Enabled
-	if patch.OnlineVariancePct > 0 {
-		cfg.OnlineVariancePct = clampFloat(patch.OnlineVariancePct, 5, 55)
+	if patch.OnlineTarget != nil && *patch.OnlineTarget > 0 {
+		cfg.OnlineTarget = *patch.OnlineTarget
 	}
-	if patch.OnlineBucketSecs > 0 {
-		cfg.OnlineBucketSecs = clampInt(patch.OnlineBucketSecs, 30, 600)
+	if patch.OnlineVariancePct != nil && *patch.OnlineVariancePct > 0 {
+		cfg.OnlineVariancePct = clampFloat(*patch.OnlineVariancePct, 5, 55)
 	}
-	if patch.WagerDisplayMultiplier > 0 {
-		cfg.WagerDisplayMultiplier = clampFloat(patch.WagerDisplayMultiplier, 0.01, 100)
+	if patch.OnlineBucketSecs != nil && *patch.OnlineBucketSecs > 0 {
+		cfg.OnlineBucketSecs = clampInt(*patch.OnlineBucketSecs, 30, 600)
+	}
+	if patch.WagerDisplayMultiplier != nil && *patch.WagerDisplayMultiplier > 0 {
+		cfg.WagerDisplayMultiplier = clampFloat(*patch.WagerDisplayMultiplier, 0.01, 100)
 	}
 	return cfg
 }

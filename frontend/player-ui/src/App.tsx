@@ -163,7 +163,7 @@ export default function App() {
 
   return (
     <SiteContentProvider>
-      <OperationalHealthProvider pollMs={45_000}>
+      <OperationalHealthProvider pollMs={3500}>
         <SiteAccessGate>
           <PlayerBootOverlay />
           <PlayerAuthProvider>

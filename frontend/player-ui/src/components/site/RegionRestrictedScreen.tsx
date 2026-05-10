@@ -36,6 +36,10 @@ export const RegionRestrictedScreen: FC<Props> = ({ countryCode, supportEmail })
             </a>
             .
           </p>
+          <p className="mb-8 text-xs leading-relaxed text-zinc-500">
+            Regional rules are enforced on the server for every API request — bypassing this screen in the browser does not restore
+            access to games or wallet features.
+          </p>
         </div>
 
         <div className="relative z-10 mt-4 flex h-[280px] flex-col items-center justify-end overflow-hidden">

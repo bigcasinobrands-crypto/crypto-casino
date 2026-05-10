@@ -97,6 +97,8 @@ function launchErrorMessage(code: string | undefined, fallback: string, t: TFunc
       return t('gameLobby.error.launch_disabled')
     case 'geo_blocked':
       return t('gameLobby.error.geo_blocked')
+    case 'ip_blocked':
+      return t('gameLobby.error.ip_blocked')
     case 'self_excluded':
       return t('gameLobby.error.self_excluded')
     case 'account_closed':

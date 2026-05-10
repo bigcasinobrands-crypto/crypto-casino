@@ -38,7 +38,6 @@ import {
   IconSwords,
   IconTarget,
   IconTicket,
-  IconTractor,
   IconTrophy,
   IconUsers,
 } from './icons'
@@ -66,7 +65,6 @@ const ICON_MAP: Record<string, (size: number) => ReactNode> = {
   rewards: (s) => <IconGift size={s} aria-hidden />,
   affiliate: (s) => <IconUsers size={s} aria-hidden />,
   vip: (s) => <IconCrown size={s} aria-hidden />,
-  farming: (s) => <IconTractor size={s} aria-hidden />,
   raffle: (s) => <IconTicket size={s} aria-hidden />,
 }
 
@@ -346,92 +344,86 @@ export default function CasinoSidebar({
 
           <div className={`my-2.5 h-px bg-casino-border ${collapsed ? 'w-full' : ''}`} role="separator" />
 
-          {collapsed ? (
-            <>
-              {promoItems.map(renderTopItem('promo'))}
-
-              <div className="my-2.5 h-px w-full bg-casino-border" role="separator" />
-
-              <LanguageMenu variant="collapsed" buttonClassName={navItem} />
-              {onOpenChat ? (
-                <button
-                  type="button"
-                  className={`${navItem} relative ${chatOpen ? navItemActive : ''}`}
-                  title={t('sidebar.chat')}
-                  aria-label={t('sidebar.chat')}
-                  onClick={onOpenChat}
-                >
-                  <IconMessageSquare size={15} aria-hidden />
-                  {chatUnreadCount > 0 && !chatOpen ? (
-                    <span className="absolute right-1.5 top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-casino-segment px-0.5 text-[8px] font-bold text-casino-bg ring-1 ring-casino-sidebar">
-                      {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
-                    </span>
-                  ) : null}
-                </button>
-              ) : null}
-              <NavLink
-                to="/casino/games#help"
-                className={`${navItem} ${helpSidebarActive ? navItemActive : ''}`}
-                title={t('sidebar.liveSupport')}
-              >
-                <IconHeadphones size={15} aria-hidden />
-              </NavLink>
-              <NavLink
-                to="/casino/games#blog"
-                className={`${navItem} ${blogSidebarActive ? navItemActive : ''}`}
-                title={t('sidebar.blog')}
-              >
-                <IconFileText size={15} aria-hidden />
-              </NavLink>
-            </>
-          ) : (
-            <>
-              {promoItems.map(renderTopItem('promo'))}
-
-              <div className="my-2.5 h-px bg-casino-border" role="separator" />
-
-              <LanguageMenu variant="expanded" buttonClassName={navItem} />
-              {onOpenChat ? (
-                <button
-                  type="button"
-                  className={`${navItem} relative ${chatOpen ? navItemActive : ''}`}
-                  aria-label={t('sidebar.chat')}
-                  aria-pressed={chatOpen}
-                  onClick={onOpenChat}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <IconMessageSquare size={15} aria-hidden />
-                    {t('sidebar.chat')}
-                  </span>
-                  {chatUnreadCount > 0 && !chatOpen ? (
-                    <span className="rounded-full bg-casino-segment px-1.5 py-0.5 text-[10px] font-bold text-casino-bg">
-                      {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
-                    </span>
-                  ) : null}
-                </button>
-              ) : null}
-              <NavLink
-                to="/casino/games#help"
-                className={`${navItem} ${helpSidebarActive ? navItemActive : ''}`}
-              >
-                <span className="flex items-center gap-2.5">
-                  <IconHeadphones size={15} aria-hidden />
-                  {t('sidebar.liveSupport')}
-                </span>
-              </NavLink>
-              <NavLink
-                to="/casino/games#blog"
-                className={`${navItem} ${blogSidebarActive ? navItemActive : ''}`}
-              >
-                <span className="flex items-center gap-2.5">
-                  <IconFileText size={15} aria-hidden />
-                  {t('sidebar.blog')}
-                </span>
-              </NavLink>
-            </>
-          )}
+          {promoItems.map(renderTopItem('promo'))}
         </nav>
-        <SidebarSocialProof variant={collapsed ? 'desktop-collapsed' : 'desktop'} />
+        <div className="flex shrink-0 flex-col border-t border-white/[0.06] bg-casino-sidebar pb-3">
+          <div
+            className={`flex flex-col gap-0.5 pb-2 pt-2 ${collapsed ? 'items-center px-1' : 'px-2.5'}`}
+            onClick={closeIfMobile}
+          >
+            {collapsed ? (
+              <>
+                <LanguageMenu variant="collapsed" buttonClassName={navItem} />
+                {onOpenChat ? (
+                  <button
+                    type="button"
+                    className={`${navItem} relative ${chatOpen ? navItemActive : ''}`}
+                    title={t('sidebar.chat')}
+                    aria-label={t('sidebar.chat')}
+                    onClick={onOpenChat}
+                  >
+                    <IconMessageSquare size={15} aria-hidden />
+                    {chatUnreadCount > 0 && !chatOpen ? (
+                      <span className="absolute right-1.5 top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-casino-segment px-0.5 text-[8px] font-bold text-casino-bg ring-1 ring-casino-sidebar">
+                        {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
+                <NavLink
+                  to="/casino/games#help"
+                  className={`${navItem} ${helpSidebarActive ? navItemActive : ''}`}
+                  title={t('sidebar.liveSupport')}
+                >
+                  <IconHeadphones size={15} aria-hidden />
+                </NavLink>
+                <NavLink
+                  to="/casino/games#blog"
+                  className={`${navItem} ${blogSidebarActive ? navItemActive : ''}`}
+                  title={t('sidebar.blog')}
+                >
+                  <IconFileText size={15} aria-hidden />
+                </NavLink>
+              </>
+            ) : (
+              <>
+                <LanguageMenu variant="expanded" buttonClassName={navItem} />
+                {onOpenChat ? (
+                  <button
+                    type="button"
+                    className={`${navItem} relative ${chatOpen ? navItemActive : ''}`}
+                    aria-label={t('sidebar.chat')}
+                    aria-pressed={chatOpen}
+                    onClick={onOpenChat}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <IconMessageSquare size={15} aria-hidden />
+                      {t('sidebar.chat')}
+                    </span>
+                    {chatUnreadCount > 0 && !chatOpen ? (
+                      <span className="rounded-full bg-casino-segment px-1.5 py-0.5 text-[10px] font-bold text-casino-bg">
+                        {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
+                <NavLink to="/casino/games#help" className={`${navItem} ${helpSidebarActive ? navItemActive : ''}`}>
+                  <span className="flex items-center gap-2.5">
+                    <IconHeadphones size={15} aria-hidden />
+                    {t('sidebar.liveSupport')}
+                  </span>
+                </NavLink>
+                <NavLink to="/casino/games#blog" className={`${navItem} ${blogSidebarActive ? navItemActive : ''}`}>
+                  <span className="flex items-center gap-2.5">
+                    <IconFileText size={15} aria-hidden />
+                    {t('sidebar.blog')}
+                  </span>
+                </NavLink>
+              </>
+            )}
+          </div>
+          <SidebarSocialProof variant={collapsed ? 'desktop-collapsed' : 'desktop'} />
+        </div>
       </aside>
   )
 }

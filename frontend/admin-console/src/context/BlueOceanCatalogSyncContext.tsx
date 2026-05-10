@@ -65,7 +65,7 @@ export function BlueOceanCatalogSyncProvider({ children }: { children: ReactNode
           return
         }
         const j = (await res.json().catch(() => ({}))) as Record<string, unknown>
-        const okText = `Catalog sync OK — upserted ${String(j.upserted ?? '?')} game(s).`
+        const okText = `Catalog sync OK: upserted ${String(j.upserted ?? '?')} game(s).`
         setPhase('success')
         setLastMessage(okText)
         toast.success('Catalog sync completed')
@@ -103,6 +103,8 @@ export function BlueOceanCatalogSyncProvider({ children }: { children: ReactNode
   )
 }
 
+/** Context hook; colocated with provider (Fast Refresh allows components-only exports per file). */
+// eslint-disable-next-line react-refresh/only-export-components -- standard provider + hook pattern
 export function useBlueOceanCatalogSync(): Ctx {
   const v = useContext(BlueOceanCatalogSyncContext)
   if (!v) throw new Error('useBlueOceanCatalogSync must be used within BlueOceanCatalogSyncProvider')

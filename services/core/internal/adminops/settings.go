@@ -9,6 +9,7 @@ import (
 
 	"github.com/crypto-casino/core/internal/adminapi"
 	"github.com/crypto-casino/core/internal/maintenancenotify"
+	"github.com/crypto-casino/core/internal/sitegeo"
 	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -82,6 +83,14 @@ func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 
 	if err := mirrorKillSwitchSetting(ctx, h.Pool, body.Key, body.Value); err != nil {
 		log.Printf("settings mirror: key=%s err=%v", body.Key, err)
+	}
+
+	k := strings.TrimSpace(body.Key)
+	if k == sitegeo.SettingKeyBlockedCountries {
+		sitegeo.InvalidateBlockedCountriesCache()
+	}
+	if k == sitestatus.SettingKeyIPBlacklist || k == sitestatus.SettingKeyIPWhitelist {
+		sitestatus.InvalidatePlayerIPAccessCache()
 	}
 
 	nextMaintenance := sitestatus.MaintenanceEffective(ctx, h.Pool, h.Cfg)

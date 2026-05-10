@@ -34,6 +34,8 @@ function launchErrorMessage(code: string | undefined, fallback: string) {
       return 'Game launch is temporarily disabled.'
     case 'geo_blocked':
       return 'Games are not available in your region.'
+    case 'ip_blocked':
+      return 'Games are not available from this network.'
     case 'self_excluded':
       return 'Your account is self-excluded from play.'
     case 'account_closed':

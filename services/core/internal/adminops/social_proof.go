@@ -1,6 +1,7 @@
 package adminops
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -22,8 +23,8 @@ func (h *Handler) GetSocialProof(w http.ResponseWriter, r *http.Request) {
 
 	realMinor, err := socialproof.TotalWageredStakeMinor(ctx, h.Pool)
 	if err != nil {
-		writeJSON(w, map[string]any{"enabled": false})
-		return
+		slog.WarnContext(ctx, "social_proof_wager_query_failed", "err", err)
+		realMinor = 0
 	}
 
 	displayMinor := socialproof.DisplayWageredMinor(realMinor, cfg)

@@ -11,7 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const settingsKey = "security.blocked_countries"
+// SettingKeyBlockedCountries is the site_settings key for comma-/space-separated ISO-3166 alpha-2 codes.
+const SettingKeyBlockedCountries = "security.blocked_countries"
 
 type cacheEntry struct {
 	at    time.Time
@@ -21,7 +22,7 @@ type cacheEntry struct {
 var (
 	mu    sync.RWMutex
 	cache cacheEntry
-	ttl   = 30 * time.Second
+	ttl   = 8 * time.Second
 )
 
 // BlockedCountryCodesFromDB returns uppercase ISO-3166 alpha-2 codes from site_settings.
@@ -36,7 +37,7 @@ func BlockedCountryCodesFromDB(ctx context.Context, pool *pgxpool.Pool) ([]strin
 	mu.RUnlock()
 
 	var raw []byte
-	err := pool.QueryRow(ctx, `SELECT value FROM site_settings WHERE key = $1`, settingsKey).Scan(&raw)
+	err := pool.QueryRow(ctx, `SELECT value FROM site_settings WHERE key = $1`, SettingKeyBlockedCountries).Scan(&raw)
 	if err == pgx.ErrNoRows {
 		mu.Lock()
 		cache = cacheEntry{at: time.Now(), codes: nil}
@@ -52,6 +53,13 @@ func BlockedCountryCodesFromDB(ctx context.Context, pool *pgxpool.Pool) ([]strin
 	cache = cacheEntry{at: time.Now(), codes: codes}
 	mu.Unlock()
 	return append([]string(nil), codes...), nil
+}
+
+// InvalidateBlockedCountriesCache clears cached denylist so PATCH settings take effect immediately.
+func InvalidateBlockedCountriesCache() {
+	mu.Lock()
+	cache = cacheEntry{}
+	mu.Unlock()
 }
 
 func parseSettingValue(raw []byte) []string {

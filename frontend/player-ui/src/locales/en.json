@@ -20,7 +20,6 @@
       "rewards": "My Bonuses",
       "affiliate": "Refer and Earn",
       "vip": "VIP",
-      "farming": "Farming",
       "raffle": "$25K Raffle"
     },
     "extras": {
@@ -49,7 +48,7 @@
     "comingSoon": "Coming soon",
     "socialProof": {
       "regionLabel": "Lobby activity snapshot",
-      "betsWagered": "Bets wagered",
+      "betsWagered": "Bets\u00a0wagered",
       "online": "Online"
     }
   },
@@ -675,6 +674,7 @@
       "maintenance": "The site is in maintenance mode. Try again later.",
       "launch_disabled": "Game launch is temporarily disabled.",
       "geo_blocked": "Games are not available in your region.",
+      "ip_blocked": "Games are not available from this network.",
       "self_excluded": "Your account is self-excluded from play.",
       "account_closed": "This account is closed.",
       "bog_unconfigured": "Games are not available (provider not configured).",

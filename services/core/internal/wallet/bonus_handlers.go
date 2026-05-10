@@ -11,6 +11,7 @@ import (
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playerapi"
+	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -86,7 +87,7 @@ func AvailableBonusesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
 			return
 		}
-		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		cc := sitestatus.GeoCountryISO2FromRequest(r)
 		offers, err := bonus.ListAvailableOffersForPlayer(r.Context(), pool, uid, cc)
 		if err != nil {
 			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "query failed")
@@ -112,7 +113,7 @@ func ClaimOfferHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "promotion_version_id required")
 			return
 		}
-		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		cc := sitestatus.GeoCountryISO2FromRequest(r)
 		res, err := bonus.ClaimPlayerOffer(r.Context(), pool, uid, cc, body.PromotionVersionID)
 		if err != nil {
 			switch {
@@ -145,7 +146,7 @@ func DepositBonusIntentHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			playerapi.WriteError(w, http.StatusBadRequest, "invalid_request", "promotion_version_id required")
 			return
 		}
-		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		cc := sitestatus.GeoCountryISO2FromRequest(r)
 		if err := bonus.UpsertPlayerDepositIntent(r.Context(), pool, uid, cc, body.PromotionVersionID); err != nil {
 			if errors.Is(err, bonus.ErrDepositIntentNotEligible) {
 				playerapi.WriteError(w, http.StatusConflict, "not_eligible", "this offer is not available for you right now")

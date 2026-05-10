@@ -108,7 +108,7 @@ export default function MobileCasinoMenuOverlay({
         </div>
 
         <nav
-          className="scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain px-3 pt-3 max-md:pb-[calc(var(--casino-mobile-nav-offset)+16px)] md:pb-8"
+          className="scrollbar-none flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-y-contain px-3 pt-3 pb-3 md:pb-4"
           onClick={() => onClose()}
         >
           {onSports ? (
@@ -180,40 +180,59 @@ export default function MobileCasinoMenuOverlay({
           <div className="my-2 h-px bg-casino-border" role="separator" />
 
           <CasinoNavDrawerPromo promoItems={promoItems} />
+        </nav>
 
-          <div className="my-2 h-px bg-casino-border" role="separator" />
-
-          <LanguageMenu variant="drawer" buttonClassName={row} />
-          {onOpenChat ? (
-            <button
-              type="button"
-              className={`${row} relative ${chatOpen ? 'bg-casino-primary/22 text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary' : ''}`}
-              aria-label={t('sidebar.liveChat')}
-              aria-pressed={chatOpen}
+        <div className="flex shrink-0 flex-col border-t border-white/[0.06] bg-casino-sidebar">
+          <div
+            className="flex flex-col gap-1 px-3 pb-2 pt-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <LanguageMenu variant="drawer" buttonClassName={row} />
+            {onOpenChat ? (
+              <button
+                type="button"
+                className={`${row} relative ${chatOpen ? 'bg-casino-primary/22 text-white hover:bg-casino-primary/28 [&_svg]:text-casino-primary' : ''}`}
+                aria-label={t('sidebar.chat')}
+                aria-pressed={chatOpen}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenChat()
+                }}
+              >
+                <IconMessageSquare size={17} className="shrink-0 opacity-90" aria-hidden />
+                {t('sidebar.chat')}
+                {chatUnreadCount > 0 && !chatOpen ? (
+                  <span className="ml-auto rounded-full bg-casino-segment px-1.5 py-0.5 text-[10px] font-bold text-casino-bg">
+                    {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+            <NavLink
+              to="/casino/games#help"
+              className={row}
               onClick={(e) => {
                 e.stopPropagation()
-                onOpenChat()
+                onClose()
               }}
             >
-              <IconMessageSquare size={17} className="shrink-0 opacity-90" aria-hidden />
-              {t('sidebar.liveChat')}
-              {chatUnreadCount > 0 && !chatOpen ? (
-                <span className="ml-auto rounded-full bg-casino-segment px-1.5 py-0.5 text-[10px] font-bold text-casino-bg">
-                  {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
-                </span>
-              ) : null}
-            </button>
-          ) : null}
-          <NavLink to="/casino/games#help" className={row}>
-            <IconHeadphones size={17} aria-hidden />
-            {t('sidebar.liveSupport')}
-          </NavLink>
-          <NavLink to="/casino/games#blog" className={row}>
-            <IconFileText size={17} aria-hidden />
-            {t('sidebar.blog')}
-          </NavLink>
-        </nav>
-        <SidebarSocialProof variant="mobile" />
+              <IconHeadphones size={17} aria-hidden />
+              {t('sidebar.liveSupport')}
+            </NavLink>
+            <NavLink
+              to="/casino/games#blog"
+              className={row}
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose()
+              }}
+            >
+              <IconFileText size={17} aria-hidden />
+              {t('sidebar.blog')}
+            </NavLink>
+          </div>
+          <SidebarSocialProof variant="mobile" />
+        </div>
       </aside>
     </div>
   )
