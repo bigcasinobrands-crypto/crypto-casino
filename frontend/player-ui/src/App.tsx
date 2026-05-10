@@ -62,7 +62,11 @@ import ProfilePage from './pages/ProfilePage'
 import BonusesPage from './pages/BonusesPage'
 import BonusesPreviewPage from './pages/BonusesPreviewPage'
 import VipPage from './pages/VipPage'
-import ResetPasswordPage from './pages/ResetPasswordPage'
+import {
+  PASSWORD_RESET_TOKEN_PARAM,
+  ResetPasswordEmailRedirect,
+  ResetPasswordModal,
+} from './components/ResetPasswordModal'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import WalletDepositPage from './pages/WalletDepositPage'
 import StudiosPage from './pages/StudiosPage'
@@ -181,6 +185,7 @@ function AppShell() {
   const isSubDesktop = useSubDesktopPlayerChrome()
   const [searchParams, setSearchParams] = useSearchParams()
   const catalogSearchQ = searchParams.get('q') ?? ''
+  const resetPwToken = searchParams.get(PASSWORD_RESET_TOKEN_PARAM)?.trim() ?? ''
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('sidebar_collapsed') === 'true',
@@ -246,6 +251,13 @@ function AppShell() {
     setChatOpen(false)
     closeHeaderDropdowns()
   }, [closeHeaderDropdowns])
+
+  const clearResetPasswordQuery = useCallback(() => {
+    const next = new URLSearchParams(searchParams)
+    if (!next.has(PASSWORD_RESET_TOKEN_PARAM)) return
+    next.delete(PASSWORD_RESET_TOKEN_PARAM)
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
     const closeMenu = () => setSidebarOpen(false)
@@ -591,6 +603,12 @@ function AppShell() {
 
           <ReferAndEarnModal open={affiliateModalOpen} onClose={() => setAffiliateModalOpen(false)} />
 
+          <ResetPasswordModal
+            open={Boolean(resetPwToken)}
+            token={resetPwToken}
+            onClose={clearResetPasswordQuery}
+          />
+
           <div className="casino-shell-main relative z-[200] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <PullToRefreshOverlay scrollRef={mainScrollRef} enabled={pullToRefreshEnabled} />
             <div
@@ -631,7 +649,7 @@ function AppShell() {
                     <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />
                     <Route path="/register" element={<Navigate to="/casino/games?auth=register" replace />} />
                     <Route path="/forgot-password" element={<Navigate to="/casino/games?auth=forgot" replace />} />
-                    <Route path="/reset-password" element={<ResetPasswordPage />} />
+                    <Route path="/reset-password" element={<ResetPasswordEmailRedirect />} />
                     <Route path="/verify-email" element={<VerifyEmailPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/bonuses/preview" element={<BonusesPreviewPage />} />

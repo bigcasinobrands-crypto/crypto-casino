@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <!--
+    VybeBet-style transactional layout for Resend published templates.
+    Create variables in the template editor (Create Template API / dashboard); keys must match:
+      SITE_NAME, PREHEADER, PRIMARY_HEADLINE, PRIMARY_BODY, ACTION_URL,
+      BUTTON_LABEL, EXPIRY_LINE, SECONDARY_NOTE
+    Syntax: triple braces per https://resend.com/docs/dashboard/templates/template-variables
+    Publish the template before sending. Point RESEND_TEMPLATE_VERIFY_EMAIL and/or
+    RESEND_TEMPLATE_PASSWORD_RESET at this template's id or alias.
+  -->
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{{SITE_NAME}}}</title>
+  </head>
+  <body style="margin:0;background:#070709;color:#e8e6ef;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">{{{PREHEADER}}}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#070709;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#12121a;border-radius:16px;border:1px solid rgba(255,255,255,0.08);overflow:hidden;">
+            <tr>
+              <td style="padding:28px 28px 8px;font-size:18px;font-weight:800;letter-spacing:-0.02em;color:#fafafa;">
+                {{{SITE_NAME}}}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 28px 4px;font-size:20px;font-weight:800;color:#d946ef;line-height:1.25;">
+                {{{PRIMARY_HEADLINE}}}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:12px 28px 8px;font-size:15px;line-height:1.55;color:rgba(232,230,239,0.85);">
+                {{{PRIMARY_BODY}}}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 28px 8px;" align="center">
+                <a
+                  href="{{{ACTION_URL}}}"
+                  style="display:inline-block;padding:14px 28px;border-radius:12px;background:linear-gradient(180deg,#e879f9,#c026d3);color:#0b0b10;font-weight:800;font-size:15px;text-decoration:none;box-shadow:0 8px 24px rgba(192,38,211,0.35);"
+                >
+                  {{{BUTTON_LABEL}}}
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:8px 28px 16px;font-size:13px;line-height:1.5;color:rgba(232,230,239,0.55);" align="center">
+                {{{EXPIRY_LINE}}}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 28px 28px;font-size:12px;line-height:1.5;color:rgba(232,230,239,0.45);border-top:1px solid rgba(255,255,255,0.06);">
+                <p style="margin:16px 0 8px;">{{{SECONDARY_NOTE}}}</p>
+                <p style="margin:0;word-break:break-all;">
+                  <a href="{{{ACTION_URL}}}" style="color:#e879f9;text-decoration:none;">{{{ACTION_URL}}}</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:20px 8px 0;font-size:11px;color:rgba(232,230,239,0.35);">
+            © {{{SITE_NAME}}}
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

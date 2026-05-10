@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/crypto-casino/core/internal/emailpolicy"
+	"github.com/crypto-casino/core/internal/mail"
 	"github.com/crypto-casino/core/internal/passhash"
 	"github.com/crypto-casino/core/internal/privacy"
 	"github.com/crypto-casino/core/internal/safepath"
@@ -226,6 +227,32 @@ func (s *Service) sendVerificationEmail(ctx context.Context, userID, email strin
 	}
 	subject := emailpolicy.VerificationSubject(pol)
 	body := fmt.Sprintf("Open this link to verify your email (expires in 24h):\n\n%s\n", link)
+
+	tid := ""
+	if s.Cfg != nil {
+		tid = strings.TrimSpace(s.Cfg.ResendTemplateVerifyEmail)
+	}
+	brand := "VybeBet"
+	if s.Cfg != nil && strings.TrimSpace(s.Cfg.MailBrandSiteName) != "" {
+		brand = strings.TrimSpace(s.Cfg.MailBrandSiteName)
+	}
+	vars := map[string]string{
+		mail.TemplateVarSiteName:        brand,
+		mail.TemplateVarPreheader:       "Verify your email address",
+		mail.TemplateVarPrimaryHeadline: "Confirm your email",
+		mail.TemplateVarPrimaryBody:     "Use the secure link below to verify your email and finish setting up your account.",
+		mail.TemplateVarActionURL:       link,
+		mail.TemplateVarButtonLabel:     "Verify email",
+		mail.TemplateVarExpiryLine:      "This link expires in 24 hours.",
+		mail.TemplateVarSecondaryNote:   "If you didn't create an account, you can safely ignore this email.",
+	}
+	sent, err := mail.TryResendPublishedTemplate(s.Mail, ctx, email, subject, tid, vars)
+	if err != nil {
+		return err
+	}
+	if sent {
+		return nil
+	}
 	return s.Mail.Send(ctx, email, subject, body)
 }
 
@@ -312,6 +339,32 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 	link := strings.TrimRight(s.PublicPlayerURL, "/") + "/reset-password?token=" + plain
 	subject := emailpolicy.PasswordResetSubject(pol)
 	body := fmt.Sprintf("Open this link to reset your password (expires in 1 hour):\n\n%s\n", link)
+
+	tid := ""
+	if s.Cfg != nil {
+		tid = strings.TrimSpace(s.Cfg.ResendTemplatePasswordReset)
+	}
+	brand := "VybeBet"
+	if s.Cfg != nil && strings.TrimSpace(s.Cfg.MailBrandSiteName) != "" {
+		brand = strings.TrimSpace(s.Cfg.MailBrandSiteName)
+	}
+	vars := map[string]string{
+		mail.TemplateVarSiteName:        brand,
+		mail.TemplateVarPreheader:       "Password reset requested",
+		mail.TemplateVarPrimaryHeadline: "Reset your password",
+		mail.TemplateVarPrimaryBody:     "We received a request to reset your password. Use the secure link below to choose a new password.",
+		mail.TemplateVarActionURL:       link,
+		mail.TemplateVarButtonLabel:     "Reset password",
+		mail.TemplateVarExpiryLine:      "This link expires in 1 hour.",
+		mail.TemplateVarSecondaryNote:   "If you didn't request this, you can ignore this email — your password will stay the same.",
+	}
+	sent, err := mail.TryResendPublishedTemplate(s.Mail, ctx, email, subject, tid, vars)
+	if err != nil {
+		return err
+	}
+	if sent {
+		return nil
+	}
 	return s.Mail.Send(ctx, email, subject, body)
 }
 

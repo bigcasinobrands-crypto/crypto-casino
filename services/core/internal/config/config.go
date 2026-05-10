@@ -41,6 +41,12 @@ type Config struct {
 	ResendAPIKey string
 	// ResendFrom — optional "from" for Resend; when empty, SMTP_FROM is used with Resend.
 	ResendFrom string
+	// ResendTemplateVerifyEmail — optional published template id/alias for verify-email sends (HTML + variables).
+	ResendTemplateVerifyEmail string
+	// ResendTemplatePasswordReset — optional published template id/alias for password reset sends.
+	ResendTemplatePasswordReset string
+	// MailBrandSiteName — brand label injected into template variables (MAIL_BRAND_SITE_NAME).
+	MailBrandSiteName string
 	TermsVersion    string
 	PrivacyVersion  string
 	// Blue Ocean Gaming XAPI (server-to-server)
@@ -258,6 +264,12 @@ func Load() (Config, error) {
 	c.SMTPFrom = strings.TrimSpace(os.Getenv("SMTP_FROM"))
 	c.ResendAPIKey = strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
 	c.ResendFrom = strings.TrimSpace(os.Getenv("RESEND_FROM"))
+	c.ResendTemplateVerifyEmail = strings.TrimSpace(os.Getenv("RESEND_TEMPLATE_VERIFY_EMAIL"))
+	c.ResendTemplatePasswordReset = strings.TrimSpace(os.Getenv("RESEND_TEMPLATE_PASSWORD_RESET"))
+	c.MailBrandSiteName = strings.TrimSpace(os.Getenv("MAIL_BRAND_SITE_NAME"))
+	if c.MailBrandSiteName == "" {
+		c.MailBrandSiteName = "VybeBet"
+	}
 	c.TermsVersion = strings.TrimSpace(os.Getenv("TERMS_VERSION"))
 	if c.TermsVersion == "" {
 		c.TermsVersion = "1"

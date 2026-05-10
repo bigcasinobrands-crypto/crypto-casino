@@ -186,6 +186,12 @@ func main() {
 	}
 	mailSender := mail.ChooseTransactionalSender(cfg.ResendAPIKey, mailFrom, cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
 	log.Printf("mail: transactional backend=%s", mail.BackendSummary(mailSender))
+	if strings.TrimSpace(cfg.ResendTemplateVerifyEmail) != "" || strings.TrimSpace(cfg.ResendTemplatePasswordReset) != "" {
+		log.Printf("mail: resend published templates verify=%t password_reset=%t",
+			strings.TrimSpace(cfg.ResendTemplateVerifyEmail) != "",
+			strings.TrimSpace(cfg.ResendTemplatePasswordReset) != "",
+		)
+	}
 	if cfg.UsesPassimpay() {
 		log.Printf("payments: PassimPay rail active")
 	} else {

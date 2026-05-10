@@ -34,6 +34,9 @@ func (h *Handler) GetEmailStatus(w http.ResponseWriter, r *http.Request) {
 		"from_masked_preview": maskEmailSender(fromAddr),
 		"public_player_url":   strings.TrimRight(strings.TrimSpace(h.Cfg.PublicPlayerURL), "/"),
 		"transactional":       spec,
+		"mail_brand_site_name": strings.TrimSpace(h.Cfg.MailBrandSiteName),
+		"resend_template_verify_configured":       strings.TrimSpace(h.Cfg.ResendTemplateVerifyEmail) != "",
+		"resend_template_password_reset_configured": strings.TrimSpace(h.Cfg.ResendTemplatePasswordReset) != "",
 	})
 }
 
@@ -116,11 +119,32 @@ func (h *Handler) PostEmailTestSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := strings.TrimRight(strings.TrimSpace(h.Cfg.PublicPlayerURL), "/")
+	brand := strings.TrimSpace(h.Cfg.MailBrandSiteName)
+	if brand == "" {
+		brand = "VybeBet"
+	}
 	switch strings.TrimSpace(strings.ToLower(reqBody.Template)) {
 	case "verification", "verify":
 		link := base + "/verify-email?token=ADMIN-TEST-DEMO-TOKEN-NOT-VALID"
 		subj := "[TEST] " + emailpolicy.DefaultVerificationSubject
 		txt := "This is a manual test from the admin console.\n\nThe link below is a demo placeholder — it will not verify an account:\n\n" + link + "\n\nExpires messaging does not apply to this demo.\n"
+		tid := strings.TrimSpace(h.Cfg.ResendTemplateVerifyEmail)
+		vars := map[string]string{
+			mail.TemplateVarSiteName:        brand,
+			mail.TemplateVarPreheader:       "[TEST] Verify your email",
+			mail.TemplateVarPrimaryHeadline: "Confirm your email (test)",
+			mail.TemplateVarPrimaryBody:     "This is a manual test from the admin console. The button/link below is a demo placeholder and will not verify an account.",
+			mail.TemplateVarActionURL:       link,
+			mail.TemplateVarButtonLabel:     "Verify email (demo)",
+			mail.TemplateVarExpiryLine:      "Demo — expiry messaging does not apply.",
+			mail.TemplateVarSecondaryNote:   "Safe to ignore.",
+		}
+		if sent, err := mail.TryResendPublishedTemplate(h.Mail, r.Context(), to, subj, tid, vars); err != nil {
+			adminapi.WriteError(w, http.StatusBadGateway, "send_failed", err.Error())
+			return
+		} else if sent {
+			break
+		}
 		if err := h.Mail.Send(r.Context(), to, subj, txt); err != nil {
 			adminapi.WriteError(w, http.StatusBadGateway, "send_failed", err.Error())
 			return
@@ -129,6 +153,23 @@ func (h *Handler) PostEmailTestSend(w http.ResponseWriter, r *http.Request) {
 		link := base + "/reset-password?token=ADMIN-TEST-DEMO-TOKEN-NOT-VALID"
 		subj := "[TEST] " + emailpolicy.DefaultPasswordResetSubject
 		txt := "This is a manual test from the admin console.\n\nThe link below is a demo placeholder — it cannot reset a password:\n\n" + link + "\n\nReal resets always arrive from /forgot-password with a fresh token.\n"
+		tid := strings.TrimSpace(h.Cfg.ResendTemplatePasswordReset)
+		vars := map[string]string{
+			mail.TemplateVarSiteName:        brand,
+			mail.TemplateVarPreheader:       "[TEST] Password reset",
+			mail.TemplateVarPrimaryHeadline: "Reset your password (test)",
+			mail.TemplateVarPrimaryBody:     "This is a manual test from the admin console. The button/link below is a demo placeholder and cannot reset a password.",
+			mail.TemplateVarActionURL:       link,
+			mail.TemplateVarButtonLabel:     "Reset password (demo)",
+			mail.TemplateVarExpiryLine:      "Demo — real links expire in 1 hour.",
+			mail.TemplateVarSecondaryNote:   "Safe to ignore.",
+		}
+		if sent, err := mail.TryResendPublishedTemplate(h.Mail, r.Context(), to, subj, tid, vars); err != nil {
+			adminapi.WriteError(w, http.StatusBadGateway, "send_failed", err.Error())
+			return
+		} else if sent {
+			break
+		}
 		if err := h.Mail.Send(r.Context(), to, subj, txt); err != nil {
 			adminapi.WriteError(w, http.StatusBadGateway, "send_failed", err.Error())
 			return

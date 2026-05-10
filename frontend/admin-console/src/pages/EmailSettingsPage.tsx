@@ -18,6 +18,9 @@ type EmailStatus = {
   from_masked_preview?: string
   public_player_url: string
   transactional: TransactionalSpec
+  mail_brand_site_name?: string
+  resend_template_verify_configured?: boolean
+  resend_template_password_reset_configured?: boolean
 }
 
 const inputCls = 'form-control form-control-sm'
@@ -145,6 +148,31 @@ export default function EmailSettingsPage() {
                   must match production player SPA (<code>PUBLIC_PLAYER_URL</code>).
                 </div>
               </div>
+              {status.backend === 'resend' ? (
+                <div className="col-12">
+                  <div className="text-secondary mb-1">Resend HTML templates</div>
+                  <div className="small">
+                    Verify template:{' '}
+                    <StatusBadge
+                      label={status.resend_template_verify_configured ? 'configured' : 'plain text'}
+                      variant={status.resend_template_verify_configured ? 'success' : 'neutral'}
+                    />
+                    <span className="mx-2 text-muted">·</span>
+                    Password reset template:{' '}
+                    <StatusBadge
+                      label={status.resend_template_password_reset_configured ? 'configured' : 'plain text'}
+                      variant={status.resend_template_password_reset_configured ? 'success' : 'neutral'}
+                    />
+                  </div>
+                  <div className="text-muted mt-2">
+                    Optional: set <code>RESEND_TEMPLATE_VERIFY_EMAIL</code> and <code>RESEND_TEMPLATE_PASSWORD_RESET</code>{' '}
+                    to published template ids (same template id for both is fine). Variables:{' '}
+                    <code>SITE_NAME</code>, <code>PREHEADER</code>, <code>PRIMARY_HEADLINE</code>, <code>PRIMARY_BODY</code>,{' '}
+                    <code>ACTION_URL</code>, <code>BUTTON_LABEL</code>, <code>EXPIRY_LINE</code>, <code>SECONDARY_NOTE</code>.
+                    Brand: <code>{status.mail_brand_site_name ?? 'VybeBet'}</code> (<code>MAIL_BRAND_SITE_NAME</code>).
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

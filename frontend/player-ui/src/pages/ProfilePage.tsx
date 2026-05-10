@@ -715,15 +715,6 @@ export default function ProfilePage() {
     }
   }, [apiFetch, refreshProfile, t])
 
-  if (!isAuthenticated) return <Navigate to="/casino/games" replace />
-
-  const joinDate = me?.created_at
-    ? new Date(me.created_at).toLocaleDateString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
-        year: 'numeric',
-        month: 'long',
-      })
-    : null
-
   const tabs = useMemo(
     () =>
       TAB_ORDER.map((key) => ({
@@ -740,7 +731,6 @@ export default function ProfilePage() {
     [t],
   )
 
-  const displayName = me?.username || me?.email?.split('@')[0] || 'Player'
   const currentVipTierImage = useMemo(() => {
     const tiers = vipProgram?.tiers ?? []
     if (tiers.length === 0 || !me?.vip_tier) return null
@@ -753,6 +743,17 @@ export default function ProfilePage() {
     if (typeof raw !== 'string' || !raw.trim()) return null
     return playerApiUrl(raw.trim())
   }, [vipProgram?.tiers, me?.vip_tier, me?.vip_tier_id])
+
+  if (!isAuthenticated) return <Navigate to="/casino/games" replace />
+
+  const joinDate = me?.created_at
+    ? new Date(me.created_at).toLocaleDateString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {
+        year: 'numeric',
+        month: 'long',
+      })
+    : null
+
+  const displayName = me?.username || me?.email?.split('@')[0] || 'Player'
 
   const fmtUsd = (minor: number) => formatMinorUsd(minor, lng)
 
