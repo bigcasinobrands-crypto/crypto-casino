@@ -52,6 +52,7 @@ const BonusHubRiskPage = lazy(() => import('./pages/BonusHubRiskPage'))
 const ContentCmsPage = lazy(() => import('./pages/ContentCmsPage'))
 const ReferralProgramTiersPage = lazy(() => import('./pages/ReferralProgramTiersPage'))
 const EmailSettingsPage = lazy(() => import('./pages/EmailSettingsPage'))
+const KYCAIDSettingsPage = lazy(() => import('./pages/KYCAIDSettingsPage'))
 
 export default function App() {
   return (
@@ -177,6 +178,7 @@ export default function App() {
               <Route path="/logs" element={<Navigate to="/diagnostics" replace />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/system/email" element={<EmailSettingsPage />} />
+              <Route path="/system/kycaid" element={<KYCAIDSettingsPage />} />
               <Route path="/content-cms" element={<ContentCmsPage />} />
               <Route path="/system/security-keys" element={<WebAuthnSecurityPage />} />
               <Route path="/system/staff-users" element={<StaffUsersPage />} />

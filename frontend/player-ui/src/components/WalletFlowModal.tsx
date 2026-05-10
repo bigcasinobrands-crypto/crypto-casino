@@ -17,11 +17,29 @@ type WalletFlowModalProps = {
   open: boolean
   onClose: () => void
   initialTab: WalletMainTab
+  /** Mirrored from payment_ops_flags / admin kill switches */
+  depositsEnabled?: boolean
+  withdrawalsEnabled?: boolean
+  /** When false, Withdraw tab shows verification gate (caller should prompt verify). */
+  emailVerified?: boolean
+  /** Called when user tries Withdraw without a verified email. */
+  onWithdrawBlocked?: () => void
+  /** Called when withdrawal fails with kyc_required — navigate to profile verification. */
+  onKYCVerificationRequired?: () => void
 }
 
 const MIN_USD = 10
 
-const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }) => {
+const WalletFlowModal: FC<WalletFlowModalProps> = ({
+  open,
+  onClose,
+  initialTab,
+  depositsEnabled = true,
+  withdrawalsEnabled = true,
+  emailVerified = true,
+  onWithdrawBlocked,
+  onKYCVerificationRequired,
+}) => {
   const { t } = useTranslation()
   const titleId = useId()
   const { apiFetch, isAuthenticated, balanceMinor } = usePlayerAuth()
@@ -56,7 +74,10 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
 
   useEffect(() => {
     if (!open) return
-    setMainTab(initialTab)
+    let tab: WalletMainTab = initialTab === 'withdraw' && !emailVerified ? 'deposit' : initialTab
+    if (!depositsEnabled && tab === 'deposit' && withdrawalsEnabled) tab = 'withdraw'
+    if (!withdrawalsEnabled && tab === 'withdraw' && depositsEnabled) tab = 'deposit'
+    setMainTab(tab)
     setDepositFlowStep('pick')
     setWithdrawFlowStep('form')
     setWithdrawCtx(null)
@@ -65,7 +86,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
     setWithdrawPick(null)
     setDepositAddrPrefetch(null)
     setCurrencyMenuLiftPx(0)
-  }, [open, initialTab])
+  }, [open, initialTab, emailVerified, depositsEnabled, withdrawalsEnabled])
 
   useEffect(() => {
     if (open) return
@@ -130,6 +151,21 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  const handleMainTabChange = useCallback(
+    (next: WalletMainTab) => {
+      if (next === 'deposit' && !depositsEnabled) return
+      if (next === 'withdraw') {
+        if (!withdrawalsEnabled) return
+        if (!emailVerified) {
+          onWithdrawBlocked?.()
+          return
+        }
+      }
+      setMainTab(next)
+    },
+    [emailVerified, onWithdrawBlocked, depositsEnabled, withdrawalsEnabled],
+  )
+
   const continueToAddressInModal = () => {
     setAmountErr(null)
     const parsed = Number(amountUsd.replace(',', '.'))
@@ -149,6 +185,8 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
   }
 
   if (!open) return null
+
+  const walletFullyPaused = !depositsEnabled && !withdrawalsEnabled
 
   const depositSentNetworkLabel =
     committedDeposit != null ? passimpayNetworkLabel(committedDeposit.network) : ''
@@ -195,15 +233,25 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2 max-sm:flex-none max-sm:px-5 max-sm:pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:min-h-0">
-          <WalletMainTabs
-            active={mainTab}
-            onChange={setMainTab}
-            depositLabel={t('wallet.deposit')}
-            withdrawLabel={t('wallet.withdraw')}
-          />
+          {!walletFullyPaused ? (
+            <WalletMainTabs
+              active={mainTab}
+              onChange={handleMainTabChange}
+              depositLabel={t('wallet.deposit')}
+              withdrawLabel={t('wallet.withdraw')}
+              depositDisabled={!depositsEnabled}
+              withdrawDisabled={!withdrawalsEnabled}
+              depositHint={t('operational.depositsUnavailable')}
+              withdrawHint={t('operational.withdrawalsUnavailable')}
+            />
+          ) : null}
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden max-sm:flex-none">
-            {mainTab === 'deposit' ? (
+            {walletFullyPaused ? (
+              <p className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-6 text-center text-sm leading-relaxed text-casino-muted">
+                {t('operational.walletUnavailableBoth')}
+              </p>
+            ) : mainTab === 'deposit' ? (
               depositFlowStep === 'pick' ? (
                 <WalletDepositPickStep
                   splitFooter
@@ -257,6 +305,8 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({ open, onClose, initialTab }
                 onRetryCurrencies={() => void reloadCurrencies()}
                 selected={withdrawPick}
                 onSelect={setWithdrawPick}
+                onEmailVerificationRequired={onWithdrawBlocked}
+                onKYCVerificationRequired={onKYCVerificationRequired}
                 onSuccess={(p) => {
                   setWithdrawCtx(p)
                   setWithdrawFlowStep('success')

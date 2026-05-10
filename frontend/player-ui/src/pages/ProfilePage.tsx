@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { readApiError } from '../api/errors'
@@ -679,14 +679,17 @@ export default function ProfilePage() {
   const { data: vipProgram } = useVipProgram()
   const [searchParams] = useSearchParams()
   const settingsPromo = searchParams.get('settings') === 'promo'
+  const settingsVerify = searchParams.get('settings') === 'verify'
   const promoPrefill = searchParams.get('prefill_code') ?? undefined
 
-  const [activeTab, setActiveTab] = useState<ProfileTab>(() => (settingsPromo ? 'settings' : 'overview'))
+  const [activeTab, setActiveTab] = useState<ProfileTab>(() =>
+    settingsPromo || settingsVerify ? 'settings' : 'overview',
+  )
   const [resendMsg, setResendMsg] = useState<string | null>(null)
 
   useEffect(() => {
-    if (settingsPromo) setActiveTab('settings')
-  }, [settingsPromo])
+    if (settingsPromo || settingsVerify) setActiveTab('settings')
+  }, [settingsPromo, settingsVerify])
 
   const { txs: recentTxs, loading: txLoading } = useRecentTransactions(10)
   const allTxPaginated = usePaginatedTransactions(PAGE_SIZE)
@@ -900,9 +903,12 @@ export default function ProfilePage() {
           displayName={displayName}
           username={me?.username}
           emailVerified={me?.email_verified}
+          kycStatus={me?.kyc_status}
+          kycRejectReason={me?.kyc_reject_reason}
+          kycRequiredReason={me?.kyc_required_reason}
           onResendVerification={() => void resend()}
           resendMsg={resendMsg}
-          initialSettingsSection={settingsPromo ? 'promo' : undefined}
+          initialSettingsSection={settingsPromo ? 'promo' : settingsVerify ? 'verify' : undefined}
           promoPrefill={promoPrefill}
         />
       )}
@@ -2026,6 +2032,9 @@ function SettingsPanel({
   displayName,
   username,
   emailVerified,
+  kycStatus,
+  kycRejectReason,
+  kycRequiredReason,
   onResendVerification,
   resendMsg,
   initialSettingsSection,
@@ -2035,6 +2044,9 @@ function SettingsPanel({
   displayName: string
   username?: string
   emailVerified?: boolean
+  kycStatus?: string
+  kycRejectReason?: string
+  kycRequiredReason?: string
   onResendVerification: () => void
   resendMsg: string | null
   initialSettingsSection?: SettingsSection
@@ -2088,6 +2100,9 @@ function SettingsPanel({
         {section === 'verify' && (
           <SettingsVerify
             emailVerified={emailVerified}
+            kycStatus={kycStatus}
+            kycRejectReason={kycRejectReason}
+            kycRequiredReason={kycRequiredReason}
             onResendVerification={onResendVerification}
             resendMsg={resendMsg}
           />
@@ -2243,7 +2258,7 @@ function SettingsSecurity() {
     if (!currentPw) { setPwMsg({ ok: false, text: 'Enter your current password' }); return }
     if (!newPw) { setPwMsg({ ok: false, text: 'Enter a new password' }); return }
     if (newPw !== confirmPw) { setPwMsg({ ok: false, text: 'New passwords do not match' }); return }
-    if (newPw.length < 12) { setPwMsg({ ok: false, text: 'Password must be at least 12 characters' }); return }
+    if (newPw.length < 6) { setPwMsg({ ok: false, text: 'Password must be at least 6 characters' }); return }
     setSaving(true)
     try {
       const res = await apiFetch('/v1/auth/profile/change-password', {
@@ -2946,14 +2961,83 @@ function SettingsSessions() {
 
 function SettingsVerify({
   emailVerified,
+  kycStatus,
+  kycRejectReason,
+  kycRequiredReason,
   onResendVerification,
   resendMsg,
 }: {
   emailVerified?: boolean
+  kycStatus?: string
+  kycRejectReason?: string
+  kycRequiredReason?: string
   onResendVerification: () => void
   resendMsg: string | null
 }) {
   const { t } = useTranslation()
+  const { apiFetch } = usePlayerAuth()
+  const [kycBusy, setKycBusy] = useState(false)
+  const [kycErr, setKycErr] = useState<string | null>(null)
+
+  const ks = (kycStatus ?? 'none').toLowerCase().trim() || 'none'
+
+  const startKyc = useCallback(async () => {
+    setKycErr(null)
+    setKycBusy(true)
+    try {
+      const res = await apiFetch('/v1/kyc/kycaid/session', { method: 'POST' })
+      if (!res.ok) {
+        const parsed = await readApiError(res)
+        setKycErr(parsed?.message ?? t('wallet.errWithdrawFailed'))
+        return
+      }
+      const j = (await res.json()) as { form_url?: string }
+      if (j.form_url) {
+        window.location.href = j.form_url
+        return
+      }
+      setKycErr('Missing form URL')
+    } catch {
+      setKycErr(t('settings.networkError'))
+    } finally {
+      setKycBusy(false)
+    }
+  }, [apiFetch, t])
+
+  let kycBadge: ReactNode
+  if (ks === 'approved') {
+    kycBadge = (
+      <span className="rounded-full bg-casino-success/15 px-3 py-1 text-[11px] font-extrabold text-casino-success">
+        {t('profile.verification.kycVerified')}
+      </span>
+    )
+  } else if (ks === 'pending') {
+    kycBadge = (
+      <span className="rounded-full bg-casino-warning/15 px-3 py-1 text-[11px] font-extrabold text-casino-warning">
+        {t('profile.verification.kycPending')}
+      </span>
+    )
+  } else if (ks === 'rejected') {
+    kycBadge = (
+      <span className="rounded-full bg-casino-destructive/15 px-3 py-1 text-[11px] font-extrabold text-casino-destructive">
+        {t('profile.verification.kycRejected')}
+      </span>
+    )
+  } else {
+    kycBadge = (
+      <span className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] font-extrabold text-casino-muted">
+        {t('profile.verification.kycNotStarted')}
+      </span>
+    )
+  }
+
+  const kycActionLabel =
+    ks === 'rejected'
+      ? t('profile.verification.kycResubmit')
+      : ks === 'pending'
+        ? t('profile.verification.kycContinue')
+        : t('profile.verification.kycStart')
+
   return (
     <>
       <h3 className="mb-6 text-lg font-extrabold text-casino-foreground">Verification</h3>
@@ -2971,11 +3055,36 @@ function SettingsVerify({
             </span>
           )}
         </div>
-        <div className="flex items-center justify-between rounded-casino-md border border-casino-border bg-white/[0.02] px-4 py-3.5">
-          <span className="text-sm font-bold text-casino-foreground">KYC Verification</span>
-          <span className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] font-extrabold text-casino-muted">
-            Not Started
-          </span>
+        <div className="flex flex-col gap-2 rounded-casino-md border border-casino-border bg-white/[0.02] px-4 py-3.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-bold text-casino-foreground">{t('profile.verification.kycRowTitle')}</span>
+            {kycBadge}
+          </div>
+          <p className="text-[11px] leading-relaxed text-casino-muted">{t('profile.verification.kycFootnote')}</p>
+          {kycRequiredReason ? (
+            <p className="text-[11px] leading-relaxed text-casino-warning/90">
+              {t('profile.verification.kycGateHint')} ({kycRequiredReason.replace(/_/g, ' ')})
+            </p>
+          ) : null}
+          {ks === 'rejected' && kycRejectReason ? (
+            <p className="text-[11px] leading-relaxed text-casino-destructive/90">
+              <span className="font-bold">{t('profile.verification.kycRejectLabel')}: </span>
+              {kycRejectReason}
+            </p>
+          ) : null}
+          {ks !== 'approved' ? (
+            <div className="mt-1 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={kycBusy}
+                onClick={() => void startKyc()}
+                className="w-fit rounded-casino-sm bg-casino-primary px-4 py-2 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-50"
+              >
+                {kycBusy ? t('profile.verification.kycOpening') : kycActionLabel}
+              </button>
+              {kycErr ? <p className="text-xs font-semibold text-casino-destructive">{kycErr}</p> : null}
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center justify-between rounded-casino-md border border-casino-border bg-white/[0.02] px-4 py-3.5">
           <span className="text-sm font-bold text-casino-foreground">Phone Verification</span>

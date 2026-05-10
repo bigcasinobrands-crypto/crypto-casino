@@ -20,6 +20,7 @@ import CasinoNavEsportsSection from './CasinoNavEsportsSection'
 import { isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
 import { LanguageMenu } from './LanguageMenu'
+import SidebarSocialProof from './SidebarSocialProof'
 import {
   IconChevronDown,
   IconDices,
@@ -212,6 +213,7 @@ export default function MobileCasinoMenuOverlay({
             {t('sidebar.blog')}
           </NavLink>
         </nav>
+        <SidebarSocialProof variant="mobile" />
       </aside>
     </div>
   )

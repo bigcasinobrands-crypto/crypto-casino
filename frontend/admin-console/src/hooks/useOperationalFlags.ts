@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 export type OperationalFlags = {
   maintenance_mode?: boolean
+  /** True only when MAINTENANCE_MODE env is set on the API process (informational). */
+  maintenance_mode_env?: boolean
   disable_game_launch?: boolean
   blueocean_launch_mode?: string
   bonus_max_bet_violations_auto_forfeit?: number

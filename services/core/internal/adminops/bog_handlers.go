@@ -13,6 +13,7 @@ import (
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/games"
+	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
@@ -182,9 +183,11 @@ func (h *Handler) BackfillBlueOceanPlayerLinks(w http.ResponseWriter, r *http.Re
 }
 func (h *Handler) OperationalFlags(w http.ResponseWriter, r *http.Request) {
 	c := h.cfg()
+	maintEff := sitestatus.MaintenanceEffective(r.Context(), h.Pool, c)
 	writeJSON(w, map[string]any{
-		"maintenance_mode":      c.MaintenanceMode,
-		"disable_game_launch":   c.DisableGameLaunch,
+		"maintenance_mode":                    maintEff,
+		"maintenance_mode_env":                c.MaintenanceMode,
+		"disable_game_launch":                 c.DisableGameLaunch,
 		"blueocean_launch_mode": c.BlueOceanLaunchMode,
 		// API process env; worker must use the same value in production for auto-forfeit to match operator expectations.
 		"bonus_max_bet_violations_auto_forfeit": c.BonusMaxBetViolationsAutoForfeit,

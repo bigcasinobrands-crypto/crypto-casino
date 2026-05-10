@@ -42,6 +42,8 @@ function syntheticFromStagedOffer(offer: HubOffer): HubBonusInstance {
 }
 
 export type MyBonusesLayoutProps = {
+  /** From operational health — new claims / deposit-intent disabled */
+  bonusesEnabled?: boolean
   data: RewardsHubPayload | null
   loading: boolean
   err: string | null
@@ -59,6 +61,7 @@ export type MyBonusesLayoutProps = {
 }
 
 export function MyBonusesLayout({
+  bonusesEnabled = true,
   data,
   loading,
   err,
@@ -140,6 +143,12 @@ export function MyBonusesLayout({
               {t('bonuses.retry')}
             </button>
           ) : null}
+        </div>
+      ) : null}
+
+      {!err && !bonusesEnabled ? (
+        <div className="mb-6 rounded-casino-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          {t('operational.bonusesUnavailable')}
         </div>
       ) : null}
 
@@ -227,7 +236,12 @@ export function MyBonusesLayout({
         ) : (
           <ul className={cardGrid}>
             {offers.map((o: HubOffer) => (
-              <AvailableBonusOfferCard key={o.promotion_version_id} offer={o} onHubUpdated={onHubUpdated} />
+              <AvailableBonusOfferCard
+                key={o.promotion_version_id}
+                offer={o}
+                onHubUpdated={onHubUpdated}
+                claimsDisabled={!bonusesEnabled}
+              />
             ))}
           </ul>
         )}

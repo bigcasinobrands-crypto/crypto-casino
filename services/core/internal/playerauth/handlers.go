@@ -63,6 +63,8 @@ type regReq struct {
 	AcceptTerms   bool   `json:"accept_terms"`
 	AcceptPrivacy bool   `json:"accept_privacy"`
 	CaptchaToken  string `json:"captcha_token"`
+	// Optional — used when HttpOnly referral cookie cannot be set (JWT mode + cross-origin API).
+	ReferralCode string `json:"referral_code"`
 	// Fingerprint Pro — forwarded when present; enforced only outside APP_ENV=development — see config.PlayerFingerprintAuthRequired().
 	FingerprintRequestID string `json:"fingerprint_request_id"`
 	FingerprintVisitorID string `json:"fingerprint_visitor_id"`
@@ -162,14 +164,21 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sc := sessionContextFromRequest(r, body.FingerprintRequestID, body.FingerprintVisitorID)
-	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.Username, body.AcceptTerms, body.AcceptPrivacy, sc, playercookies.ReferralPendingFromRequest(r))
+	refCode := strings.TrimSpace(playercookies.ReferralPendingFromRequest(r))
+	if refCode == "" {
+		refCode = strings.TrimSpace(body.ReferralCode)
+	}
+	if len(refCode) > 64 {
+		refCode = refCode[:64]
+	}
+	access, refresh, exp, err := h.Svc.Register(r.Context(), body.Email, body.Password, body.Username, body.AcceptTerms, body.AcceptPrivacy, sc, refCode)
 	if err != nil {
 		if errors.Is(err, ErrTermsNotAccepted) {
 			playerapi.WriteError(w, http.StatusBadRequest, "terms_required", "you must accept the terms and privacy policy")
 			return
 		}
 		if errors.Is(err, ErrWeakPassword) {
-			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
+			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 6 characters with letters and numbers")
 			return
 		}
 		if errors.Is(err, ErrPwnedPassword) {
@@ -354,6 +363,16 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	if p.VIPTierName != nil && *p.VIPTierName != "" {
 		out["vip_tier"] = *p.VIPTierName
 	}
+	out["kyc_status"] = strings.ToLower(strings.TrimSpace(p.KYCStatus))
+	if out["kyc_status"] == "" {
+		out["kyc_status"] = "none"
+	}
+	if p.KYCRejectReason != nil && strings.TrimSpace(*p.KYCRejectReason) != "" {
+		out["kyc_reject_reason"] = strings.TrimSpace(*p.KYCRejectReason)
+	}
+	if p.KYCRequiredReason != nil && strings.TrimSpace(*p.KYCRequiredReason) != "" {
+		out["kyc_required_reason"] = strings.TrimSpace(*p.KYCRequiredReason)
+	}
 	_ = json.NewEncoder(w).Encode(out)
 }
 
@@ -446,7 +465,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Svc.ResetPassword(r.Context(), body.Token, body.Password); err != nil {
 		if errors.Is(err, ErrWeakPassword) {
-			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
+			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 6 characters with letters and numbers")
 			return
 		}
 		if errors.Is(err, ErrPwnedPassword) {
@@ -516,7 +535,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, ErrWeakPassword) {
-			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 12 characters with letters and numbers")
+			playerapi.WriteError(w, http.StatusBadRequest, "weak_password", "password must be at least 6 characters with letters and numbers")
 			return
 		}
 		if errors.Is(err, ErrPwnedPassword) {

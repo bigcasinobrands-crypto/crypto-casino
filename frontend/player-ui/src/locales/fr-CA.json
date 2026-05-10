@@ -46,7 +46,12 @@
     "collapseSidebar": "Réduire le menu",
     "closeMenu": "Fermer le menu",
     "casinoMenu": "Menu casino",
-    "comingSoon": "Bientôt disponible"
+    "comingSoon": "Bientôt disponible",
+    "socialProof": {
+      "regionLabel": "Aperçu d’activité du lobby",
+      "betsWagered": "Mises jouées",
+      "online": "En ligne"
+    }
   },
   "affiliateModal": {
     "title": "Parrainez et gagnez",
@@ -289,6 +294,14 @@
       "transactionAlertsComplianceNote": "S'applique uniquement aux courriels de reçus de dépôt et de retrait facultatifs. La vérification du courriel, la réinitialisation du mot de passe et les avis importants sont toujours envoyés lorsque requis."
     }
   },
+  "emailVerifyPrompt": {
+    "title": "Vérifiez votre courriel",
+    "intro": "Nous avons envoyé un lien de vérification à {{email}}. Ouvrez-le pour confirmer votre adresse.",
+    "resend": "Renvoyer le courriel de vérification",
+    "continue": "Continuer à jouer",
+    "sending": "Envoi…",
+    "settingsLink": "Paramètres de vérification"
+  },
   "auth": {
     "close": "Fermer",
     "welcomeBack": "Bon retour",
@@ -296,7 +309,7 @@
     "signInSubtitle": "Utilisez votre courriel et votre mot de passe pour continuer.",
     "createAccount": "Créer un compte",
     "register": "Inscription",
-    "registerSubtitle": "Utilisez votre courriel et un mot de passe fort (12 caractères ou plus).",
+    "registerSubtitle": "Utilisez votre courriel et un mot de passe fort (6 caractères ou plus).",
     "accountHelp": "Aide au compte",
     "resetPassword": "Réinitialiser le mot de passe",
     "resetSubtitle": "Nous enverrons un lien de réinitialisation si cette adresse est associée à un compte.",

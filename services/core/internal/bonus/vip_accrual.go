@@ -7,13 +7,20 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AccrueVIPFromGameDebit records VIP wager accrual idempotently from a ledger entry (game.debit).
+// AccrueVIPFromGameDebit records VIP wager accrual idempotently from a ledger stake line (game.debit / sportsbook.debit).
+// Both cash and bonus_locked stakes count toward lifetime wager / points — aligned with playable turnover from the ledger.
 func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID string, entryID int64, wagerMinor int64, pocket string) error {
-	if wagerMinor <= 0 || pocket != "cash" {
+	if wagerMinor <= 0 {
+		return nil
+	}
+	switch ledger.NormalizePocket(pocket) {
+	case ledger.PocketCash, ledger.PocketBonusLocked:
+	default:
 		return nil
 	}
 	idem := fmt.Sprintf("vip:accrual:%d", entryID)
@@ -129,6 +136,59 @@ func ReverseVIPAccrualForCashRollbackTx(ctx context.Context, tx pgx.Tx, userID s
 		return err
 	}
 	negDelta := -cashRollbackMinor
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO vip_point_ledger (user_id, delta, reason, idempotency_key)
+		VALUES ($1::uuid, $2, 'game_wager_rollback', $3)
+	`, userID, negDelta, vipIdem); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE player_vip_state
+		SET
+			lifetime_wager_minor = GREATEST(0, lifetime_wager_minor + $2),
+			points_balance = GREATEST(0, points_balance + $2),
+			last_accrual_at = now(),
+			updated_at = now()
+		WHERE user_id = $1::uuid
+	`, userID, negDelta); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE player_vip_state AS pvs
+		SET tier_id = (
+			SELECT vt.id FROM vip_tiers vt
+			WHERE vt.min_lifetime_wager_minor <= pvs.lifetime_wager_minor
+			ORDER BY vt.min_lifetime_wager_minor DESC, vt.id DESC
+			LIMIT 1
+		),
+		updated_at = now()
+		WHERE pvs.user_id = $1::uuid
+	`, userID)
+	return err
+}
+
+// ReverseVIPAccrualForBonusRollbackTx subtracts bonus_locked rollback stake from VIP lifetime/points (idempotent).
+func ReverseVIPAccrualForBonusRollbackTx(ctx context.Context, tx pgx.Tx, userID string, bonusRollbackMinor int64, idempotencyKey string) error {
+	if bonusRollbackMinor <= 0 || strings.TrimSpace(idempotencyKey) == "" {
+		return nil
+	}
+	var has bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM player_vip_state WHERE user_id = $1::uuid)`, userID).Scan(&has); err != nil {
+		return err
+	}
+	if !has {
+		return nil
+	}
+	vipIdem := "vip:rollback:bonus:" + strings.TrimSpace(idempotencyKey)
+	var dup int
+	switch err := tx.QueryRow(ctx, `SELECT 1 FROM vip_point_ledger WHERE idempotency_key = $1`, vipIdem).Scan(&dup); err {
+	case nil:
+		return nil
+	case pgx.ErrNoRows:
+	default:
+		return err
+	}
+	negDelta := -bonusRollbackMinor
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO vip_point_ledger (user_id, delta, reason, idempotency_key)
 		VALUES ($1::uuid, $2, 'game_wager_rollback', $3)

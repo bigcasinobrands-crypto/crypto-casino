@@ -8,13 +8,14 @@ import (
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/paymentflags"
+	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/crypto-casino/core/internal/sitegeo"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // LaunchAllowed returns false with a stable machine code if the player must not open real/demo launch.
 func LaunchAllowed(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, r *http.Request, userID string) (ok bool, code string) {
-	if cfg.MaintenanceMode {
+	if sitestatus.MaintenanceEffective(ctx, pool, cfg) {
 		return false, "maintenance"
 	}
 	if cfg.DisableGameLaunch {

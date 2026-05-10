@@ -17,6 +17,7 @@ import CasinoNavEsportsSection from './CasinoNavEsportsSection'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
 import { LanguageMenu } from './LanguageMenu'
 import { sportsbookPlayerPath, isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
+import SidebarSocialProof from './SidebarSocialProof'
 import {
   IconBanknote,
   IconBuilding2,
@@ -278,7 +279,7 @@ export default function CasinoSidebar({
         </div>
 
         <nav
-          className={`scrollbar-none flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain pb-8 pt-3 ${
+          className={`scrollbar-none flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-y-contain pb-3 pt-3 ${
             collapsed ? 'items-center px-1' : 'px-2.5'
           }`}
           onClick={closeIfMobile}
@@ -430,6 +431,7 @@ export default function CasinoSidebar({
             </>
           )}
         </nav>
+        <SidebarSocialProof variant={collapsed ? 'desktop-collapsed' : 'desktop'} />
       </aside>
   )
 }

@@ -1,7 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { usePlayerAuth } from '../playerAuth'
+import { stashPendingReferralFromUrl } from '../lib/referralPendingStorage'
 
-/** Captures `?ref=` on first load, POSTs to set HttpOnly cookie, strips query via replaceState. */
+/**
+ * Captures `?ref=` on first load:
+ * - Stashes code in localStorage (required when API calls use `credentials: omit` — Set-Cookie from attribution is ignored cross-origin).
+ * - POSTs attribution when possible (sets HttpOnly cookie for cookie-auth deployments).
+ * - Strips `ref` from the URL via replaceState.
+ */
 export function useReferralAttributionCapture() {
   const { apiFetch } = usePlayerAuth()
   const ran = useRef(false)
@@ -13,6 +19,8 @@ export function useReferralAttributionCapture() {
     const ref = params.get('ref')?.trim()
     if (!ref) return
 
+    stashPendingReferralFromUrl(ref)
+
     void (async () => {
       try {
         const res = await apiFetch('/v1/referrals/attribution', {
@@ -20,13 +28,18 @@ export function useReferralAttributionCapture() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: ref }),
         })
-        if (!res.ok) return
+        if (!res.ok) {
+          /* Invalid / unknown code — leave URL cleanup so UX stays clean; stash already skipped invalid UX server-side on register */
+        }
         params.delete('ref')
         const qs = params.toString()
         const path = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`
         window.history.replaceState({}, '', path)
       } catch {
-        /* ignore */
+        params.delete('ref')
+        const qs = params.toString()
+        const path = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`
+        window.history.replaceState({}, '', path)
       }
     })()
   }, [apiFetch])

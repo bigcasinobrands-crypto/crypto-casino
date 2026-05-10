@@ -60,11 +60,19 @@ export function WalletMainTabs({
   onChange,
   depositLabel,
   withdrawLabel,
+  depositDisabled,
+  withdrawDisabled,
+  depositHint,
+  withdrawHint,
 }: {
   active: WalletMainTabId
   onChange: (t: WalletMainTabId) => void
   depositLabel: string
   withdrawLabel: string
+  depositDisabled?: boolean
+  withdrawDisabled?: boolean
+  depositHint?: string
+  withdrawHint?: string
 }) {
   return (
     <div
@@ -76,8 +84,12 @@ export function WalletMainTabs({
         type="button"
         role="tab"
         aria-selected={active === 'deposit'}
+        disabled={depositDisabled}
+        title={depositDisabled ? depositHint : undefined}
         onClick={() => onChange('deposit')}
         className={`flex-1 rounded-lg py-2.5 text-center text-sm font-semibold transition ${
+          depositDisabled ? 'cursor-not-allowed opacity-40 text-casino-muted' : ''
+        } ${
           active === 'deposit'
             ? 'bg-casino-primary/25 text-white ring-1 ring-casino-primary/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
             : 'text-casino-muted hover:text-white/85'
@@ -89,8 +101,12 @@ export function WalletMainTabs({
         type="button"
         role="tab"
         aria-selected={active === 'withdraw'}
+        disabled={withdrawDisabled}
+        title={withdrawDisabled ? withdrawHint : undefined}
         onClick={() => onChange('withdraw')}
         className={`flex-1 rounded-lg py-2.5 text-center text-sm font-semibold transition ${
+          withdrawDisabled ? 'cursor-not-allowed opacity-40 text-casino-muted' : ''
+        } ${
           active === 'withdraw'
             ? 'bg-casino-primary/25 text-white ring-1 ring-casino-primary/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
             : 'text-casino-muted hover:text-white/85'

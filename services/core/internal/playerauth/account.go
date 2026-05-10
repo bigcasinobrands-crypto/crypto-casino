@@ -33,6 +33,9 @@ type MeProfile struct {
 	VIPTierName         *string
 	Email2FAEnabled     bool
 	Email2FAAdminLocked bool
+	KYCStatus           string
+	KYCRejectReason     *string
+	KYCRequiredReason   *string
 }
 
 func (s *Service) MeProfile(ctx context.Context, userID string) (MeProfile, error) {
@@ -42,13 +45,14 @@ func (s *Service) MeProfile(ctx context.Context, userID string) (MeProfile, erro
 	err := s.Pool.QueryRow(ctx, `
 		SELECT u.id::text, u.public_participant_id::text, u.email, u.created_at, u.email_verified_at, u.username, u.avatar_url,
 			COALESCE(u.email_2fa_enabled, false), COALESCE(u.email_2fa_admin_locked, false),
+			COALESCE(NULLIF(trim(u.kyc_status), ''), 'none'), u.kyc_reject_reason, u.kyc_required_reason,
 			pvs.tier_id, vt.name
 		FROM users u
 		LEFT JOIN player_vip_state pvs ON pvs.user_id = u.id
 		LEFT JOIN vip_tiers vt ON vt.id = pvs.tier_id
 		WHERE u.id = $1::uuid
 	`, userID).Scan(&p.ID, &p.PublicParticipantID, &p.Email, &p.CreatedAt, &ev, &p.Username, &rawAvatar,
-		&p.Email2FAEnabled, &p.Email2FAAdminLocked, &p.VIPTierID, &p.VIPTierName)
+		&p.Email2FAEnabled, &p.Email2FAAdminLocked, &p.KYCStatus, &p.KYCRejectReason, &p.KYCRequiredReason, &p.VIPTierID, &p.VIPTierName)
 	p.EmailVerifiedAt = ev
 	if err != nil {
 		return p, err
@@ -230,15 +234,16 @@ func (s *Service) sendVerificationEmail(ctx context.Context, userID, email strin
 		return nil
 	}
 	subject := emailpolicy.VerificationSubject(pol)
-	body := fmt.Sprintf("Open this link to verify your email (expires in 24h):\n\n%s\n", link)
+
+	brand := "VybeBet"
+	if s.Cfg != nil && strings.TrimSpace(s.Cfg.MailBrandSiteName) != "" {
+		brand = strings.TrimSpace(s.Cfg.MailBrandSiteName)
+	}
+	plainBody, htmlBody := mail.VerificationEmailBodies(brand, link)
 
 	tid := ""
 	if s.Cfg != nil {
 		tid = strings.TrimSpace(s.Cfg.ResendTemplateVerifyEmail)
-	}
-	brand := "VybeBet"
-	if s.Cfg != nil && strings.TrimSpace(s.Cfg.MailBrandSiteName) != "" {
-		brand = strings.TrimSpace(s.Cfg.MailBrandSiteName)
 	}
 	vars := map[string]string{
 		mail.TemplateVarSiteName:        brand,
@@ -257,7 +262,7 @@ func (s *Service) sendVerificationEmail(ctx context.Context, userID, email strin
 	if sent {
 		return nil
 	}
-	return s.Mail.Send(ctx, email, subject, body)
+	return mail.SendTransactional(ctx, s.Mail, email, subject, plainBody, htmlBody)
 }
 
 // ResendVerificationEmail creates a new token and sends mail (authenticated user).

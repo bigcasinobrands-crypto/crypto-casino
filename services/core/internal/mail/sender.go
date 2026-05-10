@@ -27,6 +27,20 @@ func (s *LogSender) Send(_ context.Context, to, subject, textBody string) error 
 	return nil
 }
 
+// SendTransactional logs HTML length when present (dev / CI).
+func (s *LogSender) SendTransactional(ctx context.Context, to, subject, textPlain, htmlBody string) error {
+	if strings.TrimSpace(htmlBody) == "" {
+		return s.Send(ctx, to, subject, textPlain)
+	}
+	htmlLen := len(htmlBody)
+	if s.Logger != nil {
+		s.Logger.Printf("mail to=%s subject=%s html_bytes=%d\n%s\n", to, subject, htmlLen, textPlain)
+	} else {
+		log.Printf("mail to=%s subject=%s html_bytes=%d\n%s\n", to, subject, htmlLen, textPlain)
+	}
+	return nil
+}
+
 // SMTPSender sends via plain SMTP (STARTTLS when port 587).
 type SMTPSender struct {
 	Host     string
@@ -54,6 +68,44 @@ func (s *SMTPSender) Send(_ context.Context, to, subject, textBody string) error
 		auth = smtp.PlainAuth("", s.User, s.Password, s.Host)
 	}
 	return smtp.SendMail(addr, auth, s.From, []string{to}, msg)
+}
+
+// SendTransactional sends multipart/alternative when htmlBody is non-empty.
+func (s *SMTPSender) SendTransactional(_ context.Context, to, subject, textPlain, htmlBody string) error {
+	htmlBody = strings.TrimSpace(htmlBody)
+	if htmlBody == "" {
+		return s.Send(context.Background(), to, subject, textPlain)
+	}
+	if !s.Configured() {
+		return fmt.Errorf("smtp not configured")
+	}
+	msg, err := BuildMultipartAlternativeRFC822(s.From, to, subject, textPlain, htmlBody)
+	if err != nil {
+		return err
+	}
+	addr := s.Host + ":" + strings.TrimSpace(s.Port)
+	if strings.TrimSpace(s.Port) == "" {
+		addr = s.Host + ":587"
+	}
+	var auth smtp.Auth
+	if s.User != "" {
+		auth = smtp.PlainAuth("", s.User, s.Password, s.Host)
+	}
+	return smtp.SendMail(addr, auth, s.From, []string{to}, msg)
+}
+
+// SendTransactional sends multipart HTML when supported by the concrete sender; otherwise plain text only.
+func SendTransactional(ctx context.Context, s Sender, to, subject, textPlain, htmlBody string) error {
+	switch v := s.(type) {
+	case *ResendSender:
+		return v.SendTransactional(ctx, to, subject, textPlain, htmlBody)
+	case *SMTPSender:
+		return v.SendTransactional(ctx, to, subject, textPlain, htmlBody)
+	case *LogSender:
+		return v.SendTransactional(ctx, to, subject, textPlain, htmlBody)
+	default:
+		return s.Send(ctx, to, subject, textPlain)
+	}
 }
 
 // ChooseSender returns SMTP when configured, otherwise LogSender.

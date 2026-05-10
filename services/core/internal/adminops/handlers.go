@@ -39,6 +39,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/vip", h.patchUserVIP)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/compliance", h.PatchUserCompliance)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/users/{id}/email-2fa", h.PatchPlayerEmail2FA)
+	r.With(adminapi.RequireAnyRole("superadmin")).Delete("/users/{id}", h.HardDeletePlayer)
 	r.Get("/vip/tiers", h.listVIPTiers)
 	r.With(adminapi.RequireAnyRole("superadmin")).Post("/vip/tiers", h.createVIPTier)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/vip/tiers/{id}", h.patchVIPTier)
@@ -116,6 +117,9 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/email/status", h.GetEmailStatus)
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/email/transactional", h.PatchEmailTransactional)
 	r.With(adminapi.RequireAnyRole("superadmin")).Post("/email/test-send", h.PostEmailTestSend)
+	r.Get("/integrations/kycaid/status", h.GetKYCAIDIntegrationStatus)
+	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/integrations/kycaid/settings", h.PatchKYCAIDSiteSettings)
+	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/compliance/withdraw-kyc-policy", h.PatchWithdrawKYCRiskPolicy)
 	r.Get("/content", h.GetAllContent)
 	r.Get("/content/{key}", h.GetContentByKey)
 	r.Route("/security/approvals", func(ar chi.Router) {
@@ -174,6 +178,7 @@ func (h *Handler) Mount(r chi.Router) {
 // Call this on the public (player-facing) router, outside the admin middleware group.
 func (h *Handler) MountPublicRoutes(r chi.Router) {
 	r.Get("/settings/public", h.GetSettingsPublic)
+	r.Get("/social-proof", h.GetSocialProof)
 	r.Get("/content/bundle", h.ContentBundle)
 	r.Get("/content/{key}", h.ContentByKeyPublic)
 }

@@ -36,7 +36,7 @@ function BannerCryptoLogo({ symbol, src }: { symbol: string; src: string | undef
 /**
  * Lobby home strip: Vybe Bet surfaces + primary accent; coin marks use {@link useCryptoLogoUrlMap} / built-in CoinGecko list.
  */
-export default function HomeCryptoPaymentsBanner() {
+export default function HomeCryptoPaymentsBanner({ depositsEnabled = true }: { depositsEnabled?: boolean }) {
   const { t } = useTranslation()
   const { isAuthenticated } = usePlayerAuth()
   const { openAuth } = useAuthModal()
@@ -52,6 +52,7 @@ export default function HomeCryptoPaymentsBanner() {
   )
 
   const openDepositFlow = () => {
+    if (!depositsEnabled) return
     if (!isAuthenticated) {
       openAuth('login', { walletTab: 'deposit' })
       return
@@ -89,8 +90,12 @@ export default function HomeCryptoPaymentsBanner() {
           <button
             type="button"
             onClick={openDepositFlow}
-            aria-label={t('header.depositAriaLabel')}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full bg-casino-primary px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_2px_12px_color-mix(in_srgb,var(--color-casino-primary)_35%,transparent)] transition-[filter,transform] hover:brightness-110 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/55"
+            disabled={!depositsEnabled}
+            title={!depositsEnabled ? t('operational.depositsUnavailable') : undefined}
+            aria-label={!depositsEnabled ? t('operational.depositsUnavailable') : t('header.depositAriaLabel')}
+            className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full bg-casino-primary px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_2px_12px_color-mix(in_srgb,var(--color-casino-primary)_35%,transparent)] transition-[filter,transform] hover:brightness-110 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary/55 ${
+              !depositsEnabled ? 'cursor-not-allowed opacity-40 hover:brightness-100' : ''
+            }`}
           >
             {t('header.deposit')}
             <IconChevronDown size={16} className="opacity-95" aria-hidden />

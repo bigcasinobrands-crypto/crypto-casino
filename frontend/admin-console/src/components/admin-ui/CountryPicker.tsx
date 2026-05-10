@@ -26,10 +26,10 @@ export function CountryPicker({
     )
   }, [q])
 
-  const ring =
+  const selectedRow =
     mode === 'allow'
-      ? 'ring-green-500/40 border-green-200 dark:border-green-900'
-      : 'ring-red-500/40 border-red-200 dark:border-red-900'
+      ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 dark:bg-emerald-950/25 dark:border-l-emerald-400'
+      : 'border-l-4 border-l-rose-500 bg-rose-50/90 dark:bg-rose-950/25 dark:border-l-rose-400'
 
   return (
     <div className="space-y-3">
@@ -53,7 +53,7 @@ export function CountryPicker({
                     onClick={() => onToggle(c.code)}
                     className={[
                       'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
-                      on ? `bg-brand-50 dark:bg-brand-950/30 ${ring} ring-1` : 'hover:bg-gray-50 dark:hover:bg-white/5',
+                      on ? `${selectedRow}` : 'hover:bg-gray-50 dark:hover:bg-white/5',
                       disabled ? 'opacity-50' : '',
                     ].join(' ')}
                   >
@@ -66,7 +66,13 @@ export function CountryPicker({
                         {c.region} · {c.code}
                       </span>
                     </span>
-                    {on ? <span className="text-xs font-semibold text-brand-600">On</span> : null}
+                    {on ? (
+                      <span
+                        className={`text-xs font-semibold ${mode === 'deny' ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'}`}
+                      >
+                        {mode === 'deny' ? 'Blocked' : 'Allowed'}
+                      </span>
+                    ) : null}
                   </button>
                 </li>
               )
@@ -90,8 +96,8 @@ export function CountryPicker({
                             disabled={disabled}
                             onClick={() => onToggle(c.code)}
                             className={[
-                              'flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm',
-                              on ? `rounded-md bg-brand-50 dark:bg-brand-950/30 ${ring} ring-1` : 'rounded-md hover:bg-gray-50 dark:hover:bg-white/5',
+                              'flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm rounded-md transition-colors',
+                              on ? selectedRow : 'hover:bg-gray-50 dark:hover:bg-white/5',
                               disabled ? 'opacity-50' : '',
                             ].join(' ')}
                           >

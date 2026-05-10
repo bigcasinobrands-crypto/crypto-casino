@@ -765,10 +765,11 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if netAfter != -amount {
 			return bal, 500, "", fmt.Errorf("blueocean wallet: debit ledger net %d != -%d (txn %s)", netAfter, amount, txnWire)
 		}
-		if err := bonus.ApplyPostBetWagering(ctx, tx, userID, gameID, fromBonus); err != nil {
-			return bal, 500, "", err
+		wrUpdated, werr := bonus.ApplyPostBetWagering(ctx, tx, userID, gameID, amount)
+		if werr != nil {
+			return bal, 500, "", werr
 		}
-		notifyWageringProgress = fromBonus > 0
+		notifyWageringProgress = wrUpdated
 	case "credit":
 		if amount == 0 {
 			bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
@@ -812,6 +813,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 
 		if fb+fc > 0 {
+			var wrRollbackStake int64
 			if fb > 0 {
 				idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s", keyRemote, ledgerTxn)
 				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
@@ -819,8 +821,8 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 					return bal, 500, "", rerr
 				}
 				if ins {
-					notifyWageringProgress = true
-					if err := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, fb); err != nil {
+					wrRollbackStake += fb
+					if err := bonus.ReverseVIPAccrualForBonusRollbackTx(ctx, tx, userID, fb, idemRB); err != nil {
 						return bal, 500, "", err
 					}
 				}
@@ -832,9 +834,19 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 					return bal, 500, "", rerr
 				}
 				if ins {
+					wrRollbackStake += fc
 					if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
 						return bal, 500, "", err
 					}
+				}
+			}
+			if wrRollbackStake > 0 {
+				wrRbUpdated, werr := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, wrRollbackStake)
+				if werr != nil {
+					return bal, 500, "", werr
+				}
+				if wrRbUpdated {
+					notifyWageringProgress = true
 				}
 			}
 		}
@@ -862,7 +874,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	if err := tx.Commit(ctx); err != nil {
 		return bal, 500, "", err
 	}
-	// After commit: notify subscribers of WR progress (bonus stake only; real-cash play does not move WR here).
+	// After commit: notify subscribers when WR progress changed (full stake counts toward WR while active).
 	if (action == "debit" || action == "rollback") && notifyWageringProgress && rdb != nil {
 		if pubErr := bonus.PublishWageringProgressFromPool(ctx, pool, rdb, userID); pubErr != nil {
 			log.Printf("blueocean wallet: redis publish wagering progress: %v", pubErr)

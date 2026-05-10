@@ -168,25 +168,27 @@ func recordWagerViolationTx(ctx context.Context, tx pgx.Tx, userID, instanceID, 
 	return err
 }
 
-// ApplyPostBetWagering updates WR progress from stake taken from bonus_locked and may complete the bonus.
-func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string, fromBonus int64) error {
-	if fromBonus <= 0 {
-		return nil
+// ApplyPostBetWagering updates WR progress from the full debit stake (cash + bonus_locked portions)
+// while the player has an active unfinished WR instance. Game/category weights and exclusions apply.
+// Returns whether wr_contributed_minor was increased (for optional real-time fan-out).
+func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string, stakeMinor int64) (progressUpdated bool, err error) {
+	if stakeMinor <= 0 {
+		return false, nil
 	}
 	var instID string
 	var snap []byte
 	var wrReq, wrDone int64
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT id::text, snapshot, wr_required_minor, wr_contributed_minor
 		FROM user_bonus_instances
 		WHERE user_id = $1::uuid AND status = 'active' AND wr_required_minor > 0 AND wr_contributed_minor < wr_required_minor
 		ORDER BY created_at ASC LIMIT 1 FOR UPDATE
 	`, userID).Scan(&instID, &snap, &wrReq, &wrDone)
 	if err == pgx.ErrNoRows {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	var obj map[string]any
 	_ = json.Unmarshal(snap, &obj)
@@ -198,7 +200,7 @@ func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string,
 	if arr, ok := obj["excluded_game_ids"].([]any); ok {
 		for _, v := range arr {
 			if s, ok := v.(string); ok && strings.ToLower(strings.TrimSpace(s)) == g {
-				return nil
+				return false, nil
 			}
 		}
 	}
@@ -211,16 +213,16 @@ func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string,
 			}
 		}
 		if !allowed {
-			return nil
+			return false, nil
 		}
 	}
 	catW, err := contributionCategoryWeightPct(ctx, tx, gameID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	delta := (fromBonus * int64(weightPct) * int64(catW)) / 10000
-	if delta < 0 {
-		return nil
+	delta := (stakeMinor * int64(weightPct) * int64(catW)) / 10000
+	if delta <= 0 {
+		return false, nil
 	}
 	_, err = tx.Exec(ctx, `
 		UPDATE user_bonus_instances
@@ -228,38 +230,42 @@ func ApplyPostBetWagering(ctx context.Context, tx pgx.Tx, userID, gameID string,
 		WHERE id = $1::uuid
 	`, instID, delta)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return maybeCompleteBonus(ctx, tx, userID, instID)
+	if err = maybeCompleteBonus(ctx, tx, userID, instID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-// ApplyPostBetRollbackWagering reduces WR contribution when bonus stake is rolled back.
-// Call only when the corresponding game.rollback ledger line was newly inserted (idempotent via ledger ON CONFLICT).
-func ApplyPostBetRollbackWagering(ctx context.Context, tx pgx.Tx, userID, gameID string, fromBonusRollback int64) error {
-	if fromBonusRollback <= 0 {
-		return nil
+// ApplyPostBetRollbackWagering reduces WR contribution when stake (cash + bonus_locked) is rolled back.
+// Call only when the corresponding game.rollback ledger lines were newly inserted (idempotent via ledger ON CONFLICT).
+// stakeRollbackMinor should be the sum of newly-inserted rollback magnitudes for this txn.
+func ApplyPostBetRollbackWagering(ctx context.Context, tx pgx.Tx, userID, gameID string, stakeRollbackMinor int64) (progressUpdated bool, err error) {
+	if stakeRollbackMinor <= 0 {
+		return false, nil
 	}
 	var instID string
 	var snap []byte
 	var wrReq, wrDone int64
 	var status string
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT id::text, snapshot, wr_required_minor, wr_contributed_minor, status
 		FROM user_bonus_instances
 		WHERE user_id = $1::uuid AND wr_required_minor > 0
 		ORDER BY created_at ASC LIMIT 1 FOR UPDATE
 	`, userID).Scan(&instID, &snap, &wrReq, &wrDone, &status)
 	if err == pgx.ErrNoRows {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !strings.EqualFold(strings.TrimSpace(status), "active") {
-		return nil
+		return false, nil
 	}
 	if wrDone <= 0 {
-		return nil
+		return false, nil
 	}
 	var obj map[string]any
 	_ = json.Unmarshal(snap, &obj)
@@ -271,7 +277,7 @@ func ApplyPostBetRollbackWagering(ctx context.Context, tx pgx.Tx, userID, gameID
 	if arr, ok := obj["excluded_game_ids"].([]any); ok {
 		for _, v := range arr {
 			if s, ok := v.(string); ok && strings.ToLower(strings.TrimSpace(s)) == g {
-				return nil
+				return false, nil
 			}
 		}
 	}
@@ -284,23 +290,26 @@ func ApplyPostBetRollbackWagering(ctx context.Context, tx pgx.Tx, userID, gameID
 			}
 		}
 		if !allowed {
-			return nil
+			return false, nil
 		}
 	}
 	catW, err := contributionCategoryWeightPct(ctx, tx, gameID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	delta := (fromBonusRollback * int64(weightPct) * int64(catW)) / 10000
+	delta := (stakeRollbackMinor * int64(weightPct) * int64(catW)) / 10000
 	if delta <= 0 {
-		return nil
+		return false, nil
 	}
 	_, err = tx.Exec(ctx, `
 		UPDATE user_bonus_instances
 		SET wr_contributed_minor = GREATEST(0, wr_contributed_minor - $2), updated_at = now()
 		WHERE id = $1::uuid
 	`, instID, delta)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func maybeCompleteBonus(ctx context.Context, tx pgx.Tx, userID, instID string) error {

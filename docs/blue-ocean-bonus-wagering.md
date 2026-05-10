@@ -6,18 +6,24 @@ This document clarifies how **seamless wallet** callbacks from Blue Ocean (BO) r
 
 - **Route:** `GET /api/blueocean/callback` (see `internal/webhooks/blueocean_wallet.go`).
 - **Actions:** `balance`, `debit` (bets), `credit` (wins), `rollback` — all against the **unified** player balance (cash + `bonus_locked` in minor units of `BLUEOCEAN_CURRENCY`).
-- **Wagering requirement (WR):** WR progress is applied **only** on the portion of a **debit** that is taken from the **`bonus_locked` ledger pocket** (promo / locked bonus). Cash-funded stakes do not advance WR in this path.
+- **Wagering requirement (WR):** While the player has an **active** bonus instance with unfinished WR, WR progress is applied from the **full debit stake** (cash + `bonus_locked` portions combined), after **game/category weights** and **allowed/excluded game lists** (same rules as `CheckBetAllowedTx`). Split ledger lines (cash-first debit + optional bonus line) still correspond to **one** stake for WR purposes.
 
 ## Flow (debit)
 
 1. `CheckBetAllowedTx` enforces max bet, excluded/allowed game lists, and may record max-bet violations.
-2. Debits are split: up to the available `bonus_locked` balance from that pocket, remainder from `cash` (if both are needed to cover the stake).
-3. `ApplyPostBetWagering` runs with **`fromBonus` = amount debited from `bonus_locked`**. It updates `wr_contributed_minor` and may **complete** the instance (`promo.convert` to move residual bonus to `cash`).
+2. Debits are split: up to available **cash** is spent first, then **`bonus_locked`** (enterprise promo policy for playable balance).
+3. `ApplyPostBetWagering` runs with **`stakeMinor` = full requested debit amount**. It updates `wr_contributed_minor` and may **complete** the instance (`promo.convert` to move residual bonus to `cash`).
 
 **BO events that are not “bonus-affecting” in code today**
 
 - `credit` / `win` lines only post `game.credit` to the **default** path (not split by pocket in a way that changes the bonus engine here).
-- `rollback` reverses prior debits; there is no separate WR “undo” in this file — if product requires full symmetry, that would be a follow-up (not implemented here).
+
+## Flow (rollback — bet stake)
+
+`rollback` reverses prior **debit** lines (bonus + cash). When new `game.rollback` ledger rows are inserted:
+
+- **VIP:** Per-pocket reversal rows (`vip:rollback:cash:`… / `vip:rollback:bonus:`…) mirror accrual from stake lines.
+- **WR:** One rollback adjustment uses the **sum** of newly inserted rollback magnitudes (matches how debit applied WR on the full stake).
 
 ## Free spins / XAPI
 
@@ -25,7 +31,7 @@ Outbound **free rounds** grants and per-spin result webhooks are **not** impleme
 
 ## Live WR updates (Redis)
 
-When **`REDIS_URL`** is configured on the API, after a **successful** `debit` transaction that applied WR (`fromBonus > 0` from bonus pocket), the API **PUBLISH**es a JSON message to:
+When **`REDIS_URL`** is configured on the API, after a **successful** `debit` or qualifying `rollback` transaction that **changed** WR (`wr_contributed_minor`), the API **PUBLISH**es a JSON message to:
 
 - **Channel:** `wagering:player:{user_id}` (per player).
 

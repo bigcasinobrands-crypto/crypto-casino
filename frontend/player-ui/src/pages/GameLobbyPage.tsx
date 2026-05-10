@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
+import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
 import { useFavouritesRevision } from '../hooks/useFavouritesRevision'
 import { GameThumbInteractiveShell } from '../components/GameThumbInteractiveShell'
 import { PortraitGameThumb } from '../components/PortraitGameThumb'
@@ -23,6 +24,7 @@ import {
   splitCatalogReturnPath,
 } from '../lib/catalogReturn'
 import { GAME_IFRAME_ALLOW } from '../lib/gameIframe'
+import { operationalRealPlayEnabled } from '../lib/operationalPaymentGate'
 import {
   PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT,
   type PlayerChromeImmersiveCasinoPlayDetail,
@@ -322,6 +324,7 @@ export default function GameLobbyPage() {
   const { mini, openMini, closeMini } = usePersistentMiniPlayer()
   const thisGameInMini = Boolean(gameId && mini?.gameId === gameId)
   const { t } = useTranslation()
+  const { data: opHealth } = useSharedOperationalHealth()
 
   const [meta, setMeta] = useState<GameMeta | null>(null)
   const [metaErr, setMetaErr] = useState<string | null>(null)
@@ -400,7 +403,7 @@ export default function GameLobbyPage() {
 
   const demoForcedById = gameId.startsWith('demo-')
   const demoAllowed = demoForcedById || meta?.play_for_fun_supported !== false
-  const realAllowed = !demoForcedById
+  const realAllowed = !demoForcedById && operationalRealPlayEnabled(opHealth)
 
   useEffect(() => {
     if (isAuthenticated || !gameId || metaErr) return

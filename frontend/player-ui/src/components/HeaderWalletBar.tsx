@@ -17,6 +17,8 @@ import {
 
 type HeaderWalletBarProps = {
   onOpenWallet: (tab: WalletMainTab) => void
+  /** From operational health — hide/disable deposit entry when false */
+  depositsEnabled?: boolean
   /** Wallet modal showing Deposit tab — highlights header Deposit (tablet/iPad). */
   depositFlowActive?: boolean
 }
@@ -275,7 +277,7 @@ function AssetLogo({
   )
 }
 
-const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowActive = false }) => {
+const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabled = true, depositFlowActive = false }) => {
   const { t } = useTranslation()
   const { pathname } = useLocation()
   const onDepositRoute = pathname.startsWith('/wallet/deposit')
@@ -437,9 +439,12 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
       openAuth('login', { walletTab: 'deposit' })
       return
     }
+    if (!depositsEnabled) return
     setOpen(false)
     onOpenWallet('deposit')
   }
+
+  const depositDisabled = isAuthenticated && !depositsEnabled
 
   const activeTokenLogoUrl = resolveCryptoLogoUrl(logoUrls, active.symbol, active.network)
   const activeChainLogoUrl = resolveCryptoLogoUrl(logoUrls, '', active.network)
@@ -579,11 +584,18 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositFlowAc
   const depositButton = (
     <button
       type="button"
+      disabled={depositDisabled}
       onClick={onDeposit}
-      title={t('header.deposit')}
-      aria-label={t('header.depositAriaLabel')}
+      title={
+        depositDisabled
+          ? t('operational.depositsUnavailable')
+          : t('header.deposit')
+      }
+      aria-label={depositDisabled ? t('operational.depositsUnavailable') : t('header.depositAriaLabel')}
       aria-current={depositNavActive ? 'page' : undefined}
       className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-tight text-white antialiased transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:h-full md:min-h-0 md:w-auto md:min-w-0 md:rounded-l-none md:rounded-r-full md:border-0 md:px-2 md:py-0 md:text-xs md:font-bold md:leading-tight md:shadow-none max-[1279px]:md:px-2.5 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:max-w-8 max-[1000px]:min-[768px]:md:px-0 min-[1280px]:md:w-max min-[1280px]:md:px-2 min-[1280px]:md:py-0 min-[1280px]:md:text-xs bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:justify-center ${
+        depositDisabled ? 'cursor-not-allowed opacity-40 hover:brightness-100' : ''
+      } ${
         depositNavActive
           ? 'ring-2 ring-casino-primary/55 shadow-[0_0_12px_rgba(123,97,255,0.38)] md:ring-0 md:shadow-none md:brightness-[1.05]'
           : ''

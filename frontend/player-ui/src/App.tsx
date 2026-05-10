@@ -1,6 +1,6 @@
 import { installPlayerCrossAppBridge } from '@repo/cross-app'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
 import {
   PLAYER_CHROME_CLOSE_CHAT_EVENT,
@@ -42,12 +42,19 @@ import PlayerMobileBottomNav from './components/PlayerMobileBottomNav'
 import MobileCasinoMenuOverlay from './components/MobileCasinoMenuOverlay'
 import { PullToRefreshOverlay } from './components/PullToRefresh'
 import { useChat } from './hooks/useChat'
-import { useOperationalHealth } from './hooks/useOperationalHealth'
+import { OperationalHealthProvider, useSharedOperationalHealth } from './context/OperationalHealthContext'
+import {
+  operationalBonusesEnabled,
+  operationalDepositsEnabled,
+  operationalWithdrawalsEnabled,
+  resolveWalletModalTab,
+} from './lib/operationalPaymentGate'
 import { useMobilePlayerChrome } from './hooks/useMobilePlayerChrome'
 import { useSubDesktopPlayerChrome } from './hooks/useSubDesktopPlayerChrome'
 import { PlayerLayoutProvider } from './context/PlayerLayoutContext'
 import { PersistentMiniPlayerProvider } from './context/PersistentMiniPlayerContext'
 import PlayerBootOverlay from './components/PlayerBootOverlay'
+import { SiteAccessGate } from './components/site/SiteAccessGate'
 import { SiteContentProvider } from './hooks/useSiteContent'
 import { dismissPlayerCatalogSyncToast, toastPlayerCatalogSyncWarning } from './notifications/playerToast'
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
@@ -68,6 +75,7 @@ import {
   ResetPasswordModal,
 } from './components/ResetPasswordModal'
 import VerifyEmailPage from './pages/VerifyEmailPage'
+import { EmailVerificationPromptModal } from './components/EmailVerificationPromptModal'
 import WalletDepositPage from './pages/WalletDepositPage'
 import StudiosPage from './pages/StudiosPage'
 import { isEsportsPlayerRoute } from './lib/oddin/oddin.config'
@@ -109,6 +117,16 @@ function LegacyWalletWithdrawPathRedirect() {
   return <Navigate to="/casino/games?walletTab=withdraw" replace />
 }
 
+const VERIFY_PROMPT_SESSION_KEY = 'player_email_verify_prompt_dismissed_uid'
+
+function readVerifyPromptDismissedUid(): string | null {
+  try {
+    return sessionStorage.getItem(VERIFY_PROMPT_SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
 /** Oddin bookmarks may still use `/casino/sports`; canonical path is `/esports`. */
 function LegacyCasinoSportsRedirect() {
   const loc = useLocation()
@@ -145,25 +163,32 @@ export default function App() {
 
   return (
     <SiteContentProvider>
-      <PlayerBootOverlay />
-      <PlayerAuthProvider>
-        <OddinBootstrapProvider>
-          <AuthModalProvider>
-            <InitialAppLoadProvider>
-              <PlayerToaster />
-              <InstallGlobalPlayerToasts />
-              <AppShell />
-              <AuthModal />
-            </InitialAppLoadProvider>
-          </AuthModalProvider>
-        </OddinBootstrapProvider>
-      </PlayerAuthProvider>
+      <OperationalHealthProvider pollMs={45_000}>
+        <SiteAccessGate>
+          <PlayerBootOverlay />
+          <PlayerAuthProvider>
+            <OddinBootstrapProvider>
+              <AuthModalProvider>
+                <InitialAppLoadProvider>
+                  <PlayerToaster />
+                  <InstallGlobalPlayerToasts />
+                  <AppShell />
+                  <AuthModal />
+                </InitialAppLoadProvider>
+              </AuthModalProvider>
+            </OddinBootstrapProvider>
+          </PlayerAuthProvider>
+        </SiteAccessGate>
+      </OperationalHealthProvider>
     </SiteContentProvider>
   )
 }
 
 function AppShell() {
-  const op = useOperationalHealth()
+  const op = useSharedOperationalHealth()
+  const depositsEnabled = operationalDepositsEnabled(op.data)
+  const withdrawalsEnabled = operationalWithdrawalsEnabled(op.data)
+  const bonusesEnabled = operationalBonusesEnabled(op.data)
 
   const catalogSyncOk = op.data?.catalog_sync_ok
   useEffect(() => {
@@ -176,6 +201,7 @@ function AppShell() {
   }, [catalogSyncOk, op.data])
 
   const location = useLocation()
+  const navigate = useNavigate()
   const { pathname } = location
   const { esportsIntegrationActive } = useOddinBootstrap()
   /** Oddin iframe: hide outer scroll below desktop; phones/tablets keep bottom nav on esports. */
@@ -196,7 +222,12 @@ function AppShell() {
   const [gameSearchOpen, setGameSearchOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [immersiveCasinoSubDesktopPlay, setImmersiveCasinoSubDesktopPlay] = useState(false)
-  const { accessToken, isAuthenticated } = usePlayerAuth()
+  const { accessToken, isAuthenticated, me } = usePlayerAuth()
+  const { panel: authPanelOpen, registerPostAuthWalletHandler } = useAuthModal()
+  const [verifyPromptDismissedUid, setVerifyPromptDismissedUid] = useState<string | null>(() =>
+    readVerifyPromptDismissedUid(),
+  )
+  const [verifyPromptForced, setVerifyPromptForced] = useState(false)
   useReferralAttributionCapture()
   const rewardsHub = useRewardsHub()
   useRakebackBoostLiveToast(isAuthenticated ? rewardsHub.data : null, isAuthenticated)
@@ -232,7 +263,46 @@ function AppShell() {
 
   useTrafficSessionTracker(pathname, location.search, accessToken, isAuthenticated)
   const chat = useChat(accessToken, isAuthenticated, chatOpen)
-  const { registerPostAuthWalletHandler } = useAuthModal()
+  useEffect(() => {
+    if (!me?.id) return
+    setVerifyPromptDismissedUid(readVerifyPromptDismissedUid())
+  }, [me?.id])
+
+  const dismissEmailVerifyPrompt = useCallback(() => {
+    setVerifyPromptForced(false)
+    if (!me?.id) return
+    try {
+      sessionStorage.setItem(VERIFY_PROMPT_SESSION_KEY, me.id)
+    } catch {
+      /* private mode */
+    }
+    setVerifyPromptDismissedUid(me.id)
+  }, [me?.id])
+
+  const forceEmailVerificationPrompt = useCallback(() => {
+    try {
+      sessionStorage.removeItem(VERIFY_PROMPT_SESSION_KEY)
+    } catch {
+      /* private mode */
+    }
+    setVerifyPromptDismissedUid(null)
+    setVerifyPromptForced(true)
+  }, [])
+
+  const goToProfileKYCVerify = useCallback(() => {
+    setWalletOpen(false)
+    navigate('/profile?settings=verify')
+  }, [navigate])
+
+  const emailVerifyPromptOpen =
+    Boolean(
+      isAuthenticated &&
+        me &&
+        !me.email_verified &&
+        pathname !== '/verify-email' &&
+        !authPanelOpen &&
+        (verifyPromptForced || verifyPromptDismissedUid !== me.id),
+    )
   const showCasinoSearch =
     pathname.startsWith('/casino/') && !pathname.startsWith('/embed/')
 
@@ -302,19 +372,27 @@ function AppShell() {
   const openWalletTab = useCallback(
     (tab: PostAuthWalletTab) => {
       dismissAllChrome()
-      setWalletTab(tab)
+      if (tab === 'withdraw' && me && !me.email_verified) {
+        forceEmailVerificationPrompt()
+        return
+      }
+      setWalletTab(resolveWalletModalTab(tab, op.data))
       setWalletOpen(true)
     },
-    [dismissAllChrome],
+    [dismissAllChrome, forceEmailVerificationPrompt, me, op.data],
   )
 
   const openWallet = useCallback(
     (tab: WalletMainTab) => {
       dismissAllChrome()
-      setWalletTab(tab)
+      if (tab === 'withdraw' && me && !me.email_verified) {
+        forceEmailVerificationPrompt()
+        return
+      }
+      setWalletTab(resolveWalletModalTab(tab, op.data))
       setWalletOpen(true)
     },
-    [dismissAllChrome],
+    [dismissAllChrome, forceEmailVerificationPrompt, me, op.data],
   )
 
   useEffect(() => {
@@ -360,17 +438,21 @@ function AppShell() {
 
   useEffect(() => {
     if (searchParams.get('walletTab') !== 'withdraw') return
-    if (!isAuthenticated) return
+    if (!isAuthenticated || !me) return
     setSidebarOpen(false)
     setGameSearchOpen(false)
     setChatOpen(false)
     closeHeaderDropdowns()
-    setWalletTab('withdraw')
-    setWalletOpen(true)
     const next = new URLSearchParams(searchParams)
     next.delete('walletTab')
     setSearchParams(next, { replace: true })
-  }, [isAuthenticated, searchParams, setSearchParams, closeHeaderDropdowns])
+    if (!me.email_verified) {
+      forceEmailVerificationPrompt()
+      return
+    }
+    setWalletTab(resolveWalletModalTab('withdraw', op.data))
+    setWalletOpen(true)
+  }, [isAuthenticated, searchParams, setSearchParams, closeHeaderDropdowns, me, forceEmailVerificationPrompt, op.data])
 
   useEffect(() => {
     if (searchParams.get('gamesearch') !== '1') return
@@ -419,6 +501,7 @@ function AppShell() {
                   <div className="pointer-events-auto flex min-h-[36px] min-w-0 max-w-[min(28rem,calc(100vw-6.25rem))] items-center justify-center px-0.5">
                     <HeaderWalletBar
                       onOpenWallet={openWallet}
+                      depositsEnabled={depositsEnabled}
                       depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
                     />
                   </div>
@@ -489,6 +572,7 @@ function AppShell() {
                   <div className="pointer-events-auto flex min-h-[34px] min-w-0 max-w-[min(28rem,100%)] items-center justify-center max-[1023px]:min-h-[32px] min-[1024px]:min-h-[38px]">
                     <HeaderWalletBar
                       onOpenWallet={openWallet}
+                      depositsEnabled={depositsEnabled}
                       depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
                     />
                   </div>
@@ -542,6 +626,7 @@ function AppShell() {
                 <div className="relative z-[1] flex min-h-[36px] min-w-0 flex-1 basis-0 items-center justify-center overflow-hidden px-0 md:px-1">
                   <HeaderWalletBar
                     onOpenWallet={openWallet}
+                    depositsEnabled={depositsEnabled}
                     depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
                   />
                 </div>
@@ -599,6 +684,11 @@ function AppShell() {
             open={Boolean(isAuthenticated && walletOpen)}
             onClose={() => setWalletOpen(false)}
             initialTab={walletTab}
+            depositsEnabled={depositsEnabled}
+            withdrawalsEnabled={withdrawalsEnabled}
+            emailVerified={Boolean(me?.email_verified)}
+            onWithdrawBlocked={forceEmailVerificationPrompt}
+            onKYCVerificationRequired={goToProfileKYCVerify}
           />
 
           <ReferAndEarnModal open={affiliateModalOpen} onClose={() => setAffiliateModalOpen(false)} />
@@ -608,6 +698,8 @@ function AppShell() {
             token={resetPwToken}
             onClose={clearResetPasswordQuery}
           />
+
+          <EmailVerificationPromptModal open={emailVerifyPromptOpen} onDismiss={dismissEmailVerifyPrompt} />
 
           <div className="casino-shell-main relative z-[200] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <PullToRefreshOverlay scrollRef={mainScrollRef} enabled={pullToRefreshEnabled} />
@@ -647,7 +739,7 @@ function AppShell() {
                     <Route path="/casino/studios" element={<StudiosPage />} />
                     <Route path="/sportsbook" element={<Navigate to="/esports" replace />} />
                     <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
-                    <Route path="/casino/:section" element={<LobbyPage operationalData={op.data} />} />
+                    <Route path="/casino/:section" element={<LobbyPage />} />
                     <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />
                     <Route path="/register" element={<Navigate to="/casino/games?auth=register" replace />} />
                     <Route path="/forgot-password" element={<Navigate to="/casino/games?auth=forgot" replace />} />
@@ -683,6 +775,8 @@ function AppShell() {
               <PlayerMobileBottomNav
                 menuOpen={sidebarOpen}
                 gameSearchOpen={gameSearchOpen}
+                depositsEnabled={depositsEnabled}
+                bonusesEnabled={bonusesEnabled}
                 depositFlowActive={Boolean(isAuthenticated && walletOpen && walletTab === 'deposit')}
                 onDismissAllChrome={dismissAllChrome}
                 onOpenMenu={openMobileMenu}

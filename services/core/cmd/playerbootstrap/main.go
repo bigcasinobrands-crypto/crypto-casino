@@ -26,7 +26,7 @@ func main() {
 		log.Fatal("email required")
 	}
 	if err := playerauth.ValidatePassword(password); err != nil {
-		log.Fatal("password must be at least 12 characters with letters and numbers")
+		log.Fatal("password must be at least 6 characters with letters and numbers")
 	}
 	cfg, err := config.Load()
 	if err != nil {

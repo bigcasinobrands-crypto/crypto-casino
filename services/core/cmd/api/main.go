@@ -29,6 +29,7 @@ import (
 	"github.com/crypto-casino/core/internal/jtiredis"
 	"github.com/crypto-casino/core/internal/jwtissuer"
 	"github.com/crypto-casino/core/internal/mail"
+	"github.com/crypto-casino/core/internal/maintenancenotify"
 	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/obs"
 	"github.com/crypto-casino/core/internal/oddin"
@@ -37,11 +38,13 @@ import (
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/playerauth"
 	"github.com/crypto-casino/core/internal/playerfavourites"
+	"github.com/crypto-casino/core/internal/playerkyc"
 	"github.com/crypto-casino/core/internal/playercookies"
 	"github.com/crypto-casino/core/internal/pwnedpasswords"
 	"github.com/crypto-casino/core/internal/redisx"
 	"github.com/crypto-casino/core/internal/referrals"
 	"github.com/crypto-casino/core/internal/securityheaders"
+	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/crypto-casino/core/internal/staffauth"
 	"github.com/crypto-casino/core/internal/wallet"
 	"github.com/crypto-casino/core/internal/webhooks"
@@ -340,11 +343,13 @@ func main() {
 		})
 		r.Get("/health/ready", readyHandler(pool, rdb))
 		r.Get("/health/operational", operationalHandler(pool, &cfg, bog))
+		r.With(httprate.LimitByIP(25, time.Minute)).Post("/v1/site/maintenance-notify", maintenancenotify.PostNotifyHandler(pool, &cfg))
 
 		r.Post("/v1/webhooks/blueocean", webhooks.HandleBlueOcean(pool, rdb))
 		if cfg.UsesPassimpay() {
 			r.Post("/v1/webhooks/passimpay", webhooks.HandlePassimpayWebhook(pool, &cfg, rdb, mailSender))
 		}
+		r.Post("/v1/webhooks/kycaid", webhooks.HandleKYCAIDVerification(pool, &cfg))
 
 		// Oddin operator wallet (S2S): canonical routes are POST /v1/oddin/*. Oddin often configures
 		// callback base as API origin + /userDetails (no /v1/oddin prefix) — alias root paths to avoid 404.
@@ -452,6 +457,7 @@ func main() {
 				r.Get("/wallet/game-history", wallet.GameHistoryHandler(pool))
 				r.Get("/wallet/stats", wallet.PlayerStatsHandler(pool))
 				playerfavourites.Mount(r, pool)
+				r.With(playerapi.LimitByUserID(30, time.Hour)).Post("/kyc/kycaid/session", playerkyc.SessionHandler(pool, &cfg))
 				r.Get("/wallet/withdrawals/{id}", wallet.WithdrawalGetHandler(pool))
 				// Per-user rate limit (5 attempts / 10 min) prevents a single user from
 				// hammering the withdraw endpoint regardless of IP rotation. The IP-based
@@ -504,6 +510,8 @@ func main() {
 		}
 	}()
 
+	go runMaintenanceNotifySweep(pool, mailSender, &cfg)
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
@@ -511,6 +519,31 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
+	}
+}
+
+func runMaintenanceNotifySweep(pool *pgxpool.Pool, sender mail.Sender, cfg *config.Config) {
+	ticker := time.NewTicker(45 * time.Second)
+	defer ticker.Stop()
+	bg := context.Background()
+	prev := sitestatus.MaintenanceEffective(bg, pool, cfg)
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(bg, 12*time.Second)
+		eff := sitestatus.MaintenanceEffective(ctx, pool, cfg)
+		if prev && !eff {
+			if _, err := maintenancenotify.FlushPending(ctx, pool, sender, cfg); err != nil {
+				log.Printf("maintenance_notify sweep (mode off): %v", err)
+			}
+		}
+		prev = eff
+		if eff {
+			if until := sitestatus.MaintenanceUntilFromDB(ctx, pool); until != nil && time.Now().UTC().After(*until) {
+				if _, err := maintenancenotify.FlushPending(ctx, pool, sender, cfg); err != nil {
+					log.Printf("maintenance_notify sweep (until elapsed): %v", err)
+				}
+			}
+		}
+		cancel()
 	}
 }
 
@@ -571,13 +604,32 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			syncOK = true
 		}
 
-		var realPlayEnabled bool
+		realPlayEnabled := false
+		depositsEnabled := true
+		withdrawalsEnabled := true
+		bonusesEnabled := true
+		automatedGrantsEnabled := true
 		if pf, err := paymentflags.Load(ctx, pool); err == nil {
 			realPlayEnabled = pf.RealPlayEnabled
+			depositsEnabled = pf.DepositsEnabled
+			withdrawalsEnabled = pf.WithdrawalsEnabled
+			bonusesEnabled = pf.BonusesEnabled
+			automatedGrantsEnabled = pf.AutomatedGrantsEnabled
+		}
+
+		cc := strings.TrimSpace(strings.ToUpper(r.Header.Get("X-Geo-Country")))
+		geoBlocked := sitestatus.GeoBlocked(ctx, pool, cfg, cc)
+		maintEff := sitestatus.MaintenanceEffective(ctx, pool, cfg)
+		var maintUntil any = nil
+		if u := sitestatus.MaintenanceUntilFromDB(ctx, pool); u != nil {
+			maintUntil = u.UTC().Format(time.RFC3339)
 		}
 
 		out := map[string]any{
-			"maintenance_mode":                  cfg.MaintenanceMode,
+			"maintenance_mode":                  maintEff,
+			"maintenance_until":                 maintUntil,
+			"geo_blocked":                       geoBlocked,
+			"geo_country":                       cc,
 			"disable_game_launch":               cfg.DisableGameLaunch,
 			"blueocean_configured":              bog != nil && bog.Configured(),
 			"blueocean_launch_mode":             strings.TrimSpace(strings.ToLower(cfg.BlueOceanLaunchMode)),
@@ -585,6 +637,10 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			"blueocean_xapi_user_password_sha1": cfg.BlueOceanXAPIUserPasswordSHA1,
 			"blueocean_xapi_methods":            blueocean.ListAllowedXAPIMethodNames(),
 			"real_play_enabled":                 realPlayEnabled,
+			"deposits_enabled":                  depositsEnabled,
+			"withdrawals_enabled":               withdrawalsEnabled,
+			"bonuses_enabled":                   bonusesEnabled,
+			"automated_grants_enabled":          automatedGrantsEnabled,
 			"visible_games_count":               visible,
 			"blueocean_visible_games_count":     blueoceanVisible,
 			"catalog_sync_ok":                   syncOK,

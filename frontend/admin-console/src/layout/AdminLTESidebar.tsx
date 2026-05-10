@@ -82,6 +82,7 @@ const AdminLTESidebar: FC = () => {
       if (path === '/finance/crypto-performance') return p === '/finance/crypto-performance'
       if (path === '/system/staff-users') return p === '/system/staff-users'
       if (path === '/system/email') return p === '/system/email'
+      if (path === '/system/kycaid') return p === '/system/kycaid'
       if (path === '/system/security-keys') return p === '/system/security-keys'
       if (path === '/security/break-glass') return p === '/security/break-glass'
       if (path === '/security/approvals') return p === '/security/approvals'

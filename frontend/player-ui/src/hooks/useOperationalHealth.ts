@@ -3,6 +3,19 @@ import { playerApiUrl } from '../lib/playerApiUrl'
 
 export type OperationalHealth = {
   maintenance_mode: boolean
+  /** RFC3339 UTC scheduled maintenance end from admin (optional). */
+  maintenance_until?: string | null
+  /** True when X-Geo-Country matches a blocked jurisdiction (edge must send the header). */
+  geo_blocked?: boolean
+  /** Echo of X-Geo-Country when present (ISO 3166-1 alpha-2). */
+  geo_country?: string
+  /** From `payment_ops_flags` — player wallet / rails (mirrored from admin kill switches). */
+  deposits_enabled?: boolean
+  withdrawals_enabled?: boolean
+  bonuses_enabled?: boolean
+  automated_grants_enabled?: boolean
+  /** Real-money casino/sports launch (not demo / free play). */
+  real_play_enabled?: boolean
   disable_game_launch: boolean
   blueocean_configured: boolean
   /** Non-hidden games in `games`. */
@@ -18,12 +31,13 @@ export type OperationalHealth = {
 }
 
 /**
- * Polls GET /health/operational for banners and catalog warnings.
- * Best-effort: transient failures (API restarting, dev player-only) do not clear last good data
- * and do not surface connection errors in the UI.
+ * Polls GET /health/operational for banners, catalog warnings, and geo/maintenance gates.
+ * Best-effort: transient failures do not clear last good data for in-session banners.
+ * {@link ready} becomes true after the first fetch attempt completes so gates do not spin forever.
  */
 export function useOperationalHealth(pollMs = 60_000) {
   const [data, setData] = useState<OperationalHealth | null>(null)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -37,10 +51,16 @@ export function useOperationalHealth(pollMs = 60_000) {
           return
         }
         const j = (await res.json()) as OperationalHealth
-        if (!cancelled) setData(j)
+        if (!cancelled) {
+          setData(j)
+        }
       } catch (e) {
         if (import.meta.env.DEV && !cancelled) {
           console.debug('[operational] fetch failed — keeping last payload if any', e)
+        }
+      } finally {
+        if (!cancelled) {
+          setReady(true)
         }
       }
     }
@@ -52,5 +72,5 @@ export function useOperationalHealth(pollMs = 60_000) {
     }
   }, [pollMs])
 
-  return { data }
+  return { data, ready }
 }

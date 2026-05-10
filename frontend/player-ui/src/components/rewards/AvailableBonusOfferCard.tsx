@@ -20,10 +20,12 @@ type ClaimOfferResponse = {
 export function AvailableBonusOfferCard({
   offer,
   onHubUpdated,
+  claimsDisabled = false,
 }: {
   offer: HubOffer
   /** Refetch hub / lobby after activation; pass the claimed offer for optimistic Active row. */
   onHubUpdated?: (offer: HubOffer) => void | Promise<void>
+  claimsDisabled?: boolean
 }) {
   const [infoOpen, setInfoOpen] = useState(false)
   const [claimBusy, setClaimBusy] = useState(false)
@@ -51,6 +53,7 @@ export function AvailableBonusOfferCard({
 
   /** API without /bonuses/claim-offer: only deposit-intent exists — still activates selection, no wallet. */
   async function legacyIntentOnly() {
+    if (claimsDisabled) return
     const res = await apiFetch('/v1/bonuses/deposit-intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -72,6 +75,7 @@ export function AvailableBonusOfferCard({
   }
 
   async function handleClaimOffer() {
+    if (claimsDisabled) return
     if (isCode) return
     setClaimBusy(true)
     try {
@@ -162,16 +166,26 @@ export function AvailableBonusOfferCard({
         </button>
 
         {isCode ? (
-          <Link
-            to={codeEntryHref}
-            className="mt-auto block w-full rounded-casino-md bg-gradient-to-b from-casino-primary to-casino-primary/80 py-2 text-center text-xs font-extrabold text-white shadow-sm shadow-casino-primary/20 transition hover:brightness-110"
-          >
-            Get bonus
-          </Link>
+          claimsDisabled ? (
+            <button
+              type="button"
+              disabled
+              className="mt-auto block w-full cursor-not-allowed rounded-casino-md bg-white/[0.08] py-2 text-center text-xs font-extrabold text-casino-muted opacity-60"
+            >
+              Get bonus
+            </button>
+          ) : (
+            <Link
+              to={codeEntryHref}
+              className="mt-auto block w-full rounded-casino-md bg-gradient-to-b from-casino-primary to-casino-primary/80 py-2 text-center text-xs font-extrabold text-white shadow-sm shadow-casino-primary/20 transition hover:brightness-110"
+            >
+              Get bonus
+            </Link>
+          )
         ) : (
           <button
             type="button"
-            disabled={claimBusy}
+            disabled={claimBusy || claimsDisabled}
             onClick={() => void handleClaimOffer()}
             className="mt-auto block w-full rounded-casino-md bg-gradient-to-b from-casino-primary to-casino-primary/80 py-2 text-center text-xs font-extrabold text-white shadow-sm shadow-casino-primary/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >

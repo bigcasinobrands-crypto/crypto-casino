@@ -1,3 +1,4 @@
+import { toast } from 'sonner'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -19,6 +20,9 @@ type PlayerMobileBottomNavProps = {
   gameSearchOpen?: boolean
   /** Wallet modal open on Deposit tab (bottom nav opens modal, not always `/wallet/deposit`). */
   depositFlowActive?: boolean
+  /** Operational flags from GET /health/operational */
+  depositsEnabled?: boolean
+  bonusesEnabled?: boolean
   /** Menu, search, wallet modal, chat, header dropdowns — call before route/auth-only actions. */
   onDismissAllChrome?: () => void
   onOpenMenu: () => void
@@ -47,6 +51,8 @@ export default function PlayerMobileBottomNav({
   menuOpen = false,
   gameSearchOpen = false,
   depositFlowActive = false,
+  depositsEnabled = true,
+  bonusesEnabled = true,
   onDismissAllChrome,
   onOpenMenu,
   onOpenGameSearch,
@@ -81,6 +87,10 @@ export default function PlayerMobileBottomNav({
       openAuth('login', { walletTab: 'deposit' })
       return
     }
+    if (!depositsEnabled) {
+      toast.message(t('operational.depositsUnavailable'))
+      return
+    }
     onOpenDeposit()
   }
 
@@ -90,8 +100,15 @@ export default function PlayerMobileBottomNav({
       openAuth('login', { navigateTo: '/bonuses' })
       return
     }
+    if (!bonusesEnabled) {
+      toast.message(t('operational.bonusesUnavailable'))
+      return
+    }
     navigate('/bonuses')
   }
+
+  const depositNavDisabled = isAuthenticated && !depositsEnabled
+  const bonusesNavDisabled = isAuthenticated && !bonusesEnabled
 
   const handleSearch = () => {
     if (showCasinoSearch) {
@@ -133,8 +150,10 @@ export default function PlayerMobileBottomNav({
 
         <button
           type="button"
-          className={tabShell(depositHighlighted)}
+          className={`${tabShell(depositHighlighted)} ${depositNavDisabled ? 'opacity-40' : ''}`}
           onClick={handleDeposit}
+          disabled={depositNavDisabled}
+          title={depositNavDisabled ? t('operational.depositsUnavailable') : undefined}
           aria-current={depositHighlighted ? 'page' : undefined}
         >
           <IconBanknote size={22} className={depositHighlighted ? iconActive : iconInactive} aria-hidden />
@@ -143,8 +162,10 @@ export default function PlayerMobileBottomNav({
 
         <button
           type="button"
-          className={tabShell(bonusesHighlighted)}
+          className={`${tabShell(bonusesHighlighted)} ${bonusesNavDisabled ? 'opacity-40' : ''}`}
           onClick={handleBonuses}
+          disabled={bonusesNavDisabled}
+          title={bonusesNavDisabled ? t('operational.bonusesUnavailable') : undefined}
           aria-current={bonusesHighlighted ? 'page' : undefined}
         >
           <IconGift size={20} className={bonusesHighlighted ? iconActive : iconInactive} aria-hidden />

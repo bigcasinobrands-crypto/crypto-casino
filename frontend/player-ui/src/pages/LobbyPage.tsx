@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next'
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
+import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
 import type { OperationalHealth } from '../hooks/useOperationalHealth'
 import CasinoCatalogSearchStrip from '../components/CasinoCatalogSearchStrip'
 import { RequireAuthLink } from '../components/RequireAuthLink'
@@ -31,6 +32,7 @@ import LobbyHomeSections from '../components/LobbyHomeSections'
 import { GameCardSkeleton } from '../components/GameCardSkeleton'
 import PromoHero from '../components/PromoHero'
 import HomeCryptoPaymentsBanner from '../components/HomeCryptoPaymentsBanner'
+import { operationalDepositsEnabled } from '../lib/operationalPaymentGate'
 import { useCompleteInitialLoad } from '../context/InitialAppLoadContext'
 import { useFavouritesRevision } from '../hooks/useFavouritesRevision'
 import ChallengesPageContent from '../components/challenges/ChallengesPageContent'
@@ -172,13 +174,10 @@ function buildListUrl(
   return `/v1/games?${qs}`
 }
 
-type LobbyPageProps = {
-  operationalData?: OperationalHealth | null
-}
-
 const CATALOG_SKELETON_COUNT = 18
 
-export default function LobbyPage({ operationalData }: LobbyPageProps) {
+export default function LobbyPage() {
+  const { data: operationalData } = useSharedOperationalHealth()
   const { t } = useTranslation()
   const location = useLocation()
   const { pathname } = location
@@ -452,7 +451,7 @@ export default function LobbyPage({ operationalData }: LobbyPageProps) {
     return (
       <div className="player-casino-max min-w-0 shrink-0 pb-12 pt-3 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))] sm:pt-4 sm:pl-[max(1.25rem,env(safe-area-inset-left,0px))] sm:pr-[max(1.25rem,env(safe-area-inset-right,0px))] md:pl-[max(1.5rem,env(safe-area-inset-left,0px))] md:pr-[max(1.5rem,env(safe-area-inset-right,0px))] lg:pl-[max(2rem,env(safe-area-inset-left,0px))] lg:pr-[max(2rem,env(safe-area-inset-right,0px))]">
         <PromoHero />
-        <HomeCryptoPaymentsBanner />
+        <HomeCryptoPaymentsBanner depositsEnabled={operationalDepositsEnabled(operationalData)} />
         <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
         <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
       </div>

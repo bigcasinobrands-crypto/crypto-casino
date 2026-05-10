@@ -46,7 +46,12 @@
     "collapseSidebar": "Collapse sidebar",
     "closeMenu": "Close menu",
     "casinoMenu": "Casino menu",
-    "comingSoon": "Coming soon"
+    "comingSoon": "Coming soon",
+    "socialProof": {
+      "regionLabel": "Lobby activity snapshot",
+      "betsWagered": "Bets wagered",
+      "online": "Online"
+    }
   },
   "affiliateModal": {
     "title": "Refer and Earn",
@@ -283,11 +288,31 @@
     "ghColAvgPlay": "Avg Play Time",
     "ghColLastPlayed": "Last Played",
     "verification": {
-      "nonBlockingHint": "You can keep playing while email verification is pending — verify anytime here."
+      "nonBlockingHint": "You can keep playing while email verification is pending — verify anytime here.",
+      "kycRowTitle": "KYC Verification",
+      "kycNotStarted": "Not Started",
+      "kycPending": "Pending",
+      "kycVerified": "Verified",
+      "kycRejected": "Rejected",
+      "kycFootnote": "Identity verification may be required for larger withdrawals or unusual activity.",
+      "kycStart": "Start verification",
+      "kycContinue": "Continue verification",
+      "kycResubmit": "Resubmit verification",
+      "kycOpening": "Opening secure form…",
+      "kycGateHint": "Withdrawals may require completing verification first.",
+      "kycRejectLabel": "Reason"
     },
     "prefs": {
       "transactionAlertsComplianceNote": "Only affects optional deposit and withdrawal receipt emails. Verification, password reset, and important account notices are still sent when required."
     }
+  },
+  "emailVerifyPrompt": {
+    "title": "Verify your email",
+    "intro": "We sent a verification link to {{email}}. Open it to confirm your address.",
+    "resend": "Resend verification email",
+    "continue": "Continue playing",
+    "sending": "Sending…",
+    "settingsLink": "Verification settings"
   },
   "auth": {
     "close": "Close",
@@ -296,7 +321,7 @@
     "signInSubtitle": "Use your email and password to continue.",
     "createAccount": "Create your account",
     "register": "Register",
-    "registerSubtitle": "Use your email and a strong password (12+ characters).",
+    "registerSubtitle": "Use your email and a strong password (6+ characters).",
     "accountHelp": "Account help",
     "resetPassword": "Reset password",
     "resetSubtitle": "We'll email a reset link if that address has an account.",
@@ -713,6 +738,12 @@
       "blueOceanNone": "No games from the Blue Ocean catalog are visible yet.",
       "default": "No games in this view."
     }
+  },
+  "operational": {
+    "depositsUnavailable": "Deposits are temporarily unavailable.",
+    "withdrawalsUnavailable": "Withdrawals are temporarily unavailable.",
+    "walletUnavailableBoth": "Deposits and withdrawals are temporarily unavailable. Please try again later.",
+    "bonusesUnavailable": "New bonus offers are temporarily unavailable. Active bonuses are not affected."
   },
   "studios": {
     "pageTitle": "Studios",

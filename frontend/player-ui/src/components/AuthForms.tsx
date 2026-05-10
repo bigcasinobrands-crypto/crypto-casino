@@ -453,7 +453,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               type={showPw ? 'text' : 'password'}
               autoComplete="new-password"
               required
-              minLength={12}
+              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={t('auth.registerForm.passwordPlaceholder')}
@@ -471,7 +471,7 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
               type={showPw ? 'text' : 'password'}
               autoComplete="new-password"
               required
-              minLength={12}
+              minLength={6}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder={t('auth.registerForm.confirmPlaceholder')}

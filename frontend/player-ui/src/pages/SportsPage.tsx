@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
+import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
 import {
   IconChevronLeft,
   IconExternalLink,
@@ -12,6 +13,7 @@ import { GAME_IFRAME_ALLOW } from '../lib/gameIframe'
 import { pushRecent } from '../lib/gameStorage'
 import { playerFetch } from '../lib/playerFetch'
 import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
+import { operationalRealPlayEnabled } from '../lib/operationalPaymentGate'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
 
@@ -75,6 +77,7 @@ export default function SportsPage() {
   const navigate = useNavigate()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const { openAuth } = useAuthModal()
+  const { data: opHealth } = useSharedOperationalHealth()
 
   /** `network` = fetch failed (API down / wrong proxy). `api` = HTTP error body from core (e.g. sportsbook not configured). */
   const [catalogLoadErr, setCatalogLoadErr] = useState<null | 'network' | { api: string }>(null)
@@ -98,7 +101,7 @@ export default function SportsPage() {
   const postAuthTarget = sportsbookPlayerPath()
 
   const demoAllowed = true
-  const realAllowed = true
+  const realAllowed = operationalRealPlayEnabled(opHealth)
 
   useEffect(() => {
     if (isAuthenticated || catalogLoadErr !== null || !shell) return

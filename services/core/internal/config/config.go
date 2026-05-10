@@ -151,6 +151,12 @@ type Config struct {
 	// KYCLargeWithdrawalThresholdCents: amount above which a withdrawal is blocked
 	// unless users.kyc_status='approved'. 0 disables the gate. Default 100000 ($1000).
 	KYCLargeWithdrawalThresholdCents int64
+	// KYCAID — hosted KYC forms + callbacks (see KYCAID_* envs).
+	KYCAIDEnabled           bool
+	KYCAIDAPIToken          string
+	KYCAIDAPIBaseURL        string
+	WithdrawKYCGateDryRun   bool // log-only withdraw identity gate (never blocks)
+	KYCAIDWebhookFailClosed bool // reject callbacks when x-data-integrity fails (default true in production)
 	// KYCLargeDepositThresholdCents: amount above which the deposit webhook
 	// raises an `aml_large_deposit` reconciliation_alert (does not block).
 	// 0 disables. Default 100000 ($1000).
@@ -469,6 +475,21 @@ func Load() (Config, error) {
 	c.WithdrawDailyCountLimit = int(parseIntEnv(os.Getenv("WITHDRAW_DAILY_COUNT_LIMIT"), 0))
 	c.WithdrawMinAccountAgeSec = int(parseIntEnv(os.Getenv("WITHDRAW_MIN_ACCOUNT_AGE_SEC"), 0))
 	c.KYCLargeWithdrawalThresholdCents = parseIntEnv(os.Getenv("KYC_LARGE_WITHDRAWAL_THRESHOLD_CENTS"), 100_000)
+	if strings.TrimSpace(os.Getenv("KYCAID_ENABLED")) != "" {
+		c.KYCAIDEnabled = parseBoolEnv(os.Getenv("KYCAID_ENABLED"))
+	}
+	c.KYCAIDAPIToken = strings.TrimSpace(os.Getenv("KYCAID_API_TOKEN"))
+	c.KYCAIDAPIBaseURL = strings.TrimSuffix(strings.TrimSpace(os.Getenv("KYCAID_API_BASE_URL")), "/")
+	if c.KYCAIDAPIBaseURL == "" {
+		c.KYCAIDAPIBaseURL = "https://api.kycaid.com"
+	}
+	c.WithdrawKYCGateDryRun = parseBoolEnv(os.Getenv("WITHDRAW_KYC_GATE_DRY_RUN"))
+	if strings.TrimSpace(os.Getenv("KYCAID_WEBHOOK_FAIL_CLOSED")) != "" {
+		c.KYCAIDWebhookFailClosed = parseBoolEnv(os.Getenv("KYCAID_WEBHOOK_FAIL_CLOSED"))
+	} else {
+		appPeek := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+		c.KYCAIDWebhookFailClosed = appPeek == "production"
+	}
 	c.KYCLargeDepositThresholdCents = parseIntEnv(os.Getenv("KYC_LARGE_DEPOSIT_THRESHOLD_CENTS"), 100_000)
 	c.AMLLargeWithdrawalAlertThresholdCents = parseIntEnv(os.Getenv("AML_LARGE_WITHDRAWAL_ALERT_THRESHOLD_CENTS"), 200_000)
 	c.OperatorDailyPayoutCapCents = parseIntEnv(os.Getenv("OPERATOR_DAILY_PAYOUT_CAP_CENTS"), 0)
@@ -665,6 +686,11 @@ func (c *Config) PassimPayConfigured() bool {
 		return false
 	}
 	return strings.TrimSpace(c.PassimpaySecretKey) != "" && c.PassimpayPlatformID != 0 && strings.TrimSpace(c.PassimpayAPIBaseURL) != ""
+}
+
+// KYCAIDConfigured is true when KYCAID API calls / webhook verification can authenticate.
+func (c *Config) KYCAIDConfigured() bool {
+	return c != nil && strings.TrimSpace(c.KYCAIDAPIToken) != ""
 }
 
 // SecurityCSPEffectiveMode returns off, report, or enforce for API Content-Security-Policy headers.

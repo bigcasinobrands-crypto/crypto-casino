@@ -16,6 +16,7 @@ import { augmentFingerprintRequiredError, getAuthFingerprintPayload } from './li
 import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './lib/playerFetch'
 import { messageCannotReachApi } from './lib/playerNetworkCopy'
 import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
+import { peekPendingReferralCode, clearPendingReferralCode } from './lib/referralPendingStorage'
 import { mergeServerFavouritesOnLogin } from './lib/gameStorage'
 import {
   PLAYER_CHROME_CLOSE_CHAT_EVENT,
@@ -61,6 +62,11 @@ export type MeResponse = {
   vip_tier_id?: number
   email_2fa_enabled?: boolean
   email_2fa_admin_locked?: boolean
+  /** Identity verification status for withdrawals (KYCAID / manual): none | pending | approved | rejected */
+  kyc_status?: string
+  kyc_reject_reason?: string
+  /** Internal/compliance hint when a withdrawal gate fired (UX-only). */
+  kyc_required_reason?: string
 }
 
 export type LoginResult =
@@ -544,6 +550,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             },
           }
         }
+        const referralCode = peekPendingReferralCode()
         res = await playerFetch('/v1/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -554,6 +561,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
             accept_terms: input.acceptTerms,
             accept_privacy: input.acceptPrivacy,
             ...(input.captchaToken ? { captcha_token: input.captchaToken } : {}),
+            ...(referralCode ? { referral_code: referralCode } : {}),
             ...fpRes.extra,
           }),
         })
@@ -610,6 +618,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         }
       }
       applySessionTokens(j.access_token ?? '', j.refresh_token ?? '', j.expires_at)
+      clearPendingReferralCode()
       await refreshProfile()
       return { ok: true }
     },

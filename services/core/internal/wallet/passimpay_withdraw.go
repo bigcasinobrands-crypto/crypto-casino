@@ -57,6 +57,20 @@ func withdrawalPassimpay(
 		playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
 		return
 	}
+	var emailVerifiedAt *time.Time
+	if err := pool.QueryRow(r.Context(), `SELECT email_verified_at FROM users WHERE id = $1::uuid`, uid).Scan(&emailVerifiedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
+			return
+		}
+		log.Printf("passimpay withdraw: email_verified_at lookup err=%v", err)
+		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "profile lookup failed")
+		return
+	}
+	if emailVerifiedAt == nil {
+		playerapi.WriteError(w, http.StatusForbidden, "email_verification_required", "Verify your email before withdrawing.")
+		return
+	}
 	flags, err := paymentflags.Load(r.Context(), pool)
 	if err == nil && !flags.WithdrawalsEnabled {
 		playerapi.WriteError(w, http.StatusForbidden, "withdrawals_disabled", "withdrawals are temporarily unavailable")
@@ -124,11 +138,9 @@ func withdrawalPassimpay(
 		return
 	}
 
-	// KYC gate (E-4): block withdrawals over the configured USD threshold
-	// unless `users.kyc_status='approved'`. body.AmountMinor is already in
-	// USD cents (the canonical wallet unit), so we can pass it through to
-	// CheckKYCForLargeWithdrawal directly. Disabled when threshold <= 0.
-	if kycErr := compliance.CheckKYCForLargeWithdrawal(r.Context(), pool, uid, body.AmountMinor, cfg.KYCLargeWithdrawalThresholdCents); kycErr != nil {
+	// KYC gate (E-4 + withdrawal risk policy): large withdrawals and configurable
+	// velocity/first-withdraw signals require `users.kyc_status='approved'`.
+	if kycErr := compliance.RequireApprovedIdentityForWithdraw(r.Context(), pool, cfg, uid, body.AmountMinor); kycErr != nil {
 		playerapi.WriteError(w, http.StatusForbidden, "kyc_required", kycErr.Error())
 		return
 	}

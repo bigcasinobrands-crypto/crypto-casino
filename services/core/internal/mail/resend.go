@@ -36,7 +36,8 @@ type resendSendBody struct {
 	From    string   `json:"from"`
 	To      []string `json:"to"`
 	Subject string   `json:"subject"`
-	Text    string   `json:"text"`
+	Text    string   `json:"text,omitempty"`
+	HTML    string   `json:"html,omitempty"`
 }
 
 func (s *ResendSender) Send(ctx context.Context, to, subject, textBody string) error {
@@ -52,6 +53,49 @@ func (s *ResendSender) Send(ctx context.Context, to, subject, textBody string) e
 		To:      []string{to},
 		Subject: subject,
 		Text:    textBody,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("resend: marshal body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resendEmailsEndpoint, bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("resend: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(s.APIKey))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("resend: request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("resend: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// SendTransactional posts plain + HTML to Resend when htmlBody is non-empty; otherwise Send().
+func (s *ResendSender) SendTransactional(ctx context.Context, to, subject, textPlain, htmlBody string) error {
+	htmlBody = strings.TrimSpace(htmlBody)
+	if htmlBody == "" {
+		return s.Send(ctx, to, subject, textPlain)
+	}
+	if !s.Configured() {
+		return fmt.Errorf("resend: not configured")
+	}
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return fmt.Errorf("resend: empty recipient")
+	}
+	payload := resendSendBody{
+		From:    strings.TrimSpace(s.From),
+		To:      []string{to},
+		Subject: subject,
+		Text:    textPlain,
+		HTML:    htmlBody,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

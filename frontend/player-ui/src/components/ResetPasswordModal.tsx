@@ -147,7 +147,7 @@ export const ResetPasswordModal: FC<ResetPasswordModalProps> = ({ open, token, o
             <h1 id={titleId} className="pr-8 text-xl font-semibold text-casino-primary">
               Reset password
             </h1>
-            <p className="mt-2 text-sm text-casino-muted">Choose a new password (12+ chars, letters and numbers).</p>
+            <p className="mt-2 text-sm text-casino-muted">Choose a new password (6+ chars, letters and numbers).</p>
             {err && (
               <p className="mt-4 rounded-casino-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">
                 {err}
@@ -163,7 +163,7 @@ export const ResetPasswordModal: FC<ResetPasswordModalProps> = ({ open, token, o
                     id="reset-pw-modal"
                     type={showPw ? 'text' : 'password'}
                     required
-                    minLength={12}
+                    minLength={6}
                     autoComplete="new-password"
                     autoFocus
                     className="min-w-0 flex-1 rounded-casino-md border border-casino-border bg-casino-bg px-3 py-2 text-sm"
@@ -187,7 +187,7 @@ export const ResetPasswordModal: FC<ResetPasswordModalProps> = ({ open, token, o
                   id="reset-confirm-modal"
                   type={showPw ? 'text' : 'password'}
                   required
-                  minLength={12}
+                  minLength={6}
                   className="w-full rounded-casino-md border border-casino-border bg-casino-bg px-3 py-2 text-sm"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}

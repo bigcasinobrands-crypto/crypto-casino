@@ -40,6 +40,10 @@ type WithdrawFormPanelProps = {
    * so the submit button stays visible above the home indicator / bottom nav.
    */
   splitFooter?: boolean
+  /** When API returns email_verification_required (should match server enforcement). */
+  onEmailVerificationRequired?: () => void
+  /** When API returns kyc_required — deep-link to profile verification / KYCAID flow. */
+  onKYCVerificationRequired?: () => void
 }
 
 export function WithdrawFormPanel({
@@ -51,6 +55,8 @@ export function WithdrawFormPanel({
   onSelect,
   onSuccess,
   splitFooter = false,
+  onEmailVerificationRequired,
+  onKYCVerificationRequired,
 }: WithdrawFormPanelProps) {
   const { t } = useTranslation()
   const { apiFetch, refreshProfile, balanceMinor } = usePlayerAuth()
@@ -158,6 +164,12 @@ export function WithdrawFormPanel({
         const parsed = await readApiError(res)
         const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
         toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/withdraw', rid)
+        if (parsed?.code === 'email_verification_required') {
+          onEmailVerificationRequired?.()
+        }
+        if (parsed?.code === 'kyc_required') {
+          onKYCVerificationRequired?.()
+        }
         setErr(parsed?.message ?? t('wallet.errWithdrawFailed'))
         // Keep the same Idempotency-Key — a 4xx may be transient (e.g. min amount,
         // address validation). Retrying with the same key is safe: the server will

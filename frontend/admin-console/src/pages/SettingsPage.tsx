@@ -19,6 +19,8 @@ import { PLAYER_BRANDING_DEFAULT_LOGO_PREVIEW } from '../lib/playerBrandLogo'
 
 const primaryBtn = 'btn btn-primary btn-sm'
 
+const outlineBtn = 'btn btn-outline-secondary btn-sm'
+
 const dangerBtn = 'btn btn-danger btn-sm'
 
 const inputCls = 'form-control form-control-sm'
@@ -187,8 +189,10 @@ function SettingsAttentionStrip({ settings }: { settings: SettingsMap }) {
 function SettingsSystemOutline() {
   const links = [
     { href: '#settings-kill-switches', label: 'Kill switches' },
+    { href: '#settings-maintenance-schedule', label: 'Maintenance schedule' },
     { href: '#settings-security', label: 'Security & access' },
     { href: '#settings-withdrawals', label: 'Withdrawal limits' },
+    { href: '#settings-social-proof', label: 'Menu social proof' },
     { href: '#settings-bonus-worker', label: 'Bonus worker' },
     { href: '#settings-integrations', label: 'Integration status' },
     { href: '#settings-payments', label: 'Payment flags' },
@@ -433,8 +437,10 @@ function SystemControlsTab({
         </div>
         <div className="col-lg-9">
           <KillSwitchesPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
+          <MaintenanceSchedulePanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
           <SecurityAccessPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
           <WithdrawalLimitsPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
+          <SocialProofPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
           <BonusWorkerReadonlyPanel apiFetch={apiFetch} />
           <IntegrationStatusPanel settings={settings} />
           <PaymentFlagsPanel apiFetch={apiFetch} isSuper={isSuper} />
@@ -493,7 +499,7 @@ function BonusWorkerReadonlyPanel({
 // ---------------------------------------------------------------------------
 
 const KILL_SWITCHES = [
-  { key: 'maintenance_mode', label: 'Maintenance Mode', cat: 'system', invertBadge: true },
+  { key: 'maintenance_mode', label: 'Maintenance Mode', cat: 'system' },
   { key: 'deposits_enabled', label: 'Deposits Enabled', cat: 'payments' },
   { key: 'withdrawals_enabled', label: 'Withdrawals Enabled', cat: 'payments' },
   { key: 'real_play_enabled', label: 'Real Play Enabled', cat: 'games' },
@@ -520,42 +526,57 @@ function KillSwitchesPanel({
     setBusyKey(null)
   }
 
+  const statusLine = (sw: (typeof KILL_SWITCHES)[number], val: boolean) => {
+    if (sw.key === 'maintenance_mode') {
+      return val
+        ? { text: 'Maintenance active', cls: 'text-amber-700 dark:text-amber-300' }
+        : { text: 'Site open', cls: 'text-emerald-600 dark:text-emerald-400' }
+    }
+    return val
+      ? { text: 'Enabled', cls: 'text-emerald-600 dark:text-emerald-400' }
+      : { text: 'Disabled', cls: 'text-gray-500 dark:text-gray-400' }
+  }
+
   return (
     <Section id="settings-kill-switches" title="Kill Switches" desc="Master toggles for platform features" defaultOpen>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-3">
         {KILL_SWITCHES.map((sw) => {
           const fullKey = `${sw.cat}.${sw.key}`
           const val = !!getSettingVal(settings, sw.cat, sw.key, false)
           const meta = getSettingMeta(settings, sw.cat, sw.key)
-          const isOn = 'invertBadge' in sw && sw.invertBadge ? !val : val
+          const maintenanceWarn = sw.key === 'maintenance_mode' && val
+          const st = statusLine(sw, val)
           return (
             <div
               key={sw.key}
-              className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-white/[0.02]"
+              className={[
+                'flex min-h-[4.5rem] flex-col gap-3 rounded-xl border px-4 py-3 transition-colors sm:min-h-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3',
+                maintenanceWarn
+                  ? 'border-amber-400/70 bg-amber-50/90 dark:border-amber-700/60 dark:bg-amber-950/35'
+                  : 'border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-white/[0.02]',
+              ].join(' ')}
             >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                    {sw.label}
-                  </span>
-                  <StatusBadge
-                    label={isOn ? 'ON' : 'OFF'}
-                    variant={isOn ? 'success' : 'error'}
-                    dot
-                  />
-                </div>
-                {meta?.updated_at && (
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="text-sm font-medium leading-snug text-gray-800 dark:text-gray-100">{sw.label}</div>
+                <p className={`text-xs font-medium ${st.cls}`}>{st.text}</p>
+                {meta?.updated_at ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500">
                     {formatRelativeTime(meta.updated_at)}
-                    {meta.updated_by ? ` by ${meta.updated_by}` : ''}
+                    {meta.updated_by ? ` · ${meta.updated_by}` : ''}
                   </p>
-                )}
+                ) : null}
               </div>
-              <Toggle
-                checked={val}
-                disabled={busyKey === sw.key || !isSuper}
-                onChange={() => void toggleSwitch(fullKey, sw.key, val)}
-              />
+              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-200/80 pt-3 dark:border-white/[0.06] sm:border-t-0 sm:pt-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 sm:hidden">
+                  {val ? 'On' : 'Off'}
+                </span>
+                <Toggle
+                  checked={val}
+                  ariaLabel={sw.label}
+                  disabled={busyKey === sw.key || !isSuper}
+                  onChange={() => void toggleSwitch(fullKey, sw.key, val)}
+                />
+              </div>
             </div>
           )
         })}
@@ -660,7 +681,7 @@ function IpRuleList({
           disabled={disabled}
           onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), add())}
         />
-        <button type="button" className={primaryBtn} disabled={disabled} onClick={add}>
+        <button type="button" className={outlineBtn} disabled={disabled} onClick={add}>
           Add
         </button>
         <button type="button" className={primaryBtn} disabled={disabled || saving} onClick={onSave}>
@@ -669,6 +690,98 @@ function IpRuleList({
       </div>
       <p className="mt-1 text-[11px] text-gray-400">Stored one rule per line in site settings ({saveKey}).</p>
     </div>
+  )
+}
+
+function MaintenanceSchedulePanel({
+  settings,
+  patchSetting,
+  isSuper,
+}: {
+  settings: SettingsMap
+  patchSetting: (key: string, value: unknown) => Promise<boolean>
+  isSuper: boolean
+}) {
+  const maintenanceOn = !!getSettingVal(settings, 'system', 'maintenance_mode', false)
+  const untilRaw = getSettingVal(settings, 'system', 'maintenance_until', '') as string
+  const [localDt, setLocalDt] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const u = (untilRaw ?? '').trim()
+    if (!u) {
+      setLocalDt('')
+      return
+    }
+    const d = new Date(u)
+    if (Number.isNaN(d.getTime())) {
+      setLocalDt('')
+      return
+    }
+    const pad = (n: number) => String(n).padStart(2, '0')
+    setLocalDt(
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    )
+  }, [untilRaw])
+
+  const save = async () => {
+    if (!isSuper) return toast.error('Superadmin required')
+    setBusy(true)
+    try {
+      if (!localDt.trim()) {
+        await patchSetting('system.maintenance_until', '')
+      } else {
+        const iso = new Date(localDt).toISOString()
+        await patchSetting('system.maintenance_until', iso)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Section
+      id="settings-maintenance-schedule"
+      title="Maintenance schedule"
+      desc="Countdown on the player maintenance page; “notify me” emails also fire when this time elapses while maintenance is still on."
+      defaultOpen={maintenanceOn}
+    >
+      {!maintenanceOn ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Turn <strong>Maintenance Mode</strong> on above to enable scheduling.
+        </p>
+      ) : (
+        <div className="max-w-md space-y-3">
+          <label className={labelCls}>Expected back online (browser local time)</label>
+          <input
+            type="datetime-local"
+            className={inputCls}
+            value={localDt}
+            onChange={(e) => setLocalDt(e.target.value)}
+            disabled={!isSuper || busy}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={primaryBtn} disabled={!isSuper || busy} onClick={() => void save()}>
+              {busy ? 'Saving…' : 'Save schedule'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              disabled={!isSuper || busy}
+              onClick={() => {
+                setLocalDt('')
+                void patchSetting('system.maintenance_until', '')
+              }}
+            >
+              Clear
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Emails also send when maintenance is turned off for subscribers who tapped Notify Me.
+          </p>
+        </div>
+      )}
+    </Section>
   )
 }
 
@@ -736,47 +849,66 @@ function SecurityAccessPanel({
             Players with matching <code className="rounded bg-gray-100 px-1 dark:bg-white/10">X-Geo-Country</code> cannot open
             real/demo play when this list is enforced server-side. Save applies ISO codes as a comma-separated setting.
           </p>
-          <div className="mb-2 flex flex-wrap gap-1">
+          <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {REGIONS_SEC.map((reg) => (
-              <span key={reg} className="inline-flex gap-1">
+              <div
+                key={reg}
+                className="flex min-h-[2.75rem] overflow-hidden rounded-lg border border-gray-200 shadow-sm dark:border-gray-600"
+              >
                 <button
                   type="button"
-                  className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:border-red-900 dark:bg-red-950/50 dark:text-red-200"
+                  className="flex-1 bg-red-600 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-red-800 dark:hover:bg-red-700"
                   disabled={!isSuper}
                   onClick={() => applyRegionBlocked(reg, true)}
+                  title={`Block every country in ${reg}`}
                 >
-                  Block {reg}
+                  Block · {reg}
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-gray-200 px-2 py-0.5 text-[11px] text-gray-500 dark:border-gray-600"
+                  className="flex-1 border-l border-gray-200 bg-gray-100 px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-900 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                   disabled={!isSuper}
                   onClick={() => applyRegionBlocked(reg, false)}
+                  title={`Remove ${reg} countries from the blocked list`}
                 >
-                  Unblock {reg}
+                  Unblock · {reg}
                 </button>
-              </span>
+              </div>
             ))}
           </div>
           <CountryPicker mode="deny" selected={blockedCodes} disabled={!isSuper} onToggle={toggleBlocked} />
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap gap-1 text-xs text-gray-600 dark:text-gray-300">
-              {blockedCodes.length ? (
-                blockedCodes.map((c) => {
-                  const name = COUNTRY_OPTIONS.find((x) => x.code === c)?.name ?? c
-                  return (
-                    <span key={c} className="rounded-full border border-gray-200 px-2 py-0.5 dark:border-gray-600">
-                      {flagEmoji(c)} {name}
-                    </span>
-                  )
-                })
-              ) : (
-                <span className="text-gray-400">None selected</span>
-              )}
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-gray-100 bg-gray-50/80 p-3 dark:border-gray-700 dark:bg-white/[0.03] sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                Pending selection (save to apply)
+              </p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                {blockedCodes.length === 0
+                  ? 'No countries blocked yet'
+                  : `${blockedCodes.length} ${blockedCodes.length === 1 ? 'country' : 'countries'} blocked`}
+              </p>
+              <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto text-xs text-gray-600 dark:text-gray-300">
+                {blockedCodes.length ? (
+                  blockedCodes.map((c) => {
+                    const name = COUNTRY_OPTIONS.find((x) => x.code === c)?.name ?? c
+                    return (
+                      <span
+                        key={c}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-0.5 dark:border-gray-600 dark:bg-gray-900/60"
+                      >
+                        <span aria-hidden>{flagEmoji(c)}</span>
+                        <span>{name}</span>
+                      </span>
+                    )
+                  })
+                ) : (
+                  <span className="text-gray-400 dark:text-gray-500">Pick regions above or tap countries in the list.</span>
+                )}
+              </div>
             </div>
             <button
               type="button"
-              className={primaryBtn}
+              className={`${primaryBtn} shrink-0`}
               disabled={saving === 'blocked_countries' || !isSuper}
               onClick={() => void saveKey('security.blocked_countries', blockedCodes.join(','))}
             >
@@ -895,6 +1027,158 @@ function WithdrawalLimitsPanel({
   )
 }
 
+function SocialProofPanel({
+  settings,
+  patchSetting,
+  isSuper,
+}: {
+  settings: SettingsMap
+  patchSetting: (key: string, value: unknown) => Promise<boolean>
+  isSuper: boolean
+}) {
+  type SocialCfg = {
+    enabled: boolean
+    online_target: number
+    online_variance_pct: number
+    online_bucket_secs: number
+    wager_display_multiplier: number
+  }
+
+  const defaults: SocialCfg = {
+    enabled: false,
+    online_target: 180,
+    online_variance_pct: 22,
+    online_bucket_secs: 90,
+    wager_display_multiplier: 1,
+  }
+
+  const [cfg, setCfg] = useState<SocialCfg>(defaults)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const raw = getSettingVal(settings, 'social_proof', 'config', null)
+    const next =
+      raw && typeof raw === 'object' ? { ...defaults, ...(raw as Partial<SocialCfg>) } : defaults
+    setCfg(next)
+  }, [settings])
+
+  const saveAll = async () => {
+    if (!isSuper) {
+      toast.error('Superadmin required')
+      return
+    }
+    const ot = Math.round(Number(cfg.online_target))
+    if (!Number.isFinite(ot) || ot < 1 || ot > 500_000) {
+      toast.error('Online target must be between 1 and 500000')
+      return
+    }
+    const vp = Number(cfg.online_variance_pct)
+    if (!Number.isFinite(vp) || vp < 5 || vp > 55) {
+      toast.error('Variance % should be between 5 and 55')
+      return
+    }
+    const bs = Math.round(Number(cfg.online_bucket_secs))
+    if (!Number.isFinite(bs) || bs < 30 || bs > 600) {
+      toast.error('Refresh bucket must be 30–600 seconds')
+      return
+    }
+    const wm = Number(cfg.wager_display_multiplier)
+    if (!Number.isFinite(wm) || wm < 0.01 || wm > 100) {
+      toast.error('Wager multiplier must be between 0.01 and 100')
+      return
+    }
+    const payload: SocialCfg = {
+      enabled: cfg.enabled,
+      online_target: ot,
+      online_variance_pct: vp,
+      online_bucket_secs: bs,
+      wager_display_multiplier: wm,
+    }
+    setSaving(true)
+    await patchSetting('social_proof.config', payload)
+    setSaving(false)
+  }
+
+  return (
+    <Section
+      id="settings-social-proof"
+      title="Menu social proof"
+      desc="Compact stats pinned under the casino sidebar on desktop and a slim strip in the mobile drawer. Online count drifts around your target; wagered uses real stakes from the ledger multiplied for display."
+      defaultOpen={false}
+    >
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <Toggle checked={cfg.enabled} disabled={!isSuper} onChange={(next) => setCfg((c) => ({ ...c, enabled: next }))} />
+        <span className="text-sm text-gray-700 dark:text-gray-200">Show stats to players</span>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className={labelCls}>Online target (approximate centre)</label>
+          <input
+            type="number"
+            min={1}
+            className={inputCls}
+            value={cfg.online_target}
+            disabled={!isSuper}
+            onChange={(e) => setCfg((c) => ({ ...c, online_target: parseInt(e.target.value, 10) || 0 }))}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Online variance (% of target)</label>
+          <input
+            type="number"
+            step="1"
+            min={5}
+            max={55}
+            className={inputCls}
+            value={cfg.online_variance_pct}
+            disabled={!isSuper}
+            onChange={(e) => setCfg((c) => ({ ...c, online_variance_pct: parseFloat(e.target.value) || 0 }))}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Stable refresh bucket (seconds)</label>
+          <input
+            type="number"
+            min={30}
+            max={600}
+            step={10}
+            className={inputCls}
+            value={cfg.online_bucket_secs}
+            disabled={!isSuper}
+            onChange={(e) => setCfg((c) => ({ ...c, online_bucket_secs: parseInt(e.target.value, 10) || 0 }))}
+          />
+          <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            The displayed online count updates when this bucket rolls so players stay aligned.
+          </p>
+        </div>
+        <div>
+          <label className={labelCls}>Wager display multiplier</label>
+          <input
+            type="number"
+            step="0.01"
+            min={0.01}
+            max={100}
+            className={inputCls}
+            value={cfg.wager_display_multiplier}
+            disabled={!isSuper}
+            onChange={(e) => setCfg((c) => ({ ...c, wager_display_multiplier: parseFloat(e.target.value) || 0 }))}
+          />
+          <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            Applies to the sum of casino & sports stakes (same basis as admin KPI “total wagered”).
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <button type="button" className={primaryBtn} disabled={saving || !isSuper} onClick={() => void saveAll()}>
+          {saving ? 'Saving…' : 'Save social proof'}
+        </button>
+      </div>
+    </Section>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Integration Status (read-only)
 // ---------------------------------------------------------------------------
@@ -957,6 +1241,15 @@ function IntegrationStatusPanel({ settings }: { settings: SettingsMap }) {
 // Payment Flags
 // ---------------------------------------------------------------------------
 
+/** Same rails as Kill Switches; PATCH settings mirrors these into payment_ops_flags */
+const PAYMENT_FLAGS_FROM_KILL_SWITCHES = new Set([
+  'deposits_enabled',
+  'withdrawals_enabled',
+  'real_play_enabled',
+  'bonuses_enabled',
+  'automated_grants_enabled',
+])
+
 function PaymentFlagsPanel({
   apiFetch,
   isSuper,
@@ -1009,28 +1302,59 @@ function PaymentFlagsPanel({
   if (loading) return <SkeletonCard />
   if (Object.keys(flags).length === 0) return null
 
+  const allEntries = Object.entries(flags)
+  const filteredEntries = allEntries.filter(([k]) => !PAYMENT_FLAGS_FROM_KILL_SWITCHES.has(k))
+
   return (
-    <Section id="settings-payments" title="Payment Flags" desc="Per-currency and provider-level payment toggles">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {Object.entries(flags).map(([key, val]) => (
-          <div
-            key={key}
-            className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-white/[0.02]"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                {key.replace(/_/g, ' ')}
-              </span>
-              <StatusBadge label={val ? 'ON' : 'OFF'} variant={val ? 'success' : 'error'} dot />
-            </div>
-            <Toggle
-              checked={val}
-              disabled={busyKey === key || !isSuper}
-              onChange={() => toggleFlag(key, val)}
-            />
+    <Section id="settings-payments" title="Payment Flags" desc="Provider-specific toggles not covered by Kill Switches">
+      {filteredEntries.length === 0 ? (
+        <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+          All operational rails in this environment are exposed under{' '}
+          <strong className="text-gray-800 dark:text-gray-200">Kill Switches</strong> (deposits, withdrawals, real play,
+          bonuses, automated grants). Use that grid so site settings and the ledger stay in sync.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-3">
+            {filteredEntries.map(([key, val]) => {
+              const label = key.replace(/_/g, ' ')
+              return (
+                <div
+                  key={key}
+                  className="flex min-h-[4.5rem] flex-col gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-white/[0.02] sm:min-h-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                >
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="text-sm font-medium capitalize leading-snug text-gray-800 dark:text-gray-100">
+                      {label}
+                    </div>
+                    <p
+                      className={`text-xs font-medium ${val ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400'}`}
+                    >
+                      {val ? 'Enabled' : 'Disabled'}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-200/80 pt-3 dark:border-white/[0.06] sm:border-t-0 sm:pt-0">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 sm:hidden">
+                      {val ? 'On' : 'Off'}
+                    </span>
+                    <Toggle
+                      checked={val}
+                      ariaLabel={label}
+                      disabled={busyKey === key || !isSuper}
+                      onChange={() => toggleFlag(key, val)}
+                    />
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        ))}
-      </div>
+          {allEntries.length > filteredEntries.length ? (
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              Deposits, withdrawals, real play, bonuses, and automated grants are edited under Kill Switches only.
+            </p>
+          ) : null}
+        </>
+      )}
     </Section>
   )
 }

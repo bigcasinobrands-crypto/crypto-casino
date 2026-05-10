@@ -34,7 +34,7 @@ func TestE2EGrantWageringAndComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := bonus.ApplyPostBetWagering(ctx, tx, uid, "e2e-slot", 1000); err != nil {
+	if _, err := bonus.ApplyPostBetWagering(ctx, tx, uid, "e2e-slot", 1000); err != nil {
 		_ = tx.Rollback(ctx)
 		t.Fatal(err)
 	}

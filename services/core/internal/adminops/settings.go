@@ -3,10 +3,13 @@ package adminops
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/crypto-casino/core/internal/adminapi"
+	"github.com/crypto-casino/core/internal/maintenancenotify"
+	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -64,7 +67,10 @@ func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.Pool.Exec(r.Context(), `
+	ctx := r.Context()
+	prevMaintenance := sitestatus.MaintenanceEffective(ctx, h.Pool, h.Cfg)
+
+	_, err = h.Pool.Exec(ctx, `
 		INSERT INTO site_settings (key, value, updated_at, updated_by)
 		VALUES ($1, $2, now(), $3::uuid)
 		ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now(), updated_by = $3::uuid
@@ -72,6 +78,19 @@ func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "upsert failed")
 		return
+	}
+
+	if err := mirrorKillSwitchSetting(ctx, h.Pool, body.Key, body.Value); err != nil {
+		log.Printf("settings mirror: key=%s err=%v", body.Key, err)
+	}
+
+	nextMaintenance := sitestatus.MaintenanceEffective(ctx, h.Pool, h.Cfg)
+	if prevMaintenance && !nextMaintenance {
+		if n, ferr := maintenancenotify.FlushPending(ctx, h.Pool, h.Mail, h.Cfg); ferr != nil {
+			log.Printf("maintenance_notify flush: %v", ferr)
+		} else if n > 0 {
+			log.Printf("maintenance_notify flush: sent=%d", n)
+		}
 	}
 
 	meta, _ := json.Marshal(body)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAdminAuth } from '../authContext'
 import { apiErrFromBody, formatApiError, readApiError } from '../api/errors'
 import { useAdminActivityLog } from '../notifications/AdminActivityLogContext'
@@ -178,6 +178,7 @@ function SupportCrmLink({ userId }: { userId: string }) {
 
 export default function PlayerDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { apiFetch, role } = useAdminAuth()
   const isSuper = role === 'superadmin'
   const { reportApiFailure } = useAdminActivityLog()
@@ -200,6 +201,9 @@ export default function PlayerDetailPage() {
   const [email2faBusy, setEmail2faBusy] = useState(false)
   const [email2faMsg, setEmail2faMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [erasureBusy, setErasureBusy] = useState(false)
+  const [hardDeleteEmailInput, setHardDeleteEmailInput] = useState('')
+  const [hardDeleteBusy, setHardDeleteBusy] = useState(false)
+  const [hardDeleteMsg, setHardDeleteMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
   const [boSyncBusy, setBoSyncBusy] = useState(false)
   const [boSyncResult, setBoSyncResult] = useState<Record<string, unknown> | null>(null)
@@ -498,6 +502,48 @@ export default function PlayerDetailPage() {
       setComplianceMsg({ kind: 'err', text: 'Network error' })
     } finally {
       setErasureBusy(false)
+    }
+  }
+
+  const hardDeletePlayer = async () => {
+    if (!id || !isSuper || !data) return
+    const expected = typeof data.email === 'string' ? data.email.trim() : ''
+    if (!expected) {
+      setHardDeleteMsg({ kind: 'err', text: 'Player email is missing; cannot confirm deletion.' })
+      return
+    }
+    if (hardDeleteEmailInput.trim() !== expected) {
+      setHardDeleteMsg({ kind: 'err', text: 'Email confirmation must match the player email exactly.' })
+      return
+    }
+    if (
+      !window.confirm(
+        'Permanently delete this player from the database? This removes ledger rows, bonus instances, chat history, and the user record. This cannot be undone.',
+      )
+    ) {
+      return
+    }
+    setHardDeleteBusy(true)
+    setHardDeleteMsg(null)
+    try {
+      const path = `/v1/admin/users/${encodeURIComponent(id)}`
+      const res = await apiFetch(path, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_email: hardDeleteEmailInput.trim() }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const parsed = apiErrFromBody(body, res.status)
+        reportApiFailure({ res, parsed, method: 'DELETE', path })
+        setHardDeleteMsg({ kind: 'err', text: formatApiError(parsed, `HTTP ${res.status}`) })
+        return
+      }
+      navigate('/users')
+    } catch {
+      setHardDeleteMsg({ kind: 'err', text: 'Network error' })
+    } finally {
+      setHardDeleteBusy(false)
     }
   }
 
@@ -1106,8 +1152,6 @@ export default function PlayerDetailPage() {
         </div>
       </ComponentCard>
 
-      </ComponentCard>
-
       <ComponentCard
         className="mt-6"
         title="Email sign-in verification (2FA)"
@@ -1263,20 +1307,71 @@ export default function PlayerDetailPage() {
       </ComponentCard>
 
       {isSuper ? (
-        <ComponentCard
-          className="mt-6"
-          title="Data erasure (GDPR-style)"
-          desc="Queues a worker job to anonymize this player: scrambled email, cleared username/avatar/preferences, invalid password hash, all sessions removed."
-        >
-          <button
-            type="button"
-            disabled={erasureBusy}
-            className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            onClick={() => void queuePlayerErasure()}
+        <>
+          <ComponentCard
+            className="mt-6"
+            title="Data erasure (GDPR-style)"
+            desc="Queues a worker job to anonymize this player: scrambled email, cleared username/avatar/preferences, invalid password hash, all sessions removed."
           >
-            {erasureBusy ? 'Queueing…' : 'Queue player erasure job'}
-          </button>
-        </ComponentCard>
+            <button
+              type="button"
+              disabled={erasureBusy}
+              className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              onClick={() => void queuePlayerErasure()}
+            >
+              {erasureBusy ? 'Queueing…' : 'Queue player erasure job'}
+            </button>
+          </ComponentCard>
+
+          <ComponentCard
+            className="mt-6"
+            title="Hard delete player record"
+            desc="Permanently removes this row from the users table together with ledger entries, bonus instances, bonus audit rows, free-spin grants, promos redemptions, and chat messages/bans/mutes for this account. Affiliate commission grants tied to this user as partner are removed first. This is not the same as GDPR erasure (which keeps an anonymized account)."
+          >
+            <div className="flex max-w-xl flex-col gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+                  Type the player email to confirm
+                </span>
+                <input
+                  type="text"
+                  autoComplete="off"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                  value={hardDeleteEmailInput}
+                  disabled={hardDeleteBusy || !data}
+                  onChange={(e) => setHardDeleteEmailInput(e.target.value)}
+                  placeholder={typeof data?.email === 'string' ? data.email : 'email@example.com'}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={
+                  hardDeleteBusy ||
+                  !id ||
+                  !data ||
+                  !hardDeleteEmailInput.trim() ||
+                  hardDeleteEmailInput.trim() !==
+                    (typeof data.email === 'string' ? data.email.trim() : '')
+                }
+                className="w-fit rounded-lg bg-red-800 px-3 py-2 text-sm font-medium text-white hover:bg-red-900 disabled:opacity-50"
+                onClick={() => void hardDeletePlayer()}
+              >
+                {hardDeleteBusy ? 'Deleting…' : 'Delete player from database'}
+              </button>
+              {hardDeleteMsg ? (
+                <p
+                  className={
+                    hardDeleteMsg.kind === 'ok'
+                      ? 'text-sm text-green-600 dark:text-green-400'
+                      : 'text-sm text-red-600 dark:text-red-400'
+                  }
+                >
+                  {hardDeleteMsg.text}
+                </p>
+              ) : null}
+            </div>
+          </ComponentCard>
+        </>
       ) : null}
 
       <ComponentCard

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { MyBonusesLayout } from '../components/rewards/MyBonusesLayout'
+import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
 import type { HubOffer } from '../hooks/useRewardsHub'
 import { useRewardsHub } from '../hooks/useRewardsHub'
+import { operationalBonusesEnabled } from '../lib/operationalPaymentGate'
 import { usePlayerAuth } from '../playerAuth'
 
 const STAGED_HUB_KEY = 'rewards:hub:staged-claim-v1'
@@ -38,6 +40,8 @@ function writeStagedClaimToSession(offer: HubOffer) {
 
 export default function BonusesPage() {
   const { isAuthenticated } = usePlayerAuth()
+  const { data: opHealth } = useSharedOperationalHealth()
+  const bonusesEnabled = operationalBonusesEnabled(opHealth)
   const { data, loading, err, reload } = useRewardsHub()
   const [stagedAfterClaim, setStagedAfterClaim] = useState<HubOffer | null>(readStagedClaimFromSession)
 
@@ -60,6 +64,7 @@ export default function BonusesPage() {
 
   return (
     <MyBonusesLayout
+      bonusesEnabled={bonusesEnabled}
       data={data}
       loading={loading}
       err={err}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Navigate, useSearchParams } from 'react-router-dom'
+import { Navigate, Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
 import { passimpayNetworkLabel } from '../lib/paymentCurrencies'
@@ -13,6 +13,8 @@ import {
   validAddressStepParams,
 } from '../components/walletDepositPanels'
 import { WalletDepositPickStep } from '../components/wallet/WalletDepositPickStep'
+import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
+import { operationalDepositsEnabled } from '../lib/operationalPaymentGate'
 import { usePlayerAuth } from '../playerAuth'
 
 const MIN_USD = 10
@@ -20,6 +22,7 @@ const MIN_USD = 10
 export default function WalletDepositPage() {
   const { t } = useTranslation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
+  const { data: opHealth } = useSharedOperationalHealth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [addrPrefetch, setAddrPrefetch] = useState<{ key: string; data: DepositAddrRes } | null>(null)
 
@@ -155,6 +158,23 @@ export default function WalletDepositPage() {
       </div>
     </div>
   )
+
+  const depositsOk = operationalDepositsEnabled(opHealth)
+
+  if (!depositsOk) {
+    return shell(
+      <>
+        <h1 className="mb-4 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
+        <p className="text-sm leading-relaxed text-casino-muted">{t('operational.depositsUnavailable')}</p>
+        <Link
+          to="/casino/games"
+          className="mt-6 inline-flex rounded-full bg-casino-primary px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110"
+        >
+          {t('catalog.section.games')}
+        </Link>
+      </>,
+    )
+  }
 
   if (phase === 'address' && paymentIdFromUrl != null) {
     return shell(

@@ -8,9 +8,9 @@ import (
 var ErrWeakPassword = errors.New("password does not meet policy")
 var ErrPwnedPassword = errors.New("password appears in known data breaches")
 
-// ValidatePassword requires at least 12 characters, one letter, and one digit.
+// ValidatePassword requires at least 6 characters, one letter, and one digit.
 func ValidatePassword(p string) error {
-	if len(p) < 12 {
+	if len(p) < 6 {
 		return ErrWeakPassword
 	}
 	var letter, digit bool
