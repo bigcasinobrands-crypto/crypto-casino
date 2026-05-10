@@ -8,8 +8,10 @@ import {
   PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT,
   PLAYER_CHROME_CLOSE_REWARDS_EVENT,
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
+  PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT,
   PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT,
   PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT,
+  type PlayerChromeImmersiveCasinoPlayDetail,
 } from './lib/playerChromeEvents'
 import { playerApiUrl } from './lib/playerApiUrl'
 import { prefetchCryptoTickersOnce } from './lib/prefetchCryptoTickers'
@@ -182,6 +184,7 @@ function AppShell() {
   const [walletTab, setWalletTab] = useState<WalletMainTab>('deposit')
   const [gameSearchOpen, setGameSearchOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [immersiveCasinoSubDesktopPlay, setImmersiveCasinoSubDesktopPlay] = useState(false)
   const { accessToken, isAuthenticated } = usePlayerAuth()
   useReferralAttributionCapture()
   const rewardsHub = useRewardsHub()
@@ -248,6 +251,15 @@ function AppShell() {
     const closeChat = () => setChatOpen(false)
     window.addEventListener(PLAYER_CHROME_CLOSE_CHAT_EVENT, closeChat)
     return () => window.removeEventListener(PLAYER_CHROME_CLOSE_CHAT_EVENT, closeChat)
+  }, [])
+
+  useEffect(() => {
+    const onImmersive = (e: Event) => {
+      const ce = e as CustomEvent<PlayerChromeImmersiveCasinoPlayDetail>
+      setImmersiveCasinoSubDesktopPlay(Boolean(ce.detail?.active))
+    }
+    window.addEventListener(PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT, onImmersive)
+    return () => window.removeEventListener(PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT, onImmersive)
   }, [])
 
   const openMobileMenu = useCallback(() => {
@@ -359,6 +371,7 @@ function AppShell() {
    * (`oddinBifrostShell && !isMobileChrome`) previously dropped the bar on 768–1279px.
    */
   const showBottomNav =
+    !immersiveCasinoSubDesktopPlay &&
     !pathname.startsWith('/embed/') &&
     (!oddinBifrostShell || isMobileChrome || (onEsportsRoute && isSubDesktop))
 
@@ -372,7 +385,7 @@ function AppShell() {
       <PersistentMiniPlayerProvider>
         <BootNonLobbyRoutes />
         <div
-          className={`player-app-shell flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased ${oddinBifrostShell ? 'overscroll-y-none' : ''} ${chatOpen ? 'shell-chat-open' : ''}`}
+          className={`player-app-shell flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-hidden bg-casino-bg text-[14px] leading-normal text-casino-foreground antialiased ${oddinBifrostShell ? 'overscroll-y-none' : ''} ${chatOpen ? 'shell-chat-open' : ''} ${immersiveCasinoSubDesktopPlay ? 'player-app-shell--immersive-casino-play' : ''}`}
           style={
             {
               ['--shell-sidebar-w']: sidebarCollapsed ? '48px' : '204px',

@@ -22,6 +22,10 @@ import {
   splitCatalogReturnPath,
 } from '../lib/catalogReturn'
 import { GAME_IFRAME_ALLOW } from '../lib/gameIframe'
+import {
+  PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT,
+  type PlayerChromeImmersiveCasinoPlayDetail,
+} from '../lib/playerChromeEvents'
 import { isFavourite, pushRecent, toggleFavourite } from '../lib/gameStorage'
 import { playerFetch } from '../lib/playerFetch'
 import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
@@ -747,6 +751,22 @@ export default function GameLobbyPage() {
   const showInlinePlayer = Boolean(isAuthenticated && iframeUrl && !thisGameInMini)
   const showMobileFramelessPlayer = Boolean(showInlinePlayer && viewportBelowXl)
 
+  useEffect(() => {
+    const active = showMobileFramelessPlayer
+    window.dispatchEvent(
+      new CustomEvent<PlayerChromeImmersiveCasinoPlayDetail>(PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT, {
+        detail: { active },
+      }),
+    )
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent<PlayerChromeImmersiveCasinoPlayDetail>(PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT, {
+          detail: { active: false },
+        }),
+      )
+    }
+  }, [showMobileFramelessPlayer])
+
   const exitMobileImmersivePlayer = useCallback(() => {
     setRequestedImmersiveLaunch(false)
     if (typeof document !== 'undefined' && document.fullscreenElement) {
@@ -782,7 +802,7 @@ export default function GameLobbyPage() {
     meta?.game_type?.trim().toLowerCase() === 'live-casino'
       ? t('gameLobby.edgeLiveTable')
       : t('gameLobby.edgeCasinoPlay')
-  /** Live tiles need vertical space; strict 16:9 letterboxes tall provider UIs inside our frame. */
+  /** Live tables: mobile keeps a tall min-height; desktop (xl) uses 16:9 so BO’s iframe isn’t a wide flex slab. */
   const liveTableTheater = Boolean(
     meta?.live ||
       meta?.category?.trim().toLowerCase() === 'live' ||
@@ -792,7 +812,7 @@ export default function GameLobbyPage() {
   const desktopTheaterShellClass =
     'xl:mx-auto xl:w-full xl:max-w-[76.44rem] 2xl:max-w-[87.36rem]'
   const theaterStageFrameClass = liveTableTheater
-    ? 'relative w-full min-h-0 bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))]'
+    ? 'relative w-full min-h-0 bg-black max-xl:min-h-[max(280px,min(78vh,calc(100dvh-9rem)))] max-xl:sm:min-h-[max(300px,min(80vh,calc(100dvh-10rem)))] xl:aspect-video'
     : 'relative aspect-video w-full bg-black'
   /** Drop theater letterboxing / aspect caps so the iframe can fill the monitor in browser fullscreen. */
   const theaterStageFullscreenClass =
@@ -910,59 +930,61 @@ export default function GameLobbyPage() {
                     </button>
                   </div>
                 </div>
-                <div
-                  ref={stageRef}
-                  className={`${theaterStageFrameClass} ${theaterStageFullscreenClass} touch-pan-y max-xl:aspect-auto max-xl:min-h-0 max-xl:!min-h-0 max-xl:min-w-0 max-xl:max-h-none max-xl:flex-1 ${liveTableTheater ? 'xl:flex-1 xl:min-h-[min(480px,40vh)] xl:max-h-[min(92dvh,calc(100dvh-10.5rem))]' : 'xl:flex-none'}`}
-                  aria-busy={launchPending}
-                >
-                  <iframe
-                    key={`${iframeUrl}\u0000${launchRetryNonce}`}
-                    title={title}
-                    src={iframeUrl ?? ''}
-                    className="absolute inset-0 z-10 block h-full w-full border-0 bg-black"
-                    allow={GAME_IFRAME_ALLOW}
-                    allowFullScreen
-                  />
-                  <div className="pointer-events-none absolute inset-x-0 top-0 z-[25] flex items-center justify-between gap-2 px-2 pt-[max(6px,env(safe-area-inset-top,0px))] xl:hidden">
-                    <button
-                      type="button"
-                      className="pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-black/55 text-white shadow-[0_4px_16px_rgba(0,0,0,0.45)] ring-1 ring-white/[0.12] backdrop-blur-sm transition hover:bg-black/70"
-                      aria-label={t('gameLobby.closeGameAria')}
-                      onClick={exitMobileImmersivePlayer}
-                    >
-                      <IconChevronLeft size={20} aria-hidden />
-                    </button>
-                    <span className="pointer-events-none max-w-[min(56vw,14rem)] truncate text-center text-[11px] font-semibold text-white/85">
-                      {title}
-                    </span>
-                    <div className="pointer-events-auto flex shrink-0 items-center gap-1">
+                <div className="max-xl:contents xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:justify-center">
+                  <div
+                    ref={stageRef}
+                    className={`${theaterStageFrameClass} ${theaterStageFullscreenClass} touch-pan-y max-xl:aspect-auto max-xl:min-h-0 max-xl:!min-h-0 max-xl:min-w-0 max-xl:max-h-none max-xl:flex-1 ${liveTableTheater ? 'xl:max-h-[min(92dvh,calc(100dvh-10.5rem))]' : ''} xl:flex-none`}
+                    aria-busy={launchPending}
+                  >
+                    <iframe
+                      key={`${iframeUrl}\u0000${launchRetryNonce}`}
+                      title={title}
+                      src={iframeUrl ?? ''}
+                      className="absolute inset-0 z-10 block h-full w-full border-0 bg-black"
+                      allow={GAME_IFRAME_ALLOW}
+                      allowFullScreen
+                    />
+                    <div className="pointer-events-none absolute inset-x-0 top-0 z-[25] flex items-center justify-between gap-2 px-2 pt-[max(6px,env(safe-area-inset-top,0px))] xl:hidden">
                       <button
                         type="button"
-                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
-                        title={popOutButtonTitle}
-                        aria-pressed={thisGameInMini}
-                        disabled={!iframeUrl?.trim()}
-                        onClick={() => toggleGamePopOut()}
+                        className="pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-black/55 text-white shadow-[0_4px_16px_rgba(0,0,0,0.45)] ring-1 ring-white/[0.12] backdrop-blur-sm transition hover:bg-black/70"
+                        aria-label={t('gameLobby.closeGameAria')}
+                        onClick={exitMobileImmersivePlayer}
                       >
-                        <IconExternalLink size={15} aria-hidden />
+                        <IconChevronLeft size={20} aria-hidden />
                       </button>
-                      <button
-                        type="button"
-                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
-                        title={
-                          isAuthenticated ? t('gameLobby.statsSignedIn') : t('gameLobby.statsSignedOut')
-                        }
-                        disabled={!gameId}
-                        onClick={() => {
-                          if (!isAuthenticated) {
-                            openAuth('login', { navigateTo: postAuthTarget })
-                            return
+                      <span className="pointer-events-none max-w-[min(56vw,14rem)] truncate text-center text-[11px] font-semibold text-white/85">
+                        {title}
+                      </span>
+                      <div className="pointer-events-auto flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
+                          title={popOutButtonTitle}
+                          aria-pressed={thisGameInMini}
+                          disabled={!iframeUrl?.trim()}
+                          onClick={() => toggleGamePopOut()}
+                        >
+                          <IconExternalLink size={15} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] text-white/65 shadow-[0_2px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.12] transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35"
+                          title={
+                            isAuthenticated ? t('gameLobby.statsSignedIn') : t('gameLobby.statsSignedOut')
                           }
-                          setStatsOpen(true)
-                        }}
-                      >
-                        <IconBarChart3 size={15} aria-hidden />
-                      </button>
+                          disabled={!gameId}
+                          onClick={() => {
+                            if (!isAuthenticated) {
+                              openAuth('login', { navigateTo: postAuthTarget })
+                              return
+                            }
+                            setStatsOpen(true)
+                          }}
+                        >
+                          <IconBarChart3 size={15} aria-hidden />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1256,7 +1278,7 @@ export default function GameLobbyPage() {
 
             <div
               ref={stageRef}
-              className={`${theaterStageFrameClass} ${theaterStageFullscreenClass}${liveTableTheater ? ' xl:min-h-[473px] xl:max-h-[min(801px,75vh)]' : ''}`}
+              className={`${theaterStageFrameClass} ${theaterStageFullscreenClass}${liveTableTheater ? ' xl:max-h-[min(92dvh,calc(100dvh-10.5rem))]' : ''}`}
               aria-busy={launchPending}
             >
               <img

@@ -11,3 +11,11 @@ export const PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT = 'vybe-player-close-mobile-m
 export const PLAYER_CHROME_OPEN_WALLET_MODAL_EVENT = 'vybe-player-open-wallet-modal'
 /** Open Refer & Earn (affiliate intro + share link) — sidebar / mobile drawer. */
 export const PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT = 'vybe-player-open-affiliate-modal'
+
+/**
+ * Inline Blue Ocean / casino iframe below the `xl` breakpoint: hide fixed header + bottom nav and
+ * strip scroll padding so `position:fixed` game shell can cover the viewport (stacking context fix).
+ */
+export const PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT = 'vybe-player-immersive-casino-play'
+
+export type PlayerChromeImmersiveCasinoPlayDetail = { active: boolean }

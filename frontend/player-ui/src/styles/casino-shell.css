@@ -37,6 +37,23 @@
   --shell-chat-inset: 0px;
 }
 
+/**
+ * Inline game below `xl`: headers sit in a higher stacking context than `#/main` (`z-index` 211 vs 200),
+ * so a `fixed` iframe inside the scroll shell cannot paint over them. Hide chrome + drop scroll insets
+ * so the game shell truly covers the viewport (phones and tablets).
+ */
+@media (max-width: 1279px) {
+  .player-app-shell--immersive-casino-play .casino-shell-mobile-header,
+  .player-app-shell--immersive-casino-play .casino-shell-tablet-header {
+    display: none !important;
+  }
+
+  .player-app-shell--immersive-casino-play .casino-shell-scroll {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
 .shell-chat-open {
   /* Narrow phones: small outer gap so the drawer doesn’t touch the screen edge */
   --shell-chat-gap: var(--casino-gutter-x-mobile);
