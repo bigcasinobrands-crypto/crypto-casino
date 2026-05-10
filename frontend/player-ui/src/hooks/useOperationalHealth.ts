@@ -13,6 +13,8 @@ export type OperationalHealth = {
   ip_blocked?: boolean
   /** Echo of resolved ISO 3166-1 alpha-2 when present. */
   geo_country?: string
+  /** English country name from optional ipdata.co lookup (server-side); falls back to localized ISO label in UI. */
+  geo_country_name?: string
   /** From `payment_ops_flags` — player wallet / rails (mirrored from admin kill switches). */
   deposits_enabled?: boolean
   withdrawals_enabled?: boolean
@@ -44,7 +46,7 @@ const OPS_FETCH_GAP_MS = 320
  * `ready` is true only after we have loaded JSON at least once, or after a short timeout
  * (API unreachable): lets {@link SiteAccessGate} avoid treating “fetch failed” as “site open”.
  */
-export function useOperationalHealth(pollMs = 3500) {
+export function useOperationalHealth(pollMs = 8000) {
   const [data, setData] = useState<OperationalHealth | null>(null)
   const [timedOut, setTimedOut] = useState(false)
 

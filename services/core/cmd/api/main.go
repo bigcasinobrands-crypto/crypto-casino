@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
 	"github.com/crypto-casino/core/internal/fingerprint"
+	"github.com/crypto-casino/core/internal/ipdata"
 	"github.com/crypto-casino/core/internal/games"
 	"github.com/crypto-casino/core/internal/jtiredis"
 	"github.com/crypto-casino/core/internal/jwtissuer"
@@ -56,6 +58,30 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// Cached BlueOcean “users missing player links” count for GET /health/operational only (expensive NOT EXISTS scan).
+var (
+	opBlueOceanMissMu sync.Mutex
+	opBlueOceanMissAt time.Time
+	opBlueOceanMissN  int64
+)
+
+const opBlueOceanMissTTL = 90 * time.Second
+
+func operationalBlueOceanMissingCached(ctx context.Context, pool *pgxpool.Pool) int64 {
+	opBlueOceanMissMu.Lock()
+	defer opBlueOceanMissMu.Unlock()
+	if !opBlueOceanMissAt.IsZero() && time.Since(opBlueOceanMissAt) < opBlueOceanMissTTL {
+		return opBlueOceanMissN
+	}
+	n, err := blueocean.CountUsersMissingBlueOceanLink(ctx, pool)
+	if err != nil {
+		return opBlueOceanMissN
+	}
+	opBlueOceanMissN = n
+	opBlueOceanMissAt = time.Now()
+	return n
+}
 
 func main() {
 	fmt.Fprintf(os.Stderr, "crypto-casino core api: starting\n")
@@ -584,20 +610,82 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			SELECT 1 FROM provider_lobby_settings pls
 			WHERE pls.provider = games.provider AND pls.lobby_hidden = true
 		)`
-		var visible, blueoceanVisible int64
-		_ = pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM games WHERE `+lobbyVisible).Scan(&visible)
-		_ = pool.QueryRow(ctx, `
-			SELECT COUNT(*)::bigint FROM games
-			WHERE `+lobbyVisible+` AND LOWER(TRIM(COALESCE(provider,''))) = 'blueocean'
-		`).Scan(&blueoceanVisible)
+		combinedGames := `
+SELECT COUNT(*)::bigint AS visible,
+       COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(provider,''))) = 'blueocean')::bigint AS blueocean_visible
+FROM games WHERE ` + lobbyVisible
 
+		var visible, blueoceanVisible int64
 		var lastSync sql.NullTime
 		var lastUpserted sql.NullInt64
 		var lastSyncErr sql.NullString
-		_ = pool.QueryRow(ctx, `
+
+		realPlayEnabled := false
+		depositsEnabled := true
+		withdrawalsEnabled := true
+		bonusesEnabled := true
+		automatedGrantsEnabled := true
+
+		cc := sitestatus.GeoCountryISO2FromRequest(r)
+		var geoBlocked bool
+		var maintEff bool
+		var ipBlocked bool
+		var maintUntilPtr *time.Time
+		var geoCountryName string
+
+		var wg sync.WaitGroup
+		wg.Add(8)
+		go func() {
+			defer wg.Done()
+			_ = pool.QueryRow(ctx, combinedGames).Scan(&visible, &blueoceanVisible)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = pool.QueryRow(ctx, `
 			SELECT last_sync_at, last_sync_upserted, last_sync_error
 			FROM blueocean_integration_state WHERE id = 1
 		`).Scan(&lastSync, &lastUpserted, &lastSyncErr)
+		}()
+		go func() {
+			defer wg.Done()
+			if pf, err := paymentflags.Load(ctx, pool); err == nil {
+				realPlayEnabled = pf.RealPlayEnabled
+				depositsEnabled = pf.DepositsEnabled
+				withdrawalsEnabled = pf.WithdrawalsEnabled
+				bonusesEnabled = pf.BonusesEnabled
+				automatedGrantsEnabled = pf.AutomatedGrantsEnabled
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			geoBlocked = sitestatus.GeoBlocked(ctx, pool, cfg, cc)
+		}()
+		go func() {
+			defer wg.Done()
+			maintEff = sitestatus.MaintenanceEffective(ctx, pool, cfg)
+		}()
+		go func() {
+			defer wg.Done()
+			var err error
+			ipBlocked, err = sitestatus.PlayerIPBlocked(ctx, pool, r)
+			_ = err
+		}()
+		go func() {
+			defer wg.Done()
+			maintUntilPtr = sitestatus.MaintenanceUntilFromDB(ctx, pool)
+		}()
+		go func() {
+			defer wg.Done()
+			if cfg == nil || strings.TrimSpace(cfg.IPDataAPIKey) == "" {
+				return
+			}
+			ip := sitestatus.PlayerClientIP(r)
+			if ip == nil {
+				return
+			}
+			geoCountryName = ipdata.CountryName(ctx, ip.String(), cfg.IPDataAPIKey)
+		}()
+		wg.Wait()
 
 		syncOK := !lastSyncErr.Valid || strings.TrimSpace(lastSyncErr.String) == ""
 		// Stale integration errors are common after a failed sync attempt while the DB still
@@ -606,26 +694,9 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			syncOK = true
 		}
 
-		realPlayEnabled := false
-		depositsEnabled := true
-		withdrawalsEnabled := true
-		bonusesEnabled := true
-		automatedGrantsEnabled := true
-		if pf, err := paymentflags.Load(ctx, pool); err == nil {
-			realPlayEnabled = pf.RealPlayEnabled
-			depositsEnabled = pf.DepositsEnabled
-			withdrawalsEnabled = pf.WithdrawalsEnabled
-			bonusesEnabled = pf.BonusesEnabled
-			automatedGrantsEnabled = pf.AutomatedGrantsEnabled
-		}
-
-		cc := sitestatus.GeoCountryISO2FromRequest(r)
-		geoBlocked := sitestatus.GeoBlocked(ctx, pool, cfg, cc)
-		maintEff := sitestatus.MaintenanceEffective(ctx, pool, cfg)
-		ipBlocked, _ := sitestatus.PlayerIPBlocked(ctx, pool, r)
 		var maintUntil any = nil
-		if u := sitestatus.MaintenanceUntilFromDB(ctx, pool); u != nil {
-			maintUntil = u.UTC().Format(time.RFC3339)
+		if maintUntilPtr != nil {
+			maintUntil = maintUntilPtr.UTC().Format(time.RFC3339)
 		}
 
 		out := map[string]any{
@@ -653,14 +724,15 @@ func operationalHandler(pool *pgxpool.Pool, cfg *config.Config, bog *blueocean.C
 			"fingerprint_server_api_configured": cfg.FingerprintConfigured(),
 			"fingerprint_api_base_url":          strings.TrimSpace(cfg.FingerprintAPIBaseURL),
 		}
+		if g := strings.TrimSpace(geoCountryName); g != "" {
+			out["geo_country_name"] = g
+		}
 		if base := strings.TrimSpace(cfg.APIPublicBase); base != "" {
 			out["api_public_base"] = base
 			out["blueocean_seamless_wallet_callback_url"] = base + "/api/blueocean/callback"
 			out["blueocean_admin_xapi_proxy"] = base + "/v1/admin/integrations/blueocean/xapi"
 		}
-		if miss, err := blueocean.CountUsersMissingBlueOceanLink(ctx, pool); err == nil {
-			out["blueocean_users_missing_player_links"] = miss
-		}
+		out["blueocean_users_missing_player_links"] = operationalBlueOceanMissingCached(ctx, pool)
 		if lastSync.Valid {
 			out["last_catalog_sync_at"] = lastSync.Time.UTC().Format(time.RFC3339)
 		}

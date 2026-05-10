@@ -10,7 +10,7 @@ const OperationalHealthContext = createContext<OperationalHealthContextValue | n
 
 export function OperationalHealthProvider({
   children,
-  pollMs = 3500,
+  pollMs = 8000,
 }: {
   children: ReactNode
   /** How often to poll `/health/operational` (maintenance/geo/kill-switch mirrors). */

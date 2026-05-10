@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
 import { GameThumbInteractiveShell } from './GameThumbInteractiveShell'
 import { PortraitGameThumb } from './PortraitGameThumb'
+import { parsePlayerApiErrorCodeFromBody, parsePlayerApiErrorCodeFromValue } from '../lib/playerApiErrorCode'
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { GameCardSkeleton } from './GameCardSkeleton'
@@ -32,8 +33,26 @@ function worseCatalogFault(a: CatalogFault | null, b: CatalogFault | null): Cata
   return rank[b] > rank[a] ? b : a
 }
 
+/** Prefer showing the strongest site-access signal when parallel catalog requests disagree. */
+function worseBarrierCode(a: string | null, b: string | null): string | null {
+  if (!b) return a
+  if (!a) return b
+  const rank = (c: string) => {
+    if (c === 'site_maintenance') return 30
+    if (c === 'geo_blocked') return 20
+    if (c === 'ip_blocked') return 10
+    return 1
+  }
+  return rank(b) > rank(a) ? b : a
+}
+
 /** Catalog uses plain fetch + `playerApiUrl` only — never Fingerprint or auth fingerprint payloads — so lobby tiles cannot break when security integrations change. */
-async function fetchGames(query: string): Promise<{ games: Game[]; fault?: CatalogFault; status?: number }> {
+async function fetchGames(query: string): Promise<{
+  games: Game[]
+  fault?: CatalogFault
+  status?: number
+  barrierCode?: string
+}> {
   const path = `/v1/games?${query}`
   const url = playerApiUrl(path)
   const isRelative = !(url.startsWith('https://') || url.startsWith('http://'))
@@ -41,6 +60,7 @@ async function fetchGames(query: string): Promise<{ games: Game[]; fault?: Catal
   try {
     const res = await fetch(url)
     const text = await res.text()
+    const barrierFromText = parsePlayerApiErrorCodeFromBody(text)
 
     if (!res.ok) {
       if (import.meta.env.DEV) {
@@ -53,6 +73,7 @@ async function fetchGames(query: string): Promise<{ games: Game[]; fault?: Catal
         games: [],
         fault: isRelative ? 'relative' : 'http',
         status: res.status,
+        barrierCode: barrierFromText,
       }
     }
 
@@ -63,11 +84,21 @@ async function fetchGames(query: string): Promise<{ games: Game[]; fault?: Catal
       if (import.meta.env.DEV) {
         console.warn('[catalog] GET games returned non-JSON (often index.html when API origin is missing)', url)
       }
-      return { games: [], fault: isRelative ? 'relative' : 'bad_body', status: res.status }
+      return {
+        games: [],
+        fault: isRelative ? 'relative' : 'bad_body',
+        status: res.status,
+        barrierCode: barrierFromText,
+      }
     }
 
     if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { games?: unknown }).games)) {
-      return { games: [], fault: isRelative ? 'relative' : 'bad_body', status: res.status }
+      return {
+        games: [],
+        fault: isRelative ? 'relative' : 'bad_body',
+        status: res.status,
+        barrierCode: barrierFromText || parsePlayerApiErrorCodeFromValue(parsed),
+      }
     }
 
     const rawGames = (parsed as { games: Game[] }).games ?? []
@@ -374,6 +405,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
   const [bonus, setBonus] = useState<Game[]>([])
   const [bonusLoaded, setBonusLoaded] = useState(false)
   const [catalogFault, setCatalogFault] = useState<CatalogFault | null>(null)
+  const [catalogBarrierCode, setCatalogBarrierCode] = useState<string | null>(null)
   const routeKey = `${location.pathname}\u0000${location.key}`
 
   /** Only `routeKey` — periodic catalog sync / visibility must not clear rows or cancel requests (causes skeleton + thumb flash). */
@@ -396,6 +428,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
       setLiveLoaded(false)
       setBonusLoaded(false)
       setCatalogFault(null)
+      setCatalogBarrierCode(null)
     }
 
     const apply = (
@@ -405,6 +438,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
     ) => {
       if (gen !== fetchGeneration.current) return
       setCatalogFault((prev) => worseCatalogFault(prev, result.fault ?? null))
+      setCatalogBarrierCode((prev) => worseBarrierCode(prev, result.barrierCode ?? null))
       setList(dedupeGamesById(result.games))
       setDone(true)
     }
@@ -433,7 +467,11 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
     bonus.length === 0
 
   const catalogFaultMessage = useMemo(() => {
-    if (!import.meta.env.PROD || !allCatalogLoaded || !allRowsEmpty || !catalogFault) return null
+    if (!import.meta.env.PROD || !allCatalogLoaded || !allRowsEmpty) return null
+    if (catalogBarrierCode === 'site_maintenance') return t('gameLobby.error.maintenance')
+    if (catalogBarrierCode === 'geo_blocked') return t('gameLobby.error.geo_blocked')
+    if (catalogBarrierCode === 'ip_blocked') return t('gameLobby.error.ip_blocked')
+    if (!catalogFault) return null
     if (!playerApiOriginConfigured() || catalogFault === 'relative') {
       return t('lobby.catalogFaultOrigin')
     }
@@ -441,7 +479,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
       return t('lobby.catalogFaultCors')
     }
     return t('lobby.catalogFaultApi')
-  }, [allCatalogLoaded, allRowsEmpty, catalogFault, t])
+  }, [allCatalogLoaded, allRowsEmpty, catalogBarrierCode, catalogFault, t])
 
   return (
     <div className="min-w-0">

@@ -69,7 +69,7 @@ func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	prevMaintenance := sitestatus.MaintenanceEffective(ctx, h.Pool, h.Cfg)
+	prevMaintenance := sitestatus.MaintenanceEffectiveDirect(ctx, h.Pool, h.Cfg)
 
 	_, err = h.Pool.Exec(ctx, `
 		INSERT INTO site_settings (key, value, updated_at, updated_by)
@@ -92,8 +92,11 @@ func (h *Handler) PatchSettings(w http.ResponseWriter, r *http.Request) {
 	if k == sitestatus.SettingKeyIPBlacklist || k == sitestatus.SettingKeyIPWhitelist {
 		sitestatus.InvalidatePlayerIPAccessCache()
 	}
+	if k == "system.maintenance_mode" || k == "system.maintenance_until" {
+		sitestatus.InvalidateMaintenanceSettingsCache()
+	}
 
-	nextMaintenance := sitestatus.MaintenanceEffective(ctx, h.Pool, h.Cfg)
+	nextMaintenance := sitestatus.MaintenanceEffectiveDirect(ctx, h.Pool, h.Cfg)
 	if prevMaintenance && !nextMaintenance {
 		if n, ferr := maintenancenotify.FlushPending(ctx, h.Pool, h.Mail, h.Cfg); ferr != nil {
 			log.Printf("maintenance_notify flush: %v", ferr)

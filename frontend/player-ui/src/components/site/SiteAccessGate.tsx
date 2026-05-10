@@ -1,6 +1,7 @@
 import type { FC, ReactNode } from 'react'
 import { useSharedOperationalHealth } from '../../context/OperationalHealthContext'
 import PlayerBootPreloadVisual from '../PlayerBootPreloadVisual'
+import { GateBlurBackdrop } from './GateBlurBackdrop'
 import { IpRestrictedScreen } from './IpRestrictedScreen'
 import { MaintenanceScreen } from './MaintenanceScreen'
 import { RegionRestrictedScreen } from './RegionRestrictedScreen'
@@ -32,7 +33,15 @@ export const SiteAccessGate: FC<{ children: ReactNode }> = ({ children }) => {
   const geoBlocked = Boolean(data?.geo_blocked)
   if (geoBlocked) {
     const country = (data?.geo_country ?? '').trim().toUpperCase()
-    return <RegionRestrictedScreen countryCode={country} supportEmail={SUPPORT_EMAIL} />
+    const countryName = (data?.geo_country_name ?? '').trim()
+    return (
+      <div className="relative min-h-dvh">
+        <GateBlurBackdrop />
+        <div className="relative z-10">
+          <RegionRestrictedScreen countryCode={country} countryName={countryName} supportEmail={SUPPORT_EMAIL} />
+        </div>
+      </div>
+    )
   }
 
   const ipBlocked = Boolean(data?.ip_blocked)

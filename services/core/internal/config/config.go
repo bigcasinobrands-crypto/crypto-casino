@@ -200,6 +200,8 @@ type Config struct {
 	// Fingerprint Pro Server API (https://docs.fingerprint.com/reference/server-api-get-event) — Auth-API-Key; never exposed to clients.
 	FingerprintSecretAPIKey string
 	FingerprintAPIBaseURL   string
+	// IPDataAPIKey — optional ipdata.co key; GET /health/operational may include geo_country_name from the visitor IP (cached server-side).
+	IPDataAPIKey string
 	// RequireFingerprintPlayerAuth — when true, sign-in / refresh / traffic may require fingerprint_request_id
 	// (legacy opt-in: set REQUIRE_FINGERPRINT_PLAYER_AUTH=true). APP_ENV=development never enforces — see PlayerFingerprintAuthRequired().
 	RequireFingerprintPlayerAuth bool
@@ -528,6 +530,7 @@ func Load() (Config, error) {
 	}
 	c.FingerprintSecretAPIKey = strings.TrimSpace(os.Getenv("FINGERPRINT_SECRET_API_KEY"))
 	c.FingerprintAPIBaseURL = normalizeFingerprintBaseURL(os.Getenv("FINGERPRINT_API_BASE_URL"))
+	c.IPDataAPIKey = strings.TrimSpace(os.Getenv("IPDATA_API_KEY"))
 	if c.AppEnv == "" {
 		c.AppEnv = "development"
 	}
