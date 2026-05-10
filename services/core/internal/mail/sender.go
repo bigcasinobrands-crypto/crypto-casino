@@ -64,3 +64,32 @@ func ChooseSender(host, port, user, pass, from string) Sender {
 	}
 	return &LogSender{}
 }
+
+// ChooseTransactionalSender prefers Resend when API key and from address are set,
+// then SMTP, otherwise LogSender. Parameter mailFrom should be RESEND_FROM if set, else SMTP_FROM.
+func ChooseTransactionalSender(resendAPIKey, mailFrom, smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom string) Sender {
+	rs := &ResendSender{APIKey: strings.TrimSpace(resendAPIKey), From: strings.TrimSpace(mailFrom)}
+	if rs.Configured() {
+		return rs
+	}
+	return ChooseSender(smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom)
+}
+
+// BackendSummary names the active transactional backend for startup logs (no secrets).
+func BackendSummary(s Sender) string {
+	switch v := s.(type) {
+	case *ResendSender:
+		if v.Configured() {
+			return "resend"
+		}
+	case *SMTPSender:
+		if v.Configured() {
+			return "smtp"
+		}
+	case *LogSender:
+		return "log"
+	default:
+		return fmt.Sprintf("%T", s)
+	}
+	return "log"
+}

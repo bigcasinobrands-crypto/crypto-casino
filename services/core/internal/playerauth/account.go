@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/emailpolicy"
 	"github.com/crypto-casino/core/internal/passhash"
 	"github.com/crypto-casino/core/internal/privacy"
 	"github.com/crypto-casino/core/internal/safepath"
@@ -202,6 +203,10 @@ func (s *Service) sendVerificationEmail(ctx context.Context, userID, email strin
 	if s.Mail == nil {
 		return nil
 	}
+	pol, err := emailpolicy.LoadTransactional(ctx, s.Pool)
+	if err != nil {
+		return err
+	}
 	plain, hashHex, err := newRefreshToken()
 	if err != nil {
 		return err
@@ -216,7 +221,10 @@ func (s *Service) sendVerificationEmail(ctx context.Context, userID, email strin
 		return err
 	}
 	link := strings.TrimRight(s.PublicPlayerURL, "/") + "/verify-email?token=" + plain
-	subject := "Verify your email"
+	if !pol.Verification.Enabled {
+		return nil
+	}
+	subject := emailpolicy.VerificationSubject(pol)
 	body := fmt.Sprintf("Open this link to verify your email (expires in 24h):\n\n%s\n", link)
 	return s.Mail.Send(ctx, email, subject, body)
 }
@@ -276,8 +284,15 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 	if email == "" || s.Mail == nil {
 		return nil
 	}
+	pol, err := emailpolicy.LoadTransactional(ctx, s.Pool)
+	if err != nil {
+		return err
+	}
+	if !pol.PasswordReset.Enabled {
+		return nil
+	}
 	var uid string
-	err := s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email) = lower($1)`, email).Scan(&uid)
+	err = s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email) = lower($1)`, email).Scan(&uid)
 	if err != nil {
 		return nil
 	}
@@ -295,7 +310,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 		return err
 	}
 	link := strings.TrimRight(s.PublicPlayerURL, "/") + "/reset-password?token=" + plain
-	subject := "Reset your password"
+	subject := emailpolicy.PasswordResetSubject(pol)
 	body := fmt.Sprintf("Open this link to reset your password (expires in 1 hour):\n\n%s\n", link)
 	return s.Mail.Send(ctx, email, subject, body)
 }

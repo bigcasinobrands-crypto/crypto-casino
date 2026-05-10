@@ -114,6 +114,7 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
       { name: 'Diagnostics', path: '/diagnostics' },
       { name: 'Security keys', path: '/system/security-keys', new: true },
       { name: 'Staff users', path: '/system/staff-users', new: true },
+      { name: 'Email', path: '/system/email', new: true },
       { name: 'Settings', path: '/settings' },
     ],
   },

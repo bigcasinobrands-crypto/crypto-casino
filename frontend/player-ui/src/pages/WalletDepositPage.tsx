@@ -146,7 +146,7 @@ export default function WalletDepositPage() {
     setSearchParams(next, { replace: true })
   }
 
-  if (!isAuthenticated) return <Navigate to="/?auth=login" replace />
+  if (!isAuthenticated) return <Navigate to="/casino/games?auth=login" replace />
 
   const shell = (children: ReactNode) => (
     <div className="min-h-[min(100dvh,880px)] bg-wallet-backdrop px-4 py-10 pb-16 sm:py-14">

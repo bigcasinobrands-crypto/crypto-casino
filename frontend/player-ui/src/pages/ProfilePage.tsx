@@ -715,7 +715,7 @@ export default function ProfilePage() {
     }
   }, [apiFetch, refreshProfile, t])
 
-  if (!isAuthenticated) return <Navigate to="/?auth=login" replace />
+  if (!isAuthenticated) return <Navigate to="/casino/games" replace />
 
   const joinDate = me?.created_at
     ? new Date(me.created_at).toLocaleDateString(lng === 'fr-CA' ? 'fr-CA' : 'en-US', {

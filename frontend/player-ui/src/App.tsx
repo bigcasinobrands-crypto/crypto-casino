@@ -73,6 +73,12 @@ function LegacyCasinoRedirect() {
   return <Navigate to={{ pathname: '/casino/games', search: loc.search, hash: loc.hash }} replace />
 }
 
+/** `/` → catalog; preserves query/hash (e.g. `?auth=login` after redirects). */
+function RootToCasinoGames() {
+  const loc = useLocation()
+  return <Navigate to={{ pathname: '/casino/games', search: loc.search, hash: loc.hash }} replace />
+}
+
 function LegacyPlayToGameLobby() {
   const { gameId } = useParams()
   if (!gameId) return <Navigate to="/casino/games" replace />
@@ -612,7 +618,7 @@ function AppShell() {
                 */}
                 <div className={`flex min-w-0 flex-1 flex-col ${oddinBifrostShell ? 'min-h-0' : ''}`}>
                   <Routes>
-                    <Route path="/" element={<Navigate to="/casino/games" replace />} />
+                    <Route path="/" element={<RootToCasinoGames />} />
                     <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPage />} />

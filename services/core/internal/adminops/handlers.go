@@ -12,6 +12,7 @@ import (
 	"github.com/crypto-casino/core/internal/chat"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fingerprint"
+	"github.com/crypto-casino/core/internal/mail"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +23,7 @@ type Handler struct {
 	Pool        *pgxpool.Pool
 	BOG         *blueocean.Client
 	Cfg         *config.Config
+	Mail        mail.Sender
 	Redis       *redis.Client
 	Fingerprint *fingerprint.Client
 	ChatHub     *chat.Hub
@@ -110,6 +112,9 @@ func (h *Handler) Mount(r chi.Router) {
 	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/staff-users/{id}", h.PatchStaffUser)
 	r.Get("/withdrawals/pending-approval", h.ListPendingWithdrawals)
 	r.Get("/settings", h.GetSettings)
+	r.Get("/email/status", h.GetEmailStatus)
+	r.With(adminapi.RequireAnyRole("superadmin")).Patch("/email/transactional", h.PatchEmailTransactional)
+	r.With(adminapi.RequireAnyRole("superadmin")).Post("/email/test-send", h.PostEmailTestSend)
 	r.Get("/content", h.GetAllContent)
 	r.Get("/content/{key}", h.GetContentByKey)
 	r.Route("/security/approvals", func(ar chi.Router) {

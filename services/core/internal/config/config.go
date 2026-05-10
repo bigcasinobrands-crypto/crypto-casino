@@ -37,6 +37,10 @@ type Config struct {
 	SMTPUser        string
 	SMTPPassword    string
 	SMTPFrom        string
+	// ResendAPIKey — when set with ResendFrom or SMTP_FROM, core sends transactional mail via Resend (RESEND_API_KEY).
+	ResendAPIKey string
+	// ResendFrom — optional "from" for Resend; when empty, SMTP_FROM is used with Resend.
+	ResendFrom string
 	TermsVersion    string
 	PrivacyVersion  string
 	// Blue Ocean Gaming XAPI (server-to-server)
@@ -252,6 +256,8 @@ func Load() (Config, error) {
 	c.SMTPUser = strings.TrimSpace(os.Getenv("SMTP_USER"))
 	c.SMTPPassword = strings.TrimSpace(os.Getenv("SMTP_PASSWORD"))
 	c.SMTPFrom = strings.TrimSpace(os.Getenv("SMTP_FROM"))
+	c.ResendAPIKey = strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
+	c.ResendFrom = strings.TrimSpace(os.Getenv("RESEND_FROM"))
 	c.TermsVersion = strings.TrimSpace(os.Getenv("TERMS_VERSION"))
 	if c.TermsVersion == "" {
 		c.TermsVersion = "1"

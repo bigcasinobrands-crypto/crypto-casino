@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { apiErrFromResponse, type ApiErr } from './api/errors'
 import { cachePlayerAvatarUrl, readCachedPlayerAvatarUrl } from './lib/avatarCache'
@@ -16,6 +17,15 @@ import { applyPlayerMutatingCSRF, playerCredentialsMode, playerFetch } from './l
 import { messageCannotReachApi } from './lib/playerNetworkCopy'
 import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
 import { mergeServerFavouritesOnLogin } from './lib/gameStorage'
+import {
+  PLAYER_CHROME_CLOSE_CHAT_EVENT,
+  PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT,
+  PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT,
+  PLAYER_CHROME_CLOSE_REWARDS_EVENT,
+  PLAYER_CHROME_CLOSE_WALLET_EVENT,
+  PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT,
+  type PlayerChromeImmersiveCasinoPlayDetail,
+} from './lib/playerChromeEvents'
 
 const ACCESS = 'player_access_token'
 const REFRESH = 'player_refresh_token'
@@ -90,7 +100,22 @@ type P = {
 
 const Ctx = createContext<P | null>(null)
 
+function dismissPlayerChromeOverlays() {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_WALLET_EVENT))
+  window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_REWARDS_EVENT))
+  window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT))
+  window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_CHAT_EVENT))
+  window.dispatchEvent(new CustomEvent(PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT))
+  window.dispatchEvent(
+    new CustomEvent<PlayerChromeImmersiveCasinoPlayDetail>(PLAYER_CHROME_IMMERSIVE_CASINO_PLAY_EVENT, {
+      detail: { active: false },
+    }),
+  )
+}
+
 export function PlayerAuthProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate()
   const [accessToken, setAccess] = useState<string | null>(() => readInitialAccessToken())
   const [me, setMe] = useState<MeResponse | null>(null)
   const [avatarUrlRevision, setAvatarUrlRevision] = useState(0)
@@ -488,23 +513,29 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     const rt = localStorage.getItem(REFRESH)
     const t = localStorage.getItem(ACCESS)
     const cred: RequestCredentials = playerCredentialsMode ? 'include' : 'omit'
-    if (rt || playerCredentialsMode) {
-      await fetch(playerApiUrl('/v1/auth/logout'), {
-        method: 'POST',
-        credentials: cred,
-        headers: (() => {
-          const h = new Headers({
-            'Content-Type': 'application/json',
-            ...(t ? { Authorization: `Bearer ${t}` } : {}),
-          })
-          applyPlayerMutatingCSRF(h, 'POST')
-          return h
-        })(),
-        body: JSON.stringify({ refresh_token: rt ?? '' }),
-      })
+    try {
+      if (rt || playerCredentialsMode) {
+        await fetch(playerApiUrl('/v1/auth/logout'), {
+          method: 'POST',
+          credentials: cred,
+          headers: (() => {
+            const h = new Headers({
+              'Content-Type': 'application/json',
+              ...(t ? { Authorization: `Bearer ${t}` } : {}),
+            })
+            applyPlayerMutatingCSRF(h, 'POST')
+            return h
+          })(),
+          body: JSON.stringify({ refresh_token: rt ?? '' }),
+        })
+      }
+    } catch {
+      /* still leave client session */
     }
     clearSession()
-  }, [clearSession])
+    dismissPlayerChromeOverlays()
+    navigate('/casino/games', { replace: true })
+  }, [clearSession, navigate])
 
   // Live balance: SSE stream for instant updates + 30s poll fallback
   useEffect(() => {

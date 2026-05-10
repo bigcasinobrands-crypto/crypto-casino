@@ -180,7 +180,12 @@ func main() {
 	gameSrv := games.NewServer(pool, bog, &cfg)
 	cmcTickers := market.NewCryptoTickers(cfg.CoinMarketCapAPIKey)
 
-	mailSender := mail.ChooseSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
+	mailFrom := strings.TrimSpace(cfg.ResendFrom)
+	if mailFrom == "" {
+		mailFrom = cfg.SMTPFrom
+	}
+	mailSender := mail.ChooseTransactionalSender(cfg.ResendAPIKey, mailFrom, cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
+	log.Printf("mail: transactional backend=%s", mail.BackendSummary(mailSender))
 	if cfg.UsesPassimpay() {
 		log.Printf("payments: PassimPay rail active")
 	} else {
@@ -197,7 +202,7 @@ func main() {
 	chatHub := chat.NewHub(pool)
 	go chatHub.Run()
 
-	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Redis: rdb, Fingerprint: fpClient, ChatHub: chatHub}
+	adminH := &adminops.Handler{Pool: pool, BOG: bog, Cfg: &cfg, Mail: mailSender, Redis: rdb, Fingerprint: fpClient, ChatHub: chatHub}
 	oddinH := &oddin.Handler{Pool: pool, Cfg: &cfg}
 	oddinOp := &oddin.OperatorHandler{Pool: pool, Cfg: &cfg}
 	staffH := &staffauth.Handler{Svc: staffSvc, Ops: adminH, WA: wa}
