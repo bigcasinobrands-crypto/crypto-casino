@@ -83,7 +83,6 @@ import {
 } from './components/ResetPasswordModal'
 import { EmailVerificationPromptModal } from './components/EmailVerificationPromptModal'
 import { isEsportsPlayerRoute } from './lib/oddin/oddin.config'
-import ClientStorageResetPage from './pages/ClientStorageResetPage'
 
 function LegacyCasinoRedirect() {
   const loc = useLocation()
@@ -756,7 +755,6 @@ function AppShell() {
                   <Suspense fallback={<RouteChunkFallback />}>
                   <Routes>
                     <Route path="/" element={<RootToCasinoGames />} />
-                    <Route path="/client-storage-reset" element={<ClientStorageResetPage />} />
                     <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPageLazy />} />
