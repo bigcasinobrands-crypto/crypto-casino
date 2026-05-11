@@ -69,6 +69,11 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
     }
     bump()
     window.addEventListener('resize', bump)
+    window.addEventListener('orientationchange', bump)
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null
+    const vvBump = () => bump()
+    vv?.addEventListener('resize', vvBump)
+    vv?.addEventListener('scroll', vvBump)
     const el = typeof document !== 'undefined' ? document.getElementById('bifrost') : null
     let ro: ResizeObserver | null = null
     if (el instanceof HTMLElement) {
@@ -77,6 +82,9 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
     }
     return () => {
       window.removeEventListener('resize', bump)
+      window.removeEventListener('orientationchange', bump)
+      vv?.removeEventListener('resize', vvBump)
+      vv?.removeEventListener('scroll', vvBump)
       ro?.disconnect()
     }
   }, [phase, instanceRef])
@@ -91,7 +99,9 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
   return (
     <div
       className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-casino-bg ${
-        fullscreen ? 'fixed inset-0 z-[320] min-h-0' : ''
+        fullscreen
+          ? 'fixed inset-0 z-[320] box-border min-h-0 overscroll-none pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] pl-[env(safe-area-inset-left,0px)] pr-[env(safe-area-inset-right,0px)]'
+          : ''
       }`}
     >
       {showLoader ? (
@@ -102,7 +112,7 @@ export default function OddinSportsbookFrame({ publicConfig, sessionToken }: Odd
 
       <div
         id="bifrost"
-        className="relative isolate min-h-0 flex-1 w-full min-w-0 overflow-hidden overscroll-none touch-manipulation select-none [&_iframe]:block [&_iframe]:h-full [&_iframe]:max-h-full [&_iframe]:min-h-0 [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:touch-manipulation [&_iframe]:border-0"
+        className="relative isolate min-h-0 min-w-0 flex-1 w-full max-w-full overflow-hidden overscroll-none touch-manipulation select-none [&_iframe]:block [&_iframe]:h-full [&_iframe]:max-h-full [&_iframe]:min-h-0 [&_iframe]:w-full [&_iframe]:max-w-full [&_iframe]:touch-manipulation [&_iframe]:border-0"
       />
     </div>
   )

@@ -16,11 +16,11 @@ import { useSiteContent } from '../hooks/useSiteContent'
 import { translateNavItemLabel } from '../lib/navI18n'
 import CasinoNavCasinoLinks from './CasinoNavCasinoLinks'
 import CasinoNavDrawerPromo from './CasinoNavDrawerPromo'
+import SidebarSocialProof from './SidebarSocialProof'
 import CasinoNavEsportsSection from './CasinoNavEsportsSection'
 import { isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
 import { LanguageMenu } from './LanguageMenu'
-import SidebarSocialProof from './SidebarSocialProof'
 import {
   IconChevronDown,
   IconDices,
@@ -37,6 +37,8 @@ type Props = {
   onOpenChat?: () => void
   chatOpen?: boolean
   chatUnreadCount?: number
+  /** When false, drawer footer stats use minimal bottom inset (no fixed tab bar). */
+  reserveBottomNavInset?: boolean
 }
 
 const row =
@@ -53,6 +55,7 @@ export default function MobileCasinoMenuOverlay({
   onOpenChat,
   chatOpen = false,
   chatUnreadCount = 0,
+  reserveBottomNavInset = true,
 }: Props) {
   const { pathname } = useLocation()
   const onSports = isEsportsPlayerRoute(pathname)
@@ -89,7 +92,7 @@ export default function MobileCasinoMenuOverlay({
         onClick={onClose}
       />
       <aside
-        className="relative z-10 flex h-full w-[min(88vw,348px)] max-w-[348px] flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.5)]"
+        className="relative z-10 flex h-full max-h-dvh min-h-0 w-[min(88vw,348px)] max-w-[348px] flex-col border-r border-white/[0.06] bg-casino-sidebar shadow-[4px_0_32px_rgba(0,0,0,0.5)]"
         role="dialog"
         aria-modal="true"
         aria-label={t('sidebar.casinoMenu')}
@@ -180,11 +183,9 @@ export default function MobileCasinoMenuOverlay({
           <div className="my-2 h-px bg-casino-border" role="separator" />
 
           <CasinoNavDrawerPromo promoItems={promoItems} />
-        </nav>
 
-        <div className="flex shrink-0 flex-col border-t border-white/[0.06] bg-casino-sidebar">
           <div
-            className="flex flex-col gap-1 px-3 pb-2 pt-2"
+            className="mt-2 border-t border-white/[0.06] pt-2 flex flex-col gap-1 pb-2"
             onClick={(e) => e.stopPropagation()}
           >
             <LanguageMenu variant="drawer" buttonClassName={row} />
@@ -231,8 +232,9 @@ export default function MobileCasinoMenuOverlay({
               {t('sidebar.blog')}
             </NavLink>
           </div>
-          <SidebarSocialProof variant="mobile" />
-        </div>
+        </nav>
+
+        <SidebarSocialProof variant="mobile-drawer" reserveBottomNavInset={reserveBottomNavInset} />
       </aside>
     </div>
   )

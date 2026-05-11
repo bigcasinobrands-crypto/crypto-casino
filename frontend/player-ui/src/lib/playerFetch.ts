@@ -1,3 +1,4 @@
+import { emitPlayerBarrierFromBody } from './playerBarrierSync'
 import { playerApiUrl } from './playerApiUrl'
 
 /** Cookie name for double-submit CSRF (must match core `playercookies.CSRFCookieName`). */
@@ -57,5 +58,17 @@ export function playerFetch(path: string, init: RequestInit = {}): Promise<Respo
   }
   const credentials: RequestCredentials =
     init.credentials ?? (playerCredentialsMode ? 'include' : 'omit')
-  return fetch(playerApiUrl(path), { ...init, credentials, headers })
+  return fetch(playerApiUrl(path), { ...init, credentials, headers }).then((res) => {
+    if (!res.ok) {
+      const ct = (res.headers.get('content-type') || '').toLowerCase()
+      if (ct.includes('json')) {
+        res
+          .clone()
+          .text()
+          .then((t) => emitPlayerBarrierFromBody(t))
+          .catch(() => undefined)
+      }
+    }
+    return res
+  })
 }

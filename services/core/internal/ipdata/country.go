@@ -18,8 +18,9 @@ type apiPayload struct {
 }
 
 var (
-	mu    sync.Mutex
-	cache = map[string]entry{}
+	mu       sync.Mutex
+	cache    = map[string]entry{}
+	inflight = map[string]struct{}{}
 )
 
 type entry struct {
@@ -29,14 +30,10 @@ type entry struct {
 
 const cacheTTL = 15 * time.Minute
 
-// CountryName returns English country_name from ipdata.co for the given IP (IPv4 or IPv6).
-// Empty API key or lookup failure returns "". Responses are cached per IP briefly to limit quota use.
-func CountryName(ctx context.Context, rawIP, apiKey string) string {
-	apiKey = strings.TrimSpace(apiKey)
+// PeekCountryName returns a cached English country_name for rawIP without performing network I/O.
+// Empty when unknown or cache expired — callers typically pair with Warm.
+func PeekCountryName(rawIP string) string {
 	rawIP = strings.TrimSpace(rawIP)
-	if apiKey == "" || rawIP == "" {
-		return ""
-	}
 	ip := net.ParseIP(rawIP)
 	if ip == nil {
 		return ""
@@ -44,22 +41,54 @@ func CountryName(ctx context.Context, rawIP, apiKey string) string {
 	key := ip.String()
 
 	mu.Lock()
+	defer mu.Unlock()
 	if e, ok := cache[key]; ok && time.Since(e.at) < cacheTTL && e.name != "" {
-		mu.Unlock()
 		return e.name
 	}
+	return ""
+}
+
+// Warm kicks off a background ipdata.co lookup when the cache is cold (deduped per IP).
+// Never blocks the caller — used so GET /health/operational stays fast while names populate on repeat polls.
+func Warm(rawIP, apiKey string) {
+	apiKey = strings.TrimSpace(apiKey)
+	ip := net.ParseIP(strings.TrimSpace(rawIP))
+	if apiKey == "" || ip == nil {
+		return
+	}
+	key := ip.String()
+
+	mu.Lock()
+	if e, ok := cache[key]; ok && time.Since(e.at) < cacheTTL && e.name != "" {
+		mu.Unlock()
+		return
+	}
+	if _, busy := inflight[key]; busy {
+		mu.Unlock()
+		return
+	}
+	inflight[key] = struct{}{}
 	mu.Unlock()
 
-	name := fetchCountryName(ctx, key, apiKey)
-	if name != "" {
+	go func() {
+		defer func() {
+			mu.Lock()
+			delete(inflight, key)
+			mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+		defer cancel()
+		name := fetchCountryName(ctx, key, apiKey)
+		if name == "" {
+			return
+		}
 		mu.Lock()
+		defer mu.Unlock()
 		if len(cache) > 4096 {
 			cache = map[string]entry{}
 		}
 		cache[key] = entry{at: time.Now(), name: name}
-		mu.Unlock()
-	}
-	return name
+	}()
 }
 
 func fetchCountryName(ctx context.Context, ip, apiKey string) string {
@@ -69,7 +98,7 @@ func fetchCountryName(ctx context.Context, ip, apiKey string) string {
 	if err != nil {
 		return ""
 	}
-	client := &http.Client{Timeout: 1800 * time.Millisecond}
+	client := &http.Client{Timeout: 2200 * time.Millisecond}
 	res, err := client.Do(req)
 	if err != nil {
 		return ""

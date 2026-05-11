@@ -5,6 +5,7 @@ import { RequireAuthLink } from './RequireAuthLink'
 import { GameThumbInteractiveShell } from './GameThumbInteractiveShell'
 import { PortraitGameThumb } from './PortraitGameThumb'
 import { parsePlayerApiErrorCodeFromBody, parsePlayerApiErrorCodeFromValue } from '../lib/playerApiErrorCode'
+import { emitPlayerBarrierFromBody, emitPlayerBarrierIfKnown } from '../lib/playerBarrierSync'
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { GameCardSkeleton } from './GameCardSkeleton'
@@ -61,6 +62,7 @@ async function fetchGames(query: string): Promise<{
     const res = await fetch(url)
     const text = await res.text()
     const barrierFromText = parsePlayerApiErrorCodeFromBody(text)
+    if (!res.ok) emitPlayerBarrierFromBody(text)
 
     if (!res.ok) {
       if (import.meta.env.DEV) {
@@ -93,11 +95,13 @@ async function fetchGames(query: string): Promise<{
     }
 
     if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { games?: unknown }).games)) {
+      const bc = barrierFromText || parsePlayerApiErrorCodeFromValue(parsed)
+      emitPlayerBarrierIfKnown(bc)
       return {
         games: [],
         fault: isRelative ? 'relative' : 'bad_body',
         status: res.status,
-        barrierCode: barrierFromText || parsePlayerApiErrorCodeFromValue(parsed),
+        barrierCode: bc,
       }
     }
 

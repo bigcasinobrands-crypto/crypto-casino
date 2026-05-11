@@ -345,10 +345,10 @@ export default function CasinoSidebar({
           <div className={`my-2.5 h-px bg-casino-border ${collapsed ? 'w-full' : ''}`} role="separator" />
 
           {promoItems.map(renderTopItem('promo'))}
-        </nav>
-        <div className="flex shrink-0 flex-col border-t border-white/[0.06] bg-casino-sidebar pb-3">
+
+          {/* Language / chat / help — inside scroll region so they move with the rest of the menu */}
           <div
-            className={`flex flex-col gap-0.5 pb-2 pt-2 ${collapsed ? 'items-center px-1' : 'px-2.5'}`}
+            className={`mt-2 border-t border-white/[0.06] pt-2 flex flex-col gap-0.5 pb-1 ${collapsed ? 'items-center px-1' : 'px-2.5'}`}
             onClick={closeIfMobile}
           >
             {collapsed ? (
@@ -422,6 +422,8 @@ export default function CasinoSidebar({
               </>
             )}
           </div>
+        </nav>
+        <div className="shrink-0 bg-casino-sidebar pb-2">
           <SidebarSocialProof variant={collapsed ? 'desktop-collapsed' : 'desktop'} />
         </div>
       </aside>

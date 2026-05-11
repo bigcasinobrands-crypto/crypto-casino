@@ -631,10 +631,9 @@ FROM games WHERE ` + lobbyVisible
 		var maintEff bool
 		var ipBlocked bool
 		var maintUntilPtr *time.Time
-		var geoCountryName string
 
 		var wg sync.WaitGroup
-		wg.Add(8)
+		wg.Add(7)
 		go func() {
 			defer wg.Done()
 			_ = pool.QueryRow(ctx, combinedGames).Scan(&visible, &blueoceanVisible)
@@ -674,18 +673,16 @@ FROM games WHERE ` + lobbyVisible
 			defer wg.Done()
 			maintUntilPtr = sitestatus.MaintenanceUntilFromDB(ctx, pool)
 		}()
-		go func() {
-			defer wg.Done()
-			if cfg == nil || strings.TrimSpace(cfg.IPDataAPIKey) == "" {
-				return
-			}
-			ip := sitestatus.PlayerClientIP(r)
-			if ip == nil {
-				return
-			}
-			geoCountryName = ipdata.CountryName(ctx, ip.String(), cfg.IPDataAPIKey)
-		}()
 		wg.Wait()
+
+		geoCountryName := ""
+		if cfg != nil && strings.TrimSpace(cfg.IPDataAPIKey) != "" {
+			if ip := sitestatus.PlayerClientIP(r); ip != nil {
+				ipStr := ip.String()
+				geoCountryName = strings.TrimSpace(ipdata.PeekCountryName(ipStr))
+				ipdata.Warm(ipStr, cfg.IPDataAPIKey)
+			}
+		}
 
 		syncOK := !lastSyncErr.Valid || strings.TrimSpace(lastSyncErr.String) == ""
 		// Stale integration errors are common after a failed sync attempt while the DB still

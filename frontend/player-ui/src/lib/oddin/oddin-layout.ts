@@ -25,15 +25,19 @@ function measureBottomNavInsetPx(): number {
   const st = window.getComputedStyle(el)
   if (st.display === 'none' || st.visibility === 'hidden') return 0
   const r = el.getBoundingClientRect()
-  if (r.height <= 0 || r.top <= 0) return 0
-  return Math.max(0, Math.round(window.innerHeight - r.top))
+  if (r.height <= 0) return 0
+  /** Distance from nav top edge to layout viewport bottom — clears fixed tab bar + OS inset it overlaps. */
+  const layoutH = window.innerHeight
+  const gap = Math.max(0, layoutH - r.top)
+  return Math.round(gap)
 }
 
 export function bifrostHeightPx(): number {
   if (typeof window === 'undefined') return 720
+  const layoutH = window.innerHeight
   const top = measureShellHeaderOffsetPx()
   const bottom = measureBottomNavInsetPx()
-  return Math.max(320, window.innerHeight - top - bottom)
+  return Math.max(320, layoutH - top - bottom)
 }
 
 /**
@@ -44,7 +48,11 @@ export function bifrostContentHeightPx(): number {
   if (typeof document === 'undefined') return bifrostHeightPx()
   const el = document.getElementById('bifrost')
   if (el instanceof HTMLElement) {
-    const h = el.clientHeight
+    let h = el.clientHeight
+    if (!Number.isFinite(h) || h <= 0) {
+      const br = el.getBoundingClientRect()
+      h = br.height
+    }
     if (Number.isFinite(h) && h > 0) {
       return Math.max(280, Math.floor(h))
     }

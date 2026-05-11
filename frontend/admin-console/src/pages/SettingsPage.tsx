@@ -491,6 +491,7 @@ function SystemControlsTab({
             isSuper={isSuper}
             operationalFlags={operationalFlags}
             reloadOperationalFlags={reloadOperationalFlags}
+            maintenanceEffective={maintenanceEffective}
           />
           <MaintenanceSchedulePanel
             settings={settings}
@@ -568,17 +569,11 @@ const KILL_SWITCHES = [
   { key: 'chat_enabled', label: 'Chat Enabled', cat: 'chat' },
 ] as const
 
-function deriveKillSwitchDraft(groups: SettingsMap, operationalFlags: OperationalFlags | null): Record<string, boolean> {
+/** Saved DB values only — toggles must match persisted settings after Save + refresh (live ops shown separately). */
+function deriveKillSwitchDraft(groups: SettingsMap): Record<string, boolean> {
   const out: Record<string, boolean> = {}
   for (const sw of KILL_SWITCHES) {
-    const raw = getSettingVal(groups, sw.cat, sw.key, false)
-    const db = coerceBoolSetting(raw)
-    if (sw.key === 'maintenance_mode') {
-      const eff = operationalFlags?.maintenance_mode
-      out[sw.key] = typeof eff === 'boolean' ? eff : db
-    } else {
-      out[sw.key] = db
-    }
+    out[sw.key] = coerceBoolSetting(getSettingVal(groups, sw.cat, sw.key, false))
   }
   return out
 }
@@ -589,14 +584,16 @@ function KillSwitchesPanel({
   isSuper,
   operationalFlags,
   reloadOperationalFlags,
+  maintenanceEffective,
 }: {
   settings: SettingsMap
   patchSetting: (key: string, value: unknown, opts?: { quietSuccess?: boolean; skipRefresh?: boolean }) => Promise<boolean>
   isSuper: boolean
   operationalFlags: OperationalFlags | null
   reloadOperationalFlags: () => Promise<void>
+  maintenanceEffective: boolean
 }) {
-  const serverDraft = useMemo(() => deriveKillSwitchDraft(settings, operationalFlags), [settings, operationalFlags])
+  const serverDraft = useMemo(() => deriveKillSwitchDraft(settings), [settings])
   const [draft, setDraft] = useState(serverDraft)
   const [saving, setSaving] = useState(false)
   /** True after any toggle; keeps Discard enabled if user toggles back to server values (dirtyKeys empty). */
@@ -645,13 +642,13 @@ function KillSwitchesPanel({
   const saveDisabled = !isSuper || saving || dirtyKeys.length === 0
   const discardDisabled = !isSuper || saving || (!hasLocalEdits && dirtyKeys.length === 0)
 
-  const statusLine = (sw: (typeof KILL_SWITCHES)[number], val: boolean) => {
+  const statusLine = (sw: (typeof KILL_SWITCHES)[number], draftVal: boolean) => {
     if (sw.key === 'maintenance_mode') {
-      return val
-        ? { text: 'Maintenance active', cls: 'text-amber-700 dark:text-amber-300' }
-        : { text: 'Site open', cls: 'text-emerald-600 dark:text-emerald-400' }
+      return maintenanceEffective
+        ? { text: 'Live: maintenance active', cls: 'text-amber-700 dark:text-amber-300' }
+        : { text: 'Live: site open', cls: 'text-emerald-600 dark:text-emerald-400' }
     }
-    return val
+    return draftVal
       ? { text: 'Enabled', cls: 'text-emerald-600 dark:text-emerald-400' }
       : { text: 'Disabled', cls: 'text-gray-500 dark:text-gray-400' }
   }
@@ -677,8 +674,8 @@ function KillSwitchesPanel({
         </p>
       ) : (
         <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-          Switches reflect your draft until you save. Values mirror live gates once loaded (maintenance includes env + DB).
-          Green badge and switch right mean <strong>On</strong>. Gray badge and switch left mean <strong>Off</strong>.
+          Switches reflect saved database values after you save. The maintenance row&apos;s status line shows{' '}
+          <strong>live</strong> operational state (env + runtime). Green badge and switch right mean <strong>On</strong>.
         </p>
       )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-3">
@@ -688,6 +685,8 @@ function KillSwitchesPanel({
           const maintenanceWarn = sw.key === 'maintenance_mode' && val
           const st = statusLine(sw, val)
           const rowDirty = draft[sw.key] !== serverDraft[sw.key]
+          const maintenanceLiveMismatch =
+            sw.key === 'maintenance_mode' && !rowDirty && serverDraft[sw.key] !== maintenanceEffective
           return (
             <div
               key={sw.key}
@@ -720,6 +719,12 @@ function KillSwitchesPanel({
                   ) : null}
                 </div>
                 <p className={`text-xs font-medium ${st.cls}`}>{st.text}</p>
+                {maintenanceLiveMismatch ? (
+                  <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-300">
+                    Saved toggle is <strong>{serverDraft[sw.key] ? 'On' : 'Off'}</strong> but live maintenance differs (often env{' '}
+                    <code className="font-mono text-[10px]">MAINTENANCE_MODE</code> or propagation delay).
+                  </p>
+                ) : null}
                 {meta?.updated_at ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500">
                     Saved {formatRelativeTime(meta.updated_at)}

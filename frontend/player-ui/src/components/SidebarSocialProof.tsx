@@ -55,10 +55,16 @@ function StatCard({ icon, label, value }: { icon: ReactNode; label: string; valu
 }
 
 type Props = {
-  variant: 'desktop' | 'desktop-collapsed' | 'mobile'
+  variant: 'desktop' | 'desktop-collapsed' | 'mobile-drawer'
+  /** `mobile-drawer` only: reserve space above the fixed tab bar; omit extra inset when bottom nav is hidden. */
+  reserveBottomNavInset?: boolean
 }
 
-export default function SidebarSocialProof({ variant }: Props) {
+/** Drawer footer chips — tight vertical rhythm; nav rows use ~py-2.5 / ~40px touch targets. */
+const drawerCellClass =
+  'flex min-h-0 min-w-0 items-center gap-1 rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-1'
+
+export default function SidebarSocialProof({ variant, reserveBottomNavInset = true }: Props) {
   const { t } = useTranslation()
   const payload = useSocialProof()
 
@@ -67,6 +73,45 @@ export default function SidebarSocialProof({ variant }: Props) {
   const live = payload?.enabled === true
   const bets = live ? formatWagerDisplay(payload.bets_wagered_display_minor) : PLACEHOLDER
   const online = live ? formatOnline(payload.online_count) : PLACEHOLDER
+
+  if (variant === 'mobile-drawer') {
+    const betsCompact = live ? formatCollapsedInteger(payload.bets_wagered_display_minor) : PLACEHOLDER
+    const betsTitle = live ? `${t('sidebar.socialProof.betsWagered')}: ${bets}` : t('sidebar.socialProof.betsWagered')
+    const onlineTitle = live ? `${t('sidebar.socialProof.online')}: ${online}` : t('sidebar.socialProof.online')
+    return (
+      <div
+        className={`shrink-0 border-t border-white/[0.06] bg-casino-sidebar px-3 pt-2.5 ${reserveBottomNavInset ? 'pb-[calc(var(--casino-mobile-nav-offset)+0.625rem)]' : 'pb-[max(12px,env(safe-area-inset-bottom,0px))]'}`}
+        role="region"
+        aria-label={t('sidebar.socialProof.regionLabel')}
+        aria-busy={!live}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="grid grid-cols-2 gap-x-1.5 gap-y-0">
+          <div className={drawerCellClass} title={betsTitle}>
+            <IconCoins size={12} className="shrink-0 text-casino-primary" aria-hidden />
+            <span className="min-w-0 flex-1 truncate text-[9px] font-semibold leading-none text-white/68">
+              {t('sidebar.socialProof.betsWagered')}
+            </span>
+            <span className="shrink-0 text-[10px] font-bold tabular-nums leading-none tracking-tight text-white/[0.92]">
+              {betsCompact}
+            </span>
+          </div>
+          <div className={drawerCellClass} title={onlineTitle}>
+            <span className="relative inline-flex shrink-0">
+              <IconUsers size={12} className="text-emerald-400" aria-hidden />
+              <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-emerald-400 ring-1 ring-casino-sidebar" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[9px] font-semibold leading-none text-white/68">
+              {t('sidebar.socialProof.online')}
+            </span>
+            <span className="shrink-0 text-[10px] font-bold tabular-nums leading-none tracking-tight text-white/[0.92]">
+              {online}
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (variant === 'desktop-collapsed') {
     const wagerShort = live ? formatCollapsedInteger(payload.bets_wagered_display_minor) : PLACEHOLDER
@@ -101,37 +146,6 @@ export default function SidebarSocialProof({ variant }: Props) {
     )
   }
 
-  if (variant === 'mobile') {
-    return (
-      <div
-        className="shrink-0 border-t border-white/[0.06] bg-casino-sidebar px-3 pb-[max(12px,calc(env(safe-area-inset-bottom)+12px))] pt-2"
-        onClick={(e) => e.stopPropagation()}
-        role="region"
-        aria-label={t('sidebar.socialProof.regionLabel')}
-        aria-busy={!live}
-      >
-        <div className="flex flex-col gap-2">
-          <StatCard
-            icon={<IconCoins size={18} className="text-casino-primary" aria-hidden />}
-            label={t('sidebar.socialProof.betsWagered')}
-            value={bets}
-          />
-          <StatCard
-            icon={
-              <span className="relative inline-flex">
-                <IconUsers size={18} className="text-emerald-400" aria-hidden />
-                <span className="absolute bottom-0 right-0 h-2 w-2 translate-x-px translate-y-px rounded-full bg-emerald-400 ring-2 ring-[rgba(24,24,28,0.95)]" />
-              </span>
-            }
-            label={t('sidebar.socialProof.online')}
-            value={online}
-          />
-        </div>
-      </div>
-    )
-  }
-
-  // desktop expanded — sidebar ~204px: stack full-width rows so values are not truncated
   return (
     <div
       className="shrink-0 border-t border-white/[0.06] bg-casino-sidebar px-2 pb-0 pt-2"

@@ -18,10 +18,10 @@
   --casino-gutter-x-tablet: 1rem;
   --casino-gutter-x-desktop: 1.125rem;
   /**
-   * Height of `.casino-shell-mobile-nav` (PlayerMobileBottomNav): pt-1.5 + row min-h + pb max(6px, safe-area).
-   * Use for overlays that stop above the bar so blur/scrim meets the nav without a gap (avoid 4rem + safe-area double-count).
+   * Height of `.casino-shell-mobile-nav` (PlayerMobileBottomNav): `min-h-[56px]` border-box row + bottom inset.
+   * Use for overlays that stop above the bar so content clears the nav with predictable spacing.
    */
-  --casino-mobile-nav-offset: calc(50px + max(6px, env(safe-area-inset-bottom, 0px)));
+  --casino-mobile-nav-offset: calc(56px + max(6px, env(safe-area-inset-bottom, 0px)));
 }
 
 /**
@@ -287,19 +287,19 @@
   padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
 }
 
+/*
+ * Oddin `/esports`: outer scroll is overflow-y-hidden; bottom nav is fixed. Do not reserve the catalog
+ * footer gutter (~5.25rem) — it creates a dead band above the tab bar on phones and fights flex sizing.
+ * Applies at every breakpoint where this modifier is set (phones + tablet esports shell).
+ */
+.casino-shell-scroll.casino-shell-scroll--oddin-bifrost {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 @media (max-width: 767px) {
   /* Momentum scrolling + pull-to-refresh companion behavior on iOS Safari */
   .casino-shell-scroll {
     -webkit-overflow-scrolling: touch;
-  }
-
-  /*
-   * Oddin /esports on phones: scroll shell is overflow-y-hidden and bottom nav is position:fixed.
-   * The default ~5.25rem bottom padding only clears scrollable body pages — here it leaves a strip of
-   * unpainted padding that shows pure black (--color-casino-bg) between the preload (#07090f) and the nav.
-   */
-  .casino-shell-scroll.casino-shell-scroll--oddin-bifrost-mobile {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   .casino-shell-scroll--no-bottom-nav {

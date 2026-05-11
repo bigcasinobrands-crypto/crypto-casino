@@ -3,8 +3,8 @@ import { playerApiUrl } from '../lib/playerApiUrl'
 
 type SiteContent = Record<string, unknown>
 
-/** Premium boot: minimum time the full-viewport cover stays up from provider mount (even with warm cache). */
-const SHELL_READY_MIN_FROM_MOUNT_MS = 520
+/** Minimum dwell before declaring shell paint-ready after CMS bundle settles — keeps tile flashes minimal without stacking too much delay after the ops-health gate. */
+const SHELL_READY_MIN_FROM_MOUNT_MS = 280
 
 type SiteContentCtx = {
   content: SiteContent | null

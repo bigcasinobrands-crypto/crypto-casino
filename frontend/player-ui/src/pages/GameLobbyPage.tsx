@@ -61,6 +61,66 @@ type GameMeta = {
 
 type LaunchPlayMode = 'demo' | 'real'
 
+type DocumentWithVendorFullscreen = Document & {
+  webkitFullscreenElement?: Element | null
+  mozFullScreenElement?: Element | null
+  msFullscreenElement?: Element | null
+  webkitExitFullscreen?: () => void
+  mozCancelFullScreen?: () => void
+  msExitFullscreen?: () => void
+}
+
+function getFullscreenElement(): Element | null {
+  if (typeof document === 'undefined') return null
+  const d = document as DocumentWithVendorFullscreen
+  return d.fullscreenElement ?? d.webkitFullscreenElement ?? d.mozFullScreenElement ?? d.msFullscreenElement ?? null
+}
+
+/** Exit whichever API currently holds fullscreen (standard / WebKit / legacy). */
+function exitDocumentFullscreenBestEffort(): void {
+  if (typeof document === 'undefined') return
+  if (!getFullscreenElement()) return
+  const d = document as DocumentWithVendorFullscreen
+  if (typeof document.exitFullscreen === 'function') {
+    void document.exitFullscreen().catch(() => undefined)
+    return
+  }
+  if (typeof d.webkitExitFullscreen === 'function') {
+    try {
+      d.webkitExitFullscreen()
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+  if (typeof d.mozCancelFullScreen === 'function') {
+    try {
+      d.mozCancelFullScreen()
+    } catch {
+      /* ignore */
+    }
+    return
+  }
+  if (typeof d.msExitFullscreen === 'function') {
+    try {
+      d.msExitFullscreen()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Flex + aspect-ratio theaters sometimes fail to reflow after Escape exits iframe/fullscreen.
+ * Fire synthetic resize after the browser clears fullscreen (transition only).
+ */
+function bumpLayoutAfterFullscreenExit(): void {
+  requestAnimationFrame(() => {
+    window.dispatchEvent(new Event('resize'))
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+  })
+}
+
 /** Best-effort fullscreen for the game surface (standard + legacy WebKit). */
 function requestGameFullscreen(el: HTMLElement): Promise<void> {
   const anyEl = el as HTMLElement & {
@@ -378,6 +438,7 @@ export default function GameLobbyPage() {
   const [mobileLobbyDescExpanded, setMobileLobbyDescExpanded] = useState(false)
 
   const stageRef = useRef<HTMLDivElement>(null)
+  const prevFullscreenElRef = useRef<Element | null>(null)
   const viewportBelowXl = useViewportBelowXl()
   const [isFullscreen, setIsFullscreen] = useState(false)
   const authPromptedRef = useRef(false)
@@ -421,6 +482,10 @@ export default function GameLobbyPage() {
   useEffect(() => {
     setLaunchModeChoice(null)
     setRequestedImmersiveLaunch(false)
+  }, [gameId])
+
+  useEffect(() => {
+    prevFullscreenElRef.current = null
   }, [gameId])
 
   useEffect(() => {
@@ -469,15 +534,35 @@ export default function GameLobbyPage() {
   }, [statsOpen])
 
   useEffect(() => {
-    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement))
-    document.addEventListener('fullscreenchange', onFs)
-    return () => document.removeEventListener('fullscreenchange', onFs)
+    const sync = () => {
+      const fsEl = getFullscreenElement()
+      const stage = stageRef.current
+      const inTheaterTree = Boolean(
+        fsEl &&
+          stage &&
+          (fsEl === stage || (fsEl instanceof Node && stage.contains(fsEl))),
+      )
+      setIsFullscreen(inTheaterTree)
+      if (prevFullscreenElRef.current && !fsEl) bumpLayoutAfterFullscreenExit()
+      prevFullscreenElRef.current = fsEl
+    }
+    const pairs: Array<[EventTarget, string]> = [
+      [document, 'fullscreenchange'],
+      [document, 'webkitfullscreenchange'],
+      [document, 'mozfullscreenchange'],
+      [document, 'MSFullscreenChange'],
+    ]
+    for (const [t, ev] of pairs) t.addEventListener(ev, sync)
+    sync()
+    return () => {
+      for (const [t, ev] of pairs) t.removeEventListener(ev, sync)
+    }
   }, [])
 
   const toggleFullscreen = () => {
     const el = stageRef.current
     if (!el) return
-    if (document.fullscreenElement) void document.exitFullscreen()
+    if (getFullscreenElement()) exitDocumentFullscreenBestEffort()
     else void requestGameFullscreen(el)
   }
 
@@ -490,7 +575,7 @@ export default function GameLobbyPage() {
     if (!iframeUrl) return
     if (thisGameInMini) {
       closeMini()
-      if (document.fullscreenElement) void document.exitFullscreen()
+      exitDocumentFullscreenBestEffort()
       return
     }
     openMini({
@@ -500,7 +585,7 @@ export default function GameLobbyPage() {
       thumbSrc: theaterPosterSrc || '',
       providerLabel: meta?.provider_system?.trim() || meta?.provider?.trim() || t('gameLobby.casinoProviderFallback'),
     })
-    if (document.fullscreenElement) void document.exitFullscreen()
+    exitDocumentFullscreenBestEffort()
   }, [iframeUrl, thisGameInMini, closeMini, openMini, meta, gameId, theaterPosterSrc, t])
 
   useEffect(() => {
@@ -608,7 +693,7 @@ export default function GameLobbyPage() {
     const id = window.requestAnimationFrame(() => {
       if (cancelled) return
       const el = stageRef.current
-      if (!el || document.fullscreenElement === el) {
+      if (!el || getFullscreenElement() === el) {
         if (!cancelled) setRequestedImmersiveLaunch(false)
         return
       }
@@ -672,9 +757,7 @@ export default function GameLobbyPage() {
 
   const goBackToCatalog = useCallback(() => {
     setRequestedImmersiveLaunch(false)
-    if (typeof document !== 'undefined' && document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => undefined)
-    }
+    exitDocumentFullscreenBestEffort()
     const ret = getCatalogReturnForNavigation()
     if (ret) {
       const y = Math.max(0, Math.round(ret.scrollTop))
@@ -774,9 +857,7 @@ export default function GameLobbyPage() {
 
   const exitMobileImmersivePlayer = useCallback(() => {
     setRequestedImmersiveLaunch(false)
-    if (typeof document !== 'undefined' && document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => undefined)
-    }
+    exitDocumentFullscreenBestEffort()
     setIframeUrl(null)
     setLaunchErr(null)
     setLaunchFailCode(undefined)
@@ -1033,9 +1114,7 @@ export default function GameLobbyPage() {
                     className="font-medium text-casino-primary underline-offset-2 hover:underline"
                     onClick={() => {
                       setRequestedImmersiveLaunch(false)
-                      if (typeof document !== 'undefined' && document.fullscreenElement) {
-                        void document.exitFullscreen().catch(() => undefined)
-                      }
+                      exitDocumentFullscreenBestEffort()
                       setIframeUrl(null)
                       setLaunchErr(null)
                       setLaunchFailCode(undefined)

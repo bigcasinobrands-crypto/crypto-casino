@@ -1,5 +1,9 @@
-import type { FC, ReactNode } from 'react'
+import { useEffect, useState, type FC, type ReactNode } from 'react'
 import { useSharedOperationalHealth } from '../../context/OperationalHealthContext'
+import {
+  subscribePlayerSiteBarrier,
+  type PlayerSiteBarrierCode,
+} from '../../lib/playerBarrierSync'
 import PlayerBootPreloadVisual from '../PlayerBootPreloadVisual'
 import { GateBlurBackdrop } from './GateBlurBackdrop'
 import { IpRestrictedScreen } from './IpRestrictedScreen'
@@ -25,17 +29,48 @@ function GateLoading() {
 
 export const SiteAccessGate: FC<{ children: ReactNode }> = ({ children }) => {
   const { data, ready } = useSharedOperationalHealth()
+  const [forcedBarrier, setForcedBarrier] = useState<PlayerSiteBarrierCode | null>(null)
+
+  useEffect(() => {
+    return subscribePlayerSiteBarrier((code) => setForcedBarrier(code))
+  }, [])
+
+  useEffect(() => {
+    if (!ready || !data) return
+    const serverBarrierActive =
+      Boolean(data.geo_blocked) || Boolean(data.ip_blocked) || Boolean(data.maintenance_mode)
+    if (!serverBarrierActive && forcedBarrier) setForcedBarrier(null)
+  }, [ready, data, forcedBarrier])
+
+  const geoBlocked = Boolean(data?.geo_blocked) || forcedBarrier === 'geo_blocked'
+  const ipBlocked = Boolean(data?.ip_blocked) || forcedBarrier === 'ip_blocked'
+  const maintenanceOn = Boolean(data?.maintenance_mode) || forcedBarrier === 'site_maintenance'
+
+  useEffect(() => {
+    const lockScroll = !ready || geoBlocked || ipBlocked || maintenanceOn
+    if (!lockScroll) return
+
+    const html = document.documentElement
+    const body = document.body
+    const prevHtml = html.style.overflow
+    const prevBody = body.style.overflow
+    html.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    return () => {
+      html.style.overflow = prevHtml
+      body.style.overflow = prevBody
+    }
+  }, [ready, geoBlocked, ipBlocked, maintenanceOn])
 
   if (!ready) {
     return <GateLoading />
   }
 
-  const geoBlocked = Boolean(data?.geo_blocked)
   if (geoBlocked) {
     const country = (data?.geo_country ?? '').trim().toUpperCase()
     const countryName = (data?.geo_country_name ?? '').trim()
     return (
-      <div className="relative min-h-dvh">
+      <div className="relative min-h-dvh overflow-hidden">
         <GateBlurBackdrop />
         <div className="relative z-10">
           <RegionRestrictedScreen countryCode={country} countryName={countryName} supportEmail={SUPPORT_EMAIL} />
@@ -44,17 +79,23 @@ export const SiteAccessGate: FC<{ children: ReactNode }> = ({ children }) => {
     )
   }
 
-  const ipBlocked = Boolean(data?.ip_blocked)
   if (ipBlocked) {
-    return <IpRestrictedScreen supportEmail={SUPPORT_EMAIL} />
+    return (
+      <div className="relative min-h-dvh overflow-hidden">
+        <GateBlurBackdrop />
+        <div className="relative z-10">
+          <IpRestrictedScreen supportEmail={SUPPORT_EMAIL} />
+        </div>
+      </div>
+    )
   }
 
-  if (data?.maintenance_mode) {
+  if (maintenanceOn) {
     return (
       <MaintenanceScreen
-        maintenanceUntil={data.maintenance_until ?? null}
+        maintenanceUntil={data?.maintenance_until ?? null}
         supportEmail={SUPPORT_EMAIL}
-        envMaintenanceLock={Boolean(data.maintenance_mode_env)}
+        envMaintenanceLock={Boolean(data?.maintenance_mode_env)}
       />
     )
   }

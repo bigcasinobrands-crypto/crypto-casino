@@ -1,5 +1,5 @@
 import { installPlayerCrossAppBridge } from '@repo/cross-app'
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PLAYER_MAIN_SCROLL_ID } from './lib/catalogReturn'
 import {
@@ -41,6 +41,7 @@ import SiteFooter from './components/SiteFooter'
 import PlayerMobileBottomNav from './components/PlayerMobileBottomNav'
 import MobileCasinoMenuOverlay from './components/MobileCasinoMenuOverlay'
 import { PullToRefreshOverlay } from './components/PullToRefresh'
+import { RouteChunkFallback } from './components/RouteChunkFallback'
 import { useChat } from './hooks/useChat'
 import { OperationalHealthProvider, useSharedOperationalHealth } from './context/OperationalHealthContext'
 import {
@@ -60,24 +61,27 @@ import { dismissPlayerCatalogSyncToast, toastPlayerCatalogSyncWarning } from './
 import { PlayerAuthProvider, usePlayerAuth } from './playerAuth'
 import { OddinBootstrapProvider, useOddinBootstrap } from './context/OddinBootstrapContext'
 import { BootNonLobbyRoutes, InitialAppLoadProvider } from './context/InitialAppLoadContext'
-import DemoEmbedPage from './pages/DemoEmbedPage'
-import GameLobbyPage from './pages/GameLobbyPage'
-import CasinoSportsPage from './pages/CasinoSportsPage'
-import LegalPage from './pages/LegalPage'
-import LobbyPage from './pages/LobbyPage'
-import ProfilePage from './pages/ProfilePage'
-import BonusesPage from './pages/BonusesPage'
-import BonusesPreviewPage from './pages/BonusesPreviewPage'
-import VipPage from './pages/VipPage'
+import {
+  BonusesPageLazy,
+  BonusesPreviewPageLazy,
+  CasinoSportsPageLazy,
+  DemoEmbedPageLazy,
+  GameLobbyPageLazy,
+  LegalPageLazy,
+  LobbyPageLazy,
+  ProfilePageLazy,
+  StudiosPageLazy,
+  VerifyEmailPageLazy,
+  VipPageLazy,
+  WalletDepositPageLazy,
+} from './lib/lazyRoutePages'
+import { schedulePlayerRouteChunkPrefetch } from './lib/prefetchPlayerRouteChunks'
 import {
   PASSWORD_RESET_TOKEN_PARAM,
   ResetPasswordEmailRedirect,
   ResetPasswordModal,
 } from './components/ResetPasswordModal'
-import VerifyEmailPage from './pages/VerifyEmailPage'
 import { EmailVerificationPromptModal } from './components/EmailVerificationPromptModal'
-import WalletDepositPage from './pages/WalletDepositPage'
-import StudiosPage from './pages/StudiosPage'
 import { isEsportsPlayerRoute } from './lib/oddin/oddin.config'
 
 function LegacyCasinoRedirect() {
@@ -163,15 +167,15 @@ export default function App() {
 
   return (
     <SiteContentProvider>
-      <OperationalHealthProvider pollMs={3500}>
+      <OperationalHealthProvider>
+        <PlayerToaster />
+        <InstallGlobalPlayerToasts />
         <SiteAccessGate>
           <PlayerBootOverlay />
           <PlayerAuthProvider>
             <OddinBootstrapProvider>
               <AuthModalProvider>
                 <InitialAppLoadProvider>
-                  <PlayerToaster />
-                  <InstallGlobalPlayerToasts />
                   <AppShell />
                   <AuthModal />
                 </InitialAppLoadProvider>
@@ -254,6 +258,10 @@ function AppShell() {
   useEffect(() => {
     prefetchCryptoTickersOnce()
   }, [])
+
+  useEffect(() => {
+    return schedulePlayerRouteChunkPrefetch({ authenticated: isAuthenticated })
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -711,7 +719,7 @@ function AppShell() {
               } ${
                 oddinBifrostShell ? 'overflow-y-hidden' : 'overflow-y-auto'
               } ${
-                oddinBifrostShell && isMobileChrome ? 'casino-shell-scroll--oddin-bifrost-mobile' : ''
+                oddinBifrostShell ? 'casino-shell-scroll--oddin-bifrost' : ''
               } ${showBottomNav ? '' : 'casino-shell-scroll--no-bottom-nav'}`}
             >
               <div className="relative z-[210] shrink-0">
@@ -728,41 +736,45 @@ function AppShell() {
                   Do not use min-h-0 on this routes wrapper: it lets the flex item shrink below game/grid
                   content; overflow stays visible so tiles painted onto the footer below (nested flex bug).
                 */}
-                <div className={`flex min-w-0 flex-1 flex-col ${oddinBifrostShell ? 'min-h-0' : ''}`}>
+                <div
+                  className={`flex min-w-0 flex-1 flex-col ${oddinBifrostShell ? 'min-h-0 overflow-x-hidden' : ''}`}
+                >
+                  <Suspense fallback={<RouteChunkFallback />}>
                   <Routes>
                     <Route path="/" element={<RootToCasinoGames />} />
                     <Route path="/casino/lobby" element={<LegacyCasinoRedirect />} />
                     <Route path="/casino/blueocean" element={<LegacyCasinoRedirect />} />
-                    <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPage />} />
-                    <Route path="/esports" element={<CasinoSportsPage />} />
+                    <Route path="/casino/game-lobby/:gameId" element={<GameLobbyPageLazy />} />
+                    <Route path="/esports" element={<CasinoSportsPageLazy />} />
                     <Route path="/casino/sports" element={<LegacyCasinoSportsRedirect />} />
-                    <Route path="/casino/studios" element={<StudiosPage />} />
+                    <Route path="/casino/studios" element={<StudiosPageLazy />} />
                     <Route path="/sportsbook" element={<Navigate to="/esports" replace />} />
                     <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
-                    <Route path="/casino/:section" element={<LobbyPage />} />
+                    <Route path="/casino/:section" element={<LobbyPageLazy />} />
                     <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />
                     <Route path="/register" element={<Navigate to="/casino/games?auth=register" replace />} />
                     <Route path="/forgot-password" element={<Navigate to="/casino/games?auth=forgot" replace />} />
                     <Route path="/reset-password" element={<ResetPasswordEmailRedirect />} />
-                    <Route path="/verify-email" element={<VerifyEmailPage />} />
-                    <Route path="/profile" element={<ProfilePage />} />
-                    <Route path="/bonuses/preview" element={<BonusesPreviewPage />} />
-                    <Route path="/bonuses" element={<BonusesPage />} />
+                    <Route path="/verify-email" element={<VerifyEmailPageLazy />} />
+                    <Route path="/profile" element={<ProfilePageLazy />} />
+                    <Route path="/bonuses/preview" element={<BonusesPreviewPageLazy />} />
+                    <Route path="/bonuses" element={<BonusesPageLazy />} />
                     <Route path="/rewards/preview" element={<Navigate to="/bonuses/preview" replace />} />
                     <Route path="/rewards" element={<Navigate to="/bonuses" replace />} />
-                    <Route path="/vip" element={<VipPage />} />
-                    <Route path="/wallet/deposit" element={<WalletDepositPage />} />
+                    <Route path="/vip" element={<VipPageLazy />} />
+                    <Route path="/wallet/deposit" element={<WalletDepositPageLazy />} />
                     <Route path="/wallet/deposit/instructions" element={<LegacyDepositInstructionsRedirect />} />
                     <Route path="/wallet/deposit/submitted" element={<LegacyDepositSubmittedRedirect />} />
                     <Route path="/wallet/withdraw" element={<LegacyWalletWithdrawPathRedirect />} />
                     <Route path="/wallet/withdraw/success" element={<LegacyWalletWithdrawPathRedirect />} />
-                    <Route path="/terms" element={<LegalPage contentKey="legal.terms_of_service" fallbackTitle="Vybe Bet Terms of Service" />} />
-                    <Route path="/privacy" element={<LegalPage contentKey="legal.privacy_policy" fallbackTitle="Vybe Bet Privacy Policy" />} />
-                    <Route path="/responsible-gambling" element={<LegalPage contentKey="legal.responsible_gambling" fallbackTitle="Vybe Bet Responsible Gaming Policy" />} />
-                    <Route path="/aml" element={<LegalPage contentKey="legal.fairness" fallbackTitle="Vybe Bet Anti-Money Laundering Policy" />} />
+                    <Route path="/terms" element={<LegalPageLazy contentKey="legal.terms_of_service" fallbackTitle="Vybe Bet Terms of Service" />} />
+                    <Route path="/privacy" element={<LegalPageLazy contentKey="legal.privacy_policy" fallbackTitle="Vybe Bet Privacy Policy" />} />
+                    <Route path="/responsible-gambling" element={<LegalPageLazy contentKey="legal.responsible_gambling" fallbackTitle="Vybe Bet Responsible Gaming Policy" />} />
+                    <Route path="/aml" element={<LegalPageLazy contentKey="legal.fairness" fallbackTitle="Vybe Bet Anti-Money Laundering Policy" />} />
                     <Route path="/fairness" element={<Navigate to="/aml" replace />} />
-                    <Route path="/embed/demo/:demoId" element={<DemoEmbedPage />} />
+                    <Route path="/embed/demo/:demoId" element={<DemoEmbedPageLazy />} />
                   </Routes>
+                  </Suspense>
                   <MainScrollTopOnRouteChange />
                   <MainScrollRestoration />
                 </div>
@@ -794,6 +806,7 @@ function AppShell() {
             onOpenChat={isAuthenticated ? toggleChat : undefined}
             chatOpen={chatOpen}
             chatUnreadCount={chat.unreadCount}
+            reserveBottomNavInset={showBottomNav}
           />
           <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} chat={chat} />
         </div>
