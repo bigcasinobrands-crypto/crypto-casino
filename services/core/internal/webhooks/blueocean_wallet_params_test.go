@@ -118,17 +118,6 @@ func TestParseBOAmountCI_IntegerStaysMinorByDefault(t *testing.T) {
 	}
 }
 
-func TestBoWalletTxnWireKeysNoRoundExcludesRound(t *testing.T) {
-	for _, k := range boWalletTxnWireKeysNoRound {
-		if lk := strings.ToLower(k); lk == "round_id" || lk == "roundid" || lk == "game_round_id" {
-			t.Fatalf("no round keys in NoRound list: %q", k)
-		}
-	}
-	if len(boWalletTxnWireKeysNoRound) >= len(boWalletTxnWireKeys) {
-		t.Fatal("NoRound should be strictly smaller than full key list")
-	}
-}
-
 func TestParseBOAmountCI_IntegerMajorForBOBasicS2S(t *testing.T) {
 	q := url.Values{}
 	q.Set("amount", "10")

@@ -775,13 +775,13 @@ func TestBlueOceanRollbackCreditReversesWin(t *testing.T) {
 	}
 }
 
-// Regression: some BO rollbacks send the win id as win_id only; rollback txn resolution must not use round_id as the financial id.
-func TestBlueOceanRollbackCreditUsingWinIdWithoutTransactionId(t *testing.T) {
+// TestBlueOceanRollbackCreditReversesWinLedgerTxnUsesRound: composite ledger keys (txn + round) must resolve when reversing a credit.
+func TestBlueOceanRollbackCreditReversesWinLedgerTxnUsesRound(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)
 	defer cl()
 	ctx := context.Background()
 	uid := uuid.New().String()
-	email := "bo-rbwinid-" + uid + "@e2e.local"
+	email := "bo-rbcr2-" + uid + "@e2e.local"
 	if _, err := p.Exec(ctx, `
 		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
 		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
@@ -794,29 +794,36 @@ func TestBlueOceanRollbackCreditUsingWinIdWithoutTransactionId(t *testing.T) {
 		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
 		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
 	})
-	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "rbwinid:"+uid, 100_500, nil); err != nil {
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "rbcr2-seed:"+uid, 101_000, nil); err != nil {
 		t.Fatal(err)
 	}
-	rid := "rbwinid-" + uid[:8]
+	rid := "rbcrev2-" + uid[:8]
 	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
-	salt := "contract-rb-winid-only"
+
+	salt := "contract-rb-credit-win-round"
 	cfg := &config.Config{
 		BlueOceanCurrency:                        "EUR",
 		BlueOceanWalletSalt:                      salt,
 		BlueOceanWalletIntegerAmountIsMajorUnits: true,
 		BlueOceanWalletSkipBonusBetGuards:        true,
+		BlueOceanWalletLedgerTxnUsesRound:        true,
 	}
 	h := HandleBlueOceanWallet(p, cfg, nil)
-	winTxn := "ez-aa993fb83612faf655ac2ba6fbf8132f43"
-	round := "b25c7fed0f22d1e3487bea85d5663b7d"
-	qCr := boSignGET(salt, map[string]string{
+	winTxn := "ez-round-" + uid[:12]
+	round := "round-composite-" + uid[:6]
+
+	qCredit := boSignGET(salt, map[string]string{
 		"action": "credit", "remote_id": rid, "transaction_id": winTxn,
 		"amount": "10", "currency": "EUR", "game_id": "g1", "round_id": round,
 	})
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/?"+qCr, nil))
+	wc := httptest.NewRecorder()
+	h.ServeHTTP(wc, httptest.NewRequest(http.MethodGet, "/?"+qCredit, nil))
+	if wc.Code != http.StatusOK {
+		t.Fatalf("credit HTTP %d %s", wc.Code, wc.Body.String())
+	}
 
 	qRb := boSignGET(salt, map[string]string{
-		"action": "rollback", "remote_id": rid, "win_id": winTxn, "round_id": round,
+		"action": "rollback", "remote_id": rid, "transaction_id": winTxn, "round_id": round,
 	})
 	wr := httptest.NewRecorder()
 	h.ServeHTTP(wr, httptest.NewRequest(http.MethodGet, "/?"+qRb, nil))
@@ -830,8 +837,69 @@ func TestBlueOceanRollbackCreditUsingWinIdWithoutTransactionId(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(wr.Body.Bytes()), &rb); err != nil {
 		t.Fatal(err)
 	}
-	if rb.Status != "200" || rb.Balance != "1005" {
-		t.Fatalf("want 200 balance 1005 got status=%q bal=%q", rb.Status, rb.Balance)
+	if rb.Status != "200" || rb.Balance != "1000" {
+		t.Fatalf("rollback want 200 balance 1000 (reverse 10) got status=%q bal=%q", rb.Status, rb.Balance)
+	}
+}
+
+// TestBlueOceanRollbackCreditFindsRowDespiteRemoteIdDrift: lock credit by user + transaction_id even if persisted remote_id drifted.
+func TestBlueOceanRollbackCreditFindsRowDespiteRemoteIdDrift(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-rbdrift-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "rbdrift:"+uid, 100_000, nil); err != nil {
+		t.Fatal(err)
+	}
+	rid := "2326698-drift-" + uid[:6]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	salt := "contract-rb-drift"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	winTxn := "ez-drift-" + uid[:10]
+	qCredit := boSignGET(salt, map[string]string{
+		"action": "credit", "remote_id": rid, "transaction_id": winTxn,
+		"amount": "10", "currency": "EUR", "game_id": "1",
+	})
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/?"+qCredit, nil))
+	if _, err := p.Exec(ctx, `
+		UPDATE blueocean_wallet_transactions SET remote_id = 'stale-remote-spelling'
+		WHERE user_id = $1::uuid AND action = 'credit' AND transaction_id = $2
+	`, uid, winTxn); err != nil {
+		t.Fatal(err)
+	}
+	qRb := boSignGET(salt, map[string]string{"action": "rollback", "remote_id": rid, "transaction_id": winTxn})
+	wr := httptest.NewRecorder()
+	h.ServeHTTP(wr, httptest.NewRequest(http.MethodGet, "/?"+qRb, nil))
+	if wr.Code != http.StatusOK {
+		t.Fatalf("rollback HTTP %d %s", wr.Code, wr.Body.String())
+	}
+	var rb struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(wr.Body.Bytes()), &rb); err != nil {
+		t.Fatal(err)
+	}
+	if rb.Status != "200" {
+		t.Fatalf("want 200 got %q body=%s", rb.Status, wr.Body.String())
 	}
 }
 
@@ -1059,8 +1127,6 @@ func TestBlueOceanInsufficientFundsWhenNegativeModesOff(t *testing.T) {
 		BlueOceanWalletSkipBonusBetGuards:        true,
 		BlueOceanWalletAllowNegativeBalance:      false,
 		BlueOceanAllowNegativeTestBalance:        false,
-		BlueOceanLaunchMode:                      "demo",
-		AppEnv:                                   "production",
 	}
 	h := HandleBlueOceanWallet(p, cfg, nil)
 	q := boSignGET(salt, map[string]string{

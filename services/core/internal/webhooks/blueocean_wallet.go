@@ -49,45 +49,6 @@ var boWalletTxnWireKeys = []string{
 	"round_id", "roundid", "game_round_id",
 }
 
-// boWalletTxnWireKeysNoRound is used for rollback callbacks so we never treat round_id as the
-// financial transaction id when BO also sends round_id alongside transaction_id / win_id.
-var boWalletTxnWireKeysNoRound = func() []string {
-	out := make([]string, 0, len(boWalletTxnWireKeys))
-	for _, k := range boWalletTxnWireKeys {
-		switch strings.ToLower(strings.TrimSpace(k)) {
-		case "round_id", "roundid", "game_round_id":
-			continue
-		default:
-			out = append(out, k)
-		}
-	}
-	return out
-}()
-
-// boSeamlessAllowNegative mirrors production risk rules: explicit wallet flags, or non-production
-// BlueOcean demo sandboxes (APP_ENV development/staging/dev/test + BLUEOCEAN_LAUNCH_MODE=demo).
-func boSeamlessAllowNegative(cfg *config.Config) bool {
-	if cfg == nil {
-		return false
-	}
-	if cfg.BlueOceanWalletAllowNegativeBalance || cfg.BlueOceanAllowNegativeTestBalance {
-		return true
-	}
-	env := strings.ToLower(strings.TrimSpace(cfg.AppEnv))
-	if env == "" || env == "production" {
-		return false
-	}
-	if !strings.EqualFold(strings.TrimSpace(cfg.BlueOceanLaunchMode), "demo") {
-		return false
-	}
-	switch env {
-	case "development", "staging", "dev", "test":
-		return true
-	default:
-		return false
-	}
-}
-
 // boWalletAmountParamKeys tries common Blue Ocean / operator amount field names (merged query + JSON).
 var boWalletAmountParamKeys = []string{
 	"amount", "bet", "win", "sum", "money",
@@ -227,11 +188,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 
 		// Do not use "tid" in boWalletTxnWireKeys — many BO/live callbacks set tid to a shared session value, which would
 		// collapse distinct financial transactions into one idempotency namespace under concurrency.
-		txnWireKeys := boWalletTxnWireKeys
-		if action == "rollback" {
-			txnWireKeys = boWalletTxnWireKeysNoRound
-		}
-		txnID := strings.TrimSpace(firstNonEmptyCI(q, txnWireKeys...))
+		txnID := strings.TrimSpace(firstNonEmptyCI(q, boWalletTxnWireKeys...))
 		if txnID == "" {
 			txnID = "na"
 		}
@@ -287,7 +244,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				writeBOWalletJSON(w, 403, sum, "REMOTE_ID_MISMATCH")
 				return
 			}
-			allowNeg := boSeamlessAllowNegative(cfg)
+			allowNeg := cfg.BlueOceanWalletAllowNegativeBalance || cfg.BlueOceanAllowNegativeTestBalance
 			replayBody, sum, st, _, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, allowNeg, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
