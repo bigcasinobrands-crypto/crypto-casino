@@ -23,10 +23,31 @@ type HeaderWalletBarProps = {
   depositFlowActive?: boolean
 }
 
+const MONEY_DISPLAY_LOCALE = 'en-US'
+
+/** Group integer digits with thousands separators; keeps fractional part unchanged (already dotted). */
+function formatMajorAmountGrouping(majorStr: string, locale: string): string {
+  const t = majorStr.trim()
+  const dot = t.indexOf('.')
+  if (dot === -1) {
+    if (t === '' || t === '-') return t
+    const neg = t.startsWith('-')
+    const d = neg ? t.slice(1) : t
+    if (!/^\d+$/.test(d)) return t
+    const grouped = Number(d).toLocaleString(locale)
+    return neg ? `-${grouped}` : grouped
+  }
+  const intPart = t.slice(0, dot)
+  const frac = t.slice(dot + 1)
+  const intGrouped = formatMajorAmountGrouping(intPart, locale)
+  return `${intGrouped}.${frac}`
+}
+
 /** Playable bonus lines — USD cents, always 2 decimals; leading $ when `prefixDollar`. */
-function formatPlayableBalanceMinor(minor: number | null, prefixDollar: boolean): string {
+function formatPlayableBalanceMinor(minor: number | null, prefixDollar: boolean, locale = MONEY_DISPLAY_LOCALE): string {
   if (minor == null) return prefixDollar ? '$0.00' : '0.00'
-  const s = (minor / 100).toFixed(2)
+  const v = minor / 100
+  const s = v.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   return prefixDollar ? `$${s}` : s
 }
 
@@ -35,14 +56,20 @@ function formatPlayableBalanceMinor(minor: number | null, prefixDollar: boolean)
  * - USD mode on: `$` + 2 dp.
  * - USD mode off: up to 4 dp (trimmed); `$` only for USD-pegged symbols.
  */
-function formatWalletChipAmount(minor: number | null, showBalancesUsd: boolean, symbol: string): string {
+function formatWalletChipAmount(
+  minor: number | null,
+  showBalancesUsd: boolean,
+  symbol: string,
+  locale = MONEY_DISPLAY_LOCALE,
+): string {
   const dollarPrefix = showBalancesUsd || isUsdDollarPrefixedSymbol(symbol)
   const v = minor == null || !Number.isFinite(minor) ? 0 : minor / 100
   if (showBalancesUsd) {
-    return `$${v.toFixed(2)}`
+    return `$${v.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
   const qty = formatCryptoQuantityUpToFourDecimals(v)
-  return dollarPrefix ? `$${qty}` : qty
+  const qtyGrouped = formatMajorAmountGrouping(qty, locale)
+  return dollarPrefix ? `$${qtyGrouped}` : qtyGrouped
 }
 
 type WalletOption = {
@@ -568,10 +595,6 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
       >
         <ChainLogo wallet={active} logoUrl={activeChipLogoUrl} />
         <span className="font-bold text-white md:inline">{active.symbol}</span>
-        <span className="hidden text-casino-muted min-[1280px]:inline">·</span>
-        <span className="hidden max-w-[4.5rem] truncate text-xs font-medium text-casino-muted min-[1280px]:inline">
-          {passimpayNetworkLabel(active.network)}
-        </span>
         <IconChevronDown
           className={`size-3 shrink-0 text-white/50 transition md:size-3.5 md:text-white/45 ${open ? 'rotate-180' : ''}`}
           size={14}
