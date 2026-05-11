@@ -193,6 +193,20 @@ func main() {
 		}
 	}()
 
+	go func() {
+		t := time.NewTicker(15 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				reconcile.RunPassimpayPaymentRailChecks(bg, pool)
+			}
+		}
+	}()
+
 	// Sportsbook session expiry sweep: every 5 minutes mark expired-but-still-ACTIVE
 	// sportsbook_sessions rows as EXPIRED. The seamless wallet handler already
 	// rejects expired tokens at request time so this is not a security gate; it

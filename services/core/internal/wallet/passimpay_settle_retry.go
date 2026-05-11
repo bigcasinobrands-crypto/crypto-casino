@@ -42,7 +42,9 @@ func ProcessLedgerSettleFailed(ctx context.Context, pool *pgxpool.Pool, cfg *con
 	}
 	rows, err := pool.Query(ctx, `
 		SELECT
-			withdrawal_id::text, user_id::text, currency, amount_minor,
+			withdrawal_id::text, user_id::text,
+			COALESCE(NULLIF(TRIM(internal_ledger_currency),''), currency, '') AS ledger_ccy,
+			COALESCE(internal_amount_minor, amount_minor) AS ledger_amt,
 			provider_order_id, COALESCE(ledger_lock_idem_suffix,''),
 			COALESCE(provider_transaction_id,''),
 			COALESCE((metadata->>'settle_retry_attempts')::int, 0)
@@ -59,14 +61,14 @@ func ProcessLedgerSettleFailed(ctx context.Context, pool *pgxpool.Pool, cfg *con
 	defer rows.Close()
 
 	type stuckRow struct {
-		WithdrawalID, UserID, Currency, OrderID, IdemSuffix, ProviderTxID string
-		AmountMinor                                                       int64
+		WithdrawalID, UserID, LedgerCcy, OrderID, IdemSuffix, ProviderTxID string
+		LedgerAmt                                                         int64
 		Attempts                                                          int
 	}
 	var batch []stuckRow
 	for rows.Next() {
 		var s stuckRow
-		if err := rows.Scan(&s.WithdrawalID, &s.UserID, &s.Currency, &s.AmountMinor,
+		if err := rows.Scan(&s.WithdrawalID, &s.UserID, &s.LedgerCcy, &s.LedgerAmt,
 			&s.OrderID, &s.IdemSuffix, &s.ProviderTxID, &s.Attempts); err != nil {
 			slog.ErrorContext(ctx, "ledger_settle_retry_scan", "err", err)
 			continue
@@ -77,10 +79,10 @@ func ProcessLedgerSettleFailed(ctx context.Context, pool *pgxpool.Pool, cfg *con
 	recovered := 0
 	for _, s := range batch {
 		if s.Attempts >= MaxLedgerSettleRetryAttempts {
-			alertStuckWithdrawal(ctx, pool, s.UserID, s.WithdrawalID, s.OrderID, s.AmountMinor, s.Currency, s.Attempts)
+			alertStuckWithdrawal(ctx, pool, s.UserID, s.WithdrawalID, s.OrderID, s.LedgerAmt, s.LedgerCcy, s.Attempts)
 			continue
 		}
-		ok := retryOneSettle(ctx, pool, cfg, s.UserID, s.Currency, s.AmountMinor, s.IdemSuffix, s.OrderID, s.ProviderTxID, s.Attempts+1)
+		ok := retryOneSettle(ctx, pool, cfg, s.UserID, s.LedgerCcy, s.LedgerAmt, s.IdemSuffix, s.OrderID, s.ProviderTxID, s.Attempts+1)
 		if ok {
 			recovered++
 		}

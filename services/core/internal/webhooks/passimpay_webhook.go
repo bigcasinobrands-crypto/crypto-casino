@@ -24,6 +24,7 @@ import (
 	"github.com/crypto-casino/core/internal/obs"
 	"github.com/crypto-casino/core/internal/playernotify"
 	"github.com/crypto-casino/core/internal/payments/passimpay"
+	"github.com/crypto-casino/core/internal/wallet"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -173,6 +174,41 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 			return
 		}
 
+		internalCcy := cfg.PassimPaySettlementCurrency()
+		fx, fxErr := wallet.LoadPassimSettlementFX(ctx, pool, intentCcy, intentNetwork, internalCcy)
+		if fxErr != nil {
+			log.Printf("passimpay webhook: fx missing order=%s crypto=%s net=%s internal=%s err=%v", orderID, intentCcy, intentNetwork, internalCcy, fxErr)
+			if det, _ := json.Marshal(map[string]any{
+				"provider_order_id": orderID, "user_id": intentUser,
+				"crypto_symbol": intentCcy, "network": intentNetwork, "internal_currency": internalCcy,
+				"crypto_amount_minor": minor, "err": fxErr.Error(),
+			}); det != nil {
+				_, _ = pool.Exec(ctx, `
+					INSERT INTO reconciliation_alerts (kind, user_id, reference_type, reference_id, details)
+					VALUES ('passimpay_fx_missing', NULLIF($1,'')::uuid, 'payment_deposit_intent', $2, COALESCE($3::jsonb, '{}'::jsonb))
+				`, intentUser, orderID, det)
+			}
+			_, _ = pool.Exec(ctx, `
+				UPDATE payment_deposit_intents
+				SET status = 'HELD_FOR_REVIEW',
+				    metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('hold_reason', 'passimpay_fx_missing', 'held_at', now()),
+				    updated_at = now()
+				WHERE provider_order_id = $1 AND provider = 'passimpay'
+			`, orderID)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true,"held":"fx_not_configured"}`))
+			return
+		}
+		internalMinor, convErr := wallet.CryptoMinorToInternalMinor(minor, fx)
+		if convErr != nil || internalMinor < 1 {
+			log.Printf("passimpay webhook: internal convert order=%s cryptoMinor=%d err=%v", orderID, minor, convErr)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true,"note":"below_internal_dust_threshold"}`))
+			return
+		}
+
 		idemLedger := fmt.Sprintf("passimpay:deposit:fund:%s", fundKey)
 
 		meta := map[string]any{
@@ -185,7 +221,12 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 			"amount_receive_raw":  amtSrc,
 			"deposit_asset":       strings.ToUpper(strings.TrimSpace(intentCcy)),
 			"deposit_intent_method": strings.TrimSpace(intentMethod),
-			"settlement_amount_minor": minor,
+			"crypto_amount_minor": minor,
+			"internal_settlement_currency": internalCcy,
+			"internal_settlement_amount_minor": internalMinor,
+			"fx_internal_per_crypto_num":       fx.Num,
+			"fx_internal_per_crypto_den":       fx.Den,
+			"fx_rate_source":                   fx.Source,
 		}
 		if net := strings.TrimSpace(intentNetwork); net != "" {
 			meta["deposit_network"] = net
@@ -200,12 +241,14 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		// our custody, so an exceeded cap doesn't bounce the deposit on-chain
 		// — it freezes our credit and routes the case to operator review via
 		// reconciliation_alerts. Cooling-off windows take the same path.
-		if rgErr := compliance.CheckDepositAllowed(ctx, pool, intentUser, intentCcy, minor); rgErr != nil {
+		if rgErr := compliance.CheckDepositAllowed(ctx, pool, intentUser, internalCcy, internalMinor); rgErr != nil {
 			alertDetails := map[string]any{
 				"provider_order_id": orderID,
 				"user_id":           intentUser,
-				"amount_minor":      minor,
-				"currency":          intentCcy,
+				"amount_minor":      internalMinor,
+				"currency":          internalCcy,
+				"crypto_amount_minor": minor,
+				"crypto_currency":     strings.ToUpper(strings.TrimSpace(intentCcy)),
 				"reason":            rgErr.Error(),
 			}
 			if alertJSON, _ := json.Marshal(alertDetails); alertJSON != nil {
@@ -238,7 +281,7 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		}
 		defer txn.Rollback(ctx)
 
-		inserted, err := ledger.ApplyCreditTx(ctx, txn, intentUser, strings.ToUpper(intentCcy), "deposit.credit", idemLedger, minor, meta)
+		inserted, err := ledger.ApplyCreditTx(ctx, txn, intentUser, internalCcy, "deposit.credit", idemLedger, internalMinor, meta)
 		if err != nil {
 			log.Printf("passimpay webhook ledger credit: %v", err)
 			http.Error(w, "ledger_failed", http.StatusInternalServerError)
@@ -246,7 +289,7 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		}
 
 		if inserted {
-			_, cErr := ledger.PostDepositInboundClearingTx(ctx, txn, ledger.HouseUserID(cfg), strings.ToUpper(intentCcy), minor, fundKey, meta)
+			_, cErr := ledger.PostDepositInboundClearingTx(ctx, txn, ledger.HouseUserID(cfg), internalCcy, internalMinor, fundKey, meta)
 			if cErr != nil {
 				log.Printf("passimpay webhook house clearing: %v", cErr)
 				http.Error(w, "ledger_clearing_failed", http.StatusInternalServerError)
@@ -280,12 +323,12 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		// fire on first credit (inserted=true) so retries of the same webhook
 		// don't double-alert.
 		if inserted {
-			compliance.EmitAMLLargeDepositAlert(ctx, pool, intentUser, intentCcy, orderID, minor, cfg.KYCLargeDepositThresholdCents)
+			compliance.EmitAMLLargeDepositAlert(ctx, pool, intentUser, internalCcy, orderID, internalMinor, cfg.KYCLargeDepositThresholdCents)
 			compliance.EmitAMLHighVelocityDepositsAlert(ctx, pool, intentUser, orderID, 24, 5)
 		}
 
 		if inserted {
-			if affErr := affiliate.OnDepositCreditedTx(ctx, txn, intentUser, intentCcy, minor, idemLedger); affErr != nil {
+			if affErr := affiliate.OnDepositCreditedTx(ctx, txn, intentUser, internalCcy, internalMinor, idemLedger); affErr != nil {
 				log.Printf("passimpay affiliate referral commission: %v", affErr)
 				http.Error(w, "ledger_affiliate_failed", http.StatusInternalServerError)
 				return
@@ -295,14 +338,22 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		if inserted {
 			_, uerr := txn.Exec(ctx, `
 				UPDATE payment_deposit_intents SET credited_amount_minor = credited_amount_minor + $2,
+					internal_ledger_currency = $3,
+					internal_credited_minor = internal_credited_minor + $4,
+					fx_internal_per_crypto_num = $5,
+					fx_internal_per_crypto_den = $6,
+					fx_rate_source = $7,
+					fx_locked_at = COALESCE(fx_locked_at, now()),
 					status = CASE
+						WHEN requested_amount_minor IS NOT NULL AND credited_amount_minor + $2 > requested_amount_minor THEN 'OVERPAID_CREDITED'
+						WHEN requested_amount_minor IS NOT NULL AND credited_amount_minor + $2 < requested_amount_minor THEN 'UNDERPAID_CREDITED'
 						WHEN requested_amount_minor IS NOT NULL AND credited_amount_minor + $2 >= requested_amount_minor THEN 'CREDITED_FULL'
-						ELSE 'CREDITED_PARTIALLY'
+						ELSE 'CREDITED'
 					END,
-					metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('last_credit_tx_hash', $3),
+					metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('last_credit_tx_hash', $8::text, 'last_internal_credit_minor', $4::bigint),
 					updated_at = now()
 				WHERE provider_order_id = $1 AND provider = 'passimpay'
-			`, orderID, minor, txhash)
+			`, orderID, minor, internalCcy, internalMinor, fx.Num, fx.Den, fx.Source, txhash)
 			if uerr != nil {
 				log.Printf("passimpay intent update: %v", uerr)
 			}
@@ -314,11 +365,21 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 		}
 
 		if inserted {
-			playernotify.DepositCredited(pool, sender, cfg, intentUser, orderID, intentCcy, minor)
+			playernotify.DepositCredited(pool, sender, cfg, intentUser, orderID, internalCcy, internalMinor)
 		}
 
 		if !inserted {
 			log.Printf("passimpay webhook: duplicate idempotency key=%s", idemLedger)
+			_, _ = pool.Exec(ctx, `
+				UPDATE payment_deposit_intents
+				SET duplicate_callback_count = duplicate_callback_count + 1, updated_at = now()
+				WHERE provider_order_id = $1 AND provider = 'passimpay'
+			`, orderID)
+			_, _ = pool.Exec(ctx, `
+				UPDATE payment_deposit_callbacks
+				SET is_duplicate = true, processing_status = 'DUPLICATE', processed_at = now()
+				WHERE provider = 'passimpay' AND provider_event_id = $1
+			`, deliveryUUID)
 		} else {
 			nDep, errCnt := ledger.CountSuccessfulDepositCredits(ctx, pool, intentUser)
 			if errCnt != nil {
@@ -327,8 +388,8 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 			}
 			ev := bonus.PaymentSettled{
 				UserID:             intentUser,
-				AmountMinor:        minor,
-				Currency:           strings.ToUpper(intentCcy),
+				AmountMinor:        internalMinor,
+				Currency:           internalCcy,
 				Channel:            "on_chain_deposit",
 				ProviderResourceID: orderID,
 				DepositIndex:       nDep,

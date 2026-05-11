@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -29,6 +30,18 @@ func BalanceCashTx(ctx context.Context, tx pgx.Tx, userID string) (int64, error)
 		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
 		WHERE user_id = $1::uuid AND pocket = 'cash'
 	`, userID).Scan(&sum)
+	return sum, err
+}
+
+// BalanceCashInCurrencyTx returns the cash pocket balance for a single ledger currency row
+// (e.g. EUR settlement cash without summing unrelated crypto-denominated pockets).
+func BalanceCashInCurrencyTx(ctx context.Context, tx pgx.Tx, userID, currency string) (int64, error) {
+	ccy := strings.ToUpper(strings.TrimSpace(currency))
+	var sum int64
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries
+		WHERE user_id = $1::uuid AND pocket = 'cash' AND currency = $2
+	`, userID, ccy).Scan(&sum)
 	return sum, err
 }
 

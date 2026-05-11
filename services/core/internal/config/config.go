@@ -137,6 +137,9 @@ type Config struct {
 	PassimpayWithdrawalsEnabled   bool
 	PassimpayRequestTimeoutMs     int
 	PassimpayFailClosed           bool // when true (default prod), webhook without valid signature rejects
+	// PassimpayPlayerLedgerCurrency — internal settlement ISO code (e.g. EUR, USD) for PassimPay deposits/withdrawals in the player ledger.
+	// Empty defaults to BlueOceanCurrency. Crypto is only the payment rail; this is the playable wallet currency.
+	PassimpayPlayerLedgerCurrency string
 
 	// LedgerHouseUserID — UUID of synthetic house user for clearing_deposit / clearing_withdrawal_out mirror legs (default migration 00069).
 	LedgerHouseUserID string
@@ -468,6 +471,7 @@ func Load() (Config, error) {
 		appPeek := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 		c.PassimpayFailClosed = appPeek == "production"
 	}
+	c.PassimpayPlayerLedgerCurrency = strings.TrimSpace(os.Getenv("PASSIMPAY_PLAYER_LEDGER_CURRENCY"))
 	c.LedgerHouseUserID = strings.TrimSpace(os.Getenv("LEDGER_HOUSE_USER_ID"))
 
 	c.DataDir = strings.TrimSpace(os.Getenv("DATA_DIR"))
@@ -691,6 +695,21 @@ func (c *Config) PassimPayConfigured() bool {
 		return false
 	}
 	return strings.TrimSpace(c.PassimpaySecretKey) != "" && c.PassimpayPlatformID != 0 && strings.TrimSpace(c.PassimpayAPIBaseURL) != ""
+}
+
+// PassimPaySettlementCurrency returns the internal ledger currency for PassimPay-funded wallet movements
+// (deposits credit and withdrawals lock this currency's cash pocket). Defaults to BlueOceanCurrency.
+func (c *Config) PassimPaySettlementCurrency() string {
+	if c == nil {
+		return "EUR"
+	}
+	if s := strings.TrimSpace(c.PassimpayPlayerLedgerCurrency); s != "" {
+		return strings.ToUpper(s)
+	}
+	if s := strings.TrimSpace(c.BlueOceanCurrency); s != "" {
+		return strings.ToUpper(s)
+	}
+	return "EUR"
 }
 
 // KYCAIDConfigured is true when KYCAID API calls / webhook verification can authenticate.

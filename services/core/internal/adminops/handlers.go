@@ -281,7 +281,11 @@ func (h *Handler) ListBlueOcean(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListPaymentDepositIntents(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 100)
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT id::text, user_id::text, status, COALESCE(currency,''), COALESCE(provider_order_id,''), created_at
+		SELECT id::text, user_id::text, status, COALESCE(currency,''), COALESCE(provider_order_id,''), created_at,
+			COALESCE(internal_ledger_currency,''), COALESCE(internal_credited_minor, 0),
+			COALESCE(credited_amount_minor, 0),
+			COALESCE(fx_internal_per_crypto_num, 0), COALESCE(fx_internal_per_crypto_den, 0),
+			COALESCE(duplicate_callback_count, 0)
 		FROM payment_deposit_intents
 		WHERE provider = 'passimpay'
 		ORDER BY created_at DESC NULLS LAST LIMIT $1
@@ -295,13 +299,25 @@ func (h *Handler) ListPaymentDepositIntents(w http.ResponseWriter, r *http.Reque
 	for rows.Next() {
 		var id, uid, status, ccy, orderID string
 		var ct time.Time
-		if err := rows.Scan(&id, &uid, &status, &ccy, &orderID, &ct); err != nil {
+		var internalCcy string
+		var internalCred, cryptoCred, fxNum, fxDen int64
+		var dupCb int
+		if err := rows.Scan(&id, &uid, &status, &ccy, &orderID, &ct, &internalCcy, &internalCred, &cryptoCred, &fxNum, &fxDen, &dupCb); err != nil {
 			continue
 		}
-		list = append(list, map[string]any{
-			"id": id, "user_id": uid, "status": status, "currency": ccy,
-			"provider_order_id": orderID, "created_at": ct.UTC().Format(time.RFC3339),
-		})
+		row := map[string]any{
+			"id": id, "user_id": uid, "status": status,
+			"crypto_asset":                ccy,
+			"provider_order_id":           orderID,
+			"created_at":                  ct.UTC().Format(time.RFC3339),
+			"internal_ledger_currency":    internalCcy,
+			"internal_credited_minor":     internalCred,
+			"crypto_credited_minor_total": cryptoCred,
+			"fx_internal_per_crypto_num":  fxNum,
+			"fx_internal_per_crypto_den":  fxDen,
+			"duplicate_callback_count":    dupCb,
+		}
+		list = append(list, row)
 	}
 	writeJSON(w, map[string]any{"payments": list})
 }
@@ -309,7 +325,13 @@ func (h *Handler) ListPaymentDepositIntents(w http.ResponseWriter, r *http.Reque
 func (h *Handler) ListPaymentWithdrawals(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 100)
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT withdrawal_id::text, user_id::text, status, amount_minor, currency, created_at
+		SELECT withdrawal_id::text, user_id::text, status,
+			COALESCE(currency,''),
+			COALESCE(internal_ledger_currency,''),
+			COALESCE(internal_amount_minor, amount_minor),
+			COALESCE(amount_minor, 0),
+			COALESCE(crypto_payout_minor, 0),
+			created_at
 		FROM payment_withdrawals
 		WHERE provider = 'passimpay'
 		ORDER BY created_at DESC LIMIT $1
@@ -321,15 +343,21 @@ func (h *Handler) ListPaymentWithdrawals(w http.ResponseWriter, r *http.Request)
 	defer rows.Close()
 	var list []map[string]any
 	for rows.Next() {
-		var id, uid, status, ccy string
-		var amount int64
+		var id, uid, status, payoutCcy, internalCcy string
+		var internalAmt, legacyAmt, cryptoPayout int64
 		var ct time.Time
-		if err := rows.Scan(&id, &uid, &status, &amount, &ccy, &ct); err != nil {
+		if err := rows.Scan(&id, &uid, &status, &payoutCcy, &internalCcy, &internalAmt, &legacyAmt, &cryptoPayout, &ct); err != nil {
 			continue
 		}
 		list = append(list, map[string]any{
-			"id": id, "user_id": uid, "status": status, "amount_minor": amount,
-			"currency": ccy, "created_at": ct.UTC().Format(time.RFC3339),
+			"id":                       id,
+			"user_id":                  uid,
+			"status":                   status,
+			"payout_crypto_asset":      payoutCcy,
+			"internal_ledger_currency": internalCcy,
+			"internal_amount_minor":    internalAmt,
+			"crypto_payout_minor":      cryptoPayout,
+			"created_at":               ct.UTC().Format(time.RFC3339),
 		})
 	}
 	writeJSON(w, map[string]any{"withdrawals": list})

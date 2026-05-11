@@ -18,7 +18,6 @@ import (
 	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/mail"
-	"github.com/crypto-casino/core/internal/market"
 	"github.com/crypto-casino/core/internal/payments/passimpay"
 	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/crypto-casino/core/internal/playerapi"
@@ -40,7 +39,6 @@ func withdrawalPassimpay(
 	r *http.Request,
 	pool *pgxpool.Pool,
 	cfg *config.Config,
-	tickers *market.CryptoTickers,
 	fp *fingerprint.Client,
 	sender mail.Sender,
 ) {
@@ -101,10 +99,11 @@ func withdrawalPassimpay(
 		playerapi.WriteError(w, http.StatusBadRequest, "fingerprint_required", "fingerprint_request_id required for withdrawals")
 		return
 	}
-	ccy := strings.ToUpper(strings.TrimSpace(body.Currency))
-	if ccy == "" {
-		ccy = "USDT"
+	payoutCcy := strings.ToUpper(strings.TrimSpace(body.Currency))
+	if payoutCcy == "" {
+		payoutCcy = "USDT"
 	}
+	internalCcy := cfg.PassimPaySettlementCurrency()
 	network := config.NormalizeDepositNetwork(body.Network)
 	if network == "" {
 		network = "ERC20"
@@ -112,7 +111,7 @@ func withdrawalPassimpay(
 
 	// P9: validate (payment_id, symbol, network) against payment_currencies and
 	// reject when the currency is unknown or has withdrawals disabled.
-	curr, cerr := loadPassimpayCurrency(r.Context(), pool, body.PaymentID, ccy, network)
+	curr, cerr := loadPassimpayCurrency(r.Context(), pool, body.PaymentID, payoutCcy, network)
 	if cerr != nil {
 		if errors.Is(cerr, pgx.ErrNoRows) {
 			playerapi.WriteError(w, http.StatusBadRequest, "unsupported_currency", "no payment_currencies row for this provider/payment_id/symbol/network")
@@ -124,11 +123,6 @@ func withdrawalPassimpay(
 	}
 	if !curr.WithdrawEnabled {
 		playerapi.WriteError(w, http.StatusForbidden, "withdraw_disabled", "withdrawals are disabled for this currency")
-		return
-	}
-	// P7: enforce server-side minimum withdrawal.
-	if curr.MinWithdrawMinor != nil && body.AmountMinor < *curr.MinWithdrawMinor {
-		playerapi.WriteError(w, http.StatusBadRequest, "below_min_withdraw", fmt.Sprintf("minimum withdrawal is %d minor units", *curr.MinWithdrawMinor))
 		return
 	}
 	// SEC-4: address format validation per network. Catches typos before
@@ -171,8 +165,9 @@ func withdrawalPassimpay(
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"withdrawal_id": existingWid,
 			"status":        existingStatus,
-			"amount_minor":  body.AmountMinor,
-			"currency":      ccy,
+			"amount_minor":        body.AmountMinor,
+			"currency":            payoutCcy,
+			"settlement_currency": internalCcy,
 			"idempotent":    true,
 		})
 		return
@@ -191,21 +186,24 @@ func withdrawalPassimpay(
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "user lock failed")
 		return
 	}
-	cashBal, err := ledger.BalanceCashTx(r.Context(), txn, uid)
+	cashBal, err := ledger.BalanceCashInCurrencyTx(r.Context(), txn, uid, internalCcy)
 	if err != nil {
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "balance failed")
 		return
 	}
 	if cashBal < body.AmountMinor {
-		playerapi.WriteError(w, http.StatusBadRequest, "insufficient_balance", "not enough withdrawable cash balance")
+		playerapi.WriteError(w, http.StatusBadRequest, "insufficient_balance", "not enough withdrawable cash balance in "+internalCcy)
 		return
 	}
 
 	meta := map[string]any{
-		"destination":      body.Destination,
-		"withdrawal_local": pid.String(),
-		"payment_provider": "passimpay",
-		"payment_id":       body.PaymentID,
+		"destination":              body.Destination,
+		"withdrawal_local":         pid.String(),
+		"payment_provider":         "passimpay",
+		"payment_id":               body.PaymentID,
+		"internal_settlement_ccy":  internalCcy,
+		"payout_crypto_symbol":     payoutCcy,
+		"payout_network":           network,
 	}
 	rawFP := mergeWithdrawFingerprintMeta(r.Context(), meta, cfg, fp, strings.TrimSpace(body.FingerprintRequestID))
 	if err := fingerprint.MergeTrafficAttributionTx(r.Context(), txn, uid, time.Now().UTC(), meta); err != nil {
@@ -216,11 +214,11 @@ func withdrawalPassimpay(
 	lockCashKey := fmt.Sprintf("passimpay:wdr:lock:cash:%s:%s", pid.String(), idem)
 	lockPendingKey := fmt.Sprintf("passimpay:wdr:lock:pending:%s:%s", pid.String(), idem)
 
-	if _, err := ledger.ApplyDebitTx(r.Context(), txn, uid, ccy, "withdrawal.lock.cash", lockCashKey, body.AmountMinor, meta); err != nil {
+	if _, err := ledger.ApplyDebitTx(r.Context(), txn, uid, internalCcy, "withdrawal.lock.cash", lockCashKey, body.AmountMinor, meta); err != nil {
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "ledger lock cash failed")
 		return
 	}
-	if _, err := ledger.ApplyCreditWithPocketTx(r.Context(), txn, uid, ccy, "withdrawal.lock.pending", lockPendingKey, body.AmountMinor, ledger.PocketPendingWithdrawal, meta); err != nil {
+	if _, err := ledger.ApplyCreditWithPocketTx(r.Context(), txn, uid, internalCcy, "withdrawal.lock.pending", lockPendingKey, body.AmountMinor, ledger.PocketPendingWithdrawal, meta); err != nil {
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "ledger lock pending failed")
 		return
 	}
@@ -258,15 +256,17 @@ func withdrawalPassimpay(
 			id, withdrawal_id, user_id, provider, provider_order_id, provider_payment_id,
 			currency, network, amount_minor, destination_address,
 			destination_address_encrypted, destination_address_hash, destination_address_last4,
+			internal_ledger_currency, internal_amount_minor,
 			status, ledger_lock_idem_suffix
 		) VALUES (
 			$1::uuid, $1::uuid, $2::uuid, 'passimpay', $3, $4,
 			$5, $6, $7, $8,
 			$9, NULLIF($10,''), NULLIF($11,''),
-			'LEDGER_LOCKED', $12
+			$12, $7,
+			'LEDGER_LOCKED', $13
 		)
-	`, pid.String(), uid, idem, payIDDigits, ccy, network, body.AmountMinor, body.Destination,
-		addrCT, addrHash, addrLast4, idem)
+	`, pid.String(), uid, idem, payIDDigits, payoutCcy, network, body.AmountMinor, body.Destination,
+		addrCT, addrHash, addrLast4, internalCcy, idem)
 	if err != nil {
 		log.Printf("payment_withdrawals insert: %v", err)
 		playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "withdrawal row failed")
@@ -292,15 +292,41 @@ func withdrawalPassimpay(
 	// patterns that warrant manual review. These are non-blocking — the
 	// withdrawal still proceeds — they just give the operator a queue to
 	// triage. body.AmountMinor is USD cents.
-	compliance.EmitAMLLargeWithdrawalAlert(r.Context(), pool, uid, ccy, pid.String(), body.AmountMinor, cfg.AMLLargeWithdrawalAlertThresholdCents)
+	compliance.EmitAMLLargeWithdrawalAlert(r.Context(), pool, uid, internalCcy, pid.String(), body.AmountMinor, cfg.AMLLargeWithdrawalAlertThresholdCents)
 	compliance.EmitAMLRapidWithdrawalAlert(r.Context(), pool, uid, pid.String(), 24)
 
-	amtStr, convErr := centsToTokenAmount(ccy, body.AmountMinor, tickers)
-	if convErr != nil {
-		log.Printf("passimpay withdraw: price conversion failed for %s: %v", ccy, convErr)
-		passimpayUnlockFunds(r.Context(), pool, uid, ccy, body.AmountMinor, idem, pid.String())
-		playerapi.WriteError(w, http.StatusBadGateway, "price_unavailable", "cannot derive token amount for "+ccy+"; funds were unlocked")
+	fx, fxErr := LoadPassimSettlementFX(r.Context(), pool, payoutCcy, network, internalCcy)
+	if fxErr != nil {
+		log.Printf("passimpay withdraw: fx lookup failed %s/%s→%s: %v", payoutCcy, network, internalCcy, fxErr)
+		passimpayUnlockFunds(r.Context(), pool, uid, internalCcy, body.AmountMinor, idem, pid.String())
+		playerapi.WriteError(w, http.StatusBadGateway, "fx_unavailable", "withdrawal exchange rate not configured for "+payoutCcy+" — funds were unlocked")
 		return
+	}
+	cryptoPayoutMinor, convErr := InternalMinorToCryptoMinor(body.AmountMinor, fx)
+	if convErr != nil {
+		log.Printf("passimpay withdraw: internal→crypto conv: %v", convErr)
+		passimpayUnlockFunds(r.Context(), pool, uid, internalCcy, body.AmountMinor, idem, pid.String())
+		playerapi.WriteError(w, http.StatusBadRequest, "amount_too_small", "withdrawal amount rounds to zero in "+payoutCcy+" — funds were unlocked")
+		return
+	}
+	if curr.MinWithdrawMinor != nil && cryptoPayoutMinor < *curr.MinWithdrawMinor {
+		passimpayUnlockFunds(r.Context(), pool, uid, internalCcy, body.AmountMinor, idem, pid.String())
+		playerapi.WriteError(w, http.StatusBadRequest, "below_min_withdraw", fmt.Sprintf("minimum crypto payout is %d minor units of %s", *curr.MinWithdrawMinor, payoutCcy))
+		return
+	}
+	tokenDecimals := passimpayTokenDecimals(r.Context(), pool, payIDDigits)
+	amtStr := minorToDecimalString(cryptoPayoutMinor, tokenDecimals)
+	if _, uerr := pool.Exec(r.Context(), `
+		UPDATE payment_withdrawals SET
+			crypto_payout_minor = $2,
+			fx_internal_per_crypto_num = $3,
+			fx_internal_per_crypto_den = $4,
+			fx_rate_source = $5,
+			fx_locked_at = now(),
+			updated_at = now()
+		WHERE provider = 'passimpay' AND provider_order_id = $1
+	`, idem, cryptoPayoutMinor, fx.Num, fx.Den, fx.Source); uerr != nil {
+		log.Printf("passimpay withdraw: fx snapshot update: %v", uerr)
 	}
 
 	// Operator daily payout cap (E-10). Treasury-drain protection: if the
@@ -347,10 +373,11 @@ func withdrawalPassimpay(
 				"withdrawal_id":   pid.String(),
 				"status":          "PENDING_REVIEW",
 				"amount_minor":    body.AmountMinor,
-				"currency":        ccy,
+				"currency":             payoutCcy,
+				"settlement_currency":  internalCcy,
 				"held_for_review": "operator_daily_payout_cap_exceeded",
 			})
-			playernotify.WithdrawalSubmitted(pool, sender, cfg, uid, pid.String(), ccy, body.AmountMinor, "Pending operator review — daily payout volume limit")
+			playernotify.WithdrawalSubmitted(pool, sender, cfg, uid, pid.String(), internalCcy, body.AmountMinor, "Pending operator review — daily payout volume limit")
 			return
 		}
 	}
@@ -366,7 +393,7 @@ func withdrawalPassimpay(
 			msg = truncateForDB(err.Error(), 480)
 		}
 		log.Printf("passimpay withdraw API fail user=%s idem=%s: %v resp=%q", uid, idem, err, txProv)
-		passimpayUnlockFunds(r.Context(), pool, uid, ccy, body.AmountMinor, idem, pid.String())
+		passimpayUnlockFunds(r.Context(), pool, uid, internalCcy, body.AmountMinor, idem, pid.String())
 		_, _ = pool.Exec(r.Context(), `UPDATE payment_withdrawals SET status = 'FAILED', failure_reason = $2 WHERE provider_order_id = $1`, idem, msg)
 		playerapi.WriteError(w, http.StatusBadGateway, "provider_error", "Withdrawal could not be submitted to PassimPay; funds were unlocked")
 		return
@@ -377,7 +404,7 @@ func withdrawalPassimpay(
 		"provider_transaction_id": txProv,
 		"provider_order_id":       idem,
 	}
-	if ferr := finalizePassimpayWithdrawLedgerWithRetry(r.Context(), pool, cfg, uid, ccy, body.AmountMinor, finalPendingKey, idem, metaFin); ferr != nil {
+	if ferr := finalizePassimpayWithdrawLedgerWithRetry(r.Context(), pool, cfg, uid, internalCcy, body.AmountMinor, finalPendingKey, idem, metaFin); ferr != nil {
 		log.Printf("passimpay finalize ledger failed after retries user=%s idem=%s: %v", uid, idem, ferr)
 		msg := truncateForDB(ferr.Error(), 480)
 		_, _ = pool.Exec(r.Context(), `
@@ -391,7 +418,7 @@ func withdrawalPassimpay(
 		UPDATE payment_withdrawals SET provider_transaction_id = $2, status = 'SUBMITTED_TO_PROVIDER', updated_at = now()
 		WHERE provider_order_id = $1`, idem, txProv)
 
-	playernotify.WithdrawalSentToProvider(pool, sender, cfg, uid, pid.String(), ccy, body.AmountMinor)
+	playernotify.WithdrawalSentToProvider(pool, sender, cfg, uid, pid.String(), internalCcy, body.AmountMinor)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -399,7 +426,9 @@ func withdrawalPassimpay(
 		"provider_transaction_id": txProv,
 		"status":                  "SUBMITTED_TO_PROVIDER",
 		"amount_minor":            body.AmountMinor,
-		"currency":                ccy,
+		"settlement_currency":     internalCcy,
+		"currency":                payoutCcy,
+		"crypto_payout_minor":     cryptoPayoutMinor,
 	})
 }
 

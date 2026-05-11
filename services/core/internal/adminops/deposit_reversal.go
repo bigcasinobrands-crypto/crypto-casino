@@ -2,6 +2,7 @@ package adminops
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,13 +91,17 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 	var (
 		intentID, userID, providerOrderID, currency, status string
 		creditedMinor                                       int64
+		internalCredited                                    int64
+		internalLedgerCcy                                   sql.NullString
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT id::text, user_id::text, provider_order_id, currency, status, credited_amount_minor
+		SELECT id::text, user_id::text, provider_order_id, currency, status, credited_amount_minor,
+			COALESCE(internal_credited_minor, 0),
+			internal_ledger_currency
 		FROM payment_deposit_intents
 		WHERE id::text = $1 OR provider_order_id = $1
 		FOR UPDATE
-	`, id).Scan(&intentID, &userID, &providerOrderID, &currency, &status, &creditedMinor)
+	`, id).Scan(&intentID, &userID, &providerOrderID, &currency, &status, &creditedMinor, &internalCredited, &internalLedgerCcy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		adminapi.WriteError(w, http.StatusNotFound, "deposit_not_found", "no deposit matches that id")
 		return
@@ -105,6 +110,14 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 		adminapi.WriteError(w, http.StatusInternalServerError, "deposit_lookup_failed", err.Error())
 		return
 	}
+
+	revCcy := strings.ToUpper(strings.TrimSpace(currency))
+	revAmt := creditedMinor
+	if internalCredited > 0 && internalLedgerCcy.Valid && strings.TrimSpace(internalLedgerCcy.String) != "" {
+		revCcy = strings.ToUpper(strings.TrimSpace(internalLedgerCcy.String))
+		revAmt = internalCredited
+	}
+
 	if strings.EqualFold(status, "REVERSED") {
 		// Idempotent for repeated admin clicks.
 		w.Header().Set("Content-Type", "application/json")
@@ -112,17 +125,18 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 			"id":            intentID,
 			"status":        "REVERSED",
 			"already":       true,
-			"amount_minor":  creditedMinor,
-			"currency":      currency,
+			"amount_minor":  revAmt,
+			"currency":      revCcy,
 		})
 		return
 	}
-	if creditedMinor <= 0 {
+	if creditedMinor <= 0 && internalCredited <= 0 {
 		adminapi.WriteError(w, http.StatusConflict, "nothing_to_reverse", "deposit has no credited amount")
 		return
 	}
 
-	ccy := strings.ToUpper(strings.TrimSpace(currency))
+	ccy := revCcy
+	reverseAmt := revAmt
 
 	if clawback {
 		// (a) Reverse the player's cash credit. We use ApplyCreditWithPocketTx
@@ -138,7 +152,7 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 			"reverses_intent":   intentID,
 			"provider_order_id": providerOrderID,
 		}
-		if _, err := ledger.ApplyCreditWithPocketTx(ctx, tx, userID, ccy, ledger.EntryTypeDepositReversal, idemPlayer, -creditedMinor, ledger.PocketCash, meta); err != nil {
+		if _, err := ledger.ApplyCreditWithPocketTx(ctx, tx, userID, ccy, ledger.EntryTypeDepositReversal, idemPlayer, -reverseAmt, ledger.PocketCash, meta); err != nil {
 			adminapi.WriteError(w, http.StatusInternalServerError, "reversal_player_leg_failed", err.Error())
 			return
 		}
@@ -147,7 +161,7 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 		//     here with a negative entry under the same entry type so the
 		//     fund-segregation report stays balanced.
 		idemHouse := fmt.Sprintf("deposit.reversal.clearing:%s", providerOrderID)
-		if _, err := ledger.ApplyCreditWithPocketTx(ctx, tx, ledger.HouseUserID(h.Cfg), ccy, ledger.EntryTypeDepositReversal, idemHouse, -creditedMinor, ledger.PocketClearingDeposit, meta); err != nil {
+		if _, err := ledger.ApplyCreditWithPocketTx(ctx, tx, ledger.HouseUserID(h.Cfg), ccy, ledger.EntryTypeDepositReversal, idemHouse, -reverseAmt, ledger.PocketClearingDeposit, meta); err != nil {
 			adminapi.WriteError(w, http.StatusInternalServerError, "reversal_house_leg_failed", err.Error())
 			return
 		}
@@ -170,7 +184,7 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 		"intent_id":         intentID,
 		"provider_order_id": providerOrderID,
 		"user_id":           userID,
-		"amount_minor":      creditedMinor,
+		"amount_minor":      reverseAmt,
 		"currency":          ccy,
 		"reason":            reason,
 		"actor_staff_id":    staffID,
@@ -187,7 +201,7 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 	auditMeta, _ := json.Marshal(map[string]any{
 		"intent_id":      intentID,
 		"reason":         reason,
-		"amount_minor":   creditedMinor,
+		"amount_minor":   reverseAmt,
 		"currency":       ccy,
 		"clawback":       clawback,
 		"provider_order": providerOrderID,
@@ -216,7 +230,7 @@ func (h *Handler) ReverseDeposit(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id":           intentID,
 		"status":       "REVERSED",
-		"amount_minor": creditedMinor,
+		"amount_minor": reverseAmt,
 		"currency":     ccy,
 		"clawback":     clawback,
 	})

@@ -52,3 +52,23 @@ func loadPassimpayCurrency(ctx context.Context, pool *pgxpool.Pool, paymentID in
 	}
 	return &c, nil
 }
+
+// passimpayTokenDecimals returns payment_currencies.decimals for a PassimPay provider_payment_id string.
+func passimpayTokenDecimals(ctx context.Context, pool *pgxpool.Pool, providerPaymentID string) int {
+	if pool == nil {
+		return 8
+	}
+	pid := strings.TrimSpace(providerPaymentID)
+	if pid == "" {
+		return 8
+	}
+	var d int
+	if err := pool.QueryRow(ctx, `
+		SELECT decimals FROM payment_currencies
+		WHERE provider = 'passimpay' AND provider_payment_id = $1
+		ORDER BY id ASC LIMIT 1
+	`, pid).Scan(&d); err != nil || d < 0 || d > 18 {
+		return 8
+	}
+	return d
+}

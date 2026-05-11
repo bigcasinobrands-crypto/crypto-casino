@@ -24,8 +24,12 @@ func RunFraudChecks(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config,
 
 	// 1. Single withdrawal amount limit
 	if cfg.WithdrawMaxSingleCents > 0 && amountCents > cfg.WithdrawMaxSingleCents {
+		ccy := "settlement"
+		if cfg != nil {
+			ccy = cfg.PassimPaySettlementCurrency()
+		}
 		return FraudCheckResult{
-			Reason: fmt.Sprintf("Exceeds maximum single withdrawal of $%.2f", float64(cfg.WithdrawMaxSingleCents)/100),
+			Reason: fmt.Sprintf("Exceeds maximum single withdrawal for %s wallet", ccy),
 		}
 	}
 
@@ -67,7 +71,7 @@ func RunFraudChecks(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config,
 	if cfg.WithdrawDailyLimitCents > 0 {
 		var totalToday int64
 		err := pool.QueryRow(ctx, `
-			SELECT COALESCE(SUM(amount_minor), 0) FROM payment_withdrawals
+			SELECT COALESCE(SUM(COALESCE(internal_amount_minor, amount_minor)), 0) FROM payment_withdrawals
 			WHERE provider = 'passimpay' AND user_id = $1::uuid AND created_at > NOW() - INTERVAL '24 hours'
 			AND status NOT IN ('FAILED')
 		`, userID).Scan(&totalToday)
@@ -75,11 +79,11 @@ func RunFraudChecks(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config,
 			remaining := cfg.WithdrawDailyLimitCents - totalToday
 			if remaining <= 0 {
 				return FraudCheckResult{
-					Reason: fmt.Sprintf("Daily withdrawal limit of $%.2f reached", float64(cfg.WithdrawDailyLimitCents)/100),
+					Reason: "Daily withdrawal limit reached",
 				}
 			}
 			return FraudCheckResult{
-				Reason: fmt.Sprintf("Exceeds daily limit; you can withdraw up to $%.2f more today", float64(remaining)/100),
+				Reason: fmt.Sprintf("Exceeds daily withdrawal limit; remaining internal minor units today: %d", remaining),
 			}
 		}
 	}

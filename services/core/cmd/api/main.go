@@ -464,7 +464,7 @@ func main() {
 				})
 				r.Get("/games/{gameID}/blueocean-info", gameSrv.BlueOceanGameInfoHandler())
 				r.Get("/wallet/balance", wallet.BalanceHandler(pool, &cfg))
-				r.Get("/wallet/balances", wallet.BalancesHandler(pool))
+				r.Get("/wallet/balances", wallet.BalancesHandler(pool, &cfg))
 				r.Get("/wallet/balance/stream", wallet.BalanceStreamHandler(pool, &cfg))
 				r.Get("/wallet/wagering/stream", wallet.WageringStreamHandler(pool))
 				r.Get("/wallet/bonuses", wallet.BonusesHandler(pool))

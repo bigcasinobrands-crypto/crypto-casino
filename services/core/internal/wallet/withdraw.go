@@ -40,7 +40,7 @@ func WithdrawHandler(pool *pgxpool.Pool, cfg *config.Config, tickers *market.Cry
 			return
 		}
 		if cfg != nil && cfg.UsesPassimpay() {
-			withdrawalPassimpay(w, r, pool, cfg, tickers, fp, sender)
+			withdrawalPassimpay(w, r, pool, cfg, fp, sender)
 			return
 		}
 		playerapi.WriteError(w, http.StatusServiceUnavailable, "passimpay_required",

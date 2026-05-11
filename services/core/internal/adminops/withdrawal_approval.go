@@ -19,8 +19,11 @@ import (
 
 func (h *Handler) ListPendingWithdrawals(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.Pool.Query(r.Context(), `
-		SELECT w.withdrawal_id::text, w.user_id::text, COALESCE(u.email,''), w.amount_minor,
-		       COALESCE(w.currency,''), w.status, w.created_at,
+		SELECT w.withdrawal_id::text, w.user_id::text, COALESCE(u.email,''),
+		       COALESCE(w.internal_amount_minor, w.amount_minor),
+		       COALESCE(w.internal_ledger_currency,''),
+		       COALESCE(w.currency,''),
+		       w.status, w.created_at,
 		       COALESCE(w.admin_decision,''), w.reviewed_at
 		FROM payment_withdrawals w
 		LEFT JOIN users u ON u.id = w.user_id
@@ -36,16 +39,17 @@ func (h *Handler) ListPendingWithdrawals(w http.ResponseWriter, r *http.Request)
 
 	var list []map[string]any
 	for rows.Next() {
-		var id, uid, email, ccy, status, decision string
+		var id, uid, email, internalCcy, payoutCcy, status, decision string
 		var amount int64
 		var ct time.Time
 		var reviewedAt *time.Time
-		if err := rows.Scan(&id, &uid, &email, &amount, &ccy, &status, &ct, &decision, &reviewedAt); err != nil {
+		if err := rows.Scan(&id, &uid, &email, &amount, &internalCcy, &payoutCcy, &status, &ct, &decision, &reviewedAt); err != nil {
 			continue
 		}
 		row := map[string]any{
 			"id": id, "user_id": uid, "email": email,
-			"amount_minor": amount, "currency": ccy, "status": status,
+			"amount_minor": amount, "settlement_currency": internalCcy, "payout_crypto_asset": payoutCcy,
+			"status": status,
 			"created_at": ct.UTC().Format(time.RFC3339),
 		}
 		if decision != "" {
@@ -161,20 +165,25 @@ func (h *Handler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		userID         string
-		ccy            string
+		payoutCcy      string
 		amountMinor    int64
+		ledgerCcy      string
+		ledgerAmt      int64
 		status         string
 		decision       *string
 		providerOrder  string
 		ledgerLockIdem string
 	)
 	err = tx.QueryRow(ctx, `
-		SELECT user_id::text, COALESCE(currency,''), amount_minor, status,
+		SELECT user_id::text, COALESCE(currency,''), amount_minor,
+		       COALESCE(NULLIF(TRIM(internal_ledger_currency),''), currency, ''),
+		       COALESCE(internal_amount_minor, amount_minor),
+		       status,
 		       admin_decision, COALESCE(provider_order_id,''), COALESCE(ledger_lock_idem_suffix,'')
 		FROM payment_withdrawals
 		WHERE provider = 'passimpay' AND withdrawal_id::text = $1
 		FOR UPDATE
-	`, wdID).Scan(&userID, &ccy, &amountMinor, &status, &decision, &providerOrder, &ledgerLockIdem)
+	`, wdID).Scan(&userID, &payoutCcy, &amountMinor, &ledgerCcy, &ledgerAmt, &status, &decision, &providerOrder, &ledgerLockIdem)
 	if errors.Is(err, pgx.ErrNoRows) {
 		adminapi.WriteError(w, http.StatusNotFound, "not_found", "withdrawal not found")
 		return
@@ -216,18 +225,19 @@ func (h *Handler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
 	if idemForUnlock == "" {
 		idemForUnlock = providerOrder
 	}
-	if err := wallet.PassimpayUnlockFundsErr(ctx, h.Pool, userID, ccy, amountMinor, idemForUnlock, wdID); err != nil {
+	if err := wallet.PassimpayUnlockFundsErr(ctx, h.Pool, userID, ledgerCcy, ledgerAmt, idemForUnlock, wdID); err != nil {
 		slog.ErrorContext(ctx, "withdrawal_reject_unlock_failed", "wd_id", wdID, "user_id", userID, "err", err)
 		insertReconciliationAlert(ctx, h.Pool, "withdrawal_reject_unlock_failed", userID, "payment_withdrawals", wdID, map[string]any{
-			"amount_minor": amountMinor,
-			"currency":     ccy,
+			"amount_minor": ledgerAmt,
+			"currency":     ledgerCcy,
+			"payout_asset": payoutCcy,
 			"err":          err.Error(),
 		})
 		adminapi.WriteError(w, http.StatusInternalServerError, "ledger_unlock_failed", "withdrawal marked rejected but ledger unlock failed; ops alerted")
 		return
 	}
 
-	auditMeta, _ := json.Marshal(map[string]any{"reason": body.Reason, "amount_minor": amountMinor, "currency": ccy})
+	auditMeta, _ := json.Marshal(map[string]any{"reason": body.Reason, "amount_minor": ledgerAmt, "currency": ledgerCcy, "payout_asset": payoutCcy})
 	if _, err := h.Pool.Exec(ctx, `
 		INSERT INTO admin_audit_log (staff_user_id, action, target_type, target_id, meta)
 		VALUES ($1::uuid, 'withdrawal.reject', 'payment_withdrawals', $2, $3)
@@ -236,7 +246,7 @@ func (h *Handler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = adminapi.ConsumeStepUpForAction(ctx, h.Pool, "withdrawal.reject")
 
-	playernotify.WithdrawalRejected(h.Pool, h.Mail, h.Cfg, userID, wdID, ccy, amountMinor, body.Reason)
+	playernotify.WithdrawalRejected(h.Pool, h.Mail, h.Cfg, userID, wdID, ledgerCcy, ledgerAmt, body.Reason)
 
 	writeJSON(w, map[string]any{"ok": true, "withdrawal_id": wdID, "admin_decision": "rejected", "status": "REJECTED_BY_ADMIN"})
 }

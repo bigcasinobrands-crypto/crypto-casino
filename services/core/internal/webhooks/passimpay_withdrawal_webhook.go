@@ -87,19 +87,25 @@ func handlePassimpayWithdrawalCallback(
 	}
 
 	var (
-		userID      string
-		ccy         string
-		amountMinor int64
-		status      string
-		idemSuffix  string
+		userID         string
+		payoutCcy      string
+		ledgerCcy      string
+		ledgerAmt      int64
+		status         string
+		idemSuffix     string
 	)
 	row := pool.QueryRow(ctx, `
-		SELECT user_id::text, COALESCE(currency,''), amount_minor, status, COALESCE(ledger_lock_idem_suffix,'')
+		SELECT user_id::text,
+			COALESCE(currency,''),
+			COALESCE(NULLIF(TRIM(internal_ledger_currency),''), currency, ''),
+			COALESCE(internal_amount_minor, amount_minor),
+			status,
+			COALESCE(ledger_lock_idem_suffix,'')
 		FROM payment_withdrawals
 		WHERE provider = 'passimpay' AND provider_order_id = $1
 		LIMIT 1
 	`, orderID)
-	if scanErr := row.Scan(&userID, &ccy, &amountMinor, &status, &idemSuffix); scanErr != nil {
+	if scanErr := row.Scan(&userID, &payoutCcy, &ledgerCcy, &ledgerAmt, &status, &idemSuffix); scanErr != nil {
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			log.Printf("passimpay withdraw webhook: orphan orderId=%s", orderID)
 			markProcessed(ctx, pool, dedupID, "ORPHAN", raw)
@@ -125,7 +131,7 @@ func handlePassimpayWithdrawalCallback(
 		// settle again. Idempotent.
 		if !isWithdrawalAlreadyTerminal(status) {
 			if wdID, ok := updateWithdrawalToCompleted(ctx, pool, orderID, txhash, providerTxID, confirmations); ok {
-				playernotify.WithdrawalCompleted(pool, sender, cfg, userID, wdID, ccy, amountMinor)
+				playernotify.WithdrawalCompleted(pool, sender, cfg, userID, wdID, ledgerCcy, ledgerAmt)
 			}
 		} else {
 			log.Printf("passimpay withdraw webhook: COMPLETED arrived for already-terminal status=%s order=%s", status, orderID)
@@ -134,7 +140,7 @@ func handlePassimpayWithdrawalCallback(
 		// PassimPay just confirmed funds left the platform, so withholding the
 		// clearing entry would understate house liability. finalize is idempotent.
 		if status == "LEDGER_SETTLE_FAILED" {
-			retryFinalizeAfterSettle(ctx, pool, cfg, userID, ccy, amountMinor, idemSuffix, orderID)
+			retryFinalizeAfterSettle(ctx, pool, cfg, userID, ledgerCcy, ledgerAmt, idemSuffix, orderID)
 		}
 		// Provider fee on the withdrawal leg (E-6). PassimPay reports the
 		// outbound network fee on the success callback. Recording it as a
@@ -142,10 +148,10 @@ func handlePassimpayWithdrawalCallback(
 		// from NGR even though it never touched the player's wallet. The
 		// idempotency key is per-withdrawal so duplicate success callbacks
 		// don't double-charge.
-		if feeMinor := extractPassimpayWithdrawalFeeMinor(ctx, pool, m, ccy); feeMinor > 0 {
+		if feeMinor := extractPassimpayWithdrawalFeeMinor(ctx, pool, m, payoutCcy); feeMinor > 0 {
 			feeIdem := fmt.Sprintf("passimpay:withdrawal:fee:%s", orderID)
 			if _, fErr := ledger.RecordProviderFee(ctx, pool, ledger.HouseUserID(cfg),
-				ccy, "passimpay", feeIdem, feeMinor, map[string]any{
+				payoutCcy, "passimpay", feeIdem, feeMinor, map[string]any{
 					"order_id":   orderID,
 					"tx_hash":    txhash,
 					"direction":  "withdrawal",
@@ -169,10 +175,10 @@ func handlePassimpayWithdrawalCallback(
 		if failureReason == "" {
 			failureReason = "passimpay_withdraw_failed"
 		}
-		if err := compensateAfterTerminalFail(ctx, pool, cfg, userID, ccy, amountMinor, orderID); err != nil {
+		if err := compensateAfterTerminalFail(ctx, pool, cfg, userID, ledgerCcy, ledgerAmt, orderID); err != nil {
 			log.Printf("passimpay withdraw webhook: compensation failed order=%s: %v", orderID, err)
 			insertReconciliationAlertCore(ctx, pool, "withdrawal_terminal_fail_compensation_failed", userID, "payment_withdrawals", orderID, map[string]any{
-				"amount_minor": amountMinor, "currency": ccy, "err": err.Error(),
+				"amount_minor": ledgerAmt, "currency": ledgerCcy, "err": err.Error(),
 			})
 			http.Error(w, "compensation_failed", http.StatusInternalServerError)
 			return
@@ -193,7 +199,7 @@ func handlePassimpayWithdrawalCallback(
 			log.Printf("passimpay withdraw webhook: FAILED_BY_PROVIDER update order=%s: %v", orderID, err)
 		}
 		if strings.TrimSpace(failedWD) != "" {
-			playernotify.WithdrawalProviderFailed(pool, sender, cfg, userID, failedWD, ccy, amountMinor, failureReason)
+			playernotify.WithdrawalProviderFailed(pool, sender, cfg, userID, failedWD, ledgerCcy, ledgerAmt, failureReason)
 		}
 		markProcessed(ctx, pool, dedupID, "COMPENSATED", raw)
 
