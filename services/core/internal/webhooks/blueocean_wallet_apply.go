@@ -290,7 +290,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 
 	case "rollback":
-		debitRowID, debitStoredTxn, debitSuffix, debitRound, debitAmtMinor, debitHasAmt, splitCash, splitBonus, hasDebitSnap, debitRolled, dErr := boLockOriginalDebitWalletRow(ctx, tx, userID, keyRemote, txnWire)
+		debitRowID, debitStoredTxn, debitSuffix, debitRound, debitAmtMinor, debitHasAmt, splitCash, splitBonus, hasDebitSnap, debitRolled, dErr := boLockOriginalDebitWalletRow(ctx, tx, userID, keyRemote, remote, txnWire)
 		if dErr != nil {
 			return nil, 0, 500, "", false, false, dErr
 		}
@@ -299,7 +299,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		var creditAmtMinor int64
 		var creditHasAmt, creditRolled bool
 		if debitRowID == 0 {
-			creditRowID, creditStoredTxn, creditRound, creditAmtMinor, creditHasAmt, creditRolled, dErr = boLockOriginalCreditWalletRow(ctx, tx, userID, keyRemote, txnWire)
+			creditRowID, creditStoredTxn, creditRound, creditAmtMinor, creditHasAmt, creditRolled, dErr = boLockOriginalCreditWalletRow(ctx, tx, userID, keyRemote, remote, txnWire)
 			if dErr != nil {
 				return nil, 0, 500, "", false, false, dErr
 			}
@@ -504,8 +504,8 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 				return rep, pb, st, m, false, false, nil
 			}
 
-			stakeLedger := boLedgerTxnIDForDebitRow(creditStoredTxn, creditRound, ledgerUsesRound)
-			creditKeys := boCreditScanKeysAggregate(userID, keyRemote, altRemote, creditStoredTxn, stakeLedger)
+			stakeLedgerRow := boLedgerTxnIDForDebitRow(creditStoredTxn, creditRound, ledgerUsesRound)
+			creditKeys := boCreditScanKeysAggregateMerged(userID, keyRemote, altRemote, creditStoredTxn, stakeLedgerRow, txnWire, ledgerTxn)
 			sumC, rerr := sumLedgerKeysINForUser(ctx, tx, userID, creditKeys)
 			if rerr != nil {
 				return nil, 0, 500, "", false, false, rerr
@@ -522,7 +522,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 				return rep, pb, st, m, false, false, nil
 			}
 
-			idemRev := fmt.Sprintf("blueocean:%s:%s:rollback_credit:%s", userID, keyRemote, stakeLedger)
+			idemRev := fmt.Sprintf("blueocean:%s:%s:rollback_credit:%s", userID, keyRemote, stakeLedgerRow)
 			if _, err := ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, idemRev, reverseAmt, meta); err != nil {
 				return nil, 0, 500, "", false, false, err
 			}

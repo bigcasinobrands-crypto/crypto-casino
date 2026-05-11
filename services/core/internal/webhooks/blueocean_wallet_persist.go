@@ -132,7 +132,7 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 // boLockOriginalDebitWalletRow finds a stored debit row for rollback, scoped to the player.
 // When debit_ledger_idem_suffix / split columns were persisted at debit time, rollbacks use those
 // exclusively so ledger reversal cannot miss the original idempotency keys.
-func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyRemote, txnWire string) (
+func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyRemote, requestRemote, txnWire string) (
 	rowID int64,
 	storedTxnID string,
 	debitLedgerSuffix string,
@@ -147,6 +147,7 @@ func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyR
 ) {
 	userUUID = strings.TrimSpace(userUUID)
 	keyRemote = strings.TrimSpace(keyRemote)
+	requestRemote = strings.TrimSpace(requestRemote)
 	variants := boWalletTxnIDLookupVariants(txnWire)
 	if len(variants) == 0 {
 		return 0, "", "", "", 0, false, 0, 0, false, false, nil
@@ -162,12 +163,18 @@ func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyR
 		       debit_from_cash_minor, debit_from_bonus_minor,
 		       rolled_back
 		FROM blueocean_wallet_transactions
-		WHERE provider = $1 AND remote_id = $2 AND action = 'debit' AND user_id = $3::uuid
+		WHERE provider = $1 AND user_id = $3::uuid AND action = 'debit'
 		  AND transaction_id = ANY($4::text[])
+		  AND (
+		    remote_id = $2
+		    OR (NULLIF(trim(both from $5::text), '') IS NOT NULL AND remote_id = $5)
+		    OR lower(replace(remote_id, '-', '')) = lower(replace($2::text, '-', ''))
+		    OR (NULLIF(trim(both from $5::text), '') IS NOT NULL AND lower(replace(remote_id, '-', '')) = lower(replace($5::text, '-', '')))
+		  )
 		ORDER BY id ASC
 		LIMIT 1
 		FOR UPDATE
-	`, boSeamlessProvider, keyRemote, userUUID, variants).Scan(
+	`, boSeamlessProvider, keyRemote, userUUID, variants, requestRemote).Scan(
 		&rowID, &storedTxnID, &suffix, &round, &amt, &cashSplit, &bonusSplit, &rolledBack,
 	)
 	if errors.Is(qErr, pgx.ErrNoRows) {
@@ -204,7 +211,7 @@ func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyR
 }
 
 // boLockOriginalCreditWalletRow finds a stored credit row for rollback (reverse win), scoped by remote_id + user_id + transaction_id wire variants.
-func boLockOriginalCreditWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyRemote, txnWire string) (
+func boLockOriginalCreditWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyRemote, requestRemote, txnWire string) (
 	rowID int64,
 	storedTxnID string,
 	roundID string,
@@ -215,6 +222,7 @@ func boLockOriginalCreditWalletRow(ctx context.Context, tx pgx.Tx, userUUID, key
 ) {
 	userUUID = strings.TrimSpace(userUUID)
 	keyRemote = strings.TrimSpace(keyRemote)
+	requestRemote = strings.TrimSpace(requestRemote)
 	variants := boWalletTxnIDLookupVariants(txnWire)
 	if len(variants) == 0 {
 		return 0, "", "", 0, false, false, nil
@@ -224,12 +232,18 @@ func boLockOriginalCreditWalletRow(ctx context.Context, tx pgx.Tx, userUUID, key
 	qErr := tx.QueryRow(ctx, `
 		SELECT id, transaction_id, round_id, amount_minor, rolled_back
 		FROM blueocean_wallet_transactions
-		WHERE provider = $1 AND remote_id = $2 AND action = 'credit' AND user_id = $3::uuid
+		WHERE provider = $1 AND user_id = $3::uuid AND action = 'credit'
 		  AND transaction_id = ANY($4::text[])
+		  AND (
+		    remote_id = $2
+		    OR (NULLIF(trim(both from $5::text), '') IS NOT NULL AND remote_id = $5)
+		    OR lower(replace(remote_id, '-', '')) = lower(replace($2::text, '-', ''))
+		    OR (NULLIF(trim(both from $5::text), '') IS NOT NULL AND lower(replace(remote_id, '-', '')) = lower(replace($5::text, '-', '')))
+		  )
 		ORDER BY id ASC
 		LIMIT 1
 		FOR UPDATE
-	`, boSeamlessProvider, keyRemote, userUUID, variants).Scan(&rowID, &storedTxnID, &round, &amt, &rolledBack)
+	`, boSeamlessProvider, keyRemote, userUUID, variants, requestRemote).Scan(&rowID, &storedTxnID, &round, &amt, &rolledBack)
 	if errors.Is(qErr, pgx.ErrNoRows) {
 		return 0, "", "", 0, false, false, nil
 	}
