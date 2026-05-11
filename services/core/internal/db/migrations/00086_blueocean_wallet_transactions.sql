@@ -1,3 +1,4 @@
+-- +goose Up
 -- BlueOcean GameHub seamless wallet: one row per (provider, remote_id, action, transaction_id).
 -- Stores exact JSON responses for operator retries (duplicate callbacks must replay byte-identical bodies).
 
@@ -31,3 +32,8 @@ CREATE INDEX idx_blueocean_wallet_tx_user_time ON blueocean_wallet_transactions 
 CREATE INDEX idx_blueocean_wallet_tx_remote ON blueocean_wallet_transactions (remote_id, created_at DESC);
 
 COMMENT ON TABLE blueocean_wallet_transactions IS 'BlueOcean seamless wallet idempotency + exact response replay (financial audit).';
+
+-- +goose Down
+DROP INDEX IF EXISTS idx_blueocean_wallet_tx_remote;
+DROP INDEX IF EXISTS idx_blueocean_wallet_tx_user_time;
+DROP TABLE IF EXISTS blueocean_wallet_transactions;
