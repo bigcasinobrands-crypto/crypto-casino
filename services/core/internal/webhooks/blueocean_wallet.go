@@ -238,6 +238,12 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				SessionID:     firstNonEmptyCI(q, "session_id", "sessionid"),
 				GamesessionID: firstNonEmptyCI(q, "gamesession_id", "gamesessionid"),
 			}
+			if err := verifyBlueOceanRemoteMatchesLink(ctx, pool, userID, remote); err != nil {
+				log.Printf("blueocean wallet: %v", err)
+				sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)
+				writeBOWalletJSON(w, 403, sum, "REMOTE_ID_MISMATCH")
+				return
+			}
 			replayBody, sum, st, _, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
@@ -495,6 +501,29 @@ func resolveBlueOceanRemoteUser(ctx context.Context, pool *pgxpool.Pool, remote 
 		return "", err
 	}
 	return uid, nil
+}
+
+// verifyBlueOceanRemoteMatchesLink ensures the callback remote_id matches the canonical link for this user
+// (hyphen/case-insensitive). When no link row exists, resolution may have matched users.id — allow that path.
+func verifyBlueOceanRemoteMatchesLink(ctx context.Context, pool *pgxpool.Pool, userID, requestRemote string) error {
+	var linkID string
+	err := pool.QueryRow(ctx, `
+		SELECT remote_player_id FROM blueocean_player_links WHERE user_id = $1::uuid LIMIT 1
+	`, userID).Scan(&linkID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	linkID = strings.TrimSpace(linkID)
+	if linkID == "" {
+		return nil
+	}
+	if boWalletRemoteNorm(linkID) != boWalletRemoteNorm(requestRemote) {
+		return fmt.Errorf("remote_id %q does not match linked remote %q for user %s", requestRemote, linkID, userID)
+	}
+	return nil
 }
 
 func debitMagnitudeByIdemForUser(ctx context.Context, tx pgx.Tx, userID, idem string) int64 {
@@ -993,7 +1022,6 @@ func verifyBlueOceanWalletKey(r *http.Request, merged url.Values, salt, wantKey 
 	}
 	return false
 }
-
 
 type blueOceanQueryPair struct {
 	key, val string

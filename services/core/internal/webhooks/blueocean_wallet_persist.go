@@ -56,8 +56,8 @@ func boMarshalWalletResponseJSON(status int, balanceMinor int64, msg string) ([]
 	return buf.Bytes(), nil
 }
 
-// boWalletTxAcquire locks or creates the idempotency row for (provider, remote_id, action, transaction_id).
-// remote_id must match the canonical link id (keyRemote) used across callbacks for this player.
+// boWalletTxAcquire locks or creates the idempotency row for (provider, user_id, action, transaction_id).
+// remote_id on the row is the canonical link id (keyRemote) for audit; uniqueness is per internal user.
 // response_json is filled in the same DB transaction as ledger effects so concurrent replays never
 // observe a committed ledger row with an empty stored response.
 func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action, txnWire, ccy string, meta boSeamlessPersistMeta) (rowID int64, replay []byte, replayBal int64, replaySt int, err error) {
@@ -91,11 +91,11 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 		qErr := tx.QueryRow(ctx, `
 			SELECT id, response_json, status_code, balance_after_minor
 			FROM blueocean_wallet_transactions
-			WHERE provider = $1 AND remote_id = $2 AND action = $3 AND transaction_id = ANY($4::text[])
+			WHERE provider = $1 AND user_id = $2::uuid AND action = $3 AND transaction_id = ANY($4::text[])
 			ORDER BY CASE WHEN transaction_id = $5 THEN 0 ELSE 1 END, id ASC
 			LIMIT 1
 			FOR UPDATE
-		`, boSeamlessProvider, keyRemote, action, lookupIDs, txnWire).Scan(&rowID, &raw, &st, &bal)
+		`, boSeamlessProvider, userUUID, action, lookupIDs, txnWire).Scan(&rowID, &raw, &st, &bal)
 		if qErr == nil {
 			if len(raw) > 0 && st.Valid && bal.Valid {
 				return rowID, raw, bal.Int64, int(st.Int64), nil
@@ -205,24 +205,25 @@ func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyR
 
 // boFindCompletedRollbackReplay returns an earlier rollback callback response for idempotent replays
 // when the debit row is already marked rolled_back (e.g. legacy state) or transaction_id spelling differs.
-func boFindCompletedRollbackReplay(ctx context.Context, tx pgx.Tx, keyRemote, txnWire string) (rep []byte, repBal int64, repSt int, ok bool, err error) {
+func boFindCompletedRollbackReplay(ctx context.Context, tx pgx.Tx, userUUID, txnWire string) (rep []byte, repBal int64, repSt int, ok bool, err error) {
 	variants := boWalletTxnIDLookupVariants(txnWire)
 	if len(variants) == 0 {
 		return nil, 0, 0, false, nil
 	}
+	userUUID = strings.TrimSpace(userUUID)
 	var raw []byte
 	var st sql.NullInt64
 	var bal sql.NullInt64
 	qErr := tx.QueryRow(ctx, `
 		SELECT response_json, status_code, balance_after_minor
 		FROM blueocean_wallet_transactions
-		WHERE provider = $1 AND remote_id = $2 AND action = 'rollback'
+		WHERE provider = $1 AND user_id = $2::uuid AND action = 'rollback'
 		  AND transaction_id = ANY($3::text[])
 		  AND response_json IS NOT NULL AND response_json != 'null'::jsonb
 		  AND status_code IS NOT NULL AND balance_after_minor IS NOT NULL
 		ORDER BY id DESC
 		LIMIT 1
-	`, boSeamlessProvider, keyRemote, variants).Scan(&raw, &st, &bal)
+	`, boSeamlessProvider, userUUID, variants).Scan(&raw, &st, &bal)
 	if errors.Is(qErr, pgx.ErrNoRows) {
 		return nil, 0, 0, false, nil
 	}

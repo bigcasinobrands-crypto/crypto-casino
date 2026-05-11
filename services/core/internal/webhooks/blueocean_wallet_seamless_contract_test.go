@@ -211,6 +211,120 @@ func TestBlueOceanAllowsSameTransactionIDForDifferentPlayers(t *testing.T) {
 	}
 }
 
+// TestBlueocean_two_players_same_transaction_id_process_independently locks idempotency to (user_id, action, transaction_id)
+// so two players can share the same BlueOcean transaction_id and round_id without balance collision.
+func TestBlueocean_two_players_same_transaction_id_process_independently(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	mk := func(remote string, seedMinor int64) (uid string) {
+		uid = uuid.New().String()
+		email := "bo2p-" + remote + "-" + uid[:6] + "@e2e.local"
+		if _, err := p.Exec(ctx, `
+			INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+			VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+		`, uid, email, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "two-player:"+remote+":"+uid, seedMinor, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, remote); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+			_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+			_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+			_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+		})
+		return uid
+	}
+	uidA := mk("A", 101_500) // 1015.00 EUR display
+	uidB := mk("B", 100_000) // 1000.00 EUR — independent wallet
+	salt := "reg-two-players-same-txn"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	txn := "shared-financial-txn-99"
+	gameID := "g-shared"
+	roundID := "r-shared"
+	debit := func(rid string) (bal, st string) {
+		q := boSignGET(salt, map[string]string{
+			"action": "debit", "remote_id": rid, "transaction_id": txn, "round_id": roundID,
+			"amount": "5", "currency": "EUR", "game_id": gameID,
+		})
+		req := httptest.NewRequest(http.MethodGet, "/?"+q, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("debit remote=%s HTTP %d %s", rid, w.Code, w.Body.String())
+		}
+		var o struct {
+			Status  string `json:"status"`
+			Balance string `json:"balance"`
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(w.Body.Bytes()), &o); err != nil {
+			t.Fatal(err)
+		}
+		return o.Balance, o.Status
+	}
+	balA, stA := debit("A")
+	balB, stB := debit("B")
+	if stA != "200" || stB != "200" {
+		t.Fatalf("status want 200 got %q and %q", stA, stB)
+	}
+	if balA != "1010" {
+		t.Fatalf("player A balance want 1010 got %q", balA)
+	}
+	if balB != "995" {
+		t.Fatalf("player B balance want 995 got %q (should not see 0 from wrong-wallet idempotency)", balB)
+	}
+	var nStore int
+	if err := p.QueryRow(ctx, `
+		SELECT COUNT(*) FROM blueocean_wallet_transactions
+		WHERE provider = 'blueocean' AND transaction_id = $1 AND action = 'debit'
+	`, txn).Scan(&nStore); err != nil {
+		t.Fatal(err)
+	}
+	if nStore != 2 {
+		t.Fatalf("blueocean_wallet_transactions debit rows want 2 got %d", nStore)
+	}
+	for _, pair := range []struct {
+		uid  string
+		rid  string
+		want int
+	}{
+		{uidA, "A", 1},
+		{uidB, "B", 1},
+	} {
+		var c int
+		if err := p.QueryRow(ctx, `
+			SELECT COUNT(*) FROM blueocean_wallet_transactions
+			WHERE provider = 'blueocean' AND user_id = $1::uuid AND remote_id = $2 AND action = 'debit' AND transaction_id = $3
+		`, pair.uid, pair.rid, txn).Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		if c != pair.want {
+			t.Fatalf("wallet row for user %s remote %s want %d got %d", pair.uid, pair.rid, pair.want, c)
+		}
+		var leg int
+		if err := p.QueryRow(ctx, `
+			SELECT COUNT(*) FROM ledger_entries
+			WHERE user_id = $1::uuid AND entry_type = 'game.debit'
+		`, pair.uid).Scan(&leg); err != nil {
+			t.Fatal(err)
+		}
+		if leg != 1 {
+			t.Fatalf("ledger game.debit for %s want 1 got %d", pair.rid, leg)
+		}
+	}
+}
+
 // TestBlueOceanDuplicateDebitSamePlayerReturnsOriginalResponse (regression: replay same debit is idempotent per player.)
 func TestBlueOceanDuplicateDebitSamePlayerReturnsOriginalResponse(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)

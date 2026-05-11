@@ -46,9 +46,9 @@ func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redi
 }
 
 func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
-	replay []byte, postBal int64, status int, msg string, notifyWageringProgress bool, 	replayed bool, err error,
+	replay []byte, postBal int64, status int, msg string, notifyWageringProgress bool, replayed bool, err error,
 ) {
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return nil, 0, 500, "", false, false, err
 	}
@@ -59,18 +59,10 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 	}()
 
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE`, userID); err != nil {
-		return nil, 0, 500, "", false, false, err
-	}
 	keyRemote := boWalletKeyRemoteTx(ctx, tx, userID, remote)
 	altRemote := strings.TrimSpace(remote)
 	if altRemote != "" && boWalletRemoteNorm(altRemote) == boWalletRemoteNorm(keyRemote) {
 		altRemote = ""
-	}
-
-	meta := map[string]any{"remote_id": remote, "txn": txnWire, "game_id": gameID}
-	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, userID, time.Now().UTC(), meta); err != nil {
-		return nil, 0, 500, "", false, false, err
 	}
 
 	var boRowID int64
@@ -91,6 +83,8 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			slog.Info("blueocean wallet replay",
 				slog.String("action", action),
 				slog.String("remote_id", remote),
+				slog.String("resolved_remote_key", keyRemote),
+				slog.String("user_id", userID),
 				slog.String("transaction_id", txnWire),
 				slog.Bool("duplicate_detected", true),
 			)
@@ -100,6 +94,15 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			committed = true
 			return rep, repBal, repSt, "", false, true, nil
 		}
+	}
+
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE`, userID); err != nil {
+		return nil, 0, 500, "", false, false, err
+	}
+
+	meta := map[string]any{"remote_id": remote, "txn": txnWire, "game_id": gameID}
+	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, userID, time.Now().UTC(), meta); err != nil {
+		return nil, 0, 500, "", false, false, err
 	}
 
 	bal, err := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
@@ -308,7 +311,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 
 		if debitRolled {
-			rep, rb, rs, ok, rerr := boFindCompletedRollbackReplay(ctx, tx, keyRemote, txnWire)
+			rep, rb, rs, ok, rerr := boFindCompletedRollbackReplay(ctx, tx, userID, txnWire)
 			if rerr != nil {
 				return nil, 0, 500, "", false, false, rerr
 			}
