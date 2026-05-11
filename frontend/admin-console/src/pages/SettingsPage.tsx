@@ -12,6 +12,7 @@ import { CountryPicker } from '../components/admin-ui/CountryPicker'
 import type { CountryRegion } from '../lib/countryIsoList'
 import { COUNTRY_OPTIONS, flagEmoji } from '../lib/countryIsoList'
 import { PLAYER_BRANDING_DEFAULT_LOGO_PREVIEW } from '../lib/playerBrandLogo'
+import { clearBrowserSiteData } from '../lib/clearBrowserSiteData'
 
 // ---------------------------------------------------------------------------
 // Shared styles
@@ -234,6 +235,7 @@ function SettingsSystemOutline() {
     { href: '#settings-bonus-worker', label: 'Bonus worker' },
     { href: '#settings-integrations', label: 'Integration status' },
     { href: '#settings-payments', label: 'Payment flags' },
+    { href: '#settings-clear-browser-data', label: 'Clear browser data' },
   ]
   return (
     <nav aria-label="System settings sections" className="mb-3">
@@ -507,9 +509,65 @@ function SystemControlsTab({
           <BonusWorkerReadonlyPanel apiFetch={apiFetch} />
           <IntegrationStatusPanel settings={settings} />
           <PaymentFlagsPanel apiFetch={apiFetch} isSuper={isSuper} />
+          {isSuper ? <ClearBrowserDataPanel /> : null}
         </div>
       </div>
     </>
+  )
+}
+
+function playerUiOriginForAdmin(): string {
+  const env = import.meta.env as { VITE_PLAYER_UI_ORIGIN?: string; VITE_PLAYER_APP_ORIGIN?: string }
+  const o = (env.VITE_PLAYER_UI_ORIGIN || env.VITE_PLAYER_APP_ORIGIN || '').trim()
+  return o.replace(/\/+$/, '')
+}
+
+function ClearBrowserDataPanel() {
+  const { logout } = useAdminAuth()
+  const [busy, setBusy] = useState(false)
+
+  const run = async () => {
+    const msg =
+      'Clear all data stored in this browser for the admin console and (if configured) open the player site to clear its data too? ' +
+      'You will be signed out here. Server-side data is not deleted.'
+    if (!window.confirm(msg)) return
+
+    setBusy(true)
+    const origin = playerUiOriginForAdmin()
+    if (origin) {
+      window.open(`${origin}/client-storage-reset`, '_blank', 'noopener,noreferrer')
+    } else {
+      toast.message('Player URL not configured', {
+        description:
+          'Set VITE_PLAYER_UI_ORIGIN or VITE_PLAYER_APP_ORIGIN on this admin build to clear the player app from here as well.',
+      })
+    }
+
+    try {
+      await logout()
+    } catch {
+      /* still wipe local storage */
+    }
+    clearBrowserSiteData()
+    toast.success('Admin browser data cleared. Sign in again when ready.')
+    setBusy(false)
+  }
+
+  return (
+    <Section
+      id="settings-clear-browser-data"
+      title="Clear browser data"
+      desc="Removes localStorage/sessionStorage for this admin origin and opens the player app reset page in a new tab when the player origin is configured. Use for stuck sessions or local QA resets."
+      defaultOpen={false}
+    >
+      <p className="small text-secondary mb-3">
+        This does not remove httpOnly cookies or anything in the database. Pop-up blockers must allow the player tab to
+        open for a full dual clear.
+      </p>
+      <button type="button" className={dangerBtn} disabled={busy} onClick={() => void run()}>
+        {busy ? 'Working…' : 'Clear admin & open player reset'}
+      </button>
+    </Section>
   )
 }
 
