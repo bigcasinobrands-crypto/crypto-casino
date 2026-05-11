@@ -61,8 +61,8 @@ export function useWalletDisplayFiat(settlementCurrency: string | null | undefin
 
   /**
    * Always format with the player's chosen `displayFiat` so $ / £ / € matches the selector.
-   * Conversion uses Frankfurter when available; until then non-zero amounts are ledger-major
-   * (symbol still updates; refines once rates load).
+   * Conversion blends Frankfurter (ECB) rates with static fallbacks so tabs never show the same
+   * figure with only the symbol changed when FX is slow or blocked.
    */
   const formatMinor = useCallback(
     (minor: number | null | undefined, languageTag: string): string => {

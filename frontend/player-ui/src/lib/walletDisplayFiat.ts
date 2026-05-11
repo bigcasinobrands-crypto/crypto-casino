@@ -23,14 +23,31 @@ export function writeStoredDisplayFiat(ccy: WalletDisplayFiat): void {
 }
 
 /**
- * Frankfurter only lists ISO fiat. Stablecoin-settled ledgers are pegged to USD for display FX.
+ * Frankfurter only lists ISO fiat. Stablecoin-settled ledgers are pegged to USD for display FX
+ * (USDT/USDC are treated as USD notionally; on-chain spread between them is not modeled here).
  */
 export function frankfurterQuoteBase(settlementCurrency: string): 'EUR' | 'USD' | 'GBP' {
   const u = settlementCurrency.trim().toUpperCase()
-  if (u === 'USDT' || u === 'USDC' || u === 'USD') return 'USD'
+  if (u === 'USDT' || u === 'USDC' || u === 'USD' || u === 'DAI' || u === 'BUSD') return 'USD'
   if (u === 'GBP') return 'GBP'
   if (u === 'EUR') return 'EUR'
   return 'EUR'
+}
+
+/**
+ * Approximate multipliers when Frankfurter is unreachable: 1 unit of `quoteBase` → target fiat major.
+ * Live API rates merge on top (see `convertLedgerMinorToDisplayMajor`). Values are ballpark ECB-style;
+ * they prevent EUR/USD/GBP tabs from showing the same number with only the symbol changing.
+ */
+export function fallbackRatesForQuoteBase(quoteBase: 'EUR' | 'USD' | 'GBP'): Record<WalletDisplayFiat, number> {
+  switch (quoteBase) {
+    case 'USD':
+      return { USD: 1, EUR: 0.92, GBP: 0.79 }
+    case 'GBP':
+      return { GBP: 1, EUR: 1.17, USD: 1.27 }
+    default:
+      return { EUR: 1, USD: 1.09, GBP: 0.86 }
+  }
 }
 
 type RateCacheEntry = { rates: Record<string, number>; fetchedAt: number }
@@ -113,9 +130,12 @@ export function convertLedgerMinorToDisplayMajor(params: {
   if (params.displayFiat === quoteBase) {
     return majorSettlement
   }
-  if (!params.rateToDisplay) return majorSettlement
-  const mult = params.rateToDisplay[params.displayFiat]
-  if (mult == null || !Number.isFinite(mult)) return majorSettlement
+  const baseFallback = fallbackRatesForQuoteBase(quoteBase)
+  const merged: Record<string, number> = { ...baseFallback, ...(params.rateToDisplay ?? {}) }
+  const mult = merged[params.displayFiat]
+  if (mult == null || !Number.isFinite(mult)) {
+    return majorSettlement
+  }
   return majorSettlement * mult
 }
 
