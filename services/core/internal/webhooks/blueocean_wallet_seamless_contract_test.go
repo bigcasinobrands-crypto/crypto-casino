@@ -108,17 +108,22 @@ func TestBlueOceanDuplicateCreditReplaysExactJSON(t *testing.T) {
 	}
 }
 
-func TestBlueOceanTwoPlayersSameTransactionIDIndependent(t *testing.T) {
+// TestBlueOceanAllowsSameTransactionIDForDifferentPlayers (regression: BlueOcean reuses transaction_id per table round;
+// idempotency must be per player, not global on transaction_id.)
+func TestBlueOceanAllowsSameTransactionIDForDifferentPlayers(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)
 	defer cl()
 	ctx := context.Background()
-	mkUser := func(prefix string) (rid string) {
-		uid := uuid.New().String()
+	mkPlayer := func(prefix string, seedMinor int64) (uid, rid string) {
+		uid = uuid.New().String()
 		email := prefix + uid + "@e2e.local"
 		if _, err := p.Exec(ctx, `
 			INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
 			VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
 		`, uid, email, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", prefix+":seed:"+uid, seedMinor, nil); err != nil {
 			t.Fatal(err)
 		}
 		r := prefix + strings.ReplaceAll(uid, "-", "")[:10]
@@ -129,21 +134,23 @@ func TestBlueOceanTwoPlayersSameTransactionIDIndependent(t *testing.T) {
 			_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
 			_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
 		})
-		return r
+		return uid, r
 	}
-	rid1 := mkUser("p1")
-	rid2 := mkUser("p2")
-	salt := "contract-2pl"
+	uidA, ridA := mkPlayer("boa", 100_000) // 1000.00 EUR display
+	uidB, ridB := mkPlayer("bob", 29_000)  // 290.00 EUR display
+	salt := "contract-2pl-same-txn"
 	cfg := &config.Config{
 		BlueOceanCurrency: "EUR", BlueOceanWalletSalt: salt,
 		BlueOceanWalletIntegerAmountIsMajorUnits: true, BlueOceanWalletSkipBonusBetGuards: true,
 	}
 	h := HandleBlueOceanWallet(p, cfg, nil)
 	txn := "same-table-txn-42"
-	debit := func(rid string) []byte {
+	gameID := "181796"
+	roundID := "r-shared-1"
+	debit := func(rid string) (bal string) {
 		q := boSignGET(salt, map[string]string{
-			"action": "debit", "remote_id": rid, "transaction_id": txn, "round_id": "r1",
-			"amount": "5", "currency": "EUR", "game_id": "181796",
+			"action": "debit", "remote_id": rid, "transaction_id": txn, "round_id": roundID,
+			"amount": "5", "currency": "EUR", "game_id": gameID,
 		})
 		req := httptest.NewRequest(http.MethodGet, "/?"+q, nil)
 		w := httptest.NewRecorder()
@@ -151,21 +158,121 @@ func TestBlueOceanTwoPlayersSameTransactionIDIndependent(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("debit %s HTTP %d %s", rid, w.Code, w.Body.String())
 		}
-		return bytes.TrimSpace(w.Body.Bytes())
+		var o struct {
+			Status  string `json:"status"`
+			Balance string `json:"balance"`
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(w.Body.Bytes()), &o); err != nil {
+			t.Fatal(err)
+		}
+		if o.Status != "200" {
+			t.Fatalf("status want 200 got %q body=%s", o.Status, w.Body.String())
+		}
+		return o.Balance
 	}
-	b1 := debit(rid1)
-	b2 := debit(rid2)
-	if bytes.Equal(b1, b2) {
-		t.Fatal("expected distinct JSON responses for two players")
+	balA := debit(ridA)
+	balB := debit(ridB)
+	if balA != "995" {
+		t.Fatalf("player A balance want 995 got %q", balA)
 	}
-	var o1, o2 struct {
+	if balB != "285" {
+		t.Fatalf("player B balance want 285 got %q", balB)
+	}
+	var nStore int
+	if err := p.QueryRow(ctx, `
+		SELECT COUNT(*) FROM blueocean_wallet_transactions
+		WHERE provider = 'blueocean' AND transaction_id = $1 AND action = 'debit'
+	`, txn).Scan(&nStore); err != nil {
+		t.Fatal(err)
+	}
+	if nStore != 2 {
+		t.Fatalf("blueocean_wallet_transactions rows want 2 got %d", nStore)
+	}
+	countDebits := func(uid string) int {
+		var c int
+		_ = p.QueryRow(ctx, `
+			SELECT COUNT(*) FROM ledger_entries
+			WHERE user_id = $1::uuid AND entry_type = 'game.debit'
+		`, uid).Scan(&c)
+		return c
+	}
+	if a, b := countDebits(uidA), countDebits(uidB); a != 1 || b != 1 {
+		t.Fatalf("game.debit rows want 1 each got A=%d B=%d", a, b)
+	}
+}
+
+// TestBlueOceanDuplicateDebitSamePlayerReturnsOriginalResponse (regression: replay same debit is idempotent per player.)
+func TestBlueOceanDuplicateDebitSamePlayerReturnsOriginalResponse(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-dupd-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "dupd-seed:"+uid, 100_000, nil); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	rid := "dupd-" + strings.ReplaceAll(uid, "-", "")[:10]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+
+	salt := "contract-dup-debit-same-player"
+	cfg := &config.Config{
+		BlueOceanCurrency: "EUR", BlueOceanWalletSalt: salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true, BlueOceanWalletSkipBonusBetGuards: true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	txn := "idem-txn-X"
+	q := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": txn,
+		"amount": "5", "currency": "EUR", "game_id": "1",
+	})
+	var first []byte
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/?"+q, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("iter %d HTTP %d %s", i, w.Code, w.Body.String())
+		}
+		b := bytes.TrimSpace(w.Body.Bytes())
+		if i == 0 {
+			first = b
+			continue
+		}
+		if !bytes.Equal(first, b) {
+			t.Fatalf("duplicate replay body differs:\nfirst %s\nsecond %s", first, b)
+		}
+	}
+	var o struct {
 		Status  string `json:"status"`
 		Balance string `json:"balance"`
 	}
-	_ = json.Unmarshal(b1, &o1)
-	_ = json.Unmarshal(b2, &o2)
-	if o1.Status != "200" || o2.Status != "200" {
-		t.Fatalf("status: %v %v", o1, o2)
+	if err := json.Unmarshal(first, &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Balance != "995" {
+		t.Fatalf("balance want 995 got %q", o.Balance)
+	}
+	var nDebit int
+	if err := p.QueryRow(ctx, `
+		SELECT COUNT(*) FROM ledger_entries
+		WHERE user_id = $1::uuid AND entry_type = 'game.debit'
+	`, uid).Scan(&nDebit); err != nil {
+		t.Fatal(err)
+	}
+	if nDebit != 1 {
+		t.Fatalf("game.debit rows want 1 got %d", nDebit)
 	}
 }
 

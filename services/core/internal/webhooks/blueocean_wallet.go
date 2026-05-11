@@ -482,11 +482,15 @@ func resolveBlueOceanRemoteUser(ctx context.Context, pool *pgxpool.Pool, remote 
 	return uid, nil
 }
 
-func debitMagnitudeByIdem(ctx context.Context, tx pgx.Tx, idem string) int64 {
+func debitMagnitudeByIdemForUser(ctx context.Context, tx pgx.Tx, userID, idem string) int64 {
+	uid := strings.TrimSpace(userID)
+	if uid == "" || strings.TrimSpace(idem) == "" {
+		return 0
+	}
 	var sum int64
 	_ = tx.QueryRow(ctx, `
-		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries WHERE idempotency_key = $1
-	`, idem).Scan(&sum)
+		SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries WHERE user_id = $1::uuid AND idempotency_key = $2
+	`, uid, idem).Scan(&sum)
 	if sum >= 0 {
 		return 0
 	}
@@ -511,14 +515,24 @@ func boWalletKeyRemoteTx(ctx context.Context, tx pgx.Tx, userID, requestRemote s
 	return strings.TrimSpace(requestRemote)
 }
 
-// boGameDebitRollbackScanKeys lists idempotency keys that participate in debit net / bet rollback sums.
-// Includes legacy 2-segment keys (remote:txn) and user-scoped 3-segment keys (userID:remote:txn) because
-// idempotency_key is UNIQUE globally — two players can otherwise share remote+txn in edge configs and collide.
+// boGameDebitRollbackScanKeys lists idempotency keys for debit net / rollback sums for one user.
+// Primary keys are blueocean:{userUUID}:{remote}:... so two players can share the same provider
+// transaction_id without ledger collisions. Legacy keys remain for older rows.
 func boGameDebitRollbackScanKeys(userID, remote, txnID string) []string {
 	remote = strings.TrimSpace(remote)
 	txnID = strings.TrimSpace(txnID)
 	if remote == "" || txnID == "" {
 		return nil
+	}
+	uid := strings.TrimSpace(userID)
+	var head []string
+	if uid != "" {
+		head = []string{
+			fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", uid, remote, txnID),
+			fmt.Sprintf("blueocean:%s:%s:debit:%s:bonus", uid, remote, txnID),
+			fmt.Sprintf("blueocean:%s:%s:rollback:%s:cash", uid, remote, txnID),
+			fmt.Sprintf("blueocean:%s:%s:rollback:%s:bonus", uid, remote, txnID),
+		}
 	}
 	leg := []string{
 		fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, txnID),
@@ -530,9 +544,8 @@ func boGameDebitRollbackScanKeys(userID, remote, txnID string) []string {
 		fmt.Sprintf("blueocean:%s:rollback:%s:cash", remote, txnID),
 		fmt.Sprintf("blueocean:%s:rollback:%s:bonus", remote, txnID),
 	}
-	uid := strings.TrimSpace(userID)
 	if uid == "" {
-		return dedupeBOLedgerKeys(leg)
+		return dedupeBOLedgerKeys(append(head, leg...))
 	}
 	v2 := []string{
 		fmt.Sprintf("bo:game:debit:cash:%s:%s:%s", uid, remote, txnID),
@@ -540,7 +553,7 @@ func boGameDebitRollbackScanKeys(userID, remote, txnID string) []string {
 		fmt.Sprintf("bo:game:rollback:cash:%s:%s:%s", uid, remote, txnID),
 		fmt.Sprintf("bo:game:rollback:bonus:%s:%s:%s", uid, remote, txnID),
 	}
-	return dedupeBOLedgerKeys(append(leg, v2...))
+	return dedupeBOLedgerKeys(append(append(head, leg...), v2...))
 }
 
 func boCreditScanKeys(userID, remote, tid string) []string {
@@ -552,11 +565,15 @@ func boCreditScanKeys(userID, remote, tid string) []string {
 	leg := fmt.Sprintf("bo:game:credit:%s:%s", remote, tid)
 	neo := fmt.Sprintf("blueocean:%s:credit:%s", remote, tid)
 	uid := strings.TrimSpace(userID)
+	var head []string
+	if uid != "" {
+		head = []string{fmt.Sprintf("blueocean:%s:%s:credit:%s", uid, remote, tid)}
+	}
 	if uid == "" {
-		return dedupeBOLedgerKeys([]string{neo, leg})
+		return dedupeBOLedgerKeys(append(head, neo, leg))
 	}
 	v2 := fmt.Sprintf("bo:game:credit:%s:%s:%s", uid, remote, tid)
-	return dedupeBOLedgerKeys([]string{neo, v2, leg})
+	return dedupeBOLedgerKeys(append(head, neo, v2, leg))
 }
 
 func boWinRollbackScanKeys(userID, remote, tid string) []string {
@@ -568,11 +585,15 @@ func boWinRollbackScanKeys(userID, remote, tid string) []string {
 	leg := fmt.Sprintf("bo:game:rollback:win:%s:%s", remote, tid)
 	neo := fmt.Sprintf("blueocean:%s:rollback_win:%s", remote, tid)
 	uid := strings.TrimSpace(userID)
+	var head []string
+	if uid != "" {
+		head = []string{fmt.Sprintf("blueocean:%s:%s:rollback_win:%s", uid, remote, tid)}
+	}
 	if uid == "" {
-		return dedupeBOLedgerKeys([]string{neo, leg})
+		return dedupeBOLedgerKeys(append(head, neo, leg))
 	}
 	v2 := fmt.Sprintf("bo:game:rollback:win:%s:%s:%s", uid, remote, tid)
-	return dedupeBOLedgerKeys([]string{neo, v2, leg})
+	return dedupeBOLedgerKeys(append(head, neo, v2, leg))
 }
 
 func dedupeBOLedgerKeys(keys []string) []string {
@@ -590,6 +611,24 @@ func dedupeBOLedgerKeys(keys []string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+func sumLedgerKeysINForUser(ctx context.Context, tx pgx.Tx, userID string, keys []string) (int64, error) {
+	uid := strings.TrimSpace(userID)
+	if len(keys) == 0 || uid == "" {
+		return 0, nil
+	}
+	args := make([]any, 1+len(keys))
+	args[0] = uid
+	ph := make([]string, len(keys))
+	for i, k := range keys {
+		args[i+1] = k
+		ph[i] = fmt.Sprintf("$%d", i+2)
+	}
+	q := `SELECT COALESCE(SUM(amount_minor), 0)::bigint FROM ledger_entries WHERE user_id = $1::uuid AND idempotency_key IN (` + strings.Join(ph, ",") + `)`
+	var sum int64
+	err := tx.QueryRow(ctx, q, args...).Scan(&sum)
+	return sum, err
 }
 
 func sumLedgerKeysIN(ctx context.Context, tx pgx.Tx, keys []string) (int64, error) {
@@ -740,7 +779,7 @@ func boTxnNetLedgerMinor(ctx context.Context, tx pgx.Tx, userID, keyRemote, altR
 		return boGameDebitRollbackScanKeys(userID, remote, tid)
 	}
 	keys := aggregateKeysForRemotes(keyRemote, altRemote, boLedgerTxnIDVariants(txnWire, ledgerTxn), fn)
-	return sumLedgerKeysIN(ctx, tx, keys)
+	return sumLedgerKeysINForUser(ctx, tx, userID, keys)
 }
 
 func boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn string) []string {
@@ -767,25 +806,33 @@ func maxDebitMagBonusCash(ctx context.Context, tx pgx.Tx, userID, keyRemote, alt
 			cLeg := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, tid)
 			bNeo := fmt.Sprintf("blueocean:%s:debit:%s:bonus", remote, tid)
 			cNeo := fmt.Sprintf("blueocean:%s:debit:%s:cash", remote, tid)
-			if b := debitMagnitudeByIdem(ctx, tx, bLeg); b > bonus {
+			if b := debitMagnitudeByIdemForUser(ctx, tx, uid, bLeg); b > bonus {
 				bonus = b
 			}
-			if c := debitMagnitudeByIdem(ctx, tx, cLeg); c > cash {
+			if c := debitMagnitudeByIdemForUser(ctx, tx, uid, cLeg); c > cash {
 				cash = c
 			}
-			if b := debitMagnitudeByIdem(ctx, tx, bNeo); b > bonus {
+			if b := debitMagnitudeByIdemForUser(ctx, tx, uid, bNeo); b > bonus {
 				bonus = b
 			}
-			if c := debitMagnitudeByIdem(ctx, tx, cNeo); c > cash {
+			if c := debitMagnitudeByIdemForUser(ctx, tx, uid, cNeo); c > cash {
 				cash = c
 			}
 			if uid != "" {
-				bV2 := fmt.Sprintf("bo:game:debit:bonus:%s:%s:%s", uid, remote, tid)
-				cV2 := fmt.Sprintf("bo:game:debit:cash:%s:%s:%s", uid, remote, tid)
-				if b := debitMagnitudeByIdem(ctx, tx, bV2); b > bonus {
+				bNeoU := fmt.Sprintf("blueocean:%s:%s:debit:%s:bonus", uid, remote, tid)
+				cNeoU := fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", uid, remote, tid)
+				if b := debitMagnitudeByIdemForUser(ctx, tx, uid, bNeoU); b > bonus {
 					bonus = b
 				}
-				if c := debitMagnitudeByIdem(ctx, tx, cV2); c > cash {
+				if c := debitMagnitudeByIdemForUser(ctx, tx, uid, cNeoU); c > cash {
+					cash = c
+				}
+				bV2 := fmt.Sprintf("bo:game:debit:bonus:%s:%s:%s", uid, remote, tid)
+				cV2 := fmt.Sprintf("bo:game:debit:cash:%s:%s:%s", uid, remote, tid)
+				if b := debitMagnitudeByIdemForUser(ctx, tx, uid, bV2); b > bonus {
+					bonus = b
+				}
+				if c := debitMagnitudeByIdemForUser(ctx, tx, uid, cV2); c > cash {
 					cash = c
 				}
 			}

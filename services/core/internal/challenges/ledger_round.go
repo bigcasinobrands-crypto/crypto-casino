@@ -26,14 +26,15 @@ func ResolveBlueOceanRound(ctx context.Context, pool *pgxpool.Pool, userID, remo
 	}
 	creditLegacy := fmt.Sprintf("bo:game:credit:%s:%s", remoteID, txnID)
 	creditNeo := fmt.Sprintf("blueocean:%s:credit:%s", remoteID, txnID)
+	creditNeoU := fmt.Sprintf("blueocean:%s:%s:credit:%s", userID, remoteID, txnID)
 	err = pool.QueryRow(ctx, `
 		SELECT COALESCE(le.amount_minor, 0)::bigint
 		FROM ledger_entries le
 		WHERE le.user_id = $1::uuid
 		  AND le.entry_type = 'game.credit'
-		  AND le.idempotency_key IN ($2, $3)
+		  AND le.idempotency_key IN ($2, $3, $4)
 		LIMIT 1
-	`, userID, creditLegacy, creditNeo).Scan(&winMinor)
+	`, userID, creditLegacy, creditNeo, creditNeoU).Scan(&winMinor)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return stakeMinor, 0, nil

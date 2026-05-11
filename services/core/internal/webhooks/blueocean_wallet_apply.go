@@ -198,14 +198,14 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			fromCash = amount - fromBonus
 		}
 		if fromCash > 0 {
-			idemC := fmt.Sprintf("blueocean:%s:debit:%s:cash", keyRemote, ledgerTxn)
+			idemC := fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", userID, keyRemote, ledgerTxn)
 			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta)
 			if err != nil {
 				return nil, 0, 500, "", false, false, err
 			}
 		}
 		if fromBonus > 0 {
-			idemB := fmt.Sprintf("blueocean:%s:debit:%s:bonus", keyRemote, ledgerTxn)
+			idemB := fmt.Sprintf("blueocean:%s:%s:debit:%s:bonus", userID, keyRemote, ledgerTxn)
 			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
 			if err != nil {
 				return nil, 0, 500, "", false, false, err
@@ -237,11 +237,11 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			}
 			return rep, pb, st, m, false, false, nil
 		}
-		idemP := fmt.Sprintf("blueocean:%s:credit:%s", keyRemote, ledgerTxn)
+		idemP := fmt.Sprintf("blueocean:%s:%s:credit:%s", userID, keyRemote, ledgerTxn)
 		if _, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idemP, amount, meta); err != nil {
 			return nil, 0, 500, "", false, false, err
 		}
-		sumC, sErr := sumLedgerKeysIN(ctx, tx, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
+		sumC, sErr := sumLedgerKeysINForUser(ctx, tx, userID, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
 		if sErr != nil {
 			return nil, 0, 500, "", false, false, sErr
 		}
@@ -250,13 +250,13 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 
 	case "rollback":
-		winRBKeyP := fmt.Sprintf("blueocean:%s:rollback_win:%s", keyRemote, ledgerTxn)
+		winRBKeyP := fmt.Sprintf("blueocean:%s:%s:rollback_win:%s", userID, keyRemote, ledgerTxn)
 
-		creditSum, rerr := sumLedgerKeysIN(ctx, tx, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
+		creditSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
 		if rerr != nil {
 			return nil, 0, 500, "", false, false, rerr
 		}
-		winReversedSum, rerr := sumLedgerKeysIN(ctx, tx, boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
+		winReversedSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
 		if rerr != nil {
 			return nil, 0, 500, "", false, false, rerr
 		}
@@ -275,7 +275,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if fb+fc > 0 {
 			var wrRollbackStake int64
 			if fb > 0 {
-				idemRB := fmt.Sprintf("blueocean:%s:rollback:%s:bonus", keyRemote, ledgerTxn)
+				idemRB := fmt.Sprintf("blueocean:%s:%s:rollback:%s:bonus", userID, keyRemote, ledgerTxn)
 				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
 				if rerr != nil {
 					return nil, 0, 500, "", false, false, rerr
@@ -288,7 +288,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 				}
 			}
 			if fc > 0 {
-				idemRC := fmt.Sprintf("blueocean:%s:rollback:%s:cash", keyRemote, ledgerTxn)
+				idemRC := fmt.Sprintf("blueocean:%s:%s:rollback:%s:cash", userID, keyRemote, ledgerTxn)
 				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
 				if rerr != nil {
 					return nil, 0, 500, "", false, false, rerr

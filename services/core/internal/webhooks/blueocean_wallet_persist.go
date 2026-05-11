@@ -52,8 +52,9 @@ func boMarshalWalletResponseJSON(status int, balanceMinor int64, msg string) ([]
 	return buf.Bytes(), nil
 }
 
-// boWalletTxAcquire locks or creates the idempotency row for this (remote, action, transaction_id).
-// When replay is non-nil, the handler must write it verbatim (exact BlueOcean retry contract).
+// boWalletTxAcquire locks or creates the idempotency row for (provider,user_id,action,transaction_id).
+// remote_id is stored for audit but is not globally unique in live-casino flows. When replay is non-nil,
+// the handler must write it verbatim (exact BlueOcean retry contract).
 func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action, txnWire, ccy string, meta boSeamlessPersistMeta) (rowID int64, replay []byte, replayBal int64, replaySt int, err error) {
 	txnWire = strings.TrimSpace(txnWire)
 	if txnWire == "" || txnWire == "na" {
@@ -70,6 +71,7 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 		amount = *meta.AmountMinor
 	}
 
+	userUUID := strings.TrimSpace(userID)
 	for attempt := 0; attempt < 4; attempt++ {
 		var raw []byte
 		var st sql.NullInt64
@@ -77,9 +79,9 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 		qErr := tx.QueryRow(ctx, `
 			SELECT id, response_json, status_code, balance_after_minor
 			FROM blueocean_wallet_transactions
-			WHERE provider = $1 AND remote_id = $2 AND action = $3 AND transaction_id = $4
+			WHERE provider = $1 AND user_id = $2::uuid AND action = $3 AND transaction_id = $4
 			FOR UPDATE
-		`, boSeamlessProvider, keyRemote, action, txnWire).Scan(&rowID, &raw, &st, &bal)
+		`, boSeamlessProvider, userUUID, action, txnWire).Scan(&rowID, &raw, &st, &bal)
 		if qErr == nil {
 			if len(raw) > 0 && st.Valid && bal.Valid {
 				return rowID, raw, bal.Int64, int(st.Int64), nil
@@ -100,7 +102,7 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 				$12,
 				CASE WHEN $12::bigint IS NOT NULL THEN ($12::numeric / 100.0) ELSE NULL END
 			)
-		`, boSeamlessProvider, keyRemote, userID, meta.Username, action, txnWire, ccy,
+		`, boSeamlessProvider, keyRemote, userUUID, meta.Username, action, txnWire, ccy,
 			meta.RoundID, meta.GameID, meta.SessionID, meta.GamesessionID, amount)
 		if insErr != nil {
 			var pgErr *pgconn.PgError

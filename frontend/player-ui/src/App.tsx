@@ -628,10 +628,23 @@ function AppShell() {
           </header>
 
           <header className="casino-shell-desktop-header border-b border-white/[0.06] bg-casino-topbar shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
-            <div className="isolate mx-auto flex h-full min-h-0 w-full min-w-0 max-w-full items-center gap-2 pl-2 pr-2.5 md:gap-2.5 md:px-4 min-[1280px]:px-4">
-              <PlayerHeaderLogo className="relative z-[2]" />
+            {/*
+              Equal `1fr` side columns + `auto` center keeps the wallet/deposit pill at the true horizontal center
+              of the desktop header strip (counts asymmetric logo vs icon cluster). Plain flex-1 centering only
+              centers within the leftover gap and looks shifted right when the right cluster is wider.
+            */}
+            <div
+              className={`isolate mx-auto grid h-full min-h-0 w-full min-w-0 max-w-full items-center gap-2 pl-2 pr-2.5 md:gap-2.5 md:px-4 min-[1280px]:px-4 ${
+                isAuthenticated
+                  ? 'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]'
+                  : 'grid-cols-[auto_minmax(0,1fr)_auto]'
+              }`}
+            >
+              <div className="relative z-[2] flex min-w-0 items-center justify-self-start">
+                <PlayerHeaderLogo className="max-w-[min(11rem,40vw)] min-[1280px]:max-w-none" />
+              </div>
               {isAuthenticated ? (
-                <div className="relative z-[1] flex min-h-[36px] min-w-0 flex-1 basis-0 items-center justify-center overflow-hidden px-0 md:px-1">
+                <div className="relative z-[1] flex min-h-[36px] min-w-0 items-center justify-center justify-self-center px-0 md:px-1">
                   <HeaderWalletBar
                     onOpenWallet={openWallet}
                     depositsEnabled={depositsEnabled}
@@ -639,9 +652,9 @@ function AppShell() {
                   />
                 </div>
               ) : (
-                <div className="min-w-0 flex-1" aria-hidden />
+                <span className="min-w-0" aria-hidden />
               )}
-              <div className="relative z-[2] flex shrink-0 items-center justify-end gap-0.5 md:gap-2 min-[1280px]:gap-3">
+              <div className="relative z-[2] flex min-w-0 shrink-0 items-center justify-end justify-self-end gap-0.5 md:gap-2 min-[1280px]:gap-3">
                 {showCasinoSearch ? (
                   <button
                     type="button"
