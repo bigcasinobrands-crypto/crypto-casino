@@ -281,7 +281,7 @@ func TestBlueOceanConcurrentDuplicateDebitsReplayIdentical(t *testing.T) {
 	defer cl()
 	ctx := context.Background()
 	uid := uuid.New().String()
-	email := "bo-conc-" + uid + "@e2e.local"
+	email := "bo-conc-leg-" + uid + "@e2e.local"
 	if _, err := p.Exec(ctx, `
 		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
 		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
@@ -300,7 +300,7 @@ func TestBlueOceanConcurrentDuplicateDebitsReplayIdentical(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	salt := "contract-concurrent"
+	salt := "contract-concurrent-legacy"
 	cfg := &config.Config{
 		BlueOceanCurrency: "EUR", BlueOceanWalletSalt: salt,
 		BlueOceanWalletIntegerAmountIsMajorUnits: true, BlueOceanWalletSkipBonusBetGuards: true,
@@ -311,8 +311,8 @@ func TestBlueOceanConcurrentDuplicateDebitsReplayIdentical(t *testing.T) {
 		"action": "debit", "remote_id": rid, "transaction_id": txn,
 		"amount": "100", "currency": "EUR", "game_id": "1",
 	})
+	n := blueOceanConcurrencyNSizes[len(blueOceanConcurrencyNSizes)-1]
 	var wg sync.WaitGroup
-	const n = 10
 	bodies := make([][]byte, n)
 	codes := make([]int, n)
 	for i := 0; i < n; i++ {

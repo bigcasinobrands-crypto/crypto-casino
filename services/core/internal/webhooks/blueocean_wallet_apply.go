@@ -334,6 +334,19 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	if err != nil {
 		return nil, 0, 500, "", false, false, err
 	}
+	body, jerr := boMarshalWalletResponseJSON(200, bal, "")
+	if jerr != nil {
+		return nil, 0, 500, "", false, false, jerr
+	}
+	if boRowID != 0 {
+		var amtPtr *int64
+		if action != "rollback" {
+			amtPtr = &amount
+		}
+		if serr := boSaveWalletTxResponse(ctx, tx, boRowID, 200, openBal, bal, amtPtr, body); serr != nil {
+			return nil, 0, 500, "", false, false, serr
+		}
+	}
 	if cerr := tx.Commit(ctx); cerr != nil {
 		return nil, 0, 500, "", false, false, cerr
 	}
@@ -344,22 +357,5 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			log.Printf("blueocean wallet: redis publish wagering progress: %v", pubErr)
 		}
 	}
-	postBal, perr := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy, multiCurrency)
-	if perr != nil {
-		return nil, 0, 500, "", false, false, perr
-	}
-	body, jerr := boMarshalWalletResponseJSON(200, postBal, "")
-	if jerr != nil {
-		return nil, 0, 500, "", false, false, jerr
-	}
-	if boRowID != 0 {
-		var amtPtr *int64
-		if action != "rollback" {
-			amtPtr = &amount
-		}
-		if serr := boSaveWalletTxResponse(ctx, pool, boRowID, 200, openBal, postBal, amtPtr, body); serr != nil {
-			return nil, 0, 500, "", false, false, serr
-		}
-	}
-	return body, postBal, 200, "", notifyWageringProgress, false, nil
+	return body, bal, 200, "", notifyWageringProgress, false, nil
 }
