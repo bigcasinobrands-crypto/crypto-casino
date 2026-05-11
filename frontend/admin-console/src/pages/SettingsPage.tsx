@@ -499,6 +499,7 @@ function SystemControlsTab({
             patchSetting={patchSetting}
             isSuper={isSuper}
             maintenanceEffective={maintenanceEffective}
+            reloadOperationalFlags={reloadOperationalFlags}
           />
           <SecurityAccessPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
           <WithdrawalLimitsPanel settings={settings} patchSetting={patchSetting} isSuper={isSuper} />
@@ -893,12 +894,14 @@ function MaintenanceSchedulePanel({
   patchSetting,
   isSuper,
   maintenanceEffective,
+  reloadOperationalFlags,
 }: {
   settings: SettingsMap
-  patchSetting: (key: string, value: unknown) => Promise<boolean>
+  patchSetting: (key: string, value: unknown, opts?: { quietSuccess?: boolean; skipRefresh?: boolean }) => Promise<boolean>
   isSuper: boolean
   /** Live maintenance (DB + MAINTENANCE_MODE env), matches player gate. */
   maintenanceEffective: boolean
+  reloadOperationalFlags: () => Promise<OperationalFlags | null>
 }) {
   const maintenanceOn = maintenanceEffective
   const untilRaw = getSettingVal(settings, 'system', 'maintenance_until', '') as string
@@ -927,10 +930,22 @@ function MaintenanceSchedulePanel({
     setBusy(true)
     try {
       if (!localDt.trim()) {
-        await patchSetting('system.maintenance_until', '')
+        const ok = await patchSetting('system.maintenance_until', '')
+        if (ok) void reloadOperationalFlags()
       } else {
         const iso = new Date(localDt).toISOString()
-        await patchSetting('system.maintenance_until', iso)
+        if (!maintenanceOn) {
+          const okMode = await patchSetting('system.maintenance_mode', true, { quietSuccess: true })
+          if (!okMode) return
+        }
+        const okUntil = await patchSetting('system.maintenance_until', iso, { quietSuccess: true })
+        if (!okUntil) return
+        toast.success(
+          maintenanceOn
+            ? 'Maintenance schedule saved.'
+            : 'Maintenance mode is on and the countdown schedule is saved.',
+        )
+        void reloadOperationalFlags()
       }
     } finally {
       setBusy(false)
@@ -942,33 +957,39 @@ function MaintenanceSchedulePanel({
       id="settings-maintenance-schedule"
       title="Maintenance schedule"
       desc="Countdown on the player maintenance page; “notify me” emails also fire when this time elapses while maintenance is still on."
-      defaultOpen={maintenanceOn}
+      defaultOpen={maintenanceOn || Boolean((untilRaw ?? '').trim())}
     >
-      {!maintenanceOn ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Turn <strong>Maintenance Mode</strong> on above to enable scheduling.
-        </p>
+      {!isSuper ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">Superadmin required to edit the maintenance schedule.</p>
       ) : (
         <div className="max-w-md space-y-3">
+          {!maintenanceOn ? (
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Saving a date and time below turns <strong>Maintenance Mode</strong> on automatically so players see the
+              gate and countdown (same as the kill switch above).
+            </p>
+          ) : null}
           <label className={labelCls}>Expected back online (browser local time)</label>
           <input
             type="datetime-local"
             className={inputCls}
             value={localDt}
             onChange={(e) => setLocalDt(e.target.value)}
-            disabled={!isSuper || busy}
+            disabled={busy}
           />
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={primaryBtn} disabled={!isSuper || busy} onClick={() => void save()}>
+            <button type="button" className={primaryBtn} disabled={busy} onClick={() => void save()}>
               {busy ? 'Saving…' : 'Save schedule'}
             </button>
             <button
               type="button"
               className="btn btn-outline-secondary btn-sm"
-              disabled={!isSuper || busy}
+              disabled={busy}
               onClick={() => {
                 setLocalDt('')
-                void patchSetting('system.maintenance_until', '')
+                void patchSetting('system.maintenance_until', '').then((ok) => {
+                  if (ok) void reloadOperationalFlags()
+                })
               }}
             >
               Clear
