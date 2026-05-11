@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
+func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
 	replay []byte, sum int64, st int, boMsg string, notifyWR bool, replayed bool, lastErr error,
 ) {
 	for attempt := 0; attempt < boWalletTxMaxAttempts; attempt++ {
@@ -31,7 +32,7 @@ func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redi
 			case <-time.After(backoff):
 			}
 		}
-		replay, sum, st, boMsg, notifyWR, replayed, lastErr = applyBOSeamless(ctx, pool, rdb, userID, ccy, multiCurrency, allowNeg, skipBonusBetGuards, action, remote, txnWire, ledgerTxn, amount, gameID, persist)
+		replay, sum, st, boMsg, notifyWR, replayed, lastErr = applyBOSeamless(ctx, pool, rdb, userID, ccy, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound, action, remote, txnWire, ledgerTxn, amount, gameID, persist)
 		if lastErr == nil {
 			return replay, sum, st, boMsg, notifyWR, replayed, nil
 		}
@@ -43,7 +44,7 @@ func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redi
 	return replay, sum, st, boMsg, notifyWR, replayed, lastErr
 }
 
-func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
+func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
 	replay []byte, postBal int64, status int, msg string, notifyWageringProgress bool, replayed bool, err error,
 ) {
 	tx, err := pool.Begin(ctx)
@@ -119,6 +120,16 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 
 	switch action {
 	case "debit":
+		slog.Info("blueocean wallet debit",
+			slog.String("action", "debit"),
+			slog.String("remote_id", remote),
+			slog.String("username", persist.Username),
+			slog.String("transaction_id", txnWire),
+			slog.String("ledger_txn", ledgerTxn),
+			slog.String("round_id", persist.RoundID),
+			slog.String("game_id", gameID),
+			slog.Int64("amount_minor", amount),
+		)
 		if amount == 0 {
 			bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
 			if err != nil {
@@ -250,22 +261,112 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 
 	case "rollback":
-		winRBKeyP := fmt.Sprintf("blueocean:%s:%s:rollback_win:%s", userID, keyRemote, ledgerTxn)
+		debitRowID, debitStoredTxn, debitRound, debitAmtMinor, debitHasAmt, debitRolled, dErr := boLockOriginalDebitWalletRow(ctx, tx, userID, keyRemote, txnWire)
+		if dErr != nil {
+			return nil, 0, 500, "", false, false, dErr
+		}
+		slog.Info("blueocean wallet rollback",
+			slog.String("action", "rollback"),
+			slog.String("remote_id", remote),
+			slog.String("username", persist.Username),
+			slog.String("transaction_id", txnWire),
+			slog.String("ledger_txn", ledgerTxn),
+			slog.String("round_id", persist.RoundID),
+			slog.String("game_id", gameID),
+			slog.Int64("debit_row_id", debitRowID),
+			slog.Bool("debit_rolled_back", debitRolled),
+			slog.Bool("debit_row_found", debitRowID != 0),
+		)
 
-		creditSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
+		if debitRowID != 0 && debitRolled {
+			rep, rb, rs, ok, rerr := boFindCompletedRollbackReplay(ctx, tx, keyRemote, txnWire)
+			if rerr != nil {
+				return nil, 0, 500, "", false, false, rerr
+			}
+			if ok {
+				if serr := boSaveWalletTxResponse(ctx, tx, boRowID, rs, openBal, rb, nil, rep); serr != nil {
+					return nil, 0, 500, "", false, false, serr
+				}
+				if cerr := tx.Commit(ctx); cerr != nil {
+					return nil, 0, 500, "", false, false, cerr
+				}
+				committed = true
+				return rep, rb, rs, "", false, true, nil
+			}
+			bal, berr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+			if berr != nil {
+				return nil, 0, 500, "", false, false, berr
+			}
+			rep, pb, st, m, ferr := finish(200, openBal, bal, nil, "")
+			if ferr != nil {
+				return nil, 0, 500, "", false, false, ferr
+			}
+			return rep, pb, st, m, false, false, nil
+		}
+
+		stakeWire := txnWire
+		stakeLedger := ledgerTxn
+		if debitRowID != 0 {
+			stakeWire = debitStoredTxn
+			stakeLedger = boLedgerTxnIDForDebitRow(debitStoredTxn, debitRound, ledgerUsesRound)
+		}
+
+		var creditKeys, winKeys []string
+		if debitRowID != 0 {
+			creditKeys = boCreditScanKeysAggregateMerged(userID, keyRemote, altRemote, txnWire, ledgerTxn, stakeWire, stakeLedger)
+			winKeys = boWinRollbackScanKeysAggregateMerged(userID, keyRemote, altRemote, txnWire, ledgerTxn, stakeWire, stakeLedger)
+		} else {
+			creditKeys = boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn)
+			winKeys = boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn)
+		}
+
+		creditSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, creditKeys)
 		if rerr != nil {
 			return nil, 0, 500, "", false, false, rerr
 		}
-		winReversedSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
+		winReversedSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, winKeys)
 		if rerr != nil {
 			return nil, 0, 500, "", false, false, rerr
 		}
 		outstandingWin := creditSum + winReversedSum
 
-		fb, fc := maxDebitMagBonusCash(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)
+		fb, fc := maxDebitMagBonusCash(ctx, tx, userID, keyRemote, altRemote, stakeWire, stakeLedger)
+		if fb+fc == 0 && debitRowID != 0 && debitHasAmt && !debitRolled && debitAmtMinor > 0 {
+			fb, fc = 0, debitAmtMinor
+		}
+
+		winRBKeyP := fmt.Sprintf("blueocean:%s:%s:rollback_win:%s", userID, keyRemote, stakeLedger)
 
 		if fb+fc == 0 && creditSum == 0 {
-			rep, pb, st, m, err := finish(404, openBal, bal, nil, "TRANSACTION_NOT_FOUND")
+			if debitRowID == 0 {
+				rep, pb, st, m, err := finish(404, openBal, bal, nil, "TRANSACTION_NOT_FOUND")
+				if err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
+				return rep, pb, st, m, false, false, nil
+			}
+			netStake, nerr := boTxnNetLedgerMinor(ctx, tx, userID, keyRemote, altRemote, stakeWire, stakeLedger)
+			if nerr != nil {
+				return nil, 0, 500, "", false, false, nerr
+			}
+			if netStake != 0 {
+				rep, pb, st, m, err := finish(404, openBal, bal, nil, "TRANSACTION_NOT_FOUND")
+				if err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
+				return rep, pb, st, m, false, false, nil
+			}
+			if !debitRolled {
+				_, uerr := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rolled_back = true, updated_at = now() WHERE id = $1`, debitRowID)
+				if uerr != nil {
+					return nil, 0, 500, "", false, false, uerr
+				}
+			}
+			bal, berr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+			if berr != nil {
+				return nil, 0, 500, "", false, false, berr
+			}
+			rep, pb, st, m, err := finish(200, openBal, bal, nil, "")
 			if err != nil {
 				return nil, 0, 500, "", false, false, err
 			}
@@ -275,7 +376,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if fb+fc > 0 {
 			var wrRollbackStake int64
 			if fb > 0 {
-				idemRB := fmt.Sprintf("blueocean:%s:%s:rollback:%s:bonus", userID, keyRemote, ledgerTxn)
+				idemRB := fmt.Sprintf("blueocean:%s:%s:rollback:%s:bonus", userID, keyRemote, stakeLedger)
 				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
 				if rerr != nil {
 					return nil, 0, 500, "", false, false, rerr
@@ -288,7 +389,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 				}
 			}
 			if fc > 0 {
-				idemRC := fmt.Sprintf("blueocean:%s:%s:rollback:%s:cash", userID, keyRemote, ledgerTxn)
+				idemRC := fmt.Sprintf("blueocean:%s:%s:rollback:%s:cash", userID, keyRemote, stakeLedger)
 				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
 				if rerr != nil {
 					return nil, 0, 500, "", false, false, rerr
@@ -309,6 +410,12 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 					notifyWageringProgress = true
 				}
 			}
+			if debitRowID != 0 && !debitRolled {
+				_, uerr := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rolled_back = true, updated_at = now() WHERE id = $1`, debitRowID)
+				if uerr != nil {
+					return nil, 0, 500, "", false, false, uerr
+				}
+			}
 		}
 
 		if outstandingWin > 0 {
@@ -326,6 +433,18 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			_, err = ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, winRBKeyP, outstandingWin, meta)
 			if err != nil {
 				return nil, 0, 500, "", false, false, err
+			}
+		}
+
+		if debitRowID != 0 && !debitRolled {
+			netStake, nerr := boTxnNetLedgerMinor(ctx, tx, userID, keyRemote, altRemote, stakeWire, stakeLedger)
+			if nerr != nil {
+				return nil, 0, 500, "", false, false, nerr
+			}
+			if netStake == 0 {
+				if _, uerr := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rolled_back = true, updated_at = now() WHERE id = $1`, debitRowID); uerr != nil {
+					return nil, 0, 500, "", false, false, uerr
+				}
 			}
 		}
 	}

@@ -113,6 +113,12 @@ func ShouldRouteBlueOceanWallet(r *http.Request) bool {
 // rdb is optional: when set, successful debits that apply bonus WR publish to Redis (see docs/blue-ocean-bonus-wagering.md).
 func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("blueocean wallet panic: %v", rec)
+				writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
+			}
+		}()
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -230,7 +236,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				SessionID:     firstNonEmptyCI(q, "session_id", "sessionid"),
 				GamesessionID: firstNonEmptyCI(q, "gamesession_id", "gamesessionid"),
 			}
-			replayBody, sum, st, boMsg, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
+			replayBody, sum, st, boMsg, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
 				writeBOWalletJSON(w, 500, sum, boWalletErrInternal)
@@ -703,6 +709,52 @@ func boWalletTxnWireFormatVariants(wire string) []string {
 	return out
 }
 
+// boWalletTxnIDLookupVariants returns wire forms used to find an existing blueocean_wallet_transactions row
+// (idempotency + rollback) when providers alternate between "ez-<hex>" and bare hex transaction_id values.
+// Inserts still use the exact incoming transaction_id string; only lookups widen to these variants.
+func boWalletTxnIDLookupVariants(wire string) []string {
+	wire = strings.TrimSpace(wire)
+	if wire == "" {
+		return nil
+	}
+	seen := make(map[string]struct{}, 8)
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	for _, v := range boWalletTxnWireFormatVariants(wire) {
+		add(v)
+	}
+	// Bare hex → common Evolution-style "ez-" prefix (forward lookup).
+	if i := strings.IndexByte(wire, '-'); i < 0 && looksLikeBOSeamlessTxnTokenSuffix(wire) {
+		add("ez-" + wire)
+		add("EZ-" + wire)
+	}
+	return out
+}
+
+// boLedgerTxnIDForDebitRow reconstructs the ledger idempotency segment (possibly txn + "::" + round)
+// from data we stored on the original debit row.
+func boLedgerTxnIDForDebitRow(storedTxnID, storedRoundID string, ledgerUsesRound bool) string {
+	storedTxnID = strings.TrimSpace(storedTxnID)
+	if storedTxnID == "" || storedTxnID == "na" || !ledgerUsesRound {
+		return storedTxnID
+	}
+	r := strings.TrimSpace(storedRoundID)
+	if r == "" {
+		return storedTxnID
+	}
+	return storedTxnID + "::" + r
+}
+
 // expandBOLedgerTxnComposite expands txn id wire formats; if base contains "::round", only the segment
 // before "::" is varied (ledger keys use txn+round composite from blueOceanLedgerTxnIDForKeys).
 func expandBOLedgerTxnComposite(base string, add func(string)) {
@@ -792,6 +844,18 @@ func boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledge
 	return aggregateKeysForRemotes(keyRemote, altRemote, boLedgerTxnIDVariants(txnWire, ledgerTxn), func(remote, tid string) []string {
 		return boWinRollbackScanKeys(userID, remote, tid)
 	})
+}
+
+func boCreditScanKeysAggregateMerged(userID, keyRemote, altRemote string, wireA, ledA, wireB, ledB string) []string {
+	a := boCreditScanKeysAggregate(userID, keyRemote, altRemote, wireA, ledA)
+	b := boCreditScanKeysAggregate(userID, keyRemote, altRemote, wireB, ledB)
+	return dedupeBOLedgerKeys(append(append([]string{}, a...), b...))
+}
+
+func boWinRollbackScanKeysAggregateMerged(userID, keyRemote, altRemote string, wireA, ledA, wireB, ledB string) []string {
+	a := boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, wireA, ledA)
+	b := boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, wireB, ledB)
+	return dedupeBOLedgerKeys(append(append([]string{}, a...), b...))
 }
 
 // maxDebitMagBonusCash returns the largest stored debit magnitudes (bonus and cash pockets) across txn id variants and remotes.

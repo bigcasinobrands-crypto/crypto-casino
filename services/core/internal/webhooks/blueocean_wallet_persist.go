@@ -16,6 +16,10 @@ import (
 
 const boSeamlessProvider = "blueocean"
 
+// boWalletTxAcquireMaxAttempts retries unique-violation races when concurrent callbacks use different
+// transaction_id spellings that map to the same logical id (e.g. ez-hex vs bare hex).
+const boWalletTxAcquireMaxAttempts = 16
+
 type boSQLExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
@@ -76,16 +80,22 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 	}
 
 	userUUID := strings.TrimSpace(userID)
-	for attempt := 0; attempt < 4; attempt++ {
+	lookupIDs := boWalletTxnIDLookupVariants(txnWire)
+	if len(lookupIDs) == 0 {
+		lookupIDs = []string{txnWire}
+	}
+	for attempt := 0; attempt < boWalletTxAcquireMaxAttempts; attempt++ {
 		var raw []byte
 		var st sql.NullInt64
 		var bal sql.NullInt64
 		qErr := tx.QueryRow(ctx, `
 			SELECT id, response_json, status_code, balance_after_minor
 			FROM blueocean_wallet_transactions
-			WHERE provider = $1 AND remote_id = $2 AND action = $3 AND transaction_id = $4
+			WHERE provider = $1 AND remote_id = $2 AND action = $3 AND transaction_id = ANY($4::text[])
+			ORDER BY id ASC
+			LIMIT 1
 			FOR UPDATE
-		`, boSeamlessProvider, keyRemote, action, txnWire).Scan(&rowID, &raw, &st, &bal)
+		`, boSeamlessProvider, keyRemote, action, lookupIDs).Scan(&rowID, &raw, &st, &bal)
 		if qErr == nil {
 			if len(raw) > 0 && st.Valid && bal.Valid {
 				return rowID, raw, bal.Int64, int(st.Int64), nil
@@ -117,6 +127,81 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 		}
 	}
 	return 0, nil, 0, 0, fmt.Errorf("blueocean wallet: acquire wallet tx row: exceeded attempts")
+}
+
+// boLockOriginalDebitWalletRow finds a stored debit row for rollback, scoped to the player.
+func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyRemote, txnWire string) (
+	rowID int64,
+	storedTxnID string,
+	roundID string,
+	amountMinor int64,
+	hasAmount bool,
+	rolledBack bool,
+	err error,
+) {
+	userUUID = strings.TrimSpace(userUUID)
+	keyRemote = strings.TrimSpace(keyRemote)
+	variants := boWalletTxnIDLookupVariants(txnWire)
+	if len(variants) == 0 {
+		return 0, "", "", 0, false, false, nil
+	}
+	var round sql.NullString
+	var amt sql.NullInt64
+	qErr := tx.QueryRow(ctx, `
+		SELECT id, transaction_id, round_id, amount_minor, rolled_back
+		FROM blueocean_wallet_transactions
+		WHERE provider = $1 AND remote_id = $2 AND action = 'debit' AND user_id = $3::uuid
+		  AND transaction_id = ANY($4::text[])
+		ORDER BY id ASC
+		LIMIT 1
+		FOR UPDATE
+	`, boSeamlessProvider, keyRemote, userUUID, variants).Scan(&rowID, &storedTxnID, &round, &amt, &rolledBack)
+	if errors.Is(qErr, pgx.ErrNoRows) {
+		return 0, "", "", 0, false, false, nil
+	}
+	if qErr != nil {
+		return 0, "", "", 0, false, false, qErr
+	}
+	rd := ""
+	if round.Valid {
+		rd = strings.TrimSpace(round.String)
+	}
+	if amt.Valid {
+		return rowID, storedTxnID, rd, amt.Int64, true, rolledBack, nil
+	}
+	return rowID, storedTxnID, rd, 0, false, rolledBack, nil
+}
+
+// boFindCompletedRollbackReplay returns an earlier rollback callback response for idempotent replays
+// when the debit row is already marked rolled_back (e.g. legacy state) or transaction_id spelling differs.
+func boFindCompletedRollbackReplay(ctx context.Context, tx pgx.Tx, keyRemote, txnWire string) (rep []byte, repBal int64, repSt int, ok bool, err error) {
+	variants := boWalletTxnIDLookupVariants(txnWire)
+	if len(variants) == 0 {
+		return nil, 0, 0, false, nil
+	}
+	var raw []byte
+	var st sql.NullInt64
+	var bal sql.NullInt64
+	qErr := tx.QueryRow(ctx, `
+		SELECT response_json, status_code, balance_after_minor
+		FROM blueocean_wallet_transactions
+		WHERE provider = $1 AND remote_id = $2 AND action = 'rollback'
+		  AND transaction_id = ANY($3::text[])
+		  AND response_json IS NOT NULL AND response_json != 'null'::jsonb
+		  AND status_code IS NOT NULL AND balance_after_minor IS NOT NULL
+		ORDER BY id DESC
+		LIMIT 1
+	`, boSeamlessProvider, keyRemote, variants).Scan(&raw, &st, &bal)
+	if errors.Is(qErr, pgx.ErrNoRows) {
+		return nil, 0, 0, false, nil
+	}
+	if qErr != nil {
+		return nil, 0, 0, false, qErr
+	}
+	if len(raw) > 0 && st.Valid && bal.Valid {
+		return raw, bal.Int64, int(st.Int64), true, nil
+	}
+	return nil, 0, 0, false, nil
 }
 
 func boSaveWalletTxResponse(ctx context.Context, ex boSQLExecutor, rowID int64, statusCode int, balanceBefore, balanceAfter int64, amountMinor *int64, responseJSON []byte) error {
