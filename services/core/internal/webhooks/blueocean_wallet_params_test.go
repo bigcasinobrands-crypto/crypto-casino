@@ -168,3 +168,45 @@ func TestParseBOAmountCI_StakeAlias(t *testing.T) {
 		t.Fatalf("got %d ok=%v want 500 minor", n, ok)
 	}
 }
+
+func TestBoWalletTxnWireFormatVariants_EzHex(t *testing.T) {
+	got := boWalletTxnWireFormatVariants("ez-584d29aef55624bd96c76acaa15d66e2")
+	set := map[string]struct{}{}
+	for _, s := range got {
+		set[s] = struct{}{}
+	}
+	if _, ok := set["ez-584d29aef55624bd96c76acaa15d66e2"]; !ok {
+		t.Fatalf("missing full id: %v", got)
+	}
+	if _, ok := set["584d29aef55624bd96c76acaa15d66e2"]; !ok {
+		t.Fatalf("missing bare hex: %v", got)
+	}
+}
+
+func TestBoLedgerTxnIDVariants_PrefixedAndBare(t *testing.T) {
+	got := boLedgerTxnIDVariants("ez-584d29aef55624bd96c76acaa15d66e2", "ez-584d29aef55624bd96c76acaa15d66e2")
+	set := map[string]struct{}{}
+	for _, s := range got {
+		set[s] = struct{}{}
+	}
+	if _, ok := set["ez-584d29aef55624bd96c76acaa15d66e2"]; !ok {
+		t.Fatalf("missing full: %v", got)
+	}
+	if _, ok := set["584d29aef55624bd96c76acaa15d66e2"]; !ok {
+		t.Fatalf("missing bare: %v", got)
+	}
+}
+
+func TestBoLedgerTxnIDVariants_CompositeRoundBothFormats(t *testing.T) {
+	got := boLedgerTxnIDVariants("584d29aef55624bd96c76acaa15d66e2", "ez-584d29aef55624bd96c76acaa15d66e2::r9")
+	set := map[string]struct{}{}
+	for _, s := range got {
+		set[s] = struct{}{}
+	}
+	if _, ok := set["ez-584d29aef55624bd96c76acaa15d66e2::r9"]; !ok {
+		t.Fatalf("missing composite prefixed: %v", got)
+	}
+	if _, ok := set["584d29aef55624bd96c76acaa15d66e2::r9"]; !ok {
+		t.Fatalf("missing composite bare: %v", got)
+	}
+}

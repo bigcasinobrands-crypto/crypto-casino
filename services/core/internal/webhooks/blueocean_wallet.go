@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/bonus"
@@ -546,13 +547,62 @@ func boWalletKeyRemoteTx(ctx context.Context, tx pgx.Tx, userID, requestRemote s
 	return strings.TrimSpace(requestRemote)
 }
 
-func boGameDebitRollbackKeys(remote, txnID string) []string {
-	return []string{
+// boGameDebitRollbackScanKeys lists idempotency keys that participate in debit net / bet rollback sums.
+// Includes legacy 2-segment keys (remote:txn) and user-scoped 3-segment keys (userID:remote:txn) because
+// idempotency_key is UNIQUE globally — two players can otherwise share remote+txn in edge configs and collide.
+func boGameDebitRollbackScanKeys(userID, remote, txnID string) []string {
+	remote = strings.TrimSpace(remote)
+	txnID = strings.TrimSpace(txnID)
+	if remote == "" || txnID == "" {
+		return nil
+	}
+	leg := []string{
 		fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, txnID),
 		fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID),
 		fmt.Sprintf("bo:game:rollback:cash:%s:%s", remote, txnID),
 		fmt.Sprintf("bo:game:rollback:bonus:%s:%s", remote, txnID),
 	}
+	uid := strings.TrimSpace(userID)
+	if uid == "" {
+		return dedupeBOLedgerKeys(leg)
+	}
+	v2 := []string{
+		fmt.Sprintf("bo:game:debit:cash:%s:%s:%s", uid, remote, txnID),
+		fmt.Sprintf("bo:game:debit:bonus:%s:%s:%s", uid, remote, txnID),
+		fmt.Sprintf("bo:game:rollback:cash:%s:%s:%s", uid, remote, txnID),
+		fmt.Sprintf("bo:game:rollback:bonus:%s:%s:%s", uid, remote, txnID),
+	}
+	return dedupeBOLedgerKeys(append(leg, v2...))
+}
+
+func boCreditScanKeys(userID, remote, tid string) []string {
+	remote = strings.TrimSpace(remote)
+	tid = strings.TrimSpace(tid)
+	if remote == "" || tid == "" {
+		return nil
+	}
+	leg := fmt.Sprintf("bo:game:credit:%s:%s", remote, tid)
+	uid := strings.TrimSpace(userID)
+	if uid == "" {
+		return []string{leg}
+	}
+	v2 := fmt.Sprintf("bo:game:credit:%s:%s:%s", uid, remote, tid)
+	return dedupeBOLedgerKeys([]string{v2, leg})
+}
+
+func boWinRollbackScanKeys(userID, remote, tid string) []string {
+	remote = strings.TrimSpace(remote)
+	tid = strings.TrimSpace(tid)
+	if remote == "" || tid == "" {
+		return nil
+	}
+	leg := fmt.Sprintf("bo:game:rollback:win:%s:%s", remote, tid)
+	uid := strings.TrimSpace(userID)
+	if uid == "" {
+		return []string{leg}
+	}
+	v2 := fmt.Sprintf("bo:game:rollback:win:%s:%s:%s", uid, remote, tid)
+	return dedupeBOLedgerKeys([]string{v2, leg})
 }
 
 func dedupeBOLedgerKeys(keys []string) []string {
@@ -588,22 +638,39 @@ func sumLedgerKeysIN(ctx context.Context, tx pgx.Tx, keys []string) (int64, erro
 	return sum, err
 }
 
-// boLedgerTxnIDVariants returns distinct transaction id strings used for ledger idempotency lookups.
-// When ledgerTxn differs from txnWire (composite txn "::" round), both namespaces are queried so legacy
-// rows keyed only by txnWire still participate in net and rollback calculations.
-func boLedgerTxnIDVariants(txnWire, ledgerTxn string) []string {
-	txnWire = strings.TrimSpace(txnWire)
-	ledgerTxn = strings.TrimSpace(ledgerTxn)
-	if ledgerTxn == "" {
-		ledgerTxn = txnWire
+func isBOSeamlessProviderTxnPrefix(s string) bool {
+	if len(s) == 0 || len(s) > 6 {
+		return false
 	}
-	if txnWire == ledgerTxn {
-		if txnWire == "" {
-			return nil
+	for _, r := range s {
+		if !unicode.IsLetter(r) {
+			return false
 		}
-		return []string{txnWire}
 	}
-	seen := make(map[string]struct{}, 2)
+	return true
+}
+
+// looksLikeBOSeamlessTxnTokenSuffix is true for long hex tokens often used after a provider prefix (e.g. ez-<hex>).
+func looksLikeBOSeamlessTxnTokenSuffix(s string) bool {
+	if len(s) < 8 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// boWalletTxnWireFormatVariants returns provider transaction id variants to match ledger idempotency keys.
+// Rollbacks often arrive as "ez-<hex>" while the original debit was keyed as "<hex>" only (or vice versa).
+func boWalletTxnWireFormatVariants(wire string) []string {
+	wire = strings.TrimSpace(wire)
+	if wire == "" {
+		return nil
+	}
+	seen := make(map[string]struct{}, 4)
 	var out []string
 	add := func(s string) {
 		s = strings.TrimSpace(s)
@@ -616,8 +683,69 @@ func boLedgerTxnIDVariants(txnWire, ledgerTxn string) []string {
 		seen[s] = struct{}{}
 		out = append(out, s)
 	}
-	add(ledgerTxn)
-	add(txnWire)
+	add(wire)
+	if i := strings.IndexByte(wire, '-'); i > 0 && i < len(wire)-1 {
+		prefix := wire[:i]
+		suffix := wire[i+1:]
+		if isBOSeamlessProviderTxnPrefix(prefix) && looksLikeBOSeamlessTxnTokenSuffix(suffix) {
+			add(suffix)
+		}
+	}
+	return out
+}
+
+// expandBOLedgerTxnComposite expands txn id wire formats; if base contains "::round", only the segment
+// before "::" is varied (ledger keys use txn+round composite from blueOceanLedgerTxnIDForKeys).
+func expandBOLedgerTxnComposite(base string, add func(string)) {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return
+	}
+	if i := strings.Index(base, "::"); i >= 0 {
+		prefixPart := base[:i]
+		suffixComposite := base[i:]
+		for _, v := range boWalletTxnWireFormatVariants(prefixPart) {
+			add(v + suffixComposite)
+		}
+		return
+	}
+	for _, v := range boWalletTxnWireFormatVariants(base) {
+		add(v)
+	}
+}
+
+// boLedgerTxnIDVariants returns distinct transaction id strings used for ledger idempotency lookups.
+// When ledgerTxn differs from txnWire (composite txn "::" round), both namespaces are queried so legacy
+// rows keyed only by txnWire still participate in net and rollback calculations.
+// Provider-prefixed ids (e.g. ez-<hex>) are paired with bare <hex> so rollback can find debits without round_id.
+func boLedgerTxnIDVariants(txnWire, ledgerTxn string) []string {
+	txnWire = strings.TrimSpace(txnWire)
+	ledgerTxn = strings.TrimSpace(ledgerTxn)
+	if ledgerTxn == "" {
+		ledgerTxn = txnWire
+	}
+	if txnWire == "" && ledgerTxn == "" {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	if txnWire == ledgerTxn {
+		expandBOLedgerTxnComposite(txnWire, add)
+		return out
+	}
+	expandBOLedgerTxnComposite(ledgerTxn, add)
+	expandBOLedgerTxnComposite(txnWire, add)
 	return out
 }
 
@@ -637,46 +765,56 @@ func aggregateKeysForRemotes(keyRemote, altRemote string, txnIDs []string, keyFn
 
 // boTxnNetLedgerMinor sums ledger lines for this Blue Ocean game transaction (cash+bonus debit plus matching rollbacks)
 // across txnWire and ledgerTxn key variants. Negative ⇒ funds are still reduced by this txn (active debit).
-func boTxnNetLedgerMinor(ctx context.Context, tx pgx.Tx, keyRemote, altRemote, txnWire, ledgerTxn string) (int64, error) {
-	keys := aggregateKeysForRemotes(keyRemote, altRemote, boLedgerTxnIDVariants(txnWire, ledgerTxn), boGameDebitRollbackKeys)
+func boTxnNetLedgerMinor(ctx context.Context, tx pgx.Tx, userID, keyRemote, altRemote, txnWire, ledgerTxn string) (int64, error) {
+	fn := func(remote, tid string) []string {
+		return boGameDebitRollbackScanKeys(userID, remote, tid)
+	}
+	keys := aggregateKeysForRemotes(keyRemote, altRemote, boLedgerTxnIDVariants(txnWire, ledgerTxn), fn)
 	return sumLedgerKeysIN(ctx, tx, keys)
 }
 
-func boCreditIdemKeys(keyRemote, altRemote, txnWire, ledgerTxn string) []string {
+func boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn string) []string {
 	return aggregateKeysForRemotes(keyRemote, altRemote, boLedgerTxnIDVariants(txnWire, ledgerTxn), func(remote, tid string) []string {
-		return []string{fmt.Sprintf("bo:game:credit:%s:%s", remote, tid)}
+		return boCreditScanKeys(userID, remote, tid)
 	})
 }
 
-func boWinRollbackIdemKeys(keyRemote, altRemote, txnWire, ledgerTxn string) []string {
+func boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn string) []string {
 	return aggregateKeysForRemotes(keyRemote, altRemote, boLedgerTxnIDVariants(txnWire, ledgerTxn), func(remote, tid string) []string {
-		return []string{fmt.Sprintf("bo:game:rollback:win:%s:%s", remote, tid)}
+		return boWinRollbackScanKeys(userID, remote, tid)
 	})
 }
 
 // maxDebitMagBonusCash returns the largest stored debit magnitudes (bonus and cash pockets) across txn id variants and remotes.
-func maxDebitMagBonusCash(ctx context.Context, tx pgx.Tx, keyRemote, altRemote, txnWire, ledgerTxn string) (bonus, cash int64) {
+func maxDebitMagBonusCash(ctx context.Context, tx pgx.Tx, userID, keyRemote, altRemote, txnWire, ledgerTxn string) (bonus, cash int64) {
+	uid := strings.TrimSpace(userID)
 	for _, tid := range boLedgerTxnIDVariants(txnWire, ledgerTxn) {
 		if tid == "" {
 			continue
 		}
-		bKey := fmt.Sprintf("bo:game:debit:bonus:%s:%s", keyRemote, tid)
-		cKey := fmt.Sprintf("bo:game:debit:cash:%s:%s", keyRemote, tid)
-		if b := debitMagnitudeByIdem(ctx, tx, bKey); b > bonus {
-			bonus = b
-		}
-		if c := debitMagnitudeByIdem(ctx, tx, cKey); c > cash {
-			cash = c
-		}
-		if altRemote != "" && boWalletRemoteNorm(altRemote) != boWalletRemoteNorm(keyRemote) {
-			bKey = fmt.Sprintf("bo:game:debit:bonus:%s:%s", altRemote, tid)
-			cKey = fmt.Sprintf("bo:game:debit:cash:%s:%s", altRemote, tid)
-			if b := debitMagnitudeByIdem(ctx, tx, bKey); b > bonus {
+		scan := func(remote string) {
+			bLeg := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, tid)
+			cLeg := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, tid)
+			if b := debitMagnitudeByIdem(ctx, tx, bLeg); b > bonus {
 				bonus = b
 			}
-			if c := debitMagnitudeByIdem(ctx, tx, cKey); c > cash {
+			if c := debitMagnitudeByIdem(ctx, tx, cLeg); c > cash {
 				cash = c
 			}
+			if uid != "" {
+				bV2 := fmt.Sprintf("bo:game:debit:bonus:%s:%s:%s", uid, remote, tid)
+				cV2 := fmt.Sprintf("bo:game:debit:cash:%s:%s:%s", uid, remote, tid)
+				if b := debitMagnitudeByIdem(ctx, tx, bV2); b > bonus {
+					bonus = b
+				}
+				if c := debitMagnitudeByIdem(ctx, tx, cV2); c > cash {
+					cash = c
+				}
+			}
+		}
+		scan(keyRemote)
+		if altRemote != "" && boWalletRemoteNorm(altRemote) != boWalletRemoteNorm(keyRemote) {
+			scan(altRemote)
 		}
 	}
 	return bonus, cash
@@ -719,7 +857,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			}
 			return bal, 200, "", nil
 		}
-		net, nerr := boTxnNetLedgerMinor(ctx, tx, keyRemote, altRemote, txnWire, ledgerTxn)
+		net, nerr := boTxnNetLedgerMinor(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)
 		if nerr != nil {
 			return bal, 500, "", nerr
 		}
@@ -734,7 +872,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			return bal, 200, "", nil
 		}
 		if !skipBonusBetGuards {
-			srcRef := keyRemote + ":" + ledgerTxn
+			srcRef := userID + ":" + keyRemote + ":" + ledgerTxn
 			if err := bonus.CheckBetAllowedTx(ctx, tx, userID, gameID, amount, srcRef); err != nil {
 				if errors.Is(err, bonus.ErrExcludedGame) || errors.Is(err, bonus.ErrMaxBetExceeded) {
 					return bal, 403, "", nil
@@ -767,14 +905,14 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			fromCash = amount - fromBonus
 		}
 		if fromCash > 0 {
-			idemC := fmt.Sprintf("bo:game:debit:cash:%s:%s", keyRemote, ledgerTxn)
+			idemC := fmt.Sprintf("bo:game:debit:cash:%s:%s:%s", userID, keyRemote, ledgerTxn)
 			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta)
 			if err != nil {
 				return bal, 500, "", err
 			}
 		}
 		if fromBonus > 0 {
-			idemB := fmt.Sprintf("bo:game:debit:bonus:%s:%s", keyRemote, ledgerTxn)
+			idemB := fmt.Sprintf("bo:game:debit:bonus:%s:%s:%s", userID, keyRemote, ledgerTxn)
 			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
 			if err != nil {
 				return bal, 500, "", err
@@ -782,7 +920,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 		// Ensure the full stake posted (cash+bonus lines). ON CONFLICT DO NOTHING on one pocket but not the other
 		// would under-debit while still committing — BO concurrent/idempotency drills then show wrong end balances.
-		netAfter, nErr := boTxnNetLedgerMinor(ctx, tx, keyRemote, altRemote, txnWire, ledgerTxn)
+		netAfter, nErr := boTxnNetLedgerMinor(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)
 		if nErr != nil {
 			return bal, 500, "", nErr
 		}
@@ -802,11 +940,11 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			}
 			return bal, 200, "", nil
 		}
-		idemP := fmt.Sprintf("bo:game:credit:%s:%s", keyRemote, ledgerTxn)
+		idemP := fmt.Sprintf("bo:game:credit:%s:%s:%s", userID, keyRemote, ledgerTxn)
 		if _, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idemP, amount, meta); err != nil {
 			return bal, 500, "", err
 		}
-		sumC, sErr := sumLedgerKeysIN(ctx, tx, boCreditIdemKeys(keyRemote, altRemote, txnWire, ledgerTxn))
+		sumC, sErr := sumLedgerKeysIN(ctx, tx, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
 		if sErr != nil {
 			return bal, 500, "", sErr
 		}
@@ -818,19 +956,19 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		// BO: empty amount on rollback — reverse using stored movements only.
 		// 1) Bet rollback: reverse prior debit (bonus + cash lines).
 		// 2) Win rollback: reverse prior credit for this transaction_id (tests: "rollback previous win").
-		winRBKeyP := fmt.Sprintf("bo:game:rollback:win:%s:%s", keyRemote, ledgerTxn)
+		winRBKeyP := fmt.Sprintf("bo:game:rollback:win:%s:%s:%s", userID, keyRemote, ledgerTxn)
 
-		creditSum, rerr := sumLedgerKeysIN(ctx, tx, boCreditIdemKeys(keyRemote, altRemote, txnWire, ledgerTxn))
+		creditSum, rerr := sumLedgerKeysIN(ctx, tx, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
 		if rerr != nil {
 			return bal, 500, "", rerr
 		}
-		winReversedSum, rerr := sumLedgerKeysIN(ctx, tx, boWinRollbackIdemKeys(keyRemote, altRemote, txnWire, ledgerTxn))
+		winReversedSum, rerr := sumLedgerKeysIN(ctx, tx, boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
 		if rerr != nil {
 			return bal, 500, "", rerr
 		}
 		outstandingWin := creditSum + winReversedSum // e.g. +1000 + (-1000) after win rollback
 
-		fb, fc := maxDebitMagBonusCash(ctx, tx, keyRemote, altRemote, txnWire, ledgerTxn)
+		fb, fc := maxDebitMagBonusCash(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)
 
 		if fb+fc == 0 && creditSum == 0 {
 			return bal, 404, "TRANSACTION_NOT_FOUND", nil
@@ -839,7 +977,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if fb+fc > 0 {
 			var wrRollbackStake int64
 			if fb > 0 {
-				idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s", keyRemote, ledgerTxn)
+				idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s:%s", userID, keyRemote, ledgerTxn)
 				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
 				if rerr != nil {
 					return bal, 500, "", rerr
@@ -852,7 +990,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 				}
 			}
 			if fc > 0 {
-				idemRC := fmt.Sprintf("bo:game:rollback:cash:%s:%s", keyRemote, ledgerTxn)
+				idemRC := fmt.Sprintf("bo:game:rollback:cash:%s:%s:%s", userID, keyRemote, ledgerTxn)
 				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
 				if rerr != nil {
 					return bal, 500, "", rerr
