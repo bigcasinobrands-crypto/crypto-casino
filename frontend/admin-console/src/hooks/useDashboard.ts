@@ -55,7 +55,9 @@ interface KPIs {
   ngr_24h?: number
   ngr_7d?: number
   ngr_30d: number
+  arpu_24h?: number
   arpu_7d: number
+  arpu_30d: number
   avg_deposit_size_30d: number
   deposit_conversion_rate: number
   pending_withdrawals_value: number
