@@ -84,6 +84,27 @@ SELECT
 	return b, err
 }
 
+// queryActiveWageringUsers counts distinct users with a stake line in the window (game.debit or sportsbook.debit).
+// Matches the "active players" / ARPU denominator used on the main dashboard KPIs.
+func queryActiveWageringUsers(ctx context.Context, pool *pgxpool.Pool, start, end time.Time, all bool) (int64, error) {
+	if pool == nil {
+		return 0, nil
+	}
+	win := clauseWithAlias(all, "le", start, end)
+	q := `
+SELECT COALESCE(COUNT(DISTINCT le.user_id), 0)
+FROM ledger_entries le
+WHERE le.entry_type IN ('game.debit','sportsbook.debit')
+  AND ` + win
+	args := []any{start, end}
+	if all {
+		args = []any{end}
+	}
+	var n int64
+	err := pool.QueryRow(ctx, q, args...).Scan(&n)
+	return n, err
+}
+
 func ngrBreakdownJSON(b dashboardNGRBreakdown) map[string]any {
 	ngr := ngrTotalFromBreakdown(b)
 	return map[string]any{

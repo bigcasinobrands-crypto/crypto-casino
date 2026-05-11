@@ -157,6 +157,11 @@ SELECT
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "ngr analytics query failed")
 		return
 	}
+	activeWagering, err := queryActiveWageringUsers(ctx, h.Pool, start, end, all)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "wagering users query failed")
+		return
+	}
 	// Single-source ledger KPIs for GGR / bonus / cash rewards (NGR breakdown is authoritative).
 	ggrMinor = ngrBD.GGR
 	bonusCostMinor = ngrBD.BonusCost
@@ -197,6 +202,11 @@ SELECT
 		return
 	}
 
+	var ngrPerWageringUser float64
+	if activeWagering > 0 {
+		ngrPerWageringUser = float64(ngrTotal) / float64(activeWagering)
+	}
+
 	kpisOut := map[string]any{
 		"registrations":              registrations,
 		"checkout_attempts":          checkoutAttempts,
@@ -211,6 +221,8 @@ SELECT
 		"ggr_minor":                  ggrMinor,
 		"ngr_total":                  ngrTotal,
 		"ngr_proxy_minor":            ngrTotal,
+		"active_wagering_users":      activeWagering,
+		"ngr_per_wagering_user":      ngrPerWageringUser,
 		"bonus_cost_minor":           bonusCostMinor,
 		"reward_expense_minor":       rewardCostMinor,
 		"ngr_breakdown":              ngrBreak,

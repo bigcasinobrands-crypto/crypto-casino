@@ -63,6 +63,10 @@ export type CasinoAnalyticsResponse = {
     repeat_deposit_d7_rate: number
     repeat_deposit_d30_rate: number
     ggr_minor: number
+    /** Distinct users with game.debit or sportsbook.debit in the same window as ggr_minor / ngr_total. */
+    active_wagering_users?: number
+    /** ngr_total / active_wagering_users (minor units; same formula as headline NGR). */
+    ngr_per_wagering_user?: number
     /** Ledger-backed NGR for the selected window (GGR minus settled cost buckets). */
     ngr_total?: number
     ngr_previous_period?: number

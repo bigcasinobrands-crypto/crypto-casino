@@ -182,17 +182,21 @@ export default function DashboardPage() {
   const selectedDepositCount = charts?.deposits_by_day.reduce((sum, row) => sum + (row.count ?? 0), 0) ?? 0
   const selectedWithdrawals = charts?.withdrawals_by_day.reduce((sum, row) => sum + (row.total_minor ?? 0), 0) ?? 0
   const selectedRegistrations = regSeries?.values.reduce((sum, value) => sum + value, 0) ?? 0
+  /** Same window + NGR formula as headline NGR (`/casino-analytics`); falls back to fixed-interval KPIs while loading. */
+  const windowKpisReady =
+    casinoAnalytics != null && !casinoAnalyticsError && !casinoAnalyticsLoading
   const selectedActivePlayers =
-    chartPeriod === '7d' ? (kpis?.active_players_7d ?? 0) : (kpis?.active_players_30d ?? 0)
-  /** NGR / wagering users — matches backend ARPU (ledger-backed), not chart-sliced GGR. */
+    windowKpisReady && typeof casinoAnalytics.kpis.active_wagering_users === 'number'
+      ? casinoAnalytics.kpis.active_wagering_users
+      : chartPeriod === '7d'
+        ? (kpis?.active_players_7d ?? 0)
+        : (kpis?.active_players_30d ?? 0)
   const selectedArpu =
-    chartPeriod === '7d'
-      ? selectedActivePlayers > 0
-        ? (kpis?.ngr_7d ?? 0) / selectedActivePlayers
-        : 0
-      : selectedActivePlayers > 0
-        ? (kpis?.ngr_30d ?? 0) / selectedActivePlayers
-        : 0
+    windowKpisReady && typeof casinoAnalytics.kpis.ngr_per_wagering_user === 'number'
+      ? casinoAnalytics.kpis.ngr_per_wagering_user
+      : chartPeriod === '7d'
+        ? (kpis?.arpu_7d ?? 0)
+        : (kpis?.arpu_30d ?? 0)
   const selectedTotalWagered = useMemo(() => {
     if (!kpis) return 0
     if (chartPeriod === '7d') return kpis.total_wagered_7d ?? 0
@@ -390,7 +394,7 @@ export default function DashboardPage() {
             </div>
             <div className="col-lg col-md-6 col-12">
               <StatCard
-                label={`ARPU / wagering user (${periodLabel === '7d' ? '7d' : '30d'})`}
+                label={`ARPU / wagering user (${periodLabel})`}
                 value={formatCurrency(selectedArpu)}
                 iconClass="bi-currency-dollar"
                 variant="secondary"
