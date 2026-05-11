@@ -147,6 +147,78 @@ func TestBlueOceanConcurrentUniqueDebitsMatrix(t *testing.T) {
 	}
 }
 
+func TestBlueOceanConcurrentUniqueDebitsFromNegativeBalance(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+
+	for _, n := range blueOceanConcurrencyNSizes {
+		n := n
+		t.Run(strconv.Itoa(n), func(t *testing.T) {
+			uid := uuid.New().String()
+			email := fmt.Sprintf("bo-mat-neg-%d-%s@e2e.local", n, uid[:6])
+			if _, err := p.Exec(ctx, `
+				INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+				VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+			`, uid, email, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			startMinor := int64(-1500)
+			if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", fmt.Sprintf("seed-neg-%d-%s", n, uid), startMinor, nil); err != nil {
+				t.Fatal(err)
+			}
+			rid := fmt.Sprintf("matneg-%d-%s", n, strings.ReplaceAll(uid, "-", "")[:8])
+			_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+			t.Cleanup(func() {
+				_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+				_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+				_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+				_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+			})
+
+			salt := fmt.Sprintf("mat-neg-uniq-%d", n)
+			cfg := &config.Config{
+				BlueOceanCurrency: "EUR", BlueOceanWalletSalt: salt,
+				BlueOceanWalletIntegerAmountIsMajorUnits: true, BlueOceanWalletSkipBonusBetGuards: true,
+			}
+			h := HandleBlueOceanWallet(p, cfg, nil)
+
+			debitMinor := int64(500)
+			var wg sync.WaitGroup
+			codes := make([]int, n)
+			for i := 0; i < n; i++ {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					txn := fmt.Sprintf("neguniq-%d-%d-%s", n, i, uid[:4])
+					q := boSignGET(salt, map[string]string{
+						"action": "debit", "remote_id": rid, "transaction_id": txn,
+						"amount": "5", "currency": "EUR", "game_id": "1",
+					})
+					req := httptest.NewRequest(http.MethodGet, "/?"+q, nil)
+					w := httptest.NewRecorder()
+					h.ServeHTTP(w, req)
+					codes[i] = w.Code
+				}(i)
+			}
+			wg.Wait()
+			for i := 0; i < n; i++ {
+				if codes[i] != http.StatusOK {
+					t.Fatalf("request %d: HTTP %d", i, codes[i])
+				}
+			}
+			play, err := ledger.BalancePlayableSeamless(ctx, p, uid, "EUR", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := startMinor - int64(n)*debitMinor
+			if play != want {
+				t.Fatalf("final playable want minor %d got %d", want, play)
+			}
+		})
+	}
+}
+
 func TestBlueOceanConcurrentDuplicateDebitsMatrix(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)
 	defer cl()

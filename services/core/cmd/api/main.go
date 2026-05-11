@@ -91,8 +91,13 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	log.Printf("startup: APP_ENV=%q PORT=%q", cfg.AppEnv, cfg.Port)
+	if cfg.BlueOceanWalletS2SCompatibility {
+		log.Printf("startup: BlueOcean S2S wallet compatibility ON (debt reset debit, capped debits from negative balance, two-player same transaction_id+round_id). Cap: BLUEOCEAN_WALLET_COMPATIBILITY_MAX_DEBIT_MAJOR (default 10). Set BLUEOCEAN_WALLET_S2S_COMPATIBILITY=false for strict balances from zero.")
+	} else {
+		log.Printf("startup: BlueOcean S2S wallet compatibility OFF — no overdraft from negative balance without full funds.")
+	}
 	if cfg.BlueOceanWalletAllowNegativeBalance || cfg.BlueOceanAllowNegativeTestBalance {
-		log.Printf("startup: BlueOcean seamless wallet overdraft enabled (BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE and/or BLUEOCEAN_ALLOW_NEGATIVE_TEST_BALANCE) — keep OFF for Advanced Concurrent drills unless required")
+		log.Printf("startup: note BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE / BLUEOCEAN_ALLOW_NEGATIVE_TEST_BALANCE no longer change seamless debit math; compatibility mode controls overdraft behaviour.")
 	}
 	log.Printf("startup: fingerprint player auth effective=%v (REQUIRE_FINGERPRINT_PLAYER_AUTH) withdraw_fp=%v (WITHDRAW_REQUIRE_FINGERPRINT) — set DISABLE_FINGERPRINT_PLAYER_AUTH=1 to force both off",
 		cfg.RequireFingerprintPlayerAuth, cfg.WithdrawRequireFingerprint)

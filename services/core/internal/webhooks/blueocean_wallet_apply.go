@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/crypto-casino/core/internal/bonus"
+	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/jackc/pgx/v5"
@@ -17,7 +18,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
+func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta, cfg *config.Config) (
 	replay []byte, sum int64, st int, boMsg string, notifyWR bool, replayed bool, lastErr error,
 ) {
 	for attempt := 0; attempt < boWalletTxMaxAttempts; attempt++ {
@@ -33,7 +34,7 @@ func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redi
 			case <-time.After(backoff):
 			}
 		}
-		replay, sum, st, boMsg, notifyWR, replayed, lastErr = applyBOSeamless(ctx, pool, rdb, userID, ccy, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound, action, remote, txnWire, ledgerTxn, amount, gameID, persist)
+		replay, sum, st, boMsg, notifyWR, replayed, lastErr = applyBOSeamless(ctx, pool, rdb, userID, ccy, multiCurrency, skipBonusBetGuards, ledgerUsesRound, action, remote, txnWire, ledgerTxn, amount, gameID, persist, cfg)
 		if lastErr == nil {
 			return replay, sum, st, boMsg, notifyWR, replayed, nil
 		}
@@ -45,10 +46,10 @@ func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redi
 	return replay, sum, st, boMsg, notifyWR, replayed, lastErr
 }
 
-func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
+func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta, cfg *config.Config) (
 	replay []byte, postBal int64, status int, msg string, notifyWageringProgress bool, replayed bool, err error,
 ) {
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, 0, 500, "", false, false, err
 	}
@@ -146,6 +147,36 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			slog.String("game_id", gameID),
 			slog.Int64("amount_minor", amount),
 		)
+		if amount < 0 {
+			if !isBlueOceanResetDebit(cfg, action, amount, bal, txnWire) {
+				rep, pb, st, m, err := finish(403, openBal, bal, &amount, "Invalid amount")
+				if err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
+				return rep, pb, st, m, false, false, nil
+			}
+			creditBack := -bal
+			if creditBack <= 0 {
+				rep, pb, st, m, err := finish(403, openBal, bal, &amount, "Invalid amount")
+				if err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
+				return rep, pb, st, m, false, false, nil
+			}
+			idemReset := fmt.Sprintf("blueocean:%s:%s:debit_reset:%s", userID, keyRemote, ledgerTxn)
+			if _, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idemReset, creditBack, meta); err != nil {
+				return nil, 0, 500, "", false, false, err
+			}
+			bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+			if err != nil {
+				return nil, 0, 500, "", false, false, err
+			}
+			rep, pb, st, m, err := finish(200, openBal, bal, &amount, "")
+			if err != nil {
+				return nil, 0, 500, "", false, false, err
+			}
+			return rep, pb, st, m, false, false, nil
+		}
 		if amount == 0 {
 			bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
 			if err != nil {
@@ -193,49 +224,66 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 				return nil, 0, 500, "", false, false, err
 			}
 		}
-		if !allowNeg && bal < amount {
+
+		maxCompat := boMaxCompatDebitMinor(cfg)
+		allowCompat, cerr := isAllowedBlueOceanCompatibilityDebit(ctx, tx, cfg, userID, keyRemote, txnWire, persist.RoundID, bal, amount)
+		if cerr != nil {
+			return nil, 0, 500, "", false, false, cerr
+		}
+		if amount > maxCompat && bal < amount {
 			rep, pb, st, m, err := finish(403, openBal, bal, &amount, "Insufficient funds")
 			if err != nil {
 				return nil, 0, 500, "", false, false, err
 			}
 			return rep, pb, st, m, false, false, nil
 		}
-		bonusBal, err := ledger.BalanceBonusLockedSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-		if err != nil {
-			return nil, 0, 500, "", false, false, err
+		if bal < amount && !allowCompat {
+			rep, pb, st, m, err := finish(403, openBal, bal, &amount, "Insufficient funds")
+			if err != nil {
+				return nil, 0, 500, "", false, false, err
+			}
+			return rep, pb, st, m, false, false, nil
 		}
-		cashBal, err := ledger.BalanceCashSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-		if err != nil {
-			return nil, 0, 500, "", false, false, err
-		}
-		fromCash := amount
-		if fromCash > cashBal {
-			fromCash = cashBal
-		}
-		fromBonus := amount - fromCash
-		if fromBonus > bonusBal {
-			if !allowNeg {
+
+		var fromCash, fromBonus int64
+		if allowCompat && bal < amount {
+			fromCash, fromBonus = amount, 0
+			idemC := fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", userID, keyRemote, ledgerTxn)
+			if _, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, amount, ledger.PocketCash, meta); err != nil {
+				return nil, 0, 500, "", false, false, err
+			}
+		} else {
+			bonusBal, err := ledger.BalanceBonusLockedSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+			if err != nil {
+				return nil, 0, 500, "", false, false, err
+			}
+			cashBal, err := ledger.BalanceCashSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+			if err != nil {
+				return nil, 0, 500, "", false, false, err
+			}
+			fromCash = amount
+			if fromCash > cashBal {
+				fromCash = cashBal
+			}
+			fromBonus = amount - fromCash
+			if fromBonus > bonusBal {
 				rep, pb, st, m, err := finish(403, openBal, bal, &amount, "Insufficient funds")
 				if err != nil {
 					return nil, 0, 500, "", false, false, err
 				}
 				return rep, pb, st, m, false, false, nil
 			}
-			fromBonus = bonusBal
-			fromCash = amount - fromBonus
-		}
-		if fromCash > 0 {
-			idemC := fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", userID, keyRemote, ledgerTxn)
-			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta)
-			if err != nil {
-				return nil, 0, 500, "", false, false, err
+			if fromCash > 0 {
+				idemC := fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", userID, keyRemote, ledgerTxn)
+				if _, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta); err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
 			}
-		}
-		if fromBonus > 0 {
-			idemB := fmt.Sprintf("blueocean:%s:%s:debit:%s:bonus", userID, keyRemote, ledgerTxn)
-			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
-			if err != nil {
-				return nil, 0, 500, "", false, false, err
+			if fromBonus > 0 {
+				idemB := fmt.Sprintf("blueocean:%s:%s:debit:%s:bonus", userID, keyRemote, ledgerTxn)
+				if _, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta); err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
 			}
 		}
 		netAfter, nErr := boTxnNetLedgerMinor(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)

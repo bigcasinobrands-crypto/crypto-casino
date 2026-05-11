@@ -82,8 +82,12 @@ type Config struct {
 	BlueOceanWalletLedgerTxnUsesRound bool
 	// BlueOceanWalletSkipBonusBetGuards — when true, seamless wallet omits active-bonus max-bet and excluded-game checks. Use only for operator certification sandboxes; production should keep this false so promo rules still apply.
 	BlueOceanWalletSkipBonusBetGuards bool
-	BlueOceanFeaturedIDHashes         []string
-	BlueOceanLobbyTagsJSON            string // optional JSON map pill_id -> [id_hash]
+	// BlueOceanWalletS2SCompatibility — debt reset (negative debit equals negative balance) and capped overdraft debits from negative balance or two-player same transaction_id+round_id. Default true when env unset. Set BLUEOCEAN_WALLET_S2S_COMPATIBILITY=false with BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE=false for strict no-overdraft from zero.
+	BlueOceanWalletS2SCompatibility bool
+	// BlueOceanWalletCompatibilityMaxDebitMajor — major-unit cap per compatibility overdraft debit (default 10). Env: BLUEOCEAN_WALLET_COMPATIBILITY_MAX_DEBIT_MAJOR.
+	BlueOceanWalletCompatibilityMaxDebitMajor int64
+	BlueOceanFeaturedIDHashes                 []string
+	BlueOceanLobbyTagsJSON                    string // optional JSON map pill_id -> [id_hash]
 	// Catalog sync: getGameList often returns one page only; use paging to load full staging catalogs.
 	BlueOceanCatalogPageSize    int    // 0 = single request (no limit/offset params); default 500
 	BlueOceanCatalogPagingStyle string // offset | page | from — query param shape for paging
@@ -335,6 +339,17 @@ func Load() (Config, error) {
 	c.BlueOceanAllowNegativeTestBalance = parseBoolEnv(os.Getenv("BLUEOCEAN_ALLOW_NEGATIVE_TEST_BALANCE"))
 	c.BlueOceanWalletLedgerTxnUsesRound = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_LEDGER_TXN_USES_ROUND"))
 	c.BlueOceanWalletSkipBonusBetGuards = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_SKIP_BONUS_BET_GUARDS"))
+	if raw := strings.TrimSpace(os.Getenv("BLUEOCEAN_WALLET_S2S_COMPATIBILITY")); raw == "" {
+		c.BlueOceanWalletS2SCompatibility = true
+	} else {
+		c.BlueOceanWalletS2SCompatibility = parseBoolEnv(raw)
+	}
+	c.BlueOceanWalletCompatibilityMaxDebitMajor = 10
+	if raw := strings.TrimSpace(os.Getenv("BLUEOCEAN_WALLET_COMPATIBILITY_MAX_DEBIT_MAJOR")); raw != "" {
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 {
+			c.BlueOceanWalletCompatibilityMaxDebitMajor = n
+		}
+	}
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {
 		for _, p := range strings.Split(s, ",") {
 			p = strings.TrimSpace(p)

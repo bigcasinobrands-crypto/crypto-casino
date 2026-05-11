@@ -214,7 +214,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				amt, ok = parseBOAmountCI(q, cfg.BlueOceanWalletFloatAmountIsMajorUnits, cfg.BlueOceanWalletIntegerAmountIsMajorUnits)
 			}
 			if action == "debit" {
-				if !ok || amt < 0 {
+				if !ok {
 					sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)
 					writeBOWalletJSON(w, 403, sum, "Invalid amount")
 					return
@@ -244,8 +244,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				writeBOWalletJSON(w, 403, sum, "REMOTE_ID_MISMATCH")
 				return
 			}
-			allowNeg := cfg.BlueOceanWalletAllowNegativeBalance || cfg.BlueOceanAllowNegativeTestBalance
-			replayBody, sum, st, _, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, allowNeg, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
+			replayBody, sum, st, _, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist, cfg)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
 				writeBOWalletJSON(w, 500, sum, boWalletErrInternal)
@@ -263,37 +262,41 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				return
 			}
 			if st == 200 && !replayed && (action == "debit" || action == "credit") {
-				bg := context.Background()
-				switch action {
-				case "debit":
-					p := challenges.BODebitPayload{
-						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
-					}
-					if rdb != nil {
-						if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
+				if action == "debit" && amt < 0 {
+					// Debt-reset callback: no challenge wager mirror.
+				} else {
+					bg := context.Background()
+					switch action {
+					case "debit":
+						p := challenges.BODebitPayload{
+							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
+						}
+						if rdb != nil {
+							if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
+								go func() {
+									_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
+								}()
+							}
+						} else {
 							go func() {
 								_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
 							}()
 						}
-					} else {
-						go func() {
-							_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
-						}()
-					}
-				case "credit":
-					p := challenges.BOCreditPayload{
-						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: walletCCY,
-					}
-					if rdb != nil {
-						if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
+					case "credit":
+						p := challenges.BOCreditPayload{
+							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: walletCCY,
+						}
+						if rdb != nil {
+							if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
+								go func() {
+									_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
+								}()
+							}
+						} else {
 							go func() {
 								_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
 							}()
 						}
-					} else {
-						go func() {
-							_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
-						}()
 					}
 				}
 			}
@@ -479,16 +482,35 @@ func valuesForKeyCI(q url.Values, name string) []string {
 }
 
 func tryParseBOAmountString(s string, floatIsMajor, intIsMajor bool) (int64, bool) {
+	s = strings.ReplaceAll(strings.TrimSpace(s), ",", ".")
+	if s == "" {
+		return 0, false
+	}
+	neg := false
+	if strings.HasPrefix(s, "-") {
+		neg = true
+		s = strings.TrimPrefix(s, "-")
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return 0, false
+		}
+	}
 	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
 		n, _ := strconv.ParseInt(s, 10, 64)
 		if intIsMajor {
-			return n * 100, true
+			n *= 100
+		}
+		if neg {
+			n = -n
 		}
 		return n, true
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return 0, false
+	}
+	if neg {
+		f = -f
 	}
 	if !floatIsMajor && !intIsMajor {
 		return int64(math.Round(f)), true

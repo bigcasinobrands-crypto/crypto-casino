@@ -12,6 +12,7 @@ import (
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/bonuse2e"
 	"github.com/crypto-casino/core/internal/config"
+	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -129,10 +130,9 @@ func TestE2EBlueOceanDuplicateDebitIdempotent(t *testing.T) {
 	}
 }
 
-// TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured verifies an empty wallet can accept a debit
-// when BlueOceanWalletAllowNegativeBalance is set (ledger goes negative). JSON balance strings still use
-// magnitude only — BO tooling rejects signed balances — so expect "5" not "-5" for −5.00 EUR playable.
-func TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured(t *testing.T) {
+// TestE2EBlueOceanDebitFromNegativeSeedsCompatibility verifies S2S compatibility allows a capped debit
+// when the playable balance is already negative (no global overdraft flag required).
+func TestE2EBlueOceanDebitFromNegativeSeedsCompatibility(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)
 	defer cl()
 
@@ -147,6 +147,7 @@ func TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
 		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
 		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
 		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
@@ -157,21 +158,23 @@ func TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "e2e-neg-start:"+uid, -500, nil); err != nil {
+		t.Fatal(err)
+	}
 
 	salt := "e2e-neg-salt"
 	cfg := &config.Config{
 		BlueOceanCurrency:                        "EUR",
 		BlueOceanWalletSalt:                      salt,
-		BlueOceanWalletAllowNegativeBalance:      true,
 		BlueOceanWalletIntegerAmountIsMajorUnits: true,
 	}
 	h := HandleBlueOceanWallet(p, cfg, nil)
 
 	q := boSignGET(salt, map[string]string{
 		"action":         "debit",
-		"amount":         "5",
+		"amount":         "3",
 		"remote_id":      rid,
-		"transaction_id": "tx-neg-1",
+		"transaction_id": "tx-neg-compact-" + uid[:6],
 		"game_id":        "181796",
 		"currency":       "EUR",
 	})
@@ -188,7 +191,7 @@ func TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != "200" || out.Balance != "5" {
-		t.Fatalf("got status=%q balance=%q body=%s", out.Status, out.Balance, w.Body.String())
+	if out.Status != "200" || out.Balance != "-8" {
+		t.Fatalf("got status=%q balance=%q body=%s (want -8 after -5.00 and 3.00 debit)", out.Status, out.Balance, w.Body.String())
 	}
 }

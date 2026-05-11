@@ -1061,7 +1061,6 @@ func TestBlueOceanTwoPlayerSameTxnSecondPlayerNegativeWithTestFlag(t *testing.T)
 		BlueOceanWalletSalt:                      salt,
 		BlueOceanWalletIntegerAmountIsMajorUnits: true,
 		BlueOceanWalletSkipBonusBetGuards:        true,
-		BlueOceanAllowNegativeTestBalance:        true,
 	}
 	h := HandleBlueOceanWallet(p, cfg, nil)
 	txn := "shared-txn-two-player-neg"
@@ -1125,6 +1124,7 @@ func TestBlueOceanInsufficientFundsWhenNegativeModesOff(t *testing.T) {
 		BlueOceanWalletSalt:                      salt,
 		BlueOceanWalletIntegerAmountIsMajorUnits: true,
 		BlueOceanWalletSkipBonusBetGuards:        true,
+		BlueOceanWalletS2SCompatibility:          false,
 		BlueOceanWalletAllowNegativeBalance:      false,
 		BlueOceanAllowNegativeTestBalance:        false,
 	}
@@ -1390,5 +1390,225 @@ func TestBlueOceanWalletFinancialHandlersAlwaysEmitJSONObjects(t *testing.T) {
 		if _, ok := o["balance"]; !ok {
 			t.Fatalf("case %d: missing balance", i)
 		}
+	}
+}
+
+func TestBlueOceanResetNegativeBalanceToZero(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-rst-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	rid := "rst-" + uid[:8]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "rst-seed:"+uid, -102_500, nil); err != nil {
+		t.Fatal(err)
+	}
+	salt := "contract-reset-debt"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	q := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": "reset-txn-" + uid[:6],
+		"amount": "-1025", "currency": "EUR", "game_id": "g1",
+	})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?"+q, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP %d %s", w.Code, w.Body.String())
+	}
+	var o struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(w.Body.Bytes()), &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "200" || o.Balance != "0" {
+		t.Fatalf("want 200 balance 0 got status=%q bal=%q", o.Status, o.Balance)
+	}
+}
+
+func TestBlueOceanResetThenCreditInitialBalance(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-rstc-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	rid := "rstc-" + uid[:8]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "rstc-seed:"+uid, -102_500, nil); err != nil {
+		t.Fatal(err)
+	}
+	salt := "contract-reset-credit"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	q1 := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": "rst1-" + uid[:6],
+		"amount": "-1025", "currency": "EUR", "game_id": "g1",
+	})
+	w1 := httptest.NewRecorder()
+	h.ServeHTTP(w1, httptest.NewRequest(http.MethodGet, "/?"+q1, nil))
+	var r1 struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(w1.Body.Bytes()), &r1); err != nil {
+		t.Fatal(err)
+	}
+	if r1.Status != "200" || r1.Balance != "0" {
+		t.Fatalf("after reset want 0 got %+v %s", r1, w1.Body.String())
+	}
+	q2 := boSignGET(salt, map[string]string{
+		"action": "credit", "remote_id": rid, "transaction_id": "rst2-" + uid[:6],
+		"amount": "1000", "currency": "EUR",
+	})
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/?"+q2, nil))
+	var r2 struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(w2.Body.Bytes()), &r2); err != nil {
+		t.Fatal(err)
+	}
+	if r2.Status != "200" || r2.Balance != "1000" {
+		t.Fatalf("after credit want 1000 got %+v %s", r2, w2.Body.String())
+	}
+}
+
+func TestBlueOceanNormalNegativeDebitAmountInvalid(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-ndinv-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	rid := "ndinv-" + uid[:8]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "ndinv:"+uid, -1500, nil); err != nil {
+		t.Fatal(err)
+	}
+	salt := "contract-neg-debit-bad"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	q := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": "ndx-" + uid[:6],
+		"amount": "-5", "currency": "EUR", "game_id": "g1",
+	})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?"+q, nil))
+	var o struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+		Msg     string `json:"msg"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(w.Body.Bytes()), &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "403" || o.Balance != "-15" {
+		t.Fatalf("want 403 bal -15 got status=%q bal=%q body=%s", o.Status, o.Balance, w.Body.String())
+	}
+	play, err := ledger.BalancePlayableSeamless(ctx, p, uid, "EUR", false)
+	if err != nil || play != -1500 {
+		t.Fatalf("ledger should stay -1500 got %d err=%v", play, err)
+	}
+}
+
+func TestBlueOceanLargeInsufficientDebitInvalid(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-bigif-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	rid := "bigif-" + uid[:8]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "bigif:"+uid, 100_500, nil); err != nil {
+		t.Fatal(err)
+	}
+	salt := "contract-big-insuff"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	q := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": "big-" + uid[:6],
+		"amount": "2020", "currency": "EUR", "game_id": "g1",
+	})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?"+q, nil))
+	var o struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(w.Body.Bytes()), &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "403" || o.Balance != "1005" {
+		t.Fatalf("want 403 bal 1005 got status=%q bal=%q", o.Status, o.Balance)
 	}
 }
