@@ -121,7 +121,8 @@ export default function BonusHubOperationsPage() {
   const [mgPvid, setMgPvid] = useState('')
   const [mgAmount, setMgAmount] = useState('')
   const [mgCurrency, setMgCurrency] = useState('USDT')
-  const [mgCreditTarget, setMgCreditTarget] = useState<'bonus_locked' | 'cash'>('bonus_locked')
+  const [mgCreditTarget, setMgCreditTarget] = useState<'bonus_locked' | 'cash' | 'bonus_active'>('cash')
+  const [mgBonusInstanceId, setMgBonusInstanceId] = useState('')
   const [mgBusy, setMgBusy] = useState(false)
   const [mgResult, setMgResult] = useState<unknown>(null)
   const [mgErr, setMgErr] = useState<string | null>(null)
@@ -282,12 +283,18 @@ export default function BonusHubOperationsPage() {
     const pvid = Number.parseInt(mgPvid, 10)
     const amt = Number.parseInt(mgAmount, 10)
     const isCash = mgCreditTarget === 'cash'
+    const isActiveTopUp = mgCreditTarget === 'bonus_active'
     if (!mgUserId.trim() || Number.isNaN(amt) || amt <= 0) {
       setMgErr('user_id and positive grant_amount_minor are required')
       return
     }
-    if (!isCash && (Number.isNaN(pvid) || pvid <= 0)) {
-      setMgErr('promotion_version_id is required for bonus wallet grants')
+    if (isActiveTopUp) {
+      if (!mgBonusInstanceId.trim()) {
+        setMgErr('bonus_instance_id (UUID) is required for active bonus top-up')
+        return
+      }
+    } else if (!isCash && (Number.isNaN(pvid) || pvid <= 0)) {
+      setMgErr('promotion_version_id is required for new bonus grants')
       return
     }
     setMgBusy(true)
@@ -297,10 +304,11 @@ export default function BonusHubOperationsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: mgUserId.trim(),
-          promotion_version_id: isCash ? 0 : pvid,
+          promotion_version_id: isCash || isActiveTopUp ? 0 : pvid,
           grant_amount_minor: amt,
           currency: mgCurrency.trim() || 'USDT',
-          credit_target: isCash ? 'cash' : 'bonus_locked',
+          credit_target: isCash ? 'cash' : isActiveTopUp ? 'bonus_active' : 'bonus_locked',
+          ...(isActiveTopUp && mgBonusInstanceId.trim() ? { bonus_instance_id: mgBonusInstanceId.trim() } : {}),
           idempotency_key: newAdminGrantIdempotencyKey(),
         }),
       })
@@ -648,7 +656,7 @@ export default function BonusHubOperationsPage() {
       {tab === 'manual_grant' ? (
         <ComponentCard
           title="Manual grant"
-          desc="Superadmin. Bonus path creates a promotion instance; cash path credits seamless wallet (Blue Ocean real play) without promo bet rules."
+          desc="Superadmin. Defaults to real (cash) balance. New bonus creates a promo instance; active bonus tops up an existing instance."
         >
           {!isSuper ? (
             <p className="mb-3 text-xs text-amber-700 dark:text-amber-400">Superadmin only.</p>
@@ -662,19 +670,33 @@ export default function BonusHubOperationsPage() {
                   <input
                     type="radio"
                     name="mg-credit"
+                    checked={mgCreditTarget === 'cash'}
+                    onChange={() => setMgCreditTarget('cash')}
+                  />
+                  Real balance (withdrawable / seamless)
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="mg-credit"
                     checked={mgCreditTarget === 'bonus_locked'}
                     onChange={() => setMgCreditTarget('bonus_locked')}
                   />
-                  Bonus (promotion / WR)
+                  New bonus (promotion + bonus_locked)
                 </label>
                 <label className="inline-flex cursor-pointer items-center gap-2">
-                  <input type="radio" name="mg-credit" checked={mgCreditTarget === 'cash'} onChange={() => setMgCreditTarget('cash')} />
-                  Cash / seamless (BO real play)
+                  <input type="radio" name="mg-credit" checked={mgCreditTarget === 'bonus_active'} onChange={() => setMgCreditTarget('bonus_active')} />
+                  Active bonus (top-up instance)
                 </label>
               </div>
               {mgCreditTarget === 'cash' ? (
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Use currency aligned with Blue Ocean seamless (<code>BLUEOCEAN_CURRENCY</code>). Promotion ID not required.
+                </p>
+              ) : null}
+              {mgCreditTarget === 'bonus_active' ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Enter the bonus instance UUID (e.g. from Instances). Credits <strong>bonus_locked</strong> and extends WR from that instance&apos;s rules.
                 </p>
               ) : null}
             </div>
@@ -689,9 +711,9 @@ export default function BonusHubOperationsPage() {
                 onChange={(e) => setMgUserId(e.target.value)}
               />
             </div>
-            <div className={mgCreditTarget === 'cash' ? 'opacity-50 pointer-events-none select-none' : ''}>
+            <div className={mgCreditTarget === 'cash' || mgCreditTarget === 'bonus_active' ? 'opacity-50 pointer-events-none select-none' : ''}>
               <label className={labelCls} htmlFor="mg-pvid">
-                Promotion version ID {mgCreditTarget === 'cash' ? '(bonus only)' : ''}
+                Promotion version ID {mgCreditTarget === 'cash' || mgCreditTarget === 'bonus_active' ? '(new bonus only)' : ''}
               </label>
               <input
                 id="mg-pvid"
@@ -701,9 +723,27 @@ export default function BonusHubOperationsPage() {
                 onChange={(e) => setMgPvid(e.target.value)}
               />
             </div>
+            {mgCreditTarget === 'bonus_active' ? (
+              <div className="sm:col-span-2">
+                <label className={labelCls} htmlFor="mg-bonus-inst">
+                  Active bonus instance ID
+                </label>
+                <input
+                  id="mg-bonus-inst"
+                  className={inputCls}
+                  value={mgBonusInstanceId}
+                  onChange={(e) => setMgBonusInstanceId(e.target.value)}
+                  placeholder="UUID"
+                />
+              </div>
+            ) : null}
             <div>
               <label className={labelCls} htmlFor="mg-amt">
-                {mgCreditTarget === 'cash' ? 'Amount (minor · cash)' : 'Bonus amount (minor units)'}
+                {mgCreditTarget === 'cash'
+                  ? 'Amount (minor · cash)'
+                  : mgCreditTarget === 'bonus_active'
+                    ? 'Top-up (minor · bonus_locked)'
+                    : 'Bonus amount (minor units)'}
               </label>
               <input
                 id="mg-amt"

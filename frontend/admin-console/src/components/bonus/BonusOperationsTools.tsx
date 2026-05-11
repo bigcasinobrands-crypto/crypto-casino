@@ -53,7 +53,7 @@ type PendingGrantConfirm = {
   grantAmountMinor: number
   currency: string
   allowWithdrawable: boolean
-  creditTarget: 'bonus_locked' | 'cash'
+  creditTarget: 'bonus_locked'
   existing: BonusInstance[]
 }
 
@@ -163,7 +163,8 @@ export default function BonusOperationsTools() {
   const [mgCurrency, setMgCurrency] = useState('USDT')
   const [mgAllowWithdrawable, setMgAllowWithdrawable] = useState(false)
   /** Cash / seamless wallet (Blue Ocean real play, no promo bet rules). Default matches legacy bonus_locked grants. */
-  const [mgCreditTarget, setMgCreditTarget] = useState<'bonus_locked' | 'cash'>('bonus_locked')
+  const [mgCreditTarget, setMgCreditTarget] = useState<'bonus_locked' | 'cash' | 'bonus_active'>('cash')
+  const [mgBonusInstanceId, setMgBonusInstanceId] = useState('')
   const [mgBusy, setMgBusy] = useState(false)
   const [mgResult, setMgResult] = useState<unknown>(null)
   const [mgErr, setMgErr] = useState<string | null>(null)
@@ -329,7 +330,8 @@ export default function BonusOperationsTools() {
     grantAmountMinor: number
     currency: string
     allowWithdrawable: boolean
-    creditTarget: 'bonus_locked' | 'cash'
+    creditTarget: 'bonus_locked' | 'cash' | 'bonus_active'
+    bonusInstanceId?: string
   }) => {
     setMgErr(null)
     setMgResult(null)
@@ -345,6 +347,7 @@ export default function BonusOperationsTools() {
           currency: payload.currency,
           allow_withdrawable: payload.allowWithdrawable,
           credit_target: payload.creditTarget,
+          ...(payload.bonusInstanceId?.trim() ? { bonus_instance_id: payload.bonusInstanceId.trim() } : {}),
           idempotency_key: newAdminGrantIdempotencyKey(),
         }),
       })
@@ -374,17 +377,23 @@ export default function BonusOperationsTools() {
     const uid = mgUserId.trim()
     const ccy = mgCurrency.trim() || 'USDT'
     const isCash = mgCreditTarget === 'cash'
+    const isActiveTopUp = mgCreditTarget === 'bonus_active'
     if (!uid || Number.isNaN(amt) || amt <= 0) {
       setMgErr('user_id and positive grant_amount_minor are required')
       return
     }
-    if (!isCash && (Number.isNaN(pvid) || pvid <= 0)) {
-      setMgErr('promotion_version_id is required for bonus wallet grants')
+    if (isActiveTopUp) {
+      if (!mgBonusInstanceId.trim()) {
+        setMgErr('bonus_instance_id (UUID) is required for active bonus top-up')
+        return
+      }
+    } else if (!isCash && (Number.isNaN(pvid) || pvid <= 0)) {
+      setMgErr('promotion_version_id is required for new bonus grants')
       return
     }
 
-    // Safety pre-check: warn before issuing a likely duplicate grant (bonus path only).
-    if (!isCash) {
+    // Safety pre-check: warn before issuing a likely duplicate grant (new bonus path only).
+    if (!isCash && !isActiveTopUp) {
       try {
         const q = new URLSearchParams({ user_id: uid, limit: '200' })
         const res = await apiFetch(`/v1/admin/bonushub/instances?${q.toString()}`)
@@ -411,11 +420,12 @@ export default function BonusOperationsTools() {
 
     await performManualGrant({
       userId: uid,
-      promotionVersionId: isCash ? 0 : pvid,
+      promotionVersionId: isCash || isActiveTopUp ? 0 : pvid,
       grantAmountMinor: amt,
       currency: ccy,
       allowWithdrawable: mgAllowWithdrawable,
-      creditTarget: isCash ? 'cash' : 'bonus_locked',
+      creditTarget: isCash ? 'cash' : isActiveTopUp ? 'bonus_active' : 'bonus_locked',
+      bonusInstanceId: isActiveTopUp ? mgBonusInstanceId : undefined,
     })
   }
 
@@ -770,18 +780,6 @@ export default function BonusOperationsTools() {
               <div className="d-flex flex-wrap gap-3">
                 <div className="form-check">
                   <input
-                    id="mg-ct-bonus"
-                    className="form-check-input"
-                    type="radio"
-                    checked={mgCreditTarget === 'bonus_locked'}
-                    onChange={() => setMgCreditTarget('bonus_locked')}
-                  />
-                  <label className="form-check-label small" htmlFor="mg-ct-bonus">
-                    Bonus wallet (promotion + WR; max bet / excluded games apply)
-                  </label>
-                </div>
-                <div className="form-check">
-                  <input
                     id="mg-ct-cash"
                     className="form-check-input"
                     type="radio"
@@ -789,7 +787,31 @@ export default function BonusOperationsTools() {
                     onChange={() => setMgCreditTarget('cash')}
                   />
                   <label className="form-check-label small" htmlFor="mg-ct-cash">
-                    Cash / seamless wallet (Blue Ocean real play — no promo bet guards)
+                    Real balance (withdrawable cash / seamless wallet — default)
+                  </label>
+                </div>
+                <div className="form-check">
+                  <input
+                    id="mg-ct-bonus-new"
+                    className="form-check-input"
+                    type="radio"
+                    checked={mgCreditTarget === 'bonus_locked'}
+                    onChange={() => setMgCreditTarget('bonus_locked')}
+                  />
+                  <label className="form-check-label small" htmlFor="mg-ct-bonus-new">
+                    New bonus (promotion + bonus_locked; WR / max bet apply)
+                  </label>
+                </div>
+                <div className="form-check">
+                  <input
+                    id="mg-ct-bonus-active"
+                    className="form-check-input"
+                    type="radio"
+                    checked={mgCreditTarget === 'bonus_active'}
+                    onChange={() => setMgCreditTarget('bonus_active')}
+                  />
+                  <label className="form-check-label small" htmlFor="mg-ct-bonus-active">
+                    Active bonus (top-up existing instance — bonus_locked)
                   </label>
                 </div>
               </div>
@@ -797,6 +819,12 @@ export default function BonusOperationsTools() {
                 <p className="small text-secondary mt-2 mb-0">
                   Match <strong>currency</strong> to your seamless wallet (<code>BLUEOCEAN_CURRENCY</code> / multicurrency),
                   or the balance may not appear in-game.
+                </p>
+              ) : null}
+              {mgCreditTarget === 'bonus_active' ? (
+                <p className="small text-secondary mt-2 mb-0">
+                  Use the bonus instance UUID from <strong>Instances</strong>. Wagering increases based on this top-up and the
+                  promo rules stored on that instance.
                 </p>
               ) : null}
             </div>
@@ -854,8 +882,16 @@ export default function BonusOperationsTools() {
               ) : null}
               <p className="small text-secondary mt-1 mb-0">Selected player UUID: {mgUserId || '—'}</p>
             </div>
-            <div className={mgCreditTarget === 'cash' ? 'opacity-50 user-select-none' : ''} style={mgCreditTarget === 'cash' ? { pointerEvents: 'none' } : undefined}>
-              <label className={labelCls}>Bonus to re-grant {mgCreditTarget === 'cash' ? <span className="text-secondary">(bonus path only)</span> : null}</label>
+            <div
+              className={mgCreditTarget === 'cash' || mgCreditTarget === 'bonus_active' ? 'opacity-50 user-select-none' : ''}
+              style={mgCreditTarget === 'cash' || mgCreditTarget === 'bonus_active' ? { pointerEvents: 'none' } : undefined}
+            >
+              <label className={labelCls}>
+                Bonus to re-grant{' '}
+                {mgCreditTarget === 'cash' || mgCreditTarget === 'bonus_active' ? (
+                  <span className="text-secondary">(new bonus path only)</span>
+                ) : null}
+              </label>
               <input
                 className={`${inputCls} mb-2`}
                 value={mgPromotionQuery}
@@ -896,9 +932,23 @@ export default function BonusOperationsTools() {
               ) : null}
               <p className="small text-secondary mt-1 mb-0">Selected promotion version: {mgPvid || '—'}</p>
             </div>
+            <div className={mgCreditTarget === 'bonus_active' ? 'sm:col-span-2' : 'd-none'}>
+              <label className={labelCls}>Active bonus instance ID (UUID)</label>
+              <input
+                className={inputCls}
+                value={mgBonusInstanceId}
+                onChange={(e) => setMgBonusInstanceId(e.target.value)}
+                placeholder="e.g. from Instances tab"
+              />
+              <p className="small text-secondary mt-1 mb-0">Must be <strong>active</strong>. Credits post to the same bonus_locked pool.</p>
+            </div>
             <div>
               <label className={labelCls}>
-                {mgCreditTarget === 'cash' ? 'Amount (minor units · cash / seamless)' : 'Bonus amount (minor units · play-only)'}
+                {mgCreditTarget === 'cash'
+                  ? 'Amount (minor units · cash / seamless)'
+                  : mgCreditTarget === 'bonus_active'
+                    ? 'Top-up amount (minor units · bonus_locked)'
+                    : 'Bonus amount (minor units · play-only)'}
               </label>
               <input type="number" className={inputCls} value={mgAmount} onChange={(e) => setMgAmount(e.target.value)} />
               <p className="small text-secondary mt-1 mb-0">
@@ -906,6 +956,11 @@ export default function BonusOperationsTools() {
                   <>
                     Credited to <strong>cash</strong>. Blue Ocean debits this first (real-money seamless path), same idea as
                     operator-funded test balance.
+                  </>
+                ) : mgCreditTarget === 'bonus_active' ? (
+                  <>
+                    Adds to <strong>bonus_locked</strong> for the selected instance and extends WR from the promotion rules on that
+                    instance.
                   </>
                 ) : (
                   <>
@@ -917,18 +972,21 @@ export default function BonusOperationsTools() {
               <p className="small text-secondary mt-1 mb-0">
                 {mgCreditTarget === 'cash'
                   ? 'Withdraw / compliance follows normal cash wallet rules in your environment.'
-                  : 'Release/withdraw eligibility is controlled by the promotion&apos;s wagering rules and terms.'}
+                  : mgCreditTarget === 'bonus_active'
+                    ? 'Withdraw / release rules stay tied to the existing instance; this does not create a second bonus.'
+                    : 'Release/withdraw eligibility is controlled by the promotion&apos;s wagering rules and terms.'}
               </p>
-              <div className="form-check mt-2">
+              <div className={`form-check mt-2 ${mgCreditTarget === 'bonus_active' ? 'opacity-50' : ''}`}>
                 <input
                   id="mg-allow-withdrawable"
                   className="form-check-input"
                   type="checkbox"
                   checked={mgAllowWithdrawable}
+                  disabled={mgCreditTarget === 'bonus_active'}
                   onChange={(e) => setMgAllowWithdrawable(e.target.checked)}
                 />
                 <label className="form-check-label small" htmlFor="mg-allow-withdrawable">
-                  Explicitly allow withdraw behavior for this manual credit (override default non-withdrawable)
+                  Explicitly allow withdraw behavior for this manual credit (new bonus / cash only)
                 </label>
               </div>
             </div>

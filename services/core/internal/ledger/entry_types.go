@@ -6,17 +6,17 @@ package ledger
 // must be updated.
 const (
 	// Deposits
-	EntryTypeDepositCredit           = "deposit.credit"
-	EntryTypeDepositReversal         = "deposit.reversal"
-	EntryTypeDepositClearingInbound  = "deposit.clearing.inbound"
+	EntryTypeDepositCredit          = "deposit.credit"
+	EntryTypeDepositReversal        = "deposit.reversal"
+	EntryTypeDepositClearingInbound = "deposit.clearing.inbound"
 
 	// Withdrawals (PassimPay lock/settle/compensation flow)
-	EntryTypeWithdrawalLockCash         = "withdrawal.lock.cash"
-	EntryTypeWithdrawalLockPending      = "withdrawal.lock.pending"
-	EntryTypeWithdrawalPendingSettled   = "withdrawal.pending.settled"
-	EntryTypeWithdrawalCompensationCash = "withdrawal.compensation.cash"
+	EntryTypeWithdrawalLockCash            = "withdrawal.lock.cash"
+	EntryTypeWithdrawalLockPending         = "withdrawal.lock.pending"
+	EntryTypeWithdrawalPendingSettled      = "withdrawal.pending.settled"
+	EntryTypeWithdrawalCompensationCash    = "withdrawal.compensation.cash"
 	EntryTypeWithdrawalCompensationPending = "withdrawal.compensation.pending"
-	EntryTypeWithdrawalClearingOut      = "withdrawal.clearing.outbound"
+	EntryTypeWithdrawalClearingOut         = "withdrawal.clearing.outbound"
 	// Compensation when the provider reports a TERMINAL FAIL after we have
 	// already settled the ledger (LEDGER_LOCKED → SUBMITTED_TO_PROVIDER → settled
 	// → provider returns approve=2). Refunds the user cash and reverses the
@@ -40,16 +40,18 @@ const (
 	EntryTypeSportsbookRollback = "sportsbook.rollback"
 
 	// Bonus / promotions
-	EntryTypePromoGrant          = "promo.grant"
-	EntryTypePromoForfeit        = "promo.forfeit"
-	EntryTypePromoExpire         = "promo.expire"
-	EntryTypePromoConvert        = "promo.convert"
-	EntryTypePromoActivation     = "promo.activation"
-	EntryTypePromoRelinquish     = "promo.relinquish"
-	EntryTypePromoRakeback       = "promo.rakeback"
+	EntryTypePromoGrant = "promo.grant"
+	// EntryTypePromoGrantTopUp — additional credit to an existing active bonus instance (admin / ops).
+	EntryTypePromoGrantTopUp      = "promo.grant_topup"
+	EntryTypePromoForfeit         = "promo.forfeit"
+	EntryTypePromoExpire          = "promo.expire"
+	EntryTypePromoConvert         = "promo.convert"
+	EntryTypePromoActivation      = "promo.activation"
+	EntryTypePromoRelinquish      = "promo.relinquish"
+	EntryTypePromoRakeback        = "promo.rakeback"
 	EntryTypePromoRakebackAccrued = "promo.rakeback_accrued"
-	EntryTypePromoFreeSpinGrant  = "promo.free_spin_grant"
-	EntryTypePromoDailyHuntCash  = "promo.daily_hunt_cash"
+	EntryTypePromoFreeSpinGrant   = "promo.free_spin_grant"
+	EntryTypePromoDailyHuntCash   = "promo.daily_hunt_cash"
 
 	// VIP
 	EntryTypeVIPLevelUpCash = "vip.level_up_cash"

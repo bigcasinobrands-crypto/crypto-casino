@@ -1000,10 +1000,13 @@ type manualGrantReq struct {
 	PromotionVersionID int64  `json:"promotion_version_id"`
 	GrantAmountMinor   int64  `json:"grant_amount_minor"`
 	Currency           string `json:"currency"`
-	// CreditTarget: "bonus_locked" (default) — promo instance + bonus pocket;
-	// "cash" — ledger cash only (Blue Ocean seamless / real play, no WR or promo bet guards).
-	CreditTarget string `json:"credit_target"`
-	AllowWithdrawable  bool   `json:"allow_withdrawable"`
+	// BonusInstanceID is required when CreditTarget is "bonus_active" (top-up existing instance).
+	BonusInstanceID string `json:"bonus_instance_id"`
+	// CreditTarget: "cash" (default) — withdrawable / seamless real balance;
+	// "bonus_locked" — new promo instance + bonus_locked;
+	// "bonus_active" — credit into an existing active instance (extends WR from rules).
+	CreditTarget      string `json:"credit_target"`
+	AllowWithdrawable bool   `json:"allow_withdrawable"`
 	// IdempotencyKey is OPTIONAL but strongly preferred. Front-end should
 	// generate a UUID once when the grant modal opens and resend the same
 	// value on retry. When absent, the server derives a deterministic key from
@@ -1035,13 +1038,65 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 	uid := strings.TrimSpace(body.UserID)
 	creditTarget := strings.ToLower(strings.TrimSpace(body.CreditTarget))
 	if creditTarget == "" {
-		creditTarget = "bonus_locked"
+		creditTarget = "cash"
 	}
-	if creditTarget != "bonus_locked" && creditTarget != "cash" {
-		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "credit_target must be bonus_locked or cash")
+	if creditTarget != "bonus_locked" && creditTarget != "cash" && creditTarget != "bonus_active" {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "credit_target must be cash, bonus_locked, or bonus_active")
+		return
+	}
+	if creditTarget == "bonus_active" && body.GrantAmountMinor <= 0 {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "bonus_active requires grant_amount_minor > 0")
 		return
 	}
 	cashAmountGrant := body.GrantAmountMinor > 0 && creditTarget == "cash"
+	bonusActiveGrant := body.GrantAmountMinor > 0 && creditTarget == "bonus_active"
+	if bonusActiveGrant {
+		bi := strings.TrimSpace(body.BonusInstanceID)
+		if bi == "" {
+			adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "bonus_instance_id required for bonus_active credit target")
+			return
+		}
+		idem := manualTopUpIdempotencyKey(body.IdempotencyKey, staffID, bi, uid)
+		inserted, err := bonus.TopUpActiveInstance(ctx, h.Pool, bonus.TopUpActiveInstanceArgs{
+			UserID:         uid,
+			InstanceID:     bi,
+			AddAmountMinor: body.GrantAmountMinor,
+			IdempotencyKey: idem,
+			ActorStaffID:   staffID,
+		})
+		if err != nil {
+			adminapi.WriteError(w, http.StatusBadRequest, "grant_failed", err.Error())
+			return
+		}
+		playMulti := h.cfg().BlueOceanMulticurrency
+		afterBon, _ := ledger.BalanceBonusLockedSeamless(ctx, h.Pool, uid, ccy, playMulti)
+		auditMeta := map[string]any{
+			"user_id":                body.UserID,
+			"bonus_instance_id":      bi,
+			"grant_amount_minor":     body.GrantAmountMinor,
+			"currency":               ccy,
+			"credit_target":          "bonus_active",
+			"funding_source":         "brand_bonus_wallet",
+			"credit_pocket":          "bonus_locked",
+			"wagering_terms_applied": true,
+		}
+		metaJSON, _ := json.Marshal(auditMeta)
+		h.auditExec(ctx, "bonushub.manual_grant", `
+			INSERT INTO admin_audit_log (staff_user_id, action, target_type, meta)
+			VALUES ($1::uuid, 'bonushub.manual_grant', 'user_bonus_instances', $2::jsonb)
+		`, staffID, metaJSON)
+		writeJSON(w, map[string]any{
+			"inserted":                      inserted,
+			"mode":                          "bonus_active_top_up",
+			"pocket":                        "bonus_locked",
+			"funding_source":                "brand_bonus_wallet",
+			"bonus_instance_id":             bi,
+			"terms_note":                    "Wagering requirement extended per promotion rules applied to the top-up amount",
+			"bonus_locked_balance_minor":    afterBon,
+			"bonus_locked_balance_currency": ccy,
+		})
+		return
+	}
 	if !cashAmountGrant && body.PromotionVersionID <= 0 {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "promotion_version_id required")
 		return
@@ -1056,9 +1111,9 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 		ccy = h.resolveSeamlessManualCashCurrency()
 		idem := manualCashPlayCreditIdempotencyKey(body.IdempotencyKey, staffID, uid, body.GrantAmountMinor, ccy)
 		meta := map[string]any{
-			"staff_user_id":    staffID,
-			"credit_target":    "cash",
-			"entry_type":       ledger.EntryTypeAdminPlayCredit,
+			"staff_user_id":      staffID,
+			"credit_target":      "cash",
+			"entry_type":         ledger.EntryTypeAdminPlayCredit,
 			"allow_withdrawable": body.AllowWithdrawable,
 		}
 		if reqCcy != "" && reqCcy != ccy {
@@ -1092,13 +1147,13 @@ func (h *Handler) bonusHubManualGrant(w http.ResponseWriter, r *http.Request) {
 			VALUES ($1::uuid, 'bonushub.manual_grant', 'ledger_entries', $2::jsonb)
 		`, staffID, metaJSON)
 		resp := map[string]any{
-			"inserted":       inserted,
-			"mode":           "seamless_cash",
-			"currency":       ccy,
-			"pocket":         "cash",
-			"withdrawable":   body.AllowWithdrawable,
-			"funding_source": "admin_play_credit",
-			"terms_note":     "Credited in settlement currency (" + ccy + ") for Blue Ocean games; UI currency selection does not override.",
+			"inserted":                  inserted,
+			"mode":                      "seamless_cash",
+			"currency":                  ccy,
+			"pocket":                    "cash",
+			"withdrawable":              body.AllowWithdrawable,
+			"funding_source":            "admin_play_credit",
+			"terms_note":                "Credited in settlement currency (" + ccy + ") for Blue Ocean games; UI currency selection does not override.",
 			"playable_balance_minor":    afterBal,
 			"playable_balance_currency": ccy,
 		}
@@ -1307,10 +1362,10 @@ func (h *Handler) userEconomicTimeline(w http.ResponseWriter, r *http.Request) {
 	play, _ := ledger.BalanceMinor(ctx, h.Pool, uid)
 
 	writeJSON(w, map[string]any{
-		"user_id":                uid,
-		"balances":               map[string]any{"cash_minor": cash, "bonus_locked_minor": bon, "playable_minor": play},
-		"ledger":                 ledgerLines,
-		"bonus_instances":        bonuses,
+		"user_id":                 uid,
+		"balances":                map[string]any{"cash_minor": cash, "bonus_locked_minor": bon, "playable_minor": play},
+		"ledger":                  ledgerLines,
+		"bonus_instances":         bonuses,
 		"payment_callbacks_guess": paymentCallbacks,
 	})
 }
@@ -1412,6 +1467,15 @@ func manualGrantIdempotencyKey(clientKey, staffID string, promotionVersionID int
 		return "bonus:grant:admin:client:" + k
 	}
 	return fmt.Sprintf("bonus:grant:admin:%s:%d:%s", staffID, promotionVersionID, userID)
+}
+
+// manualTopUpIdempotencyKey deduplicates admin top-ups to an existing bonus instance.
+func manualTopUpIdempotencyKey(clientKey, staffID, bonusInstanceID, userID string) string {
+	bi := strings.TrimSpace(bonusInstanceID)
+	if k := strings.TrimSpace(clientKey); k != "" {
+		return "bonus:topup:admin:client:" + k + ":" + bi
+	}
+	return fmt.Sprintf("bonus:topup:admin:%s:%s:%s", staffID, bi, userID)
 }
 
 // manualFreeSpinIdempotencyKey is the free-spin equivalent of
