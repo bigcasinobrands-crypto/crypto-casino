@@ -74,6 +74,12 @@ Workspace file: **`.cursor/mcp.json`**. Restart Cursor after editing.
 | **render** | Services, logs, metrics, env vars (API) | Create an API key: [Dashboard → Account → API keys](https://dashboard.render.com/settings#api-keys). Set **`RENDER_API_KEY`** on your user/OS environment (same session that launches Cursor). **Do not** commit the key. |
 | **vercel** | Projects, deployments, logs | **Settings → Tools & MCP → vercel** → **Sign in with Vercel** (OAuth). No repo secret. |
 
+### Render MCP troubleshooting
+
+- **`RENDER_API_KEY`** must be set in the **operating-system or user** environment (Windows: *System Properties → Environment Variables*, or your shell profile) so Cursor can substitute `${env:RENDER_API_KEY}` in `.cursor/mcp.json`. Restart Cursor after changing it.
+- If automated tool calls say the **`render` server does not exist**, enable the Render MCP in **Cursor Settings → MCP** and use the server instance Cursor actually connected (the UI may show a project-prefixed name). Tooling must target the connected Render MCP instance.
+- **`goose: duplicate version N detected`** in Render **deploy logs** means two files share the same `000NN_*.sql` prefix. Renumber the newer migration to the next free integer, commit, and redeploy.
+
 **Oddin esports (Bifrost)** is not an MCP product—verify **`ODDIN_*`** and **`PLAYER_CORS_ORIGINS`** on your Render service (env + logs) or in the dashboard. See **`docs/oddin-iframe-integration.md`**.
 
 ### Oddin operator routes (verify after API deploy)
