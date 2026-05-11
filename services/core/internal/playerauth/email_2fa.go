@@ -43,7 +43,7 @@ func (s *Service) sendPlayerEmail2FACode(ctx context.Context, email, code, purpo
 	if s.Mail == nil {
 		return ErrEmailMFADeliveryUnavailable
 	}
-	em := strings.TrimSpace(strings.ToLower(email))
+	em := NormalizePlayerEmail(email)
 	subj := "Your sign-in verification code"
 	body := fmt.Sprintf("%s\n\nYour verification code is: %s\n\nIt expires in 10 minutes. If you didn't request this, change your password immediately.\n",
 		purposeLine, code)

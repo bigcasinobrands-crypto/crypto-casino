@@ -22,12 +22,17 @@ import (
 	"github.com/crypto-casino/core/internal/passhash"
 	"github.com/crypto-casino/core/internal/pii"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const refreshTTL = 7 * 24 * time.Hour
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
+
+// ErrEmailAlreadyRegistered is returned when sign-up uses an email that already belongs to an account
+// (including the same email+password pair — a second player must not be created).
+var ErrEmailAlreadyRegistered = errors.New("email already registered")
 var ErrTermsNotAccepted = errors.New("terms not accepted")
 
 // ErrSessionPersist is returned when DB insert or token signing fails after the user is authenticated (e.g. missing player_sessions columns).
@@ -76,7 +81,7 @@ func (s *Service) rejectIfPwnedPassword(ctx context.Context, password string) er
 }
 
 func (s *Service) Register(ctx context.Context, email, password, username string, acceptTerms, acceptPrivacy bool, sc *SessionContext, referralCode string) (accessToken, refreshToken string, exp int64, err error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = NormalizePlayerEmail(email)
 	username = strings.TrimSpace(username)
 	if email == "" {
 		return "", "", 0, ErrInvalidCredentials
@@ -96,9 +101,9 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 		}
 	}
 	var taken bool
-	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = lower($1))`, email).Scan(&taken)
+	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE lower(trim(both from email)) = $1)`, email).Scan(&taken)
 	if taken {
-		return "", "", 0, ErrInvalidCredentials
+		return "", "", 0, ErrEmailAlreadyRegistered
 	}
 	if username != "" {
 		var nameTaken bool
@@ -143,6 +148,10 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 		VALUES ($1, $2, $3, now(), $4, $5, $6) RETURNING id::text
 	`, email, string(hash), usernameVal, tv, pv, emailHMAC).Scan(&id)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", "", 0, ErrEmailAlreadyRegistered
+		}
 		return "", "", 0, ErrInvalidCredentials
 	}
 	if _, err = tx.Exec(ctx, `
@@ -189,6 +198,9 @@ func (s *Service) Register(ctx context.Context, email, password, username string
 
 func (s *Service) Login(ctx context.Context, emailOrUsername, password string, sc *SessionContext) (accessToken, refreshToken string, exp int64, err error) {
 	identifier := strings.TrimSpace(emailOrUsername)
+	if strings.Contains(identifier, "@") {
+		identifier = NormalizePlayerEmail(identifier)
+	}
 	if identifier == "" {
 		return "", "", 0, ErrInvalidCredentials
 	}
@@ -198,7 +210,7 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string, s
 		SELECT id::text, password_hash, email,
 		       COALESCE(email_2fa_enabled, false), COALESCE(email_2fa_admin_locked, false)
 		FROM users
-		WHERE lower(email) = lower($1)
+		WHERE lower(trim(both from email)) = $1
 		   OR (username IS NOT NULL AND lower(username) = lower($1))
 	`, identifier).Scan(&id, &phash, &emailStored, &tfaEnabled, &tfaAdminLocked)
 	if err != nil {

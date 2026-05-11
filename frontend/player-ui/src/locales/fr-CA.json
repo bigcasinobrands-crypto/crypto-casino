@@ -352,6 +352,7 @@
       "passwordPlaceholder": "Entrez votre mot de passe",
       "confirmPlaceholder": "Entrez de nouveau le mot de passe",
       "passwordsMismatch": "Les mots de passe ne correspondent pas",
+      "emailAlreadyRegistered": "Ce courriel est déjà inscrit. Connectez-vous ou utilisez une autre adresse.",
       "submit": "S'inscrire",
       "creating": "Création…",
       "registrationFailed": "Échec de l'inscription",

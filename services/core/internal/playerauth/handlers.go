@@ -189,12 +189,16 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			playerapi.WriteError(w, http.StatusConflict, "username_taken", "this username is already taken")
 			return
 		}
+		if errors.Is(err, ErrEmailAlreadyRegistered) {
+			playerapi.WriteError(w, http.StatusConflict, "email_already_registered", "An account with this email already exists. Sign in instead.")
+			return
+		}
 		if errors.Is(err, ErrInvalidUsername) {
 			playerapi.WriteError(w, http.StatusBadRequest, "invalid_username", "username must be 3-20 characters, letters/numbers/underscores only")
 			return
 		}
 		if errors.Is(err, ErrInvalidCredentials) {
-			playerapi.WriteError(w, http.StatusConflict, "register_failed", "email may already be in use")
+			playerapi.WriteError(w, http.StatusConflict, "register_failed", "registration could not be completed")
 			return
 		}
 		if errors.Is(err, ErrSessionPersist) {

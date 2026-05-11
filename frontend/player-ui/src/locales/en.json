@@ -364,6 +364,7 @@
       "passwordPlaceholder": "Enter your password",
       "confirmPlaceholder": "Re-enter password",
       "passwordsMismatch": "Passwords do not match",
+      "emailAlreadyRegistered": "This email is already registered. Sign in or use a different address.",
       "submit": "Register",
       "creating": "Creating…",
       "registrationFailed": "Registration failed",

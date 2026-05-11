@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
@@ -20,7 +19,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "usage: playerbootstrap <email> <password>\n")
 		os.Exit(1)
 	}
-	email := strings.ToLower(strings.TrimSpace(os.Args[1]))
+	email := playerauth.NormalizePlayerEmail(os.Args[1])
 	password := os.Args[2]
 	if email == "" {
 		log.Fatal("email required")
@@ -42,7 +41,7 @@ func main() {
 	}
 	defer pool.Close()
 	var taken bool
-	_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE lower(email)=lower($1))`, email).Scan(&taken)
+	_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE lower(trim(both from email))=$1)`, email).Scan(&taken)
 	if taken {
 		log.Printf("player already exists: %s", email)
 		return

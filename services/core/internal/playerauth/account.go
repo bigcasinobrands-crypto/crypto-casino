@@ -316,7 +316,7 @@ func (s *Service) ConfirmVerificationToken(ctx context.Context, plain string) er
 
 // RequestPasswordReset always succeeds from caller's perspective; emails only if user exists.
 func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = NormalizePlayerEmail(email)
 	if email == "" || s.Mail == nil {
 		return nil
 	}
@@ -328,7 +328,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 		return nil
 	}
 	var uid string
-	err = s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email) = lower($1)`, email).Scan(&uid)
+	err = s.Pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(trim(both from email)) = $1`, email).Scan(&uid)
 	if err != nil {
 		return nil
 	}

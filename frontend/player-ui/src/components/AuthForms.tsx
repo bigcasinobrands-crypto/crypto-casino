@@ -371,7 +371,11 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
     setLoading(false)
     if (!r.ok) {
       toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/register')
-      setErr(formatApiError(r.error, t('auth.registerForm.registrationFailed')))
+      setErr(
+        r.error?.code === 'email_already_registered'
+          ? t('auth.registerForm.emailAlreadyRegistered')
+          : formatApiError(r.error, t('auth.registerForm.registrationFailed')),
+      )
       return
     }
     toast.message(t('auth.registerForm.verifyEmailToastTitle'), {

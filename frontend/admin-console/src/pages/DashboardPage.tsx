@@ -302,6 +302,42 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {dummyDashboard ? (
+        <div className="alert alert-info small py-2 mb-3" role="status">
+          <strong>Demo mode:</strong> Values below are built-in sample data for this admin build, not your database. Set{' '}
+          <code className="user-select-all">VITE_ADMIN_DUMMY_DASHBOARD=false</code> and redeploy to load live KPIs from
+          the API.
+        </div>
+      ) : null}
+
+      {role === 'superadmin' && !dummyDashboard ? (
+        <details className="card border mb-3 shadow-sm">
+          <summary className="card-header py-2 px-3 user-select-none" style={{ cursor: 'pointer' }}>
+            How to populate dashboard metrics (dev / demo)
+          </summary>
+          <div className="card-body small py-3">
+            <p className="mb-2">
+              Tiles and charts read from <strong>Postgres</strong> (ledger, users, payments). Clearing browser storage only
+              affects this browser, not these figures.
+            </p>
+            <ul className="mb-0">
+              <li className="mb-2">
+                <strong>UI-only:</strong> set <code className="user-select-all">VITE_ADMIN_DUMMY_DASHBOARD=true</code> on
+                this admin project — the dashboard uses deterministic demo payloads without extra DB writes.
+              </li>
+              <li>
+                <strong>Real ledger activity:</strong> ensure at least one player exists, set{' '}
+                <code className="user-select-all">ALLOW_DASHBOARD_DEMO_SEED=1</code> in the environment (refused when{' '}
+                <code>APP_ENV=production</code>), then from the repo root run{' '}
+                <code className="user-select-all">npm run seed:dashboard-kpis</code> (or{' '}
+                <code className="user-select-all">go run ./cmd/dashboardseed</code> under{' '}
+                <code>services/core</code>). Safe to re-run; rows use fixed idempotency keys.
+              </li>
+            </ul>
+          </div>
+        </details>
+      ) : null}
+
       <DataTimeframeBar
         value={chartPeriod}
         onChange={setChartPeriod}
