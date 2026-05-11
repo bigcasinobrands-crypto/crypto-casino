@@ -91,6 +91,9 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	log.Printf("startup: APP_ENV=%q PORT=%q", cfg.AppEnv, cfg.Port)
+	if cfg.BlueOceanWalletAllowNegativeBalance {
+		log.Printf("startup: BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE=true — seamless wallet can overdraft; BO Advanced Concurrent Test expects this flag OFF (unset BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE on Render)")
+	}
 	log.Printf("startup: fingerprint player auth effective=%v (REQUIRE_FINGERPRINT_PLAYER_AUTH) withdraw_fp=%v (WITHDRAW_REQUIRE_FINGERPRINT) — set DISABLE_FINGERPRINT_PLAYER_AUTH=1 to force both off",
 		cfg.RequireFingerprintPlayerAuth, cfg.WithdrawRequireFingerprint)
 	if err := cfg.ValidateProduction(); err != nil {

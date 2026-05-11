@@ -70,7 +70,9 @@ type Config struct {
 	BlueOceanWalletFloatAmountIsMajorUnits bool
 	// BlueOceanWalletIntegerAmountIsMajorUnits: when true, integer and decimal amount/bet/win are major units (×100 to ledger minor) — matches Blue Ocean basic S2S wallet tests (amount=10 ⇒ 10.00). Default true when env unset; set BLUEOCEAN_WALLET_INTEGER_MINOR_UNITS=true only if your operator documents whole-number params as minor units (cents).
 	BlueOceanWalletIntegerAmountIsMajorUnits bool
-	// BlueOceanWalletAllowNegativeBalance — when true, seamless wallet debits may drive playable balance negative (operator / BO tooling stress tests).
+	// BlueOceanWalletAllowNegativeBalance — when true, seamless wallet may debit cash below zero (narrow GH1 / credit-line sandboxes only).
+	// Default false (env unset). Must stay false for Blue Ocean "Advanced Concurrent" drills: they require the (N+1)th parallel debit to return
+	// insufficient funds, not HTTP/json success with an overdraft. If this is true on staging, the last concurrent debit typically succeeds with balance -10 (major) when each bet is 10 from a 1000 bankroll.
 	BlueOceanWalletAllowNegativeBalance bool
 	// BlueOceanWalletLedgerTxnUsesRound — when true, seamless wallet ledger idempotency keys append "::" + round_id whenever round_id is present. Use when the provider reuses transaction_id across parallel bets (Evolution/easy live). Rollbacks must include the same round_id.
 	BlueOceanWalletLedgerTxnUsesRound bool
