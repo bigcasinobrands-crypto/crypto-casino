@@ -26,8 +26,8 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/db"
 	"github.com/crypto-casino/core/internal/fingerprint"
-	"github.com/crypto-casino/core/internal/ipdata"
 	"github.com/crypto-casino/core/internal/games"
+	"github.com/crypto-casino/core/internal/ipdata"
 	"github.com/crypto-casino/core/internal/jtiredis"
 	"github.com/crypto-casino/core/internal/jwtissuer"
 	"github.com/crypto-casino/core/internal/mail"
@@ -91,8 +91,8 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 	log.Printf("startup: APP_ENV=%q PORT=%q", cfg.AppEnv, cfg.Port)
-	if cfg.BlueOceanWalletAllowNegativeBalance {
-		log.Printf("startup: BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE=true — seamless wallet can overdraft; BO Advanced Concurrent Test expects this flag OFF (unset BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE on Render)")
+	if cfg.BlueOceanWalletAllowNegativeBalance || cfg.BlueOceanAllowNegativeTestBalance {
+		log.Printf("startup: BlueOcean seamless wallet overdraft enabled (BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE and/or BLUEOCEAN_ALLOW_NEGATIVE_TEST_BALANCE) — keep OFF for Advanced Concurrent drills unless required")
 	}
 	log.Printf("startup: fingerprint player auth effective=%v (REQUIRE_FINGERPRINT_PLAYER_AUTH) withdraw_fp=%v (WITHDRAW_REQUIRE_FINGERPRINT) — set DISABLE_FINGERPRINT_PLAYER_AUTH=1 to force both off",
 		cfg.RequireFingerprintPlayerAuth, cfg.WithdrawRequireFingerprint)

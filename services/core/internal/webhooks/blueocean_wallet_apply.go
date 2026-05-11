@@ -110,6 +110,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		return nil, 0, 500, "", false, false, err
 	}
 	openBal := bal
+	rollbackMetaTarget := ""
 
 	finish := func(st int, balBefore int64, balAfter int64, amt *int64, m string) ([]byte, int64, int, string, error) {
 		body, jerr := boMarshalWalletResponseJSON(st, balAfter, m)
@@ -119,6 +120,11 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if boRowID != 0 {
 			if serr := boSaveWalletTxResponse(ctx, tx, boRowID, st, balBefore, balAfter, amt, body); serr != nil {
 				return nil, 0, 500, "", serr
+			}
+			if action == "rollback" && rollbackMetaTarget != "" {
+				if serr := boSetRollbackTargetAction(ctx, tx, boRowID, rollbackMetaTarget); serr != nil {
+					return nil, 0, 500, "", serr
+				}
 			}
 		}
 		if cerr := tx.Commit(ctx); cerr != nil {
@@ -288,6 +294,17 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if dErr != nil {
 			return nil, 0, 500, "", false, false, dErr
 		}
+		var creditRowID int64
+		var creditStoredTxn, creditRound string
+		var creditAmtMinor int64
+		var creditHasAmt, creditRolled bool
+		if debitRowID == 0 {
+			creditRowID, creditStoredTxn, creditRound, creditAmtMinor, creditHasAmt, creditRolled, dErr = boLockOriginalCreditWalletRow(ctx, tx, userID, keyRemote, txnWire)
+			if dErr != nil {
+				return nil, 0, 500, "", false, false, dErr
+			}
+		}
+
 		slog.Info("blueocean wallet rollback",
 			slog.String("action", "rollback"),
 			slog.String("remote_id", remote),
@@ -300,9 +317,12 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			slog.Bool("debit_rolled_back", debitRolled),
 			slog.Bool("debit_row_found", debitRowID != 0),
 			slog.Bool("debit_has_ledger_snap", hasDebitSnap),
+			slog.Int64("credit_row_id", creditRowID),
+			slog.Bool("credit_rolled_back", creditRolled),
+			slog.Bool("credit_row_found", creditRowID != 0),
 		)
 
-		if debitRowID == 0 {
+		if debitRowID == 0 && creditRowID == 0 {
 			rep, pb, st, m, err := finish(404, openBal, bal, nil, "TRANSACTION_NOT_FOUND")
 			if err != nil {
 				return nil, 0, 500, "", false, false, err
@@ -310,139 +330,212 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			return rep, pb, st, m, false, false, nil
 		}
 
-		if debitRolled {
-			rep, rb, rs, ok, rerr := boFindCompletedRollbackReplay(ctx, tx, userID, txnWire)
+		if debitRowID != 0 {
+			rollbackMetaTarget = "debit"
+			if debitRolled {
+				rep, rb, rs, ok, rerr := boFindCompletedRollbackReplay(ctx, tx, userID, txnWire)
+				if rerr != nil {
+					return nil, 0, 500, "", false, false, rerr
+				}
+				if ok {
+					if serr := boSaveWalletTxResponse(ctx, tx, boRowID, rs, openBal, rb, nil, rep); serr != nil {
+						return nil, 0, 500, "", false, false, serr
+					}
+					if serr := boSetRollbackTargetAction(ctx, tx, boRowID, rollbackMetaTarget); serr != nil {
+						return nil, 0, 500, "", false, false, serr
+					}
+					if _, rbu := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rollback_of_transaction_id = $2 WHERE id = $1`, boRowID, debitStoredTxn); rbu != nil {
+						return nil, 0, 500, "", false, false, rbu
+					}
+					if cerr := tx.Commit(ctx); cerr != nil {
+						return nil, 0, 500, "", false, false, cerr
+					}
+					committed = true
+					return rep, rb, rs, "", false, true, nil
+				}
+				bal, berr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+				if berr != nil {
+					return nil, 0, 500, "", false, false, berr
+				}
+				rep, pb, st, m, ferr := finish(200, openBal, bal, nil, "")
+				if ferr != nil {
+					return nil, 0, 500, "", false, false, ferr
+				}
+				return rep, pb, st, m, false, false, nil
+			}
+
+			stakeWire := strings.TrimSpace(debitStoredTxn)
+			if stakeWire == "" {
+				stakeWire = txnWire
+			}
+			stakeLedger := strings.TrimSpace(debitSuffix)
+			if stakeLedger == "" {
+				stakeLedger = boLedgerTxnIDForDebitRow(debitStoredTxn, debitRound, ledgerUsesRound)
+			}
+
+			creditKeys := boCreditScanKeysAggregateMerged(userID, keyRemote, altRemote, txnWire, ledgerTxn, stakeWire, stakeLedger)
+			winKeys := boWinRollbackScanKeysAggregateMerged(userID, keyRemote, altRemote, txnWire, ledgerTxn, stakeWire, stakeLedger)
+
+			creditSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, creditKeys)
 			if rerr != nil {
 				return nil, 0, 500, "", false, false, rerr
 			}
-			if ok {
-				if serr := boSaveWalletTxResponse(ctx, tx, boRowID, rs, openBal, rb, nil, rep); serr != nil {
-					return nil, 0, 500, "", false, false, serr
-				}
-				if _, rbu := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rollback_of_transaction_id = $2 WHERE id = $1`, boRowID, debitStoredTxn); rbu != nil {
-					return nil, 0, 500, "", false, false, rbu
-				}
-				if cerr := tx.Commit(ctx); cerr != nil {
-					return nil, 0, 500, "", false, false, cerr
-				}
-				committed = true
-				return rep, rb, rs, "", false, true, nil
-			}
-			bal, berr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-			if berr != nil {
-				return nil, 0, 500, "", false, false, berr
-			}
-			rep, pb, st, m, ferr := finish(200, openBal, bal, nil, "")
-			if ferr != nil {
-				return nil, 0, 500, "", false, false, ferr
-			}
-			return rep, pb, st, m, false, false, nil
-		}
-
-		stakeWire := strings.TrimSpace(debitStoredTxn)
-		if stakeWire == "" {
-			stakeWire = txnWire
-		}
-		stakeLedger := strings.TrimSpace(debitSuffix)
-		if stakeLedger == "" {
-			stakeLedger = boLedgerTxnIDForDebitRow(debitStoredTxn, debitRound, ledgerUsesRound)
-		}
-
-		creditKeys := boCreditScanKeysAggregateMerged(userID, keyRemote, altRemote, txnWire, ledgerTxn, stakeWire, stakeLedger)
-		winKeys := boWinRollbackScanKeysAggregateMerged(userID, keyRemote, altRemote, txnWire, ledgerTxn, stakeWire, stakeLedger)
-
-		creditSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, creditKeys)
-		if rerr != nil {
-			return nil, 0, 500, "", false, false, rerr
-		}
-		winReversedSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, winKeys)
-		if rerr != nil {
-			return nil, 0, 500, "", false, false, rerr
-		}
-		outstandingWin := creditSum + winReversedSum
-
-		var fb, fc int64
-		if hasDebitSnap {
-			fb, fc = splitBonus, splitCash
-		}
-		if fb+fc == 0 {
-			fb, fc = maxDebitMagBonusCash(ctx, tx, userID, keyRemote, altRemote, stakeWire, stakeLedger)
-		}
-		if fb+fc == 0 && debitHasAmt && debitAmtMinor > 0 {
-			fb, fc = 0, debitAmtMinor
-		}
-		if fb+fc == 0 {
-			rep, pb, st, m, err := finish(404, openBal, bal, nil, "TRANSACTION_NOT_FOUND")
-			if err != nil {
-				return nil, 0, 500, "", false, false, err
-			}
-			return rep, pb, st, m, false, false, nil
-		}
-
-		winRBKeyP := fmt.Sprintf("blueocean:%s:%s:rollback_win:%s", userID, keyRemote, stakeLedger)
-
-		var wrRollbackStake int64
-		if fb > 0 {
-			idemRB := fmt.Sprintf("blueocean:%s:%s:rollback:%s:bonus", userID, keyRemote, stakeLedger)
-			ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
+			winReversedSum, rerr := sumLedgerKeysINForUser(ctx, tx, userID, winKeys)
 			if rerr != nil {
 				return nil, 0, 500, "", false, false, rerr
 			}
-			if ins {
-				wrRollbackStake += fb
-				if err := bonus.ReverseVIPAccrualForBonusRollbackTx(ctx, tx, userID, fb, idemRB); err != nil {
-					return nil, 0, 500, "", false, false, err
-				}
-			}
-		}
-		if fc > 0 {
-			idemRC := fmt.Sprintf("blueocean:%s:%s:rollback:%s:cash", userID, keyRemote, stakeLedger)
-			ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
-			if rerr != nil {
-				return nil, 0, 500, "", false, false, rerr
-			}
-			if ins {
-				wrRollbackStake += fc
-				if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
-					return nil, 0, 500, "", false, false, err
-				}
-			}
-		}
-		if wrRollbackStake > 0 {
-			wrRbUpdated, werr := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, wrRollbackStake)
-			if werr != nil {
-				return nil, 0, 500, "", false, false, werr
-			}
-			if wrRbUpdated {
-				notifyWageringProgress = true
-			}
-		}
-		_, uerr := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rolled_back = true, updated_at = now() WHERE id = $1`, debitRowID)
-		if uerr != nil {
-			return nil, 0, 500, "", false, false, uerr
-		}
+			outstandingWin := creditSum + winReversedSum
 
-		if outstandingWin > 0 {
-			curBal, cerr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-			if cerr != nil {
-				return nil, 0, 500, "", false, false, cerr
+			var fb, fc int64
+			if hasDebitSnap {
+				fb, fc = splitBonus, splitCash
 			}
-			if curBal < outstandingWin {
-				rep, pb, st, m, err := finish(403, openBal, curBal, nil, "Insufficient funds")
+			if fb+fc == 0 {
+				fb, fc = maxDebitMagBonusCash(ctx, tx, userID, keyRemote, altRemote, stakeWire, stakeLedger)
+			}
+			if fb+fc == 0 && debitHasAmt && debitAmtMinor > 0 {
+				fb, fc = 0, debitAmtMinor
+			}
+			if fb+fc == 0 {
+				rep, pb, st, m, err := finish(404, openBal, bal, nil, "TRANSACTION_NOT_FOUND")
 				if err != nil {
 					return nil, 0, 500, "", false, false, err
 				}
 				return rep, pb, st, m, false, false, nil
 			}
-			_, err = ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, winRBKeyP, outstandingWin, meta)
-			if err != nil {
+
+			winRBKeyP := fmt.Sprintf("blueocean:%s:%s:rollback_win:%s", userID, keyRemote, stakeLedger)
+
+			var wrRollbackStake int64
+			if fb > 0 {
+				idemRB := fmt.Sprintf("blueocean:%s:%s:rollback:%s:bonus", userID, keyRemote, stakeLedger)
+				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
+				if rerr != nil {
+					return nil, 0, 500, "", false, false, rerr
+				}
+				if ins {
+					wrRollbackStake += fb
+					if err := bonus.ReverseVIPAccrualForBonusRollbackTx(ctx, tx, userID, fb, idemRB); err != nil {
+						return nil, 0, 500, "", false, false, err
+					}
+				}
+			}
+			if fc > 0 {
+				idemRC := fmt.Sprintf("blueocean:%s:%s:rollback:%s:cash", userID, keyRemote, stakeLedger)
+				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
+				if rerr != nil {
+					return nil, 0, 500, "", false, false, rerr
+				}
+				if ins {
+					wrRollbackStake += fc
+					if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
+						return nil, 0, 500, "", false, false, err
+					}
+				}
+			}
+			if wrRollbackStake > 0 {
+				wrRbUpdated, werr := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, wrRollbackStake)
+				if werr != nil {
+					return nil, 0, 500, "", false, false, werr
+				}
+				if wrRbUpdated {
+					notifyWageringProgress = true
+				}
+			}
+			_, uerr := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rolled_back = true, updated_at = now() WHERE id = $1`, debitRowID)
+			if uerr != nil {
+				return nil, 0, 500, "", false, false, uerr
+			}
+
+			if outstandingWin > 0 {
+				curBal, cerr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+				if cerr != nil {
+					return nil, 0, 500, "", false, false, cerr
+				}
+				if curBal < outstandingWin {
+					rep, pb, st, m, err := finish(403, openBal, curBal, nil, "Insufficient funds")
+					if err != nil {
+						return nil, 0, 500, "", false, false, err
+					}
+					return rep, pb, st, m, false, false, nil
+				}
+				_, err = ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, winRBKeyP, outstandingWin, meta)
+				if err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
+			}
+
+			if boRowID != 0 {
+				if _, err := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rollback_of_transaction_id = $2 WHERE id = $1`, boRowID, debitStoredTxn); err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
+			}
+		} else {
+			rollbackMetaTarget = "credit"
+			if creditRolled {
+				rep, rb, rs, ok, rerr := boFindCompletedRollbackReplay(ctx, tx, userID, txnWire)
+				if rerr != nil {
+					return nil, 0, 500, "", false, false, rerr
+				}
+				if ok {
+					if serr := boSaveWalletTxResponse(ctx, tx, boRowID, rs, openBal, rb, nil, rep); serr != nil {
+						return nil, 0, 500, "", false, false, serr
+					}
+					if serr := boSetRollbackTargetAction(ctx, tx, boRowID, rollbackMetaTarget); serr != nil {
+						return nil, 0, 500, "", false, false, serr
+					}
+					if _, rbu := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rollback_of_transaction_id = $2 WHERE id = $1`, boRowID, creditStoredTxn); rbu != nil {
+						return nil, 0, 500, "", false, false, rbu
+					}
+					if cerr := tx.Commit(ctx); cerr != nil {
+						return nil, 0, 500, "", false, false, cerr
+					}
+					committed = true
+					return rep, rb, rs, "", false, true, nil
+				}
+				bal, berr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+				if berr != nil {
+					return nil, 0, 500, "", false, false, berr
+				}
+				rep, pb, st, m, ferr := finish(200, openBal, bal, nil, "")
+				if ferr != nil {
+					return nil, 0, 500, "", false, false, ferr
+				}
+				return rep, pb, st, m, false, false, nil
+			}
+
+			stakeLedger := boLedgerTxnIDForDebitRow(creditStoredTxn, creditRound, ledgerUsesRound)
+			creditKeys := boCreditScanKeysAggregate(userID, keyRemote, altRemote, creditStoredTxn, stakeLedger)
+			sumC, rerr := sumLedgerKeysINForUser(ctx, tx, userID, creditKeys)
+			if rerr != nil {
+				return nil, 0, 500, "", false, false, rerr
+			}
+			reverseAmt := sumC
+			if reverseAmt <= 0 && creditHasAmt && creditAmtMinor > 0 {
+				reverseAmt = creditAmtMinor
+			}
+			if reverseAmt <= 0 {
+				rep, pb, st, m, err := finish(404, openBal, bal, nil, "TRANSACTION_NOT_FOUND")
+				if err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
+				return rep, pb, st, m, false, false, nil
+			}
+
+			idemRev := fmt.Sprintf("blueocean:%s:%s:rollback_credit:%s", userID, keyRemote, stakeLedger)
+			if _, err := ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, idemRev, reverseAmt, meta); err != nil {
 				return nil, 0, 500, "", false, false, err
 			}
-		}
 
-		if boRowID != 0 {
-			if _, err := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rollback_of_transaction_id = $2 WHERE id = $1`, boRowID, debitStoredTxn); err != nil {
-				return nil, 0, 500, "", false, false, err
+			_, uerr := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rolled_back = true, updated_at = now() WHERE id = $1`, creditRowID)
+			if uerr != nil {
+				return nil, 0, 500, "", false, false, uerr
+			}
+
+			if boRowID != 0 {
+				if _, err := tx.Exec(ctx, `UPDATE blueocean_wallet_transactions SET rollback_of_transaction_id = $2 WHERE id = $1`, boRowID, creditStoredTxn); err != nil {
+					return nil, 0, 500, "", false, false, err
+				}
 			}
 		}
 	}
@@ -462,6 +555,11 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		}
 		if serr := boSaveWalletTxResponse(ctx, tx, boRowID, 200, openBal, bal, amtPtr, body); serr != nil {
 			return nil, 0, 500, "", false, false, serr
+		}
+		if action == "rollback" && rollbackMetaTarget != "" {
+			if serr := boSetRollbackTargetAction(ctx, tx, boRowID, rollbackMetaTarget); serr != nil {
+				return nil, 0, 500, "", false, false, serr
+			}
 		}
 	}
 	if cerr := tx.Commit(ctx); cerr != nil {

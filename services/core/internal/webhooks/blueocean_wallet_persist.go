@@ -203,6 +203,52 @@ func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyR
 	return rowID, storedTxnID, debitLedgerSuffix, rd, totMinor, hasAmt, debitCashSplit, debitBonusSplit, hasPersistedSplit, rolledBack, nil
 }
 
+// boLockOriginalCreditWalletRow finds a stored credit row for rollback (reverse win), scoped by remote_id + user_id + transaction_id wire variants.
+func boLockOriginalCreditWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyRemote, txnWire string) (
+	rowID int64,
+	storedTxnID string,
+	roundID string,
+	amountMinor int64,
+	hasAmount bool,
+	rolledBack bool,
+	err error,
+) {
+	userUUID = strings.TrimSpace(userUUID)
+	keyRemote = strings.TrimSpace(keyRemote)
+	variants := boWalletTxnIDLookupVariants(txnWire)
+	if len(variants) == 0 {
+		return 0, "", "", 0, false, false, nil
+	}
+	var round sql.NullString
+	var amt sql.NullInt64
+	qErr := tx.QueryRow(ctx, `
+		SELECT id, transaction_id, round_id, amount_minor, rolled_back
+		FROM blueocean_wallet_transactions
+		WHERE provider = $1 AND remote_id = $2 AND action = 'credit' AND user_id = $3::uuid
+		  AND transaction_id = ANY($4::text[])
+		ORDER BY id ASC
+		LIMIT 1
+		FOR UPDATE
+	`, boSeamlessProvider, keyRemote, userUUID, variants).Scan(&rowID, &storedTxnID, &round, &amt, &rolledBack)
+	if errors.Is(qErr, pgx.ErrNoRows) {
+		return 0, "", "", 0, false, false, nil
+	}
+	if qErr != nil {
+		return 0, "", "", 0, false, false, qErr
+	}
+	rd := ""
+	if round.Valid {
+		rd = strings.TrimSpace(round.String)
+	}
+	var totMinor int64
+	var hasAmt bool
+	if amt.Valid {
+		totMinor = amt.Int64
+		hasAmt = true
+	}
+	return rowID, storedTxnID, rd, totMinor, hasAmt, rolledBack, nil
+}
+
 // boFindCompletedRollbackReplay returns an earlier rollback callback response for idempotent replays
 // when the debit row is already marked rolled_back (e.g. legacy state) or transaction_id spelling differs.
 func boFindCompletedRollbackReplay(ctx context.Context, tx pgx.Tx, userUUID, txnWire string) (rep []byte, repBal int64, repSt int, ok bool, err error) {
@@ -255,5 +301,16 @@ func boSaveWalletTxResponse(ctx context.Context, ex boSQLExecutor, rowID int64, 
 		    updated_at = now()
 		WHERE id = $1
 	`, rowID, statusCode, balanceBefore, balanceAfter, amt, responseJSON)
+	return err
+}
+
+func boSetRollbackTargetAction(ctx context.Context, ex boSQLExecutor, rowID int64, target string) error {
+	target = strings.TrimSpace(target)
+	if rowID == 0 || target == "" {
+		return nil
+	}
+	_, err := ex.Exec(ctx, `
+		UPDATE blueocean_wallet_transactions SET rollback_target_action = $2, updated_at = now() WHERE id = $1
+	`, rowID, target)
 	return err
 }

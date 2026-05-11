@@ -244,7 +244,8 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				writeBOWalletJSON(w, 403, sum, "REMOTE_ID_MISMATCH")
 				return
 			}
-			replayBody, sum, st, _, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
+			allowNeg := cfg.BlueOceanWalletAllowNegativeBalance || cfg.BlueOceanAllowNegativeTestBalance
+			replayBody, sum, st, _, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, allowNeg, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
 				writeBOWalletJSON(w, 500, sum, boWalletErrInternal)
@@ -947,24 +948,27 @@ func maxDebitMagBonusCash(ctx context.Context, tx pgx.Tx, userID, keyRemote, alt
 	return bonus, cash
 }
 
-// BO seamless tooling and advanced S2S tests expect balance to be a non-negative amount string
-// (operator support: signed negatives break their validators). Use magnitude here; HTTP/json
-// status still carries errors.
-//
-// BO tooling often compares strings loosely but rejects "0.40" vs expected "0.4" — we trim redundant trailing zeros (public examples use whole euros like "300" when no cents).
+// BO seamless S2S tooling: balance is a decimal string in major units (trim trailing zeros).
+// Negative balances are returned with a leading '-' when the ledger playable balance is below zero
+// (e.g. BlueOcean two-player test debit from zero with overdraft mode enabled).
 func formatBOBalanceMinor(minor int64) string {
-	if minor < 0 {
-		// int64 min edge is unreachable for wallet balances; -minor is safe in practice.
+	neg := minor < 0
+	if neg {
 		minor = -minor
 	}
 	whole := minor / 100
 	frac := minor % 100
+	var s string
 	if frac == 0 {
-		return strconv.FormatInt(whole, 10)
+		s = strconv.FormatInt(whole, 10)
+	} else {
+		s = fmt.Sprintf("%d.%02d", whole, frac)
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimSuffix(s, ".")
 	}
-	s := fmt.Sprintf("%d.%02d", whole, frac)
-	s = strings.TrimRight(s, "0")
-	s = strings.TrimSuffix(s, ".")
+	if neg {
+		return "-" + s
+	}
 	return s
 }
 

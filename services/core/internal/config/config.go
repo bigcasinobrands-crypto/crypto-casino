@@ -11,14 +11,14 @@ import (
 )
 
 type Config struct {
-	AppEnv          string
-	DatabaseURL     string
+	AppEnv      string
+	DatabaseURL string
 	// MigrateDatabaseURL — optional. When set, goose migrations use this DSN instead of DatabaseURL
 	// (avoids Supabase session pooler client limits during deploy while the previous instance still holds pooler slots).
 	MigrateDatabaseURL string
 	Port               string
-	JWTSecret       string
-	PlayerJWTSecret string
+	JWTSecret          string
+	PlayerJWTSecret    string
 	// JWTRSAKeyFile — optional PEM path for RS256 + JWKS; when unset, HS256 only.
 	JWTRSAKeyFile     string
 	JWTIssuer         string
@@ -47,8 +47,8 @@ type Config struct {
 	ResendTemplatePasswordReset string
 	// MailBrandSiteName — brand label injected into template variables (MAIL_BRAND_SITE_NAME).
 	MailBrandSiteName string
-	TermsVersion    string
-	PrivacyVersion  string
+	TermsVersion      string
+	PrivacyVersion    string
 	// Blue Ocean Gaming XAPI (server-to-server)
 	BlueOceanAPIBaseURL    string
 	BlueOceanAPILogin      string
@@ -65,7 +65,7 @@ type Config struct {
 	BlueOceanCreatePlayerUserPassword string
 	// BlueOceanXAPIUserPasswordSHA1 — when true (default), user_password on the wire is SHA1-hex (40 chars) unless the value is already 40 hex chars (BO public XAPI examples). Set false if your operator confirms plaintext on the wire.
 	BlueOceanXAPIUserPasswordSHA1 bool
-	BlueOceanWalletSalt      string // seamless GET callback key=sha1(salt+query)
+	BlueOceanWalletSalt           string // seamless GET callback key=sha1(salt+query)
 	// BlueOceanWalletFloatAmountIsMajorUnits: when true, decimal amount/bet/win (e.g. "0.25") are major units (×100 to minor). When false, decimals are interpreted as minor units (legacy).
 	BlueOceanWalletFloatAmountIsMajorUnits bool
 	// BlueOceanWalletIntegerAmountIsMajorUnits: when true, integer and decimal amount/bet/win are major units (×100 to ledger minor) — matches Blue Ocean basic S2S wallet tests (amount=10 ⇒ 10.00). Default true when env unset; set BLUEOCEAN_WALLET_INTEGER_MINOR_UNITS=true only if your operator documents whole-number params as minor units (cents).
@@ -74,12 +74,16 @@ type Config struct {
 	// Default false (env unset). Must stay false for Blue Ocean "Advanced Concurrent" drills: they require the (N+1)th parallel debit to return
 	// insufficient funds, not HTTP/json success with an overdraft. If this is true on staging, the last concurrent debit typically succeeds with balance -10 (major) when each bet is 10 from a 1000 bankroll.
 	BlueOceanWalletAllowNegativeBalance bool
+	// BlueOceanAllowNegativeTestBalance — when true (BLUEOCEAN_ALLOW_NEGATIVE_TEST_BALANCE), same overdraft behaviour as AllowNegativeBalance for BO S2S
+	// sandboxes that expect a second test player to debit from zero to a negative displayed balance (e.g. two-player same transaction_id drills).
+	// Prefer this over WALLET_ALLOW_NEGATIVE_BALANCE in production: keep concurrent-test staging on false for the broader flag if needed.
+	BlueOceanAllowNegativeTestBalance bool
 	// BlueOceanWalletLedgerTxnUsesRound — when true, seamless wallet ledger idempotency keys append "::" + round_id whenever round_id is present. Use when the provider reuses transaction_id across parallel bets (Evolution/easy live). Rollbacks must include the same round_id.
 	BlueOceanWalletLedgerTxnUsesRound bool
 	// BlueOceanWalletSkipBonusBetGuards — when true, seamless wallet omits active-bonus max-bet and excluded-game checks. Use only for operator certification sandboxes; production should keep this false so promo rules still apply.
 	BlueOceanWalletSkipBonusBetGuards bool
-	BlueOceanFeaturedIDHashes              []string
-	BlueOceanLobbyTagsJSON                 string // optional JSON map pill_id -> [id_hash]
+	BlueOceanFeaturedIDHashes         []string
+	BlueOceanLobbyTagsJSON            string // optional JSON map pill_id -> [id_hash]
 	// Catalog sync: getGameList often returns one page only; use paging to load full staging catalogs.
 	BlueOceanCatalogPageSize    int    // 0 = single request (no limit/offset params); default 500
 	BlueOceanCatalogPagingStyle string // offset | page | from — query param shape for paging
@@ -248,8 +252,8 @@ func Load() (Config, error) {
 		DatabaseURL:        strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		MigrateDatabaseURL: strings.TrimSpace(os.Getenv("MIGRATE_DATABASE_URL")),
 		Port:               strings.TrimSpace(os.Getenv("PORT")),
-		JWTSecret:   strings.TrimSpace(os.Getenv("JWT_SECRET")),
-		RedisURL:    strings.TrimSpace(os.Getenv("REDIS_URL")),
+		JWTSecret:          strings.TrimSpace(os.Getenv("JWT_SECRET")),
+		RedisURL:           strings.TrimSpace(os.Getenv("REDIS_URL")),
 	}
 	if c.Port == "" {
 		c.Port = "9090"
@@ -328,6 +332,7 @@ func Load() (Config, error) {
 		c.BlueOceanWalletIntegerAmountIsMajorUnits = true
 	}
 	c.BlueOceanWalletAllowNegativeBalance = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_ALLOW_NEGATIVE_BALANCE"))
+	c.BlueOceanAllowNegativeTestBalance = parseBoolEnv(os.Getenv("BLUEOCEAN_ALLOW_NEGATIVE_TEST_BALANCE"))
 	c.BlueOceanWalletLedgerTxnUsesRound = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_LEDGER_TXN_USES_ROUND"))
 	c.BlueOceanWalletSkipBonusBetGuards = parseBoolEnv(os.Getenv("BLUEOCEAN_WALLET_SKIP_BONUS_BET_GUARDS"))
 	if s := strings.TrimSpace(os.Getenv("BLUEOCEAN_FEATURED_ID_HASHES")); s != "" {

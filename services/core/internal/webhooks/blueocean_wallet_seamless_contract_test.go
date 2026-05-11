@@ -668,6 +668,359 @@ func TestBlueOceanRollbackWithoutMetaFindsOriginalDebit(t *testing.T) {
 	}
 }
 
+// TestBlueOceanRollbackCreditReversesWin: rollback references the credit (win) transaction_id; no original debit match required.
+func TestBlueOceanRollbackCreditReversesWin(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-rbcr-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "rbcr-seed:"+uid, 101_000, nil); err != nil {
+		t.Fatal(err)
+	}
+	rid := "2326698-rbcrev-" + uid[:6]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+
+	salt := "contract-rb-credit-win"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+
+	debitTxn := "ez-f7039ef164366ee01c3a1b19bb7aa201"
+	winTxn := "ez-993fb83612faf655ac2ba6fbf8132f43"
+	round := "b25c7fed0f22d1e3487bea85d5663b7d"
+
+	qDebit := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": debitTxn,
+		"amount": "5", "currency": "EUR", "game_id": "g1", "round_id": round,
+	})
+	wd := httptest.NewRecorder()
+	h.ServeHTTP(wd, httptest.NewRequest(http.MethodGet, "/?"+qDebit, nil))
+	if wd.Code != http.StatusOK {
+		t.Fatalf("debit HTTP %d %s", wd.Code, wd.Body.String())
+	}
+
+	qCredit := boSignGET(salt, map[string]string{
+		"action": "credit", "remote_id": rid, "transaction_id": winTxn,
+		"amount": "10", "currency": "EUR", "game_id": "g1", "round_id": round,
+	})
+	wc := httptest.NewRecorder()
+	h.ServeHTTP(wc, httptest.NewRequest(http.MethodGet, "/?"+qCredit, nil))
+	if wc.Code != http.StatusOK {
+		t.Fatalf("credit HTTP %d %s", wc.Code, wc.Body.String())
+	}
+	var cr struct {
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(wc.Body.Bytes()), &cr); err != nil {
+		t.Fatal(err)
+	}
+	if cr.Balance != "1015" {
+		t.Fatalf("after credit want 1015 got %q", cr.Balance)
+	}
+
+	qRb := boSignGET(salt, map[string]string{
+		"action": "rollback", "remote_id": rid, "transaction_id": winTxn, "round_id": round,
+	})
+	wr := httptest.NewRecorder()
+	h.ServeHTTP(wr, httptest.NewRequest(http.MethodGet, "/?"+qRb, nil))
+	if wr.Code != http.StatusOK {
+		t.Fatalf("rollback HTTP %d %s", wr.Code, wr.Body.String())
+	}
+	var rb struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(wr.Body.Bytes()), &rb); err != nil {
+		t.Fatal(err)
+	}
+	if rb.Status != "200" || rb.Balance != "1005" {
+		t.Fatalf("rollback want 200 balance 1005 got status=%q bal=%q", rb.Status, rb.Balance)
+	}
+	var creditRolled bool
+	if err := p.QueryRow(ctx, `
+		SELECT rolled_back FROM blueocean_wallet_transactions
+		WHERE user_id = $1::uuid AND action = 'credit' AND transaction_id = $2 AND provider = 'blueocean'
+	`, uid, winTxn).Scan(&creditRolled); err != nil {
+		t.Fatal(err)
+	}
+	if !creditRolled {
+		t.Fatal("credit row should be rolled_back")
+	}
+	var winRollbackCount int
+	if err := p.QueryRow(ctx, `
+		SELECT COUNT(*) FROM ledger_entries
+		WHERE user_id = $1::uuid AND entry_type = 'game.win_rollback'
+	`, uid).Scan(&winRollbackCount); err != nil {
+		t.Fatal(err)
+	}
+	if winRollbackCount != 1 {
+		t.Fatalf("game.win_rollback rows want 1 got %d", winRollbackCount)
+	}
+}
+
+func TestBlueOceanDuplicateRollbackCreditReplaysJSON(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-duprbc-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "duprbc:"+uid, 100_500, nil); err != nil {
+		t.Fatal(err)
+	}
+	rid := "duprbc-" + uid[:8]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	salt := "contract-dup-rb-credit"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	winTxn := "ez-win-dup-" + uid[:8]
+	qCredit := boSignGET(salt, map[string]string{
+		"action": "credit", "remote_id": rid, "transaction_id": winTxn,
+		"amount": "10", "currency": "EUR", "game_id": "1",
+	})
+	wc := httptest.NewRecorder()
+	h.ServeHTTP(wc, httptest.NewRequest(http.MethodGet, "/?"+qCredit, nil))
+	if wc.Code != http.StatusOK {
+		t.Fatalf("credit HTTP %d %s", wc.Code, wc.Body.String())
+	}
+	qRb := boSignGET(salt, map[string]string{"action": "rollback", "remote_id": rid, "transaction_id": winTxn})
+	w1 := httptest.NewRecorder()
+	h.ServeHTTP(w1, httptest.NewRequest(http.MethodGet, "/?"+qRb, nil))
+	w2 := httptest.NewRecorder()
+	h.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/?"+qRb, nil))
+	if w1.Code != http.StatusOK || w2.Code != http.StatusOK {
+		t.Fatalf("rollback HTTP %d / %d", w1.Code, w2.Code)
+	}
+	if !bytes.Equal(bytes.TrimSpace(w1.Body.Bytes()), bytes.TrimSpace(w2.Body.Bytes())) {
+		t.Fatalf("duplicate rollback credit should replay exact JSON:\n%s\nvs\n%s", w1.Body.String(), w2.Body.String())
+	}
+	var n int
+	if err := p.QueryRow(ctx, `
+		SELECT COUNT(*) FROM ledger_entries
+		WHERE user_id = $1::uuid AND entry_type = 'game.win_rollback'
+	`, uid).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("win_rollback ledger rows want 1 got %d", n)
+	}
+}
+
+func TestBlueOceanRollbackDebitTransactionStillWorks(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-rbdebit-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "rbdebit:"+uid, 100_000, nil); err != nil {
+		t.Fatal(err)
+	}
+	rid := "rbdebit-" + uid[:8]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	salt := "contract-rb-debit-still"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	txn := "debit-still-" + uid[:6]
+	qd := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": txn,
+		"amount": "5", "currency": "EUR", "game_id": "1",
+	})
+	wd := httptest.NewRecorder()
+	h.ServeHTTP(wd, httptest.NewRequest(http.MethodGet, "/?"+qd, nil))
+	if wd.Code != http.StatusOK {
+		t.Fatalf("debit HTTP %d %s", wd.Code, wd.Body.String())
+	}
+	qr := boSignGET(salt, map[string]string{"action": "rollback", "remote_id": rid, "transaction_id": txn})
+	wr := httptest.NewRecorder()
+	h.ServeHTTP(wr, httptest.NewRequest(http.MethodGet, "/?"+qr, nil))
+	var rb struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(wr.Body.Bytes()), &rb); err != nil {
+		t.Fatal(err)
+	}
+	if rb.Status != "200" || rb.Balance != "1000" {
+		t.Fatalf("after rollback want 1000 got status=%q bal=%q body=%s", rb.Status, rb.Balance, wr.Body.String())
+	}
+}
+
+func TestBlueOceanTwoPlayerSameTxnSecondPlayerNegativeWithTestFlag(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	mk := func(remote string, seedMinor int64) (uid string) {
+		uid = uuid.New().String()
+		email := "bo2neg-" + remote + "-" + uid[:6] + "@e2e.local"
+		if _, err := p.Exec(ctx, `
+			INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+			VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+		`, uid, email, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		if seedMinor > 0 {
+			if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", "2neg:"+remote+uid, seedMinor, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, remote); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+			_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+			_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+			_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+		})
+		return uid
+	}
+	_ = mk("2326698", 101_500)
+	_ = mk("2326702", 0)
+
+	salt := "contract-2p-neg"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+		BlueOceanAllowNegativeTestBalance:        true,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	txn := "shared-txn-two-player-neg"
+	round := "shared-round-neg"
+	gameID := "g1"
+	debit := func(rid string) (bal, st string) {
+		q := boSignGET(salt, map[string]string{
+			"action": "debit", "remote_id": rid, "transaction_id": txn, "round_id": round,
+			"amount": "5", "currency": "EUR", "game_id": gameID,
+		})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?"+q, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("debit %s HTTP %d %s", rid, w.Code, w.Body.String())
+		}
+		var o struct {
+			Status  string `json:"status"`
+			Balance string `json:"balance"`
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(w.Body.Bytes()), &o); err != nil {
+			t.Fatal(err)
+		}
+		return o.Balance, o.Status
+	}
+	balA, stA := debit("2326698")
+	balB, stB := debit("2326702")
+	if stA != "200" || stB != "200" {
+		t.Fatalf("status want 200 got %q %q", stA, stB)
+	}
+	if balA != "1010" {
+		t.Fatalf("player A want 1010 got %q", balA)
+	}
+	if balB != "-5" {
+		t.Fatalf("player B want -5 got %q", balB)
+	}
+}
+
+func TestBlueOceanInsufficientFundsWhenNegativeModesOff(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	email := "bo-if-" + uid + "@e2e.local"
+	if _, err := p.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+		VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+	`, uid, email, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+		_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+	})
+	rid := "ifblk-" + uid[:8]
+	_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+	salt := "contract-if-off"
+	cfg := &config.Config{
+		BlueOceanCurrency:                        "EUR",
+		BlueOceanWalletSalt:                      salt,
+		BlueOceanWalletIntegerAmountIsMajorUnits: true,
+		BlueOceanWalletSkipBonusBetGuards:        true,
+		BlueOceanWalletAllowNegativeBalance:      false,
+		BlueOceanAllowNegativeTestBalance:        false,
+	}
+	h := HandleBlueOceanWallet(p, cfg, nil)
+	q := boSignGET(salt, map[string]string{
+		"action": "debit", "remote_id": rid, "transaction_id": "if-1",
+		"amount": "5", "currency": "EUR", "game_id": "1",
+	})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?"+q, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP %d %s", w.Code, w.Body.String())
+	}
+	var o struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(w.Body.Bytes()), &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "403" {
+		t.Fatalf("want 403 insufficient funds got status=%q body=%s", o.Status, w.Body.String())
+	}
+}
+
 func TestBlueOceanDebitBareTxnReplayedWhenEzDuplicateRequested(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)
 	defer cl()
