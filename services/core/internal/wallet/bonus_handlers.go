@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/crypto-casino/core/internal/bonus"
+	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playerapi"
 	"github.com/crypto-casino/core/internal/sitestatus"
@@ -17,13 +18,14 @@ import (
 )
 
 // BonusesHandler lists the authenticated player's bonus instances.
-func BonusesHandler(pool *pgxpool.Pool) http.HandlerFunc {
+func BonusesHandler(pool *pgxpool.Pool, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := playerapi.UserIDFromContext(r.Context())
 		if !ok {
 			playerapi.WriteError(w, http.StatusUnauthorized, "unauthorized", "missing user")
 			return
 		}
+		ccy, multi := seamlessPlayerWalletSettings(cfg)
 		rows, err := pool.Query(r.Context(), `
 			SELECT ubi.id::text, ubi.promotion_version_id, ubi.status, ubi.granted_amount_minor, ubi.currency,
 				ubi.wr_required_minor, ubi.wr_contributed_minor, COALESCE(ubi.terms_version,''), ubi.created_at,
@@ -40,8 +42,8 @@ func BonusesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			return
 		}
 		defer rows.Close()
-		cash, _ := ledger.BalanceCash(r.Context(), pool, uid)
-		bon, _ := ledger.BalanceBonusLocked(r.Context(), pool, uid)
+		cash, _ := ledger.BalanceCashSeamless(r.Context(), pool, uid, ccy, multi)
+		bon, _ := ledger.BalanceBonusLockedSeamless(r.Context(), pool, uid, ccy, multi)
 		var list []map[string]any
 		for rows.Next() {
 			var id string
@@ -74,7 +76,10 @@ func BonusesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"bonuses": list,
-			"wallet":  map[string]any{"cash_minor": cash, "bonus_locked_minor": bon},
+			"wallet": map[string]any{
+				"cash_minor": cash, "bonus_locked_minor": bon,
+				"currency": ccy,
+			},
 		})
 	}
 }

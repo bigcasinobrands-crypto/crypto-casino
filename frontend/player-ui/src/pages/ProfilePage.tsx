@@ -389,6 +389,21 @@ function formatMinorUsd(minor: number, lng: string) {
   }).format(minor / 100)
 }
 
+function formatMinorFiat(minor: number, currency: string, lng: string) {
+  const ccy = (currency || 'USD').trim().toUpperCase() || 'USD'
+  const loc = lng === 'fr-CA' ? 'fr-CA' : 'en-US'
+  try {
+    return new Intl.NumberFormat(loc, {
+      style: 'currency',
+      currency: ccy,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(minor / 100)
+  } catch {
+    return formatMinorUsd(minor, lng)
+  }
+}
+
 type PlayerBonusRow = {
   id: string
   promotion_version_id: number
@@ -430,6 +445,7 @@ function PlayerBonusesPanel() {
   const [bonuses, setBonuses] = useState<PlayerBonusRow[]>([])
   const [offers, setOffers] = useState<OfferRow[]>([])
   const [bonusLockedMinor, setBonusLockedMinor] = useState<number | null>(null)
+  const [bonusWalletCurrency, setBonusWalletCurrency] = useState('USD')
   const [listFilter, setListFilter] = useState<BonusListFilter>('active')
   const [reloadTick, setReloadTick] = useState(0)
   const [forfeitBusyId, setForfeitBusyId] = useState<string | null>(null)
@@ -450,13 +466,16 @@ function PlayerBonusesPanel() {
         if (bRes.ok) {
           const j = (await bRes.json()) as {
             bonuses?: PlayerBonusRow[]
-            wallet?: { bonus_locked_minor?: number }
+            wallet?: { bonus_locked_minor?: number; currency?: string }
           }
           setBonuses(Array.isArray(j.bonuses) ? j.bonuses : [])
           setBonusLockedMinor(typeof j.wallet?.bonus_locked_minor === 'number' ? j.wallet.bonus_locked_minor : null)
+          const wc = j.wallet?.currency?.trim().toUpperCase()
+          setBonusWalletCurrency(wc && wc.length > 0 ? wc : 'USD')
         } else {
           setBonuses([])
           setBonusLockedMinor(null)
+          setBonusWalletCurrency('USD')
         }
         if (oRes.ok) {
           const j2 = (await oRes.json()) as { offers?: OfferRow[] }
@@ -521,7 +540,9 @@ function PlayerBonusesPanel() {
       {!loading && bonusLockedMinor != null ? (
         <p className="mb-3 text-xs text-casino-muted">
           {t('profile.lockedBonusBalance')}{' '}
-          <span className="font-semibold text-casino-foreground">{formatMinorUsd(bonusLockedMinor, lng)}</span>
+          <span className="font-semibold text-casino-foreground">
+            {formatMinorFiat(bonusLockedMinor, bonusWalletCurrency, lng)}
+          </span>
         </p>
       ) : null}
       {!loading && !err && offers.length > 0 ? (
@@ -603,8 +624,8 @@ function PlayerBonusesPanel() {
                       <span className="text-xs text-casino-muted">{b.currency}</span>
                     </div>
                     <p className="mt-1 text-xs text-casino-muted">
-                      {t('bonuses.grantedLabel')} {formatMinorUsd(b.granted_amount_minor, lng)} · WR{' '}
-                      {formatMinorUsd(b.wr_contributed_minor, lng)} / {formatMinorUsd(b.wr_required_minor, lng)}
+                      {t('bonuses.grantedLabel')} {formatMinorFiat(b.granted_amount_minor, b.currency, lng)} · WR{' '}
+                      {formatMinorFiat(b.wr_contributed_minor, b.currency, lng)} / {formatMinorFiat(b.wr_required_minor, b.currency, lng)}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                       <button
@@ -1697,12 +1718,17 @@ type WalletEntry = {
   balance_minor: number
   cash_minor?: number
   bonus_locked_minor?: number
+  is_settlement_currency?: boolean
+  wallet_role?: string
 }
 
 type ProfileCurrencyMeta = { name: string; color: string; symbol: string; decimals: number }
 
 /** Ledger `amount_minor` scale per currency (see services/core ledger minor units). */
 const CURRENCY_META: Record<string, ProfileCurrencyMeta> = {
+  EUR: { name: 'Euro', color: '#7b61ff', symbol: '€', decimals: 2 },
+  USD: { name: 'US Dollar', color: '#85bb65', symbol: '$', decimals: 2 },
+  GBP: { name: 'British Pound', color: '#c8a882', symbol: '£', decimals: 2 },
   USDT: { name: 'Tether', color: '#26a17b', symbol: '$', decimals: 2 },
   USDC: { name: 'USD Coin', color: '#2775ca', symbol: '$', decimals: 2 },
   DAI: { name: 'Dai', color: '#f5ac37', symbol: '◈', decimals: 2 },
@@ -1746,7 +1772,7 @@ function useWallets() {
       }
       const j = (await res.json()) as { wallets?: WalletEntry[] }
       if (mountedRef.current) {
-        setWallets(j.wallets ?? [])
+        setWallets(Array.isArray(j.wallets) ? j.wallets : [])
         setLoading(false)
       }
     } catch {
@@ -1790,6 +1816,14 @@ function WalletPanel() {
     })
   }, [wallets])
 
+  const visibleWallets = useMemo(() => {
+    const hasRoleHints = sortedWallets.some(
+      (w) => typeof w.wallet_role === 'string' && w.wallet_role.length > 0,
+    )
+    if (!hasRoleHints) return sortedWallets
+    return sortedWallets.filter((w) => w.wallet_role === 'internal_playable')
+  }, [sortedWallets])
+
   return (
     <div className="flex flex-col gap-5 rounded-casino-lg border border-casino-border bg-casino-card p-5 sm:p-6">
       <h3 className="flex items-center gap-2.5 text-lg font-extrabold tracking-tight text-casino-foreground">
@@ -1801,11 +1835,11 @@ function WalletPanel() {
         <div className="flex items-center justify-center py-6">
           <div className="size-5 animate-spin rounded-full border-2 border-casino-muted border-t-casino-primary" />
         </div>
-      ) : wallets.length === 0 ? (
+      ) : visibleWallets.length === 0 ? (
         <p className="py-6 text-center text-sm text-casino-muted">{t('profile.walletEmpty')}</p>
       ) : (
         <div className="flex flex-col gap-3">
-          {sortedWallets.map((w) => {
+          {visibleWallets.map((w) => {
             const meta = getCurrencyMeta(w.currency)
             const dec = meta.decimals
             const primaryStr = formatProfileWalletPrimary(w.balance_minor, w.currency, dec)

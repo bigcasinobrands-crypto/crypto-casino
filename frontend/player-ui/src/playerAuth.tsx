@@ -19,6 +19,11 @@ import { playerApiOriginConfigured, playerApiUrl } from './lib/playerApiUrl'
 import { peekPendingReferralCode, clearPendingReferralCode } from './lib/referralPendingStorage'
 import { mergeServerFavouritesOnLogin } from './lib/gameStorage'
 import {
+  clearPlayerWalletBalanceCache,
+  readPlayerWalletBalanceCache,
+  writePlayerWalletBalanceCache,
+} from './lib/playerWalletBalanceCache'
+import {
   PLAYER_CHROME_CLOSE_CHAT_EVENT,
   PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT,
   PLAYER_CHROME_CLOSE_NOTIFICATIONS_EVENT,
@@ -79,6 +84,28 @@ export type BalanceBreakdown = {
   bonusLockedMinor: number
 }
 
+function readInitialWalletBalanceState(): {
+  balanceMinor: number | null
+  balanceBreakdown: BalanceBreakdown | null
+  playableBalanceCurrency: string | null
+} {
+  const likelySession =
+    typeof localStorage !== 'undefined' &&
+    (!!localStorage.getItem(ACCESS) || playerCredentialsMode)
+  if (!likelySession) {
+    return { balanceMinor: null, balanceBreakdown: null, playableBalanceCurrency: null }
+  }
+  const c = readPlayerWalletBalanceCache()
+  if (!c) {
+    return { balanceMinor: null, balanceBreakdown: null, playableBalanceCurrency: null }
+  }
+  return {
+    balanceMinor: c.balance_minor,
+    balanceBreakdown: { cashMinor: c.cash_minor, bonusLockedMinor: c.bonus_locked_minor },
+    playableBalanceCurrency: c.currency,
+  }
+}
+
 type P = {
   accessToken: string | null
   /** True when JWT is in memory/localStorage or cookie session is established (`me` loaded under credentialed API). */
@@ -135,11 +162,17 @@ function dismissPlayerChromeOverlays() {
 export function PlayerAuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const [accessToken, setAccess] = useState<string | null>(() => readInitialAccessToken())
+  const initialBal = readInitialWalletBalanceState()
   const [me, setMe] = useState<MeResponse | null>(null)
   const [avatarUrlRevision, setAvatarUrlRevision] = useState(0)
-  const [balanceMinor, setBal] = useState<number | null>(null)
-  const [balanceBreakdown, setBalanceBreakdown] = useState<BalanceBreakdown | null>(null)
-  const [playableBalanceCurrency, setPlayableBalanceCurrency] = useState<string | null>(null)
+  const [balanceMinor, setBal] = useState<number | null>(() => initialBal.balanceMinor)
+  const [balanceBreakdown, setBalanceBreakdown] = useState<BalanceBreakdown | null>(
+    () => initialBal.balanceBreakdown,
+  )
+  const [playableBalanceCurrency, setPlayableBalanceCurrency] = useState<string | null>(
+    () => initialBal.playableBalanceCurrency,
+  )
+  const meIdRef = useRef<string | null>(null)
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshInnerRef = useRef<() => Promise<boolean>>(async () => false)
 
@@ -161,6 +194,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     setBal(null)
     setBalanceBreakdown(null)
     setPlayableBalanceCurrency(null)
+    clearPlayerWalletBalanceCache()
   }, [clearRefreshTimer])
 
   const setAvatarUrl = useCallback((avatarPath: string) => {
@@ -241,6 +275,21 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     refreshInnerRef.current = refreshAccessInner
   }, [refreshAccessInner])
 
+  useEffect(() => {
+    meIdRef.current = me?.id ?? null
+  }, [me?.id])
+
+  useEffect(() => {
+    if (!me?.id) return
+    const c = readPlayerWalletBalanceCache()
+    if (c && c.userId !== me.id) {
+      clearPlayerWalletBalanceCache()
+      setBal(null)
+      setBalanceBreakdown(null)
+      setPlayableBalanceCurrency(null)
+    }
+  }, [me?.id])
+
   useEffect(() => () => clearRefreshTimer(), [clearRefreshTimer])
 
   const apiFetch = useCallback(
@@ -277,9 +326,11 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     try {
       const t = localStorage.getItem(ACCESS)
       if (!t && !playerCredentialsMode) return
+      let resolvedUserId: string | null = null
       const m = await apiFetch('/v1/auth/me')
       if (m.ok) {
         const j = (await m.json()) as MeResponse
+        resolvedUserId = j.id
         setMe((prev) => {
           const sameUser = prev?.id === j.id
           let avatar = typeof j.avatar_url === 'string' ? j.avatar_url.trim() : ''
@@ -316,6 +367,15 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         const cash = typeof j.cash_minor === 'number' ? j.cash_minor : j.balance_minor
         const bonus = typeof j.bonus_locked_minor === 'number' ? j.bonus_locked_minor : 0
         setBalanceBreakdown({ cashMinor: cash, bonusLockedMinor: bonus })
+        if (resolvedUserId) {
+          writePlayerWalletBalanceCache({
+            userId: resolvedUserId,
+            balance_minor: j.balance_minor,
+            cash_minor: cash,
+            bonus_locked_minor: bonus,
+            currency: c ?? 'EUR',
+          })
+        }
       }
     } catch {
       // fetch / json can throw; never leak unhandled rejections (Oddin calls onRefreshBalance with void).
@@ -653,11 +713,11 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
     navigate('/casino/games', { replace: true })
   }, [clearSession, navigate])
 
-  // Live balance: SSE stream for instant updates + 30s poll fallback
+  // Live balance: SSE for push updates; infrequent poll only as a safety net if the stream drops.
   useEffect(() => {
     if (!isAuthenticated) return
     void refreshProfile()
-    const t = window.setInterval(() => void refreshProfile(), 30_000)
+    const t = window.setInterval(() => void refreshProfile(), 120_000)
     return () => window.clearInterval(t)
   }, [isAuthenticated, refreshProfile])
 
@@ -709,6 +769,25 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
                     setBalanceBreakdown({
                       cashMinor: j.cash_minor,
                       bonusLockedMinor: j.bonus_locked_minor,
+                    })
+                  }
+                  const uid = meIdRef.current
+                  if (
+                    uid &&
+                    typeof j.balance_minor === 'number' &&
+                    typeof j.cash_minor === 'number' &&
+                    typeof j.bonus_locked_minor === 'number'
+                  ) {
+                    const ccy =
+                      typeof j.currency === 'string' && j.currency.trim()
+                        ? j.currency.trim().toUpperCase()
+                        : 'EUR'
+                    writePlayerWalletBalanceCache({
+                      userId: uid,
+                      balance_minor: j.balance_minor,
+                      cash_minor: j.cash_minor,
+                      bonus_locked_minor: j.bonus_locked_minor,
+                      currency: ccy,
                     })
                   }
                 } catch { /* malformed SSE line */ }

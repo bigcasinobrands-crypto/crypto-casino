@@ -39,6 +39,23 @@ const rateCache = new Map<string, RateCacheEntry>()
 const RATE_TTL_MS = 3_600_000
 
 /**
+ * Returns cached FX row if still fresh — lets the wallet header reuse rates immediately after reload.
+ */
+export function peekFrankfurterRatesFromCache(
+  quoteBase: 'EUR' | 'USD' | 'GBP',
+  targets: readonly WalletDisplayFiat[],
+): Record<string, number> | null {
+  const uniq = [...new Set(targets)]
+  const cacheKey = `${quoteBase}::${uniq.sort().join(',')}`
+  const hit = rateCache.get(cacheKey)
+  const now = Date.now()
+  if (hit && now - hit.fetchedAt < RATE_TTL_MS) {
+    return hit.rates
+  }
+  return null
+}
+
+/**
  * Fetches cross-rates from Frankfurter (ECB). Returns multipliers: major units of `quoteBase` → target fiat.
  * Keys include each requested `to` code.
  */

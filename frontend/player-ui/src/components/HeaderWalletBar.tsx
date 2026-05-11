@@ -22,12 +22,6 @@ type HeaderWalletBarProps = {
   depositFlowActive?: boolean
 }
 
-function displayCurrencyGlyph(ccy: WalletDisplayFiat): string {
-  if (ccy === 'EUR') return '€'
-  if (ccy === 'GBP') return '£'
-  return '$'
-}
-
 /** Space to leave under the dropdown so it does not sit under the mobile bottom nav (hidden → small gap only). */
 function walletDropdownBottomReservePx(): number {
   if (typeof document === 'undefined') return 12
@@ -57,6 +51,8 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
   const { displayFiat, setDisplayFiat, displayOptions, formatMinor } = useWalletDisplayFiat(
     isAuthenticated ? settlementCcy : 'EUR',
   )
+
+  const balancePending = isAuthenticated && balanceMinor === null
 
   const [open, setOpen] = useState(false)
   const barRef = useRef<HTMLDivElement>(null)
@@ -133,8 +129,11 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
   const depositDisabled = isAuthenticated && !depositsEnabled
 
   /** API `balance_minor` is playable total (cash + bonus) — pill shows this combined total. */
-  const combinedMinor = isAuthenticated ? balanceMinor : 0
-  const pillAmount = formatMinor(combinedMinor, locale)
+  const pillAmountStr: string | null = !isAuthenticated
+    ? formatMinor(0, locale)
+    : balancePending
+      ? null
+      : formatMinor(balanceMinor!, locale)
 
   const bonusMinor = balanceBreakdown?.bonusLockedMinor ?? 0
   const cashMinorLedger =
@@ -142,52 +141,69 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
       ? balanceBreakdown.cashMinor
       : isAuthenticated && balanceMinor != null
         ? Math.max(0, balanceMinor - bonusMinor)
-        : 0
+        : null
 
-  const cashAmountStr = formatMinor(cashMinorLedger, locale)
-  const bonusAmountStr = formatMinor(bonusMinor, locale)
-  const showBonusSubtitle = isAuthenticated && bonusMinor > 0
+  const cashAmountStr =
+    cashMinorLedger != null && !balancePending ? formatMinor(cashMinorLedger, locale) : null
+  const bonusAmountStr =
+    !balancePending && isAuthenticated ? formatMinor(bonusMinor, locale) : null
+  const showBonusSubtitle = isAuthenticated && !balancePending && bonusMinor > 0
   /** Overall wallet balance zero — show perimeter pulse on every breakpoint. */
-  const showZeroBalanceAlert = isAuthenticated && balanceMinor !== null && balanceMinor === 0
+  const showZeroBalanceAlert = isAuthenticated && !balancePending && balanceMinor === 0
 
-  /** Left tray: compact on desktop; tablet can still grow in centered header slot. */
+  /**
+   * Balance control sits inside the fused header pill on md+ (no second border — avoids “pill in pill”).
+   * Mobile keeps a self-contained rounded control when the deposit CTA stacks separately.
+   */
   const chipInnerClosed =
-    'relative z-[1] flex min-h-8 min-w-0 w-auto max-w-full flex-1 items-center overflow-hidden rounded-xl border border-white/[0.06] bg-casino-surface py-0.5 pl-1 pr-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_8px_24px_rgba(0,0,0,0.35)] ring-1 ring-black/25 md:min-h-9 md:self-stretch md:w-auto md:rounded-none md:border-0 md:bg-transparent md:py-1.5 md:pl-1 md:pr-2 md:shadow-none md:ring-0 max-[1279px]:md:min-h-9 max-[1279px]:md:flex-1 max-[1279px]:md:py-1.5 max-[1279px]:md:pl-1 max-[1279px]:md:pr-2 min-[1280px]:md:min-h-9 min-[1280px]:md:w-auto min-[1280px]:max-w-[min(11.5rem,calc(100vw-14rem))] min-[1280px]:md:flex-none min-[1280px]:md:shrink min-[1280px]:md:py-1.5 min-[1280px]:md:pl-1.5 min-[1280px]:md:pr-1.5'
+    'relative z-[1] flex min-h-8 min-w-0 w-auto max-w-full flex-1 items-stretch md:min-h-9 md:min-w-0 md:self-stretch max-[767px]:overflow-visible max-[1279px]:md:min-w-0 min-[1280px]:max-w-[min(17rem,calc(100vw-14rem))]'
 
   const walletBarCore = (
-    <div className="flex min-h-8 min-w-0 flex-1 items-center gap-1.5 md:min-h-9 md:gap-1.5 max-[1279px]:md:flex-1 min-[1280px]:md:flex-none min-[1280px]:md:gap-1.5">
-      <div className="flex min-w-0 flex-col items-start leading-tight">
-        <span className="truncate text-[10px] font-semibold tabular-nums text-white max-[1279px]:md:text-[10px] md:text-xs min-[1280px]:text-xs">
-          {pillAmount}
-        </span>
+    <button
+      type="button"
+      disabled={!isAuthenticated}
+      onClick={() => setOpen((p) => !p)}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      aria-label={t('wallet.headerBalanceDetailAria')}
+      aria-busy={balancePending}
+      className="group flex min-h-8 min-w-0 w-auto max-w-full flex-1 items-stretch overflow-hidden rounded-xl border border-white/[0.1] bg-white/[0.04] text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] outline-none transition hover:border-white/[0.14] hover:bg-white/[0.06] focus-visible:ring-2 focus-visible:ring-casino-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-casino-bg disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9 md:rounded-none md:border-0 md:bg-transparent md:shadow-none md:hover:bg-white/[0.06] md:overflow-visible max-[1279px]:md:flex-1 min-[1280px]:md:flex-none min-[1280px]:md:max-w-[min(17rem,calc(100vw-14rem))]"
+    >
+      <div className="flex min-w-0 min-h-0 flex-1 flex-col justify-center gap-0.5 overflow-visible px-3 py-2 md:gap-1 md:pl-4 md:pr-2 md:py-2.5">
+        <div className="flex min-w-0 items-baseline gap-2 md:gap-2.5">
+          <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold tabular-nums text-white md:text-xs min-[1280px]:text-[13px]">
+            {balancePending ? (
+              <span
+                className="inline-block h-[1.1em] min-w-[4.25rem] max-w-[6.5rem] animate-pulse rounded bg-white/[0.14]"
+                aria-hidden
+              />
+            ) : (
+              pillAmountStr
+            )}
+          </span>
+          <span
+            className="shrink-0 whitespace-nowrap pl-0 text-[10px] font-bold tracking-wide text-white/40 md:text-[11px] md:pl-0"
+            aria-hidden
+          >
+            {displayFiat}
+          </span>
+        </div>
         {showBonusSubtitle ? (
           <span className="max-w-full truncate text-[8px] tabular-nums text-amber-200/80 md:text-[9px] lg:text-[10px]">
-            {t('wallet.headerBonusSubtitle', { amount: bonusAmountStr })}
+            {t('wallet.headerBonusSubtitle', { amount: bonusAmountStr ?? '' })}
           </span>
         ) : null}
       </div>
-      <button
-        type="button"
-        disabled={!isAuthenticated}
-        onClick={() => setOpen((p) => !p)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={t('wallet.headerBalanceDetailAria')}
-        className="flex h-7 max-w-[100vw] shrink-0 items-center gap-1 rounded-lg px-1 text-[10px] font-semibold text-white transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50 md:h-7 md:gap-1 md:px-1 md:text-[11px] max-[1279px]:md:h-7 min-[1280px]:md:h-7 min-[1280px]:md:gap-1 min-[1280px]:md:px-1 min-[1280px]:md:text-xs"
+      <div
+        className="flex w-8 shrink-0 flex-col items-center justify-center border-l border-white/[0.12] bg-black/15 px-1 md:w-9 md:border-white/[0.08] md:bg-transparent"
+        aria-hidden
       >
-        <span
-          className="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/90 to-fuchsia-600/90 text-[11px] font-black text-white shadow-inner ring-1 ring-white/15"
-          aria-hidden
-        >
-          {displayCurrencyGlyph(displayFiat)}
-        </span>
         <IconChevronDown
-          className={`size-3 shrink-0 text-white/50 transition md:size-3.5 md:text-white/45 ${open ? 'rotate-180' : ''}`}
-          size={14}
-          aria-hidden
+          className={`size-3.5 shrink-0 text-white/45 transition group-hover:text-white/65 md:size-4 ${open ? 'rotate-180' : ''}`}
+          size={16}
         />
-      </button>
-    </div>
+      </div>
+    </button>
   )
 
   const depositButton = (
@@ -202,7 +218,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
       }
       aria-label={depositDisabled ? t('operational.depositsUnavailable') : t('header.depositAriaLabel')}
       aria-current={depositNavActive ? 'page' : undefined}
-      className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-tight text-white antialiased transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:h-full md:min-h-0 md:w-auto md:min-w-0 md:rounded-l-none md:rounded-r-full md:border-0 md:px-2 md:py-0 md:text-xs md:font-bold md:leading-tight md:shadow-none max-[1279px]:md:px-2.5 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:max-w-8 max-[1000px]:min-[768px]:md:px-0 min-[1280px]:md:w-max min-[1280px]:md:px-2 min-[1280px]:md:py-0 min-[1280px]:md:text-xs bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:justify-center ${
+      className={`inline-flex min-h-9 w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] px-3 py-2 text-center text-[11px] font-bold leading-tight text-white antialiased transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40 md:h-full md:min-h-0 md:w-auto md:min-w-0 md:rounded-none md:rounded-r-full md:border-0 md:border-l md:border-white/10 md:px-3.5 md:py-0 md:text-xs md:font-bold md:leading-tight md:shadow-none max-[1279px]:md:px-3 max-[1000px]:min-[768px]:md:w-8 max-[1000px]:min-[768px]:md:min-w-8 max-[1000px]:min-[768px]:md:max-w-8 max-[1000px]:min-[768px]:md:border-l-0 max-[1000px]:min-[768px]:md:px-0 min-[1280px]:md:w-max min-[1280px]:md:px-4 min-[1280px]:md:py-0 min-[1280px]:md:text-xs bg-casino-primary md:bg-[#9b6cff] max-[1000px]:min-[768px]:md:justify-center ${
         depositDisabled ? 'cursor-not-allowed opacity-40 hover:brightness-100' : ''
       } ${
         depositNavActive
@@ -215,13 +231,6 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
     </button>
   )
 
-  const walletDivider = (
-    <div
-      className="hidden w-px shrink-0 self-stretch bg-white/[0.12] md:block md:min-h-0"
-      aria-hidden
-    />
-  )
-
   const walletDepositWrap = (
     <div className="hidden shrink-0 md:flex md:h-auto md:min-h-0 md:w-auto md:items-stretch md:self-stretch md:overflow-hidden md:rounded-r-full">
       {depositButton}
@@ -229,29 +238,27 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
   )
 
   const walletPillInnerSurface =
-    'relative z-[1] flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:py-0 md:pl-1.5 md:pr-0 max-[1279px]:md:w-full max-[1279px]:md:min-w-0 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(17rem,calc(100vw-14rem))] min-[1280px]:justify-start min-[1280px]:pl-1.5 min-[1280px]:pr-0'
+    'relative z-[1] flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-2 max-[767px]:gap-2 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.1] md:bg-[#141414] md:py-0 md:pl-0 md:pr-0 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(22rem,calc(100vw-14rem))] min-[1280px]:justify-start'
 
   const walletPillOuterFrame =
-    'pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-1.5 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.08] md:bg-[#1A1A1A] md:py-0 md:pl-1.5 md:pr-0 max-[1279px]:md:w-full max-[1279px]:md:min-w-0 max-[1279px]:md:pl-1 min-[1280px]:w-max min-[1280px]:max-w-[min(17rem,calc(100vw-14rem))] min-[1280px]:justify-start min-[1280px]:pl-1.5 min-[1280px]:pr-0'
+    'pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-2 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.1] md:bg-[#141414] md:py-0 md:pl-0 md:pr-0 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(22rem,calc(100vw-14rem))] min-[1280px]:justify-start'
 
   return (
     <>
       {showZeroBalanceAlert ? (
         <div
           ref={barRef}
-          className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:rounded-full max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(17rem,calc(100vw-14rem))]"
+          className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:rounded-full max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(22rem,calc(100vw-14rem))]"
         >
           <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
           <div className={walletPillInnerSurface}>
             <div className={chipInnerClosed}>{walletBarCore}</div>
-            {walletDivider}
             {walletDepositWrap}
           </div>
         </div>
       ) : (
         <div ref={barRef} className={walletPillOuterFrame}>
           <div className={chipInnerClosed}>{walletBarCore}</div>
-          {walletDivider}
           {walletDepositWrap}
         </div>
       )}
@@ -278,14 +285,12 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
                   <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
                   <div className={`${walletPillInnerSurface} min-h-0 flex-1`}>
                     <div className={chipInnerClosed}>{walletBarCore}</div>
-                    {walletDivider}
                     {walletDepositWrap}
                   </div>
                 </>
               ) : (
                 <>
                   <div className={chipInnerClosed}>{walletBarCore}</div>
-                  {walletDivider}
                   {walletDepositWrap}
                 </>
               )}
@@ -301,21 +306,17 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
                 : { top: panelPos.top, left: panelPos.left, transform: 'none', right: 'auto' }),
               maxHeight: panelMaxHeightPx,
             }}
-            className={`fixed z-[219] flex flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[#121215] shadow-2xl ring-1 ring-violet-500/15 ${
+            className={`fixed z-[219] flex flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-[#0e0e11] shadow-[0_24px_48px_rgba(0,0,0,0.55)] ${
               'mobileCentered' in panelPos
                 ? 'w-[min(21rem,calc(100vw-1.5rem))]'
                 : 'w-[min(23rem,calc(100vw-2rem))]'
             }`}
           >
-            <div className="shrink-0 border-b border-white/[0.08] px-3 py-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/45">
+            <div className="shrink-0 px-3 pt-3 pb-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">
                 {t('wallet.displayCurrencyLabel')}
               </p>
-              <div
-                className="mt-2 flex gap-1 rounded-xl bg-black/35 p-1 ring-1 ring-white/[0.06]"
-                role="group"
-                aria-label={t('wallet.displayCurrencyLabel')}
-              >
+              <div className="mt-2 flex border-b border-white/[0.08]" role="group" aria-label={t('wallet.displayCurrencyLabel')}>
                 {displayOptions.map((code: WalletDisplayFiat) => {
                   const on = displayFiat === code
                   return (
@@ -324,12 +325,16 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
                       type="button"
                       onClick={() => setDisplayFiat(code)}
                       aria-pressed={on}
-                      className={`flex-1 rounded-lg py-2 text-center text-xs font-bold transition ${
-                        on
-                          ? 'bg-casino-primary text-white shadow-[0_0_12px_rgba(139,92,246,0.35)]'
-                          : 'text-white/55 hover:bg-white/[0.06] hover:text-white/90'
+                      className={`relative flex-1 py-2.5 text-center text-xs font-bold transition ${
+                        on ? 'text-white' : 'text-white/45 hover:text-white/75'
                       }`}
                     >
+                      {on ? (
+                        <span
+                          className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-casino-primary shadow-[0_0_12px_rgba(139,92,246,0.6)]"
+                          aria-hidden
+                        />
+                      ) : null}
                       {code}
                     </button>
                   )
@@ -344,7 +349,14 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
                     {t('wallet.headerCashBalanceTitle')}
                   </p>
                   <p className="mt-2 text-center text-[1.65rem] font-bold tabular-nums tracking-tight text-white leading-none">
-                    {cashAmountStr}
+                    {balancePending || cashAmountStr == null ? (
+                      <span
+                        className="inline-block h-[1.35em] w-[7rem] max-w-[85%] animate-pulse rounded-lg bg-white/[0.12]"
+                        aria-hidden
+                      />
+                    ) : (
+                      cashAmountStr
+                    )}
                   </p>
                 </div>
 
@@ -352,7 +364,16 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
                   <p className="text-center text-[10px] font-bold uppercase tracking-[0.14em] text-amber-200/80">
                     {t('wallet.headerBonusBalanceTitle')}
                   </p>
-                  <p className="mt-1.5 text-center text-lg font-bold tabular-nums text-amber-100">{bonusAmountStr}</p>
+                  <p className="mt-1.5 text-center text-lg font-bold tabular-nums text-amber-100">
+                    {balancePending || bonusAmountStr == null ? (
+                      <span
+                        className="inline-block h-[1.15em] w-[5rem] max-w-[75%] animate-pulse rounded-lg bg-amber-200/20"
+                        aria-hidden
+                      />
+                    ) : (
+                      bonusAmountStr
+                    )}
+                  </p>
                 </div>
               </div>
             </div>

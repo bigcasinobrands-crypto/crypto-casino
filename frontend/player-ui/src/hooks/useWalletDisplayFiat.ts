@@ -6,6 +6,7 @@ import {
   fetchFrankfurterRates,
   formatDisplayFiatMajor,
   frankfurterQuoteBase,
+  peekFrankfurterRatesFromCache,
   readStoredDisplayFiat,
   writeStoredDisplayFiat,
 } from '../lib/walletDisplayFiat'
@@ -33,8 +34,14 @@ export function useWalletDisplayFiat(settlementCurrency: string | null | undefin
 
   useEffect(() => {
     let cancelled = false
-    setFxState('loading')
-    setRates(null)
+    const cached = peekFrankfurterRatesFromCache(quoteBase, WALLET_DISPLAY_FIAT_OPTIONS)
+    if (cached) {
+      setRates(cached)
+      setFxState('ok')
+    } else {
+      setFxState('loading')
+      setRates(null)
+    }
     void (async () => {
       try {
         const r = await fetchFrankfurterRates(quoteBase, [...WALLET_DISPLAY_FIAT_OPTIONS])
@@ -43,8 +50,8 @@ export function useWalletDisplayFiat(settlementCurrency: string | null | undefin
         setFxState('ok')
       } catch {
         if (cancelled) return
-        setRates(null)
-        setFxState('error')
+        setRates(cached)
+        setFxState(cached ? 'ok' : 'error')
       }
     })()
     return () => {

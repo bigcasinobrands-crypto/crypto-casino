@@ -467,7 +467,7 @@ func main() {
 				r.Get("/wallet/balances", wallet.BalancesHandler(pool, &cfg))
 				r.Get("/wallet/balance/stream", wallet.BalanceStreamHandler(pool, &cfg))
 				r.Get("/wallet/wagering/stream", wallet.WageringStreamHandler(pool))
-				r.Get("/wallet/bonuses", wallet.BonusesHandler(pool))
+				r.Get("/wallet/bonuses", wallet.BonusesHandler(pool, &cfg))
 				r.With(httprate.LimitByIP(20, time.Minute)).Post("/wallet/bonuses/{bonusID}/forfeit", wallet.PlayerBonusForfeitHandler(pool))
 				r.With(httprate.LimitByIP(30, time.Minute)).Get("/bonuses/available", wallet.AvailableBonusesHandler(pool))
 				r.With(httprate.LimitByIP(40, time.Minute)).Post("/bonuses/deposit-intent", wallet.DepositBonusIntentHandler(pool))
