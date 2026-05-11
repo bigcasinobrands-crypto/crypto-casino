@@ -890,25 +890,24 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 }
 
 // formatBOBalanceMinor formats ledger minor units for Blue Ocean JSON balance strings.
+// BO seamless tooling and advanced S2S tests expect balance to be a non-negative amount string
+// (operator support: signed negatives break their validators). Use magnitude here; HTTP/json
+// status still carries errors.
+//
 // BO tooling often compares strings loosely but rejects "0.40" vs expected "0.4" — we trim redundant trailing zeros (public examples use whole euros like "300" when no cents).
 func formatBOBalanceMinor(minor int64) string {
-	neg := minor < 0
-	if neg {
+	if minor < 0 {
+		// int64 min edge is unreachable for wallet balances; -minor is safe in practice.
 		minor = -minor
 	}
 	whole := minor / 100
 	frac := minor % 100
-	var s string
 	if frac == 0 {
-		s = strconv.FormatInt(whole, 10)
-	} else {
-		s = fmt.Sprintf("%d.%02d", whole, frac)
-		s = strings.TrimRight(s, "0")
-		s = strings.TrimSuffix(s, ".")
+		return strconv.FormatInt(whole, 10)
 	}
-	if neg {
-		return "-" + s
-	}
+	s := fmt.Sprintf("%d.%02d", whole, frac)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimSuffix(s, ".")
 	return s
 }
 

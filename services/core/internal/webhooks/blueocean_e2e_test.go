@@ -129,8 +129,9 @@ func TestE2EBlueOceanDuplicateDebitIdempotent(t *testing.T) {
 	}
 }
 
-// TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured matches BO GH1-style sandboxes that expect
-// an empty wallet to accept a debit and report a negative balance when this opt-in is enabled.
+// TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured verifies an empty wallet can accept a debit
+// when BlueOceanWalletAllowNegativeBalance is set (ledger goes negative). JSON balance strings still use
+// magnitude only — BO tooling rejects signed balances — so expect "5" not "-5" for −5.00 EUR playable.
 func TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)
 	defer cl()
@@ -187,7 +188,7 @@ func TestE2EBlueOceanDebitAllowsNegativeBalanceWhenConfigured(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != "200" || out.Balance != "-5" {
+	if out.Status != "200" || out.Balance != "5" {
 		t.Fatalf("got status=%q balance=%q body=%s", out.Status, out.Balance, w.Body.String())
 	}
 }

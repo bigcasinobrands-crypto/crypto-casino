@@ -146,7 +146,7 @@ func TestFormatBOBalanceMinor(t *testing.T) {
 	if got := formatBOBalanceMinor(40); got != "0.4" {
 		t.Fatalf("got %q", got)
 	}
-	if got := formatBOBalanceMinor(-105); got != "-1.05" {
-		t.Fatalf("got %q", got)
+	if got := formatBOBalanceMinor(-105); got != "1.05" {
+		t.Fatalf("got %q want non-negative magnitude per BO wallet contract", got)
 	}
 }
