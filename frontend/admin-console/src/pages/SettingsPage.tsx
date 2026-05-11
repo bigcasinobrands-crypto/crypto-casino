@@ -468,7 +468,8 @@ function SystemControlsTab({
   isSuper: boolean
   apiFetch: (path: string, init?: RequestInit) => Promise<Response>
 }) {
-  const { flags: operationalFlags, reload: reloadOperationalFlags } = useOperationalFlags(apiFetch)
+  const { flags: operationalFlags, err: operationalFlagsErr, reload: reloadOperationalFlags } =
+    useOperationalFlags(apiFetch)
 
   const maintenanceEffective = useMemo(() => {
     if (operationalFlags != null && typeof operationalFlags.maintenance_mode === 'boolean') {
@@ -490,8 +491,8 @@ function SystemControlsTab({
             patchSetting={patchSetting}
             isSuper={isSuper}
             operationalFlags={operationalFlags}
+            operationalFlagsErr={operationalFlagsErr}
             reloadOperationalFlags={reloadOperationalFlags}
-            maintenanceEffective={maintenanceEffective}
           />
           <MaintenanceSchedulePanel
             settings={settings}
@@ -569,13 +570,52 @@ const KILL_SWITCHES = [
   { key: 'chat_enabled', label: 'Chat Enabled', cat: 'chat' },
 ] as const
 
-/** Saved DB values only — toggles must match persisted settings after Save + refresh (live ops shown separately). */
-function deriveKillSwitchDraft(groups: SettingsMap): Record<string, boolean> {
-  const out: Record<string, boolean> = {}
-  for (const sw of KILL_SWITCHES) {
-    out[sw.key] = coerceBoolSetting(getSettingVal(groups, sw.cat, sw.key, false))
+type KillSwitchKey = (typeof KILL_SWITCHES)[number]['key']
+
+const KILL_SWITCH_LIVE_FIELD = {
+  maintenance_mode: 'maintenance_mode',
+  deposits_enabled: 'deposits_enabled',
+  withdrawals_enabled: 'withdrawals_enabled',
+  real_play_enabled: 'real_play_enabled',
+  bonuses_enabled: 'bonuses_enabled',
+  automated_grants_enabled: 'automated_grants_enabled',
+  chat_enabled: 'chat_enabled',
+} as const satisfies Record<KillSwitchKey, keyof OperationalFlags>
+
+/** Admin API should send booleans; tolerate legacy string/number payloads so Live pills never stick on "…". */
+function coerceLiveBool(v: unknown): boolean | undefined {
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'number' && Number.isFinite(v)) return v !== 0
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase()
+    if (s === 'true' || s === '1' || s === 'yes') return true
+    if (s === 'false' || s === '0' || s === 'no') return false
   }
-  return out
+  return undefined
+}
+
+function liveKillSwitchFromOps(swKey: KillSwitchKey, ops: OperationalFlags | null): boolean | undefined {
+  if (!ops) return undefined
+  const field = KILL_SWITCH_LIVE_FIELD[swKey]
+  return coerceLiveBool(ops[field])
+}
+
+/** Fallback when operational-flags omits a field (matches API defaults). */
+const KILL_SWITCH_PLAYER_DEFAULTS: Record<KillSwitchKey, boolean> = {
+  maintenance_mode: false,
+  deposits_enabled: true,
+  withdrawals_enabled: true,
+  real_play_enabled: false,
+  bonuses_enabled: true,
+  automated_grants_enabled: true,
+  chat_enabled: true,
+}
+
+/** Player-facing state for this row (same sources as player `/health/operational`). */
+function playerFacingKillSwitch(swKey: KillSwitchKey, ops: OperationalFlags | null): boolean | undefined {
+  if (!ops) return undefined
+  const v = liveKillSwitchFromOps(swKey, ops)
+  return v !== undefined ? v : KILL_SWITCH_PLAYER_DEFAULTS[swKey]
 }
 
 function KillSwitchesPanel({
@@ -583,120 +623,92 @@ function KillSwitchesPanel({
   patchSetting,
   isSuper,
   operationalFlags,
+  operationalFlagsErr,
   reloadOperationalFlags,
-  maintenanceEffective,
 }: {
   settings: SettingsMap
   patchSetting: (key: string, value: unknown, opts?: { quietSuccess?: boolean; skipRefresh?: boolean }) => Promise<boolean>
   isSuper: boolean
   operationalFlags: OperationalFlags | null
-  reloadOperationalFlags: () => Promise<void>
-  maintenanceEffective: boolean
+  operationalFlagsErr: string | null
+  reloadOperationalFlags: () => Promise<OperationalFlags | null>
 }) {
-  const serverDraft = useMemo(() => deriveKillSwitchDraft(settings), [settings])
-  const [draft, setDraft] = useState(serverDraft)
-  const [saving, setSaving] = useState(false)
-  /** True after any toggle; keeps Discard enabled if user toggles back to server values (dirtyKeys empty). */
-  const [hasLocalEdits, setHasLocalEdits] = useState(false)
+  const [patchingKey, setPatchingKey] = useState<string | null>(null)
+  const opsReady = operationalFlags !== null && operationalFlagsErr === null
 
-  useEffect(() => {
-    if (!hasLocalEdits) {
-      setDraft(serverDraft)
-    }
-  }, [serverDraft, hasLocalEdits])
-
-  const dirtyKeys = useMemo(
-    () => KILL_SWITCHES.filter((sw) => draft[sw.key] !== serverDraft[sw.key]).map((sw) => sw.key),
-    [draft, serverDraft],
-  )
-
-  const discard = () => {
-    setHasLocalEdits(false)
-    setDraft(serverDraft)
+  const fmtMaintUntilHint = (iso: string) => {
+    const d = new Date(iso)
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
   }
 
-  const saveAll = async () => {
-    if (!isSuper) {
-      toast.error('Superadmin required')
-      return
-    }
-    if (dirtyKeys.length === 0) return
-    setSaving(true)
+  const applyToggle = async (sw: (typeof KILL_SWITCHES)[number], next: boolean) => {
+    if (!isSuper || !opsReady || patchingKey !== null) return
+    const fullKey = `${sw.cat}.${sw.key}`
+    setPatchingKey(sw.key)
     try {
-      const changed = KILL_SWITCHES.filter((sw) => dirtyKeys.includes(sw.key))
-      for (let i = 0; i < changed.length; i++) {
-        const sw = changed[i]
-        const fullKey = `${sw.cat}.${sw.key}`
-        const isLast = i === changed.length - 1
-        const ok = await patchSetting(fullKey, draft[sw.key], { quietSuccess: true, skipRefresh: !isLast })
-        if (!ok) return
+      const ok = await patchSetting(fullKey, next, { quietSuccess: true })
+      const fresh = await reloadOperationalFlags()
+      if (!ok) return
+      const stillOn = fresh ? coerceLiveBool(fresh.maintenance_mode) === true : false
+      if (sw.key === 'maintenance_mode' && next === false && stillOn) {
+        if (fresh?.maintenance_mode_env) {
+          toast.error(
+            'Saved Off in the database, but MAINTENANCE_MODE in the API environment still forces maintenance. Unset it on the host and restart the API.',
+          )
+        } else {
+          toast.error(
+            'Saved Off, but maintenance still reads On. Restart all API replicas or verify Postgres site_settings.system.maintenance_mode.',
+          )
+        }
+        return
       }
-      toast.success(`Saved ${changed.length} kill switch${changed.length === 1 ? '' : 'es'}`)
-      setHasLocalEdits(false)
-      await reloadOperationalFlags()
+      toast.success(`${sw.label} ${next ? 'On' : 'Off'} — players see this once replicas pick it up.`)
     } finally {
-      setSaving(false)
+      setPatchingKey(null)
     }
-  }
-
-  const saveDisabled = !isSuper || saving || dirtyKeys.length === 0
-  const discardDisabled = !isSuper || saving || (!hasLocalEdits && dirtyKeys.length === 0)
-
-  const statusLine = (sw: (typeof KILL_SWITCHES)[number], draftVal: boolean) => {
-    if (sw.key === 'maintenance_mode') {
-      return maintenanceEffective
-        ? { text: 'Live: maintenance active', cls: 'text-amber-700 dark:text-amber-300' }
-        : { text: 'Live: site open', cls: 'text-emerald-600 dark:text-emerald-400' }
-    }
-    return draftVal
-      ? { text: 'Enabled', cls: 'text-emerald-600 dark:text-emerald-400' }
-      : { text: 'Disabled', cls: 'text-gray-500 dark:text-gray-400' }
   }
 
   return (
     <Section
       id="settings-kill-switches"
       title="Kill Switches"
-      desc="Master toggles for platform features. Flip switches, then Save changes to apply."
+      desc="Switches show what players get right now. Flip one to update the database immediately — the handle stays aligned with the live gate."
       defaultOpen
     >
       {operationalFlags?.maintenance_mode_env ? (
         <div className="alert alert-warning small mb-3 py-2" role="status">
-          <strong>MAINTENANCE_MODE</strong> is enabled on this API process environment. The player site stays in maintenance
-          until that env flag is cleared on the server, even if the toggle below shows <strong>Off</strong> in the database.
-          Use your hosting/env files (for example <code className="small">services/core/.env</code>) to unset it, then restart
-          the API.
+          <strong>MAINTENANCE_MODE</strong> is set in this API&apos;s environment. The switch stays <strong>On</strong> for players until you remove that variable on the host and restart; flipping Off still writes <strong>Off</strong> to the database.
         </div>
       ) : null}
+      {operationalFlagsErr ? (
+        <p className="mb-3 text-sm text-red-600 dark:text-red-400">
+          Could not load live flags ({operationalFlagsErr}). Switches are disabled.
+        </p>
+      ) : !operationalFlags ? (
+        <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">Loading live switches…</p>
+      ) : null}
       {!isSuper ? (
-        <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">
-          Superadmin role required to edit kill switches.
-        </p>
-      ) : (
-        <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-          Switches reflect saved database values after you save. The maintenance row&apos;s status line shows{' '}
-          <strong>live</strong> operational state (env + runtime). Green badge and switch right mean <strong>On</strong>.
-        </p>
-      )}
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">Superadmin role required to edit kill switches.</p>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-3">
         {KILL_SWITCHES.map((sw) => {
-          const val = draft[sw.key] ?? serverDraft[sw.key]
+          const fallback = coerceBoolSetting(
+            getSettingVal(settings, sw.cat, sw.key, KILL_SWITCH_PLAYER_DEFAULTS[sw.key]),
+          )
+          const checked = playerFacingKillSwitch(sw.key, operationalFlags) ?? fallback
           const meta = getSettingMeta(settings, sw.cat, sw.key)
-          const maintenanceWarn = sw.key === 'maintenance_mode' && val
-          const st = statusLine(sw, val)
-          const rowDirty = draft[sw.key] !== serverDraft[sw.key]
-          const maintenanceLiveMismatch =
-            sw.key === 'maintenance_mode' && !rowDirty && serverDraft[sw.key] !== maintenanceEffective
+          const maintenanceRow = sw.key === 'maintenance_mode'
+          const maintenanceOn = Boolean(checked)
+          const rowBusy = patchingKey === sw.key
+          const disabled = !isSuper || !opsReady || patchingKey !== null
           return (
             <div
               key={sw.key}
               className={[
                 'flex min-h-[4.5rem] flex-col gap-3 rounded-xl border px-4 py-3 transition-colors sm:min-h-0 sm:flex-row sm:items-center sm:justify-between sm:gap-3',
-                maintenanceWarn
+                maintenanceRow && maintenanceOn
                   ? 'border-amber-400/70 bg-amber-50/90 dark:border-amber-700/60 dark:bg-amber-950/35'
-                  : rowDirty
-                    ? 'border-blue-300/80 bg-blue-50/60 dark:border-blue-600/50 dark:bg-blue-950/25'
-                    : 'border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-white/[0.02]',
+                  : 'border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-white/[0.02]',
               ].join(' ')}
             >
               <div className="min-w-0 flex-1 space-y-2">
@@ -704,78 +716,48 @@ function KillSwitchesPanel({
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={[
-                      'inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
-                      val
-                        ? 'bg-emerald-500/18 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
-                        : 'bg-gray-500/15 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400',
+                      'inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+                      checked
+                        ? 'border-emerald-500/35 bg-emerald-500/14 text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/12 dark:text-emerald-200'
+                        : 'border-slate-400/35 bg-slate-500/10 text-slate-700 dark:border-slate-500/30 dark:bg-slate-400/15 dark:text-slate-200',
                     ].join(' ')}
                   >
-                    {val ? 'On' : 'Off'}
+                    Players: {checked ? 'On' : 'Off'}
                   </span>
-                  {rowDirty ? (
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-                      Unsaved
-                    </span>
+                  {rowBusy ? (
+                    <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">Applying…</span>
                   ) : null}
                 </div>
-                <p className={`text-xs font-medium ${st.cls}`}>{st.text}</p>
-                {maintenanceLiveMismatch ? (
-                  <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-300">
-                    Saved toggle is <strong>{serverDraft[sw.key] ? 'On' : 'Off'}</strong> but live maintenance differs (often env{' '}
-                    <code className="font-mono text-[10px]">MAINTENANCE_MODE</code> or propagation delay).
+                {maintenanceRow && operationalFlags?.maintenance_until ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Scheduled end on maintenance page:{' '}
+                    <strong className="font-medium text-gray-700 dark:text-gray-300">
+                      {fmtMaintUntilHint(operationalFlags.maintenance_until)}
+                    </strong>
+                  </p>
+                ) : maintenanceRow && maintenanceOn && !operationalFlags?.maintenance_until ? (
+                  <p className="text-[11px] leading-snug text-amber-800/90 dark:text-amber-200/90">
+                    No maintenance end time — set <span className="font-medium">Maintenance schedule</span> below for a player countdown.
                   </p>
                 ) : null}
                 {meta?.updated_at ? (
                   <p className="text-xs text-gray-400 dark:text-gray-500">
-                    Saved {formatRelativeTime(meta.updated_at)}
+                    Last saved {formatRelativeTime(meta.updated_at)}
                     {meta.updated_by ? ` · ${meta.updated_by}` : ''}
                   </p>
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center justify-end gap-3 border-t border-gray-200/80 pt-3 dark:border-white/[0.06] sm:border-t-0 sm:pt-0">
                 <Toggle
-                  checked={val}
-                  ariaLabel={`${sw.label}: ${val ? 'on' : 'off'}`}
-                  disabled={!isSuper}
-                  onChange={(next) => {
-                    setHasLocalEdits(true)
-                    setDraft((d) => ({ ...d, [sw.key]: next }))
-                  }}
+                  checked={checked}
+                  ariaLabel={`${sw.label}: ${checked ? 'on' : 'off'}`}
+                  disabled={disabled}
+                  onChange={(next) => void applyToggle(sw, next)}
                 />
               </div>
             </div>
           )
         })}
-      </div>
-
-      <div className="mt-4 flex flex-col gap-2 border-t border-gray-200 pt-4 dark:border-white/[0.08]">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={`${settingsSaveBtn} ${saveDisabled ? 'opacity-60' : ''}`}
-            disabled={saveDisabled}
-            onClick={() => void saveAll()}
-          >
-            {saving ? 'Saving…' : dirtyKeys.length === 0 ? 'Save changes' : `Save changes (${dirtyKeys.length})`}
-          </button>
-          <button
-            type="button"
-            className={`${settingsDiscardBtn} ${discardDisabled ? 'opacity-60' : ''}`}
-            disabled={discardDisabled}
-            onClick={discard}
-          >
-            Discard
-          </button>
-        </div>
-        {isSuper ? (
-          <p className="mb-0 text-xs text-gray-500 dark:text-gray-400">
-            {dirtyKeys.length > 0
-              ? `${dirtyKeys.length} switch${dirtyKeys.length === 1 ? '' : 'es'} differ from what is saved. Save to apply or Discard to revert.`
-              : hasLocalEdits
-                ? 'Draft matches saved values. Use Discard to reload from the server or adjust a switch again.'
-                : 'Turn a switch on or off to enable Save and Discard.'}
-          </p>
-        ) : null}
       </div>
     </Section>
   )

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { playerApiUrl } from '../lib/playerApiUrl'
 
 export type OperationalHealth = {
@@ -39,6 +39,40 @@ export type OperationalHealth = {
 const OPS_FETCH_ATTEMPTS = 3
 const OPS_FETCH_GAP_MS = 140
 
+/** Unique URL per request so HTTP caches / edge proxies cannot serve stale maintenance JSON after refresh. */
+function operationalHealthRequestUrl(): string {
+  const raw = playerApiUrl('/health/operational')
+  const sep = raw.includes('?') ? '&' : '?'
+  return `${raw}${sep}_cb=${Date.now()}`
+}
+
+/** JSON sometimes arrives as string/number via proxies; Boolean("false") === true would wrongly gate the site. */
+function asBarrierBool(v: unknown): boolean {
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'number' && Number.isFinite(v)) return v !== 0
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase()
+    if (s === 'true' || s === '1' || s === 'yes') return true
+    if (s === 'false' || s === '0' || s === 'no' || s === '') return false
+  }
+  return false
+}
+
+function normalizeOperationalHealth(raw: unknown): OperationalHealth | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const j = raw as Record<string, unknown>
+  const disableLaunch = j.disable_game_launch
+  return {
+    ...(j as unknown as OperationalHealth),
+    maintenance_mode: asBarrierBool(j.maintenance_mode),
+    maintenance_mode_env:
+      j.maintenance_mode_env === undefined ? undefined : asBarrierBool(j.maintenance_mode_env),
+    geo_blocked: asBarrierBool(j.geo_blocked),
+    ip_blocked: asBarrierBool(j.ip_blocked),
+    disable_game_launch: typeof disableLaunch === 'boolean' ? disableLaunch : asBarrierBool(disableLaunch),
+  }
+}
+
 /**
  * Polls GET /health/operational for banners, catalog warnings, and geo/maintenance gates.
  * Best-effort: transient failures keep the last good payload for in-session banners.
@@ -47,63 +81,77 @@ const OPS_FETCH_GAP_MS = 140
  * so {@link SiteAccessGate} does not spin for ~20s on flaky networks. `timedOut` remains a long
  * backstop for edge cases.
  */
-export function useOperationalHealth(pollMs = 8000) {
+export function useOperationalHealth(pollMs = 2500) {
   const [data, setData] = useState<OperationalHealth | null>(null)
   const [timedOut, setTimedOut] = useState(false)
   const [initialBootstrapDone, setInitialBootstrapDone] = useState(false)
+  const fetchGen = useRef(0)
 
   useEffect(() => {
     const id = window.setTimeout(() => setTimedOut(true), 12_000)
     return () => window.clearTimeout(id)
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        for (let attempt = 0; attempt < OPS_FETCH_ATTEMPTS; attempt++) {
-          try {
-            const res = await fetch(playerApiUrl('/health/operational'), {
-              cache: 'no-store',
-              headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-            })
-            if (res.ok) {
-              const j = (await res.json()) as OperationalHealth
-              if (!cancelled) setData(j)
-              return
-            }
-            if (import.meta.env.DEV && !cancelled) {
-              console.debug(`[operational] HTTP ${res.status} (attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS})`)
-            }
-          } catch (e) {
-            if (import.meta.env.DEV && !cancelled) {
-              console.debug(`[operational] fetch failed attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS}`, e)
-            }
+  const load = useCallback(async () => {
+    const gen = ++fetchGen.current
+    try {
+      for (let attempt = 0; attempt < OPS_FETCH_ATTEMPTS; attempt++) {
+        try {
+          const res = await fetch(operationalHealthRequestUrl(), {
+            cache: 'reload',
+            headers: {
+              Accept: 'application/json',
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+            },
+          })
+          if (res.ok) {
+            const parsed = normalizeOperationalHealth(await res.json())
+            if (gen !== fetchGen.current) return
+            if (parsed) setData(parsed)
+            return
           }
-          if (attempt < OPS_FETCH_ATTEMPTS - 1) {
-            await new Promise((r) => setTimeout(r, OPS_FETCH_GAP_MS))
+          if (import.meta.env.DEV && gen === fetchGen.current) {
+            console.debug(`[operational] HTTP ${res.status} (attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS})`)
+          }
+        } catch (e) {
+          if (import.meta.env.DEV && gen === fetchGen.current) {
+            console.debug(`[operational] fetch failed attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS}`, e)
           }
         }
-      } finally {
-        if (!cancelled) setInitialBootstrapDone(true)
+        if (attempt < OPS_FETCH_ATTEMPTS - 1) {
+          await new Promise((r) => setTimeout(r, OPS_FETCH_GAP_MS))
+        }
       }
+    } finally {
+      if (gen === fetchGen.current) setInitialBootstrapDone(true)
     }
+  }, [])
+
+  useEffect(() => {
     void load()
 
-    const intervalId = window.setInterval(load, pollMs)
+    const intervalId = window.setInterval(() => void load(), pollMs)
 
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void load()
     }
+    const onFocus = () => void load()
+    /** Full reload / BFCache back navigation — always pull fresh operational JSON (maintenance schedule + gates). */
+    const onPageShow = () => void load()
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('pageshow', onPageShow)
 
     return () => {
-      cancelled = true
+      fetchGen.current++
       window.clearInterval(intervalId)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('pageshow', onPageShow)
     }
-  }, [pollMs])
+  }, [load, pollMs])
 
   const ready = data !== null || timedOut || initialBootstrapDone
-  return { data, ready }
+  return { data, ready, reload: load }
 }

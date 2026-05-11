@@ -615,6 +615,8 @@
     "realPlay": "Jeu réel",
     "demoPlay": "Jeu démo",
     "closeLaunchModal": "Fermer et retourner aux jeux",
+    "cancelLaunchAria": "Annuler et choisir à nouveau le mode",
+    "launchWaitHint": "Récupération de votre session sur nos serveurs — en général une seconde ou deux. Le fournisseur charge ensuite le jeu dans le cadre.",
     "connectingProvider": "Connexion au fournisseur de jeu",
     "startingFreePlay": "Démarrage du jeu gratuit…",
     "connectingRealPlay": "Connexion pour le jeu réel…",

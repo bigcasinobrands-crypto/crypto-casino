@@ -28,23 +28,40 @@ function GateLoading() {
 }
 
 export const SiteAccessGate: FC<{ children: ReactNode }> = ({ children }) => {
-  const { data, ready } = useSharedOperationalHealth()
+  const { data, ready, reload } = useSharedOperationalHealth()
   const [forcedBarrier, setForcedBarrier] = useState<PlayerSiteBarrierCode | null>(null)
 
   useEffect(() => {
     return subscribePlayerSiteBarrier((code) => setForcedBarrier(code))
   }, [])
 
+  /** `/health/operational` is authoritative; drop stale barrier codes from older API errors (avoids maintenance overlay after ops opens). */
   useEffect(() => {
     if (!ready || !data) return
-    const serverBarrierActive =
-      Boolean(data.geo_blocked) || Boolean(data.ip_blocked) || Boolean(data.maintenance_mode)
-    if (!serverBarrierActive && forcedBarrier) setForcedBarrier(null)
-  }, [ready, data, forcedBarrier])
+    const maint = Boolean(data.maintenance_mode)
+    const geo = Boolean(data.geo_blocked)
+    const ip = Boolean(data.ip_blocked)
+
+    setForcedBarrier((prev) => {
+      if (prev === null) return null
+      if (prev === 'site_maintenance' && !maint) return null
+      if (prev === 'geo_blocked' && !geo) return null
+      if (prev === 'ip_blocked' && !ip) return null
+      return prev
+    })
+  }, [ready, data])
 
   const geoBlocked = Boolean(data?.geo_blocked) || forcedBarrier === 'geo_blocked'
   const ipBlocked = Boolean(data?.ip_blocked) || forcedBarrier === 'ip_blocked'
   const maintenanceOn = Boolean(data?.maintenance_mode) || forcedBarrier === 'site_maintenance'
+
+  /** While the maintenance card is up, poll aggressively so turning maintenance off in admin clears within ~1s of API consistency. */
+  useEffect(() => {
+    if (!ready || !maintenanceOn) return
+    void reload()
+    const turboId = window.setInterval(() => void reload(), 900)
+    return () => window.clearInterval(turboId)
+  }, [ready, maintenanceOn, reload])
 
   useEffect(() => {
     const lockScroll = !ready || geoBlocked || ipBlocked || maintenanceOn

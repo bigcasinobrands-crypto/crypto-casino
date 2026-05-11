@@ -281,10 +281,57 @@ const emptyHubPayload: RewardsHubPayload = {
   aggregates: { bonus_locked_minor: 0, wagering_remaining_minor: 0, lifetime_promo_minor: 0 },
 }
 
+/** Wallet stats for Rewards header snapshot (`GET /v1/wallet/stats`), fetched with hub to warm dropdown. */
+export type RewardsSnapshotWalletStats = {
+  total_wagered: number
+  total_bets: number
+  total_won: number
+  highest_win: number
+  net_profit: number
+}
+
+function parseWalletStatsBody(s: unknown): RewardsSnapshotWalletStats | null {
+  if (s == null || typeof s !== 'object') return null
+  const o = s as Record<string, unknown>
+  return {
+    total_wagered: typeof o.total_wagered === 'number' ? o.total_wagered : 0,
+    total_bets: typeof o.total_bets === 'number' ? o.total_bets : 0,
+    total_won: typeof o.total_won === 'number' ? o.total_won : 0,
+    highest_win: typeof o.highest_win === 'number' ? o.highest_win : 0,
+    net_profit: typeof o.net_profit === 'number' ? o.net_profit : 0,
+  }
+}
+
+type RewardsHubReloadResult = {
+  hub: RewardsHubPayload | null
+  walletStats: RewardsSnapshotWalletStats | null
+}
+
 const REWARDS_HUB_CACHE_TTL_MS = 20_000
 let rewardsHubCacheData: RewardsHubPayload | null = null
+let rewardsHubWalletStatsCache: RewardsSnapshotWalletStats | null = null
 let rewardsHubCacheAt = 0
-let rewardsHubInFlight: Promise<RewardsHubPayload | null> | null = null
+let rewardsHubInFlight: Promise<RewardsHubReloadResult> | null = null
+
+/** Fast path for Rewards dropdown when hub was loaded by `useRewardsHub` on login / poll. */
+export function peekRewardsCachesForDropdown(ttlMs = REWARDS_HUB_CACHE_TTL_MS): {
+  hub: RewardsHubPayload
+  walletStats: RewardsSnapshotWalletStats | null
+  fetchedAt: number
+} | null {
+  if (!rewardsHubCacheData) return null
+  if (Date.now() - rewardsHubCacheAt >= ttlMs) return null
+  return {
+    hub: rewardsHubCacheData,
+    walletStats: rewardsHubWalletStatsCache,
+    fetchedAt: rewardsHubCacheAt,
+  }
+}
+
+/** Shared in-flight reload so Rewards dropdown can await login-time fetch instead of duplicating requests. */
+export function getRewardsHubReloadInFlight(): Promise<RewardsHubReloadResult> | null {
+  return rewardsHubInFlight
+}
 
 export function normalizeRewardsHubPayload(raw: unknown): RewardsHubPayload {
   if (raw == null || typeof raw !== 'object') {
@@ -318,6 +365,7 @@ export function useRewardsHub() {
       setData(null)
       setLoading(false)
       rewardsHubCacheData = null
+      rewardsHubWalletStatsCache = null
       rewardsHubCacheAt = 0
       return
     }
@@ -333,26 +381,45 @@ export function useRewardsHub() {
     if (rewardsHubInFlight) {
       setLoading(rewardsHubCacheData == null)
       const shared = await rewardsHubInFlight
-      setData(shared)
+      if (shared.hub) {
+        setData(shared.hub)
+        setErr(null)
+      } else {
+        setErr('Could not load rewards')
+        if (rewardsHubCacheData == null) setData(null)
+      }
       setLoading(false)
       return
     }
     setLoading(rewardsHubCacheData == null)
     setErr(null)
-    rewardsHubInFlight = (async () => {
-      const res = await apiFetch('/v1/rewards/hub?calendar_days=7')
-      if (!res.ok) {
-        return null
+    rewardsHubInFlight = (async (): Promise<RewardsHubReloadResult> => {
+      const [rHub, rStats] = await Promise.all([
+        apiFetch('/v1/rewards/hub?calendar_days=7'),
+        apiFetch('/v1/wallet/stats'),
+      ])
+      let walletStats: RewardsSnapshotWalletStats | null = null
+      if (rStats.ok) {
+        try {
+          walletStats = parseWalletStatsBody(await rStats.json())
+        } catch {
+          walletStats = null
+        }
       }
-      const j = await res.json()
-      return normalizeRewardsHubPayload(j)
+      if (!rHub.ok) {
+        return { hub: null, walletStats }
+      }
+      const j = await rHub.json()
+      const hub = normalizeRewardsHubPayload(j)
+      return { hub, walletStats }
     })()
     try {
       const next = await rewardsHubInFlight
-      if (next) {
-        rewardsHubCacheData = next
+      rewardsHubWalletStatsCache = next.walletStats
+      if (next.hub) {
+        rewardsHubCacheData = next.hub
         rewardsHubCacheAt = Date.now()
-        setData(next)
+        setData(next.hub)
         setErr(null)
       } else {
         setErr('Could not load rewards')

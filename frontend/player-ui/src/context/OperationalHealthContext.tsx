@@ -4,20 +4,22 @@ import { useOperationalHealth, type OperationalHealth } from '../hooks/useOperat
 export type OperationalHealthContextValue = {
   data: OperationalHealth | null
   ready: boolean
+  /** Re-fetch `/health/operational` now (same logic as the background poll). */
+  reload: () => Promise<void>
 }
 
 const OperationalHealthContext = createContext<OperationalHealthContextValue | null>(null)
 
 export function OperationalHealthProvider({
   children,
-  pollMs = 8000,
+  pollMs = 2000,
 }: {
   children: ReactNode
   /** How often to poll `/health/operational` (maintenance/geo/kill-switch mirrors). */
   pollMs?: number
 }) {
-  const { data, ready } = useOperationalHealth(pollMs)
-  const value = useMemo(() => ({ data, ready }), [data, ready])
+  const { data, ready, reload } = useOperationalHealth(pollMs)
+  const value = useMemo(() => ({ data, ready, reload }), [data, ready, reload])
   return <OperationalHealthContext.Provider value={value}>{children}</OperationalHealthContext.Provider>
 }
 

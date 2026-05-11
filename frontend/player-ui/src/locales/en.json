@@ -627,6 +627,8 @@
     "realPlay": "Real play",
     "demoPlay": "Demo play",
     "closeLaunchModal": "Close and go back to games",
+    "cancelLaunchAria": "Cancel and choose mode again",
+    "launchWaitHint": "Fetching your session from our servers — usually a second or two. The provider then loads the game in the frame.",
     "connectingProvider": "Connecting to game provider",
     "startingFreePlay": "Starting free play…",
     "connectingRealPlay": "Connecting for real play…",

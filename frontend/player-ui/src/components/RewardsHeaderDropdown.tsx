@@ -5,9 +5,12 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { usePlayerAuth } from '../playerAuth'
 import {
+  getRewardsHubReloadInFlight,
   normalizeRewardsHubPayload,
+  peekRewardsCachesForDropdown,
   type HubBonusInstance,
   type RewardsHubPayload,
+  type RewardsSnapshotWalletStats,
 } from '../hooks/useRewardsHub'
 import { playerBonusDisplayTitle } from '../lib/playerBonusDisplayTitle'
 import { IconBarChart3, IconCrown, IconGift, IconZap } from './icons'
@@ -78,21 +81,13 @@ function pickHeaderBonusInfo(instances: HubBonusInstance[]): { row: HubBonusInst
   return null
 }
 
-type PlayerWalletStats = {
-  total_wagered: number
-  total_bets: number
-  total_won: number
-  highest_win: number
-  net_profit: number
-}
-
 const REWARDS_DROPDOWN_CACHE_TTL_MS = 20_000
 let rewardsDropdownHubCache: RewardsHubPayload | null = null
-let rewardsDropdownStatsCache: PlayerWalletStats | null = null
+let rewardsDropdownStatsCache: RewardsSnapshotWalletStats | null = null
 let rewardsDropdownCacheAt = 0
 let rewardsDropdownInFlight: Promise<{
   hub: RewardsHubPayload | null
-  stats: PlayerWalletStats | null
+  stats: RewardsSnapshotWalletStats | null
 }> | null = null
 
 function RewardsSnapshotPanel({
@@ -106,7 +101,7 @@ function RewardsSnapshotPanel({
   loading: boolean
   hub: RewardsHubPayload | null
   loadErr: string | null
-  stats: PlayerWalletStats | null
+  stats: RewardsSnapshotWalletStats | null
 }) {
   const { t } = useTranslation()
   const bonus = hub ? pickHeaderBonusInfo(hub.bonus_instances ?? []) : null
@@ -313,7 +308,7 @@ export default function RewardsHeaderDropdown({
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const [open, setOpen] = useState(false)
   const [hub, setHub] = useState<RewardsHubPayload | null>(null)
-  const [stats, setStats] = useState<PlayerWalletStats | null>(null)
+  const [stats, setStats] = useState<RewardsSnapshotWalletStats | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -322,6 +317,19 @@ export default function RewardsHeaderDropdown({
 
   const load = useCallback(async () => {
     if (!isAuthenticated) return
+
+    const warmed = peekRewardsCachesForDropdown()
+    if (warmed) {
+      rewardsDropdownHubCache = warmed.hub
+      rewardsDropdownStatsCache = warmed.walletStats
+      rewardsDropdownCacheAt = warmed.fetchedAt
+      setHub(warmed.hub)
+      setStats(warmed.walletStats)
+      setLoadErr(null)
+      setLoading(false)
+      return
+    }
+
     const now = Date.now()
     const cacheFresh = now - rewardsDropdownCacheAt < REWARDS_DROPDOWN_CACHE_TTL_MS
     if (cacheFresh && rewardsDropdownHubCache) {
@@ -331,11 +339,32 @@ export default function RewardsHeaderDropdown({
       setLoading(false)
       return
     }
+
+    const sharedReload = getRewardsHubReloadInFlight()
+    if (sharedReload) {
+      setLoading(rewardsDropdownHubCache == null)
+      try {
+        const r = await sharedReload
+        if (r.hub) {
+          rewardsDropdownHubCache = r.hub
+          rewardsDropdownStatsCache = r.walletStats
+          rewardsDropdownCacheAt = Date.now()
+          setHub(r.hub)
+          setStats(r.walletStats)
+          setLoadErr(null)
+          setLoading(false)
+          return
+        }
+      } catch {
+        /* fall through to dropdown fetch */
+      }
+    }
+
     if (rewardsDropdownInFlight) {
       setLoading(rewardsDropdownHubCache == null)
       const shared = await rewardsDropdownInFlight
       if (shared.hub) setHub(shared.hub)
-      if (shared.stats) setStats(shared.stats)
+      setStats(shared.stats)
       setLoading(false)
       return
     }
@@ -344,21 +373,21 @@ export default function RewardsHeaderDropdown({
     try {
       rewardsDropdownInFlight = (async () => {
         const [rHub, rStats] = await Promise.all([
-        apiFetch('/v1/rewards/hub?calendar_days=7'),
-        apiFetch('/v1/wallet/stats'),
-      ])
+          apiFetch('/v1/rewards/hub?calendar_days=7'),
+          apiFetch('/v1/wallet/stats'),
+        ])
         if (!rHub.ok) return { hub: null, stats: null }
         const j = await rHub.json()
         const hub = normalizeRewardsHubPayload(j)
-        let stats: PlayerWalletStats | null = null
+        let stats: RewardsSnapshotWalletStats | null = null
         if (rStats.ok) {
-          const s = (await rStats.json()) as PlayerWalletStats
+          const s = (await rStats.json()) as RewardsSnapshotWalletStats
           stats = {
-          total_wagered: typeof s?.total_wagered === 'number' ? s.total_wagered : 0,
-          total_bets: typeof s?.total_bets === 'number' ? s.total_bets : 0,
-          total_won: typeof s?.total_won === 'number' ? s.total_won : 0,
-          highest_win: typeof s?.highest_win === 'number' ? s.highest_win : 0,
-          net_profit: typeof s?.net_profit === 'number' ? s.net_profit : 0,
+            total_wagered: typeof s?.total_wagered === 'number' ? s.total_wagered : 0,
+            total_bets: typeof s?.total_bets === 'number' ? s.total_bets : 0,
+            total_won: typeof s?.total_won === 'number' ? s.total_won : 0,
+            highest_win: typeof s?.highest_win === 'number' ? s.highest_win : 0,
+            net_profit: typeof s?.net_profit === 'number' ? s.net_profit : 0,
           }
         }
         return { hub, stats }

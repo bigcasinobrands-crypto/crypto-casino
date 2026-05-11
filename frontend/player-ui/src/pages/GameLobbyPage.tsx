@@ -199,6 +199,20 @@ type GameLaunchErrorModalProps = {
   onBack: () => void
 }
 
+function GameLaunchPendingOverlay({ label }: { label: string }) {
+  return (
+    <div
+      className="absolute inset-0 z-[14] flex flex-col items-center justify-center gap-3 bg-black/65 backdrop-blur-[2px]"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-white" aria-hidden />
+      <p className="max-w-[16rem] px-4 text-center text-xs font-semibold text-white sm:text-sm">{label}</p>
+    </div>
+  )
+}
+
 function GameLaunchErrorModal({
   launchErr,
   onDismiss,
@@ -775,8 +789,9 @@ export default function GameLobbyPage() {
     navigate('/casino/games')
   }, [navigate])
 
-  const showLaunchModeModal = Boolean(
-    isAuthenticated && meta && !metaErr && launchModeChoice === null && !iframeUrl && !launchErr,
+  /** Desktop theater: show picker + connecting states until iframe URL is ready. */
+  const showDesktopLaunchGate = Boolean(
+    isAuthenticated && meta && !metaErr && !iframeUrl && !launchErr,
   )
 
   useEffect(() => {
@@ -802,15 +817,6 @@ export default function GameLobbyPage() {
     demoAllowed,
     realAllowed,
   ])
-
-  useEffect(() => {
-    if (!showLaunchModeModal) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') goBackToCatalog()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showLaunchModeModal, goBackToCatalog])
 
   const relatedGames =
     gameId && relatedCache && relatedCache.key === relatedFetchKey && relatedFetchKey
@@ -873,6 +879,28 @@ export default function GameLobbyPage() {
     }
   }, [showMobileFramelessPlayer])
 
+  useEffect(() => {
+    if (!showDesktopLaunchGate) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      const pending = Boolean(
+        isAuthenticated && launchModeChoice !== null && !metaErr && !iframeUrl && !launchErr,
+      )
+      if (pending) setLaunchModeChoice(null)
+      else goBackToCatalog()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    showDesktopLaunchGate,
+    isAuthenticated,
+    launchModeChoice,
+    metaErr,
+    iframeUrl,
+    launchErr,
+    goBackToCatalog,
+  ])
+
   if (!gameId) {
     return <Navigate to="/casino/games" replace />
   }
@@ -911,6 +939,13 @@ export default function GameLobbyPage() {
   const launchPending = Boolean(
     isAuthenticated && launchModeChoice !== null && !metaErr && !iframeUrl && !launchErr,
   )
+  const launchPendingLabel =
+    launchModeChoice === 'demo'
+      ? t('gameLobby.startingFreePlay')
+      : launchModeChoice === 'real'
+        ? t('gameLobby.connectingRealPlay')
+        : t('gameLobby.connectingProvider')
+
   const showTheater = !metaErr
   /** Single iframe mount while playing in-page (not mini). Shown at all breakpoints; layout chrome differs by `xl`. */
   const gameDescription = meta?.description?.trim() ?? ''
@@ -918,7 +953,7 @@ export default function GameLobbyPage() {
     meta && !metaErr ? gameDescription || descriptionFallback : ''
   const mobileLobbyDescNeedsToggle = mobileLobbyDisplayDescription.length > MOBILE_GAME_DESC_TOGGLE_CHARS
   const showMobilePlayButtons = Boolean(
-    isAuthenticated && meta && !metaErr && !iframeUrl && !thisGameInMini && !launchPending,
+    isAuthenticated && meta && !metaErr && !iframeUrl && !thisGameInMini,
   )
 
   const openSignIn = () => openAuth('login', { navigateTo: postAuthTarget })
@@ -1025,6 +1060,7 @@ export default function GameLobbyPage() {
                     className={`${theaterStageFrameClass} ${theaterStageFullscreenClass} touch-pan-y max-xl:aspect-auto max-xl:min-h-0 max-xl:!min-h-0 max-xl:min-w-0 max-xl:max-h-none max-xl:flex-1 ${liveTableTheater ? 'xl:max-h-[min(92dvh,calc(100dvh-10.5rem))]' : ''} xl:flex-none`}
                     aria-busy={launchPending}
                   >
+                    {launchPending ? <GameLaunchPendingOverlay label={launchPendingLabel} /> : null}
                     <iframe
                       key={`${iframeUrl}\u0000${launchRetryNonce}`}
                       title={title}
@@ -1173,19 +1209,9 @@ export default function GameLobbyPage() {
                 <p className="text-sm text-casino-muted">{providerLabel}</p>
               </div>
 
+              <div className="flex flex-col items-center gap-3 sm:gap-4">
               <div
-                className={
-                  showMobilePlayButtons
-                    ? 'flex flex-row items-stretch gap-3 sm:gap-4'
-                    : 'flex flex-col items-center gap-3'
-                }
-              >
-              <div
-                className={`overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)] ${
-                  showMobilePlayButtons
-                    ? 'w-[9.25rem] shrink-0 sm:w-40'
-                    : 'w-full max-w-[17rem] shrink-0'
-                }`}
+                className="w-full max-w-[17rem] shrink-0 overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)]"
               >
                 <div className="relative aspect-[5/6] w-full min-h-[140px] bg-black">
                   <PortraitGameThumb
@@ -1194,6 +1220,7 @@ export default function GameLobbyPage() {
                     fallbackKey={gameId}
                     thumbRev={meta?.thumb_rev}
                   />
+                  {launchPending ? <GameLaunchPendingOverlay label={launchPendingLabel} /> : null}
                   {isAuthenticated && iframeUrl && thisGameInMini ? (
                     <div className="absolute inset-0 z-[12] flex flex-col items-center justify-center gap-2 bg-black/75 p-4 text-center backdrop-blur-sm">
                       <p className="text-sm font-semibold text-white">{t('gameLobby.miniPlayerTitle')}</p>
@@ -1248,10 +1275,10 @@ export default function GameLobbyPage() {
               </div>
 
               {showMobilePlayButtons ? (
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-end gap-2">
+                <div className="flex w-full max-w-[17rem] flex-col gap-2">
                   <button
                     type="button"
-                    disabled={!realAllowed}
+                    disabled={launchPending || !realAllowed}
                     title={!realAllowed ? t('gameLobby.realMoneyOnlyFreePlayTitle') : undefined}
                     className="w-full rounded-casino-md bg-casino-primary px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
                     onClick={() => {
@@ -1263,7 +1290,7 @@ export default function GameLobbyPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={!demoAllowed}
+                    disabled={launchPending || !demoAllowed}
                     title={!demoAllowed ? t('gameLobby.freePlayUnavailableTitle') : undefined}
                     className="w-full rounded-casino-md border border-white/18 bg-white/10 px-4 py-3 text-sm font-semibold text-casino-foreground transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40"
                     onClick={() => {
@@ -1429,58 +1456,76 @@ export default function GameLobbyPage() {
                 </div>
               ) : null}
 
-              {showLaunchModeModal ? (
+              {showDesktopLaunchGate ? (
                 <div
                   className="absolute inset-0 z-[14] flex items-center justify-center p-3 sm:p-5"
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="launch-mode-title"
+                  aria-busy={launchPending}
                 >
                   <button
                     type="button"
                     className="absolute inset-0 border-0 bg-black/60 backdrop-blur-[3px]"
-                    aria-label={t('gameLobby.closeLaunchModal')}
-                    onClick={goBackToCatalog}
+                    aria-label={
+                      launchPending ? t('gameLobby.cancelLaunchAria') : t('gameLobby.closeLaunchModal')
+                    }
+                    onClick={() => {
+                      if (launchPending) setLaunchModeChoice(null)
+                      else goBackToCatalog()
+                    }}
                   />
                   <div className="relative z-10 w-full max-w-[min(100%,20rem)] overflow-hidden rounded-casino-lg border border-white/15 bg-black/90 shadow-2xl ring-1 ring-white/10">
                     <div className="border-b border-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
                       <h2 id="launch-mode-title" className="text-sm font-bold text-white sm:text-base">
-                        {t('gameLobby.chooseHowToPlay')}
+                        {launchPending ? launchPendingLabel : t('gameLobby.chooseHowToPlay')}
                       </h2>
                     </div>
-                    <div className="space-y-3 px-3 py-3 sm:px-4 sm:py-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:gap-2.5">
+                    {launchPending ? (
+                      <div className="flex flex-col items-center gap-4 px-4 py-8 sm:py-10">
+                        <div
+                          className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white"
+                          aria-hidden
+                        />
+                        <p className="text-center text-[11px] leading-relaxed text-white/55 sm:text-xs">
+                          {t('gameLobby.launchWaitHint')}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 px-3 py-3 sm:px-4 sm:py-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:gap-2.5">
+                          <button
+                            type="button"
+                            disabled={!realAllowed}
+                            title={!realAllowed ? t('gameLobby.realMoneyOnlyFreePlayTitle') : undefined}
+                            className="flex-1 rounded-casino-md bg-casino-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
+                            onClick={() => {
+                              setLaunchModeChoice('real')
+                            }}
+                          >
+                            {t('gameLobby.realMoney')}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!demoAllowed}
+                            title={!demoAllowed ? t('gameLobby.freePlayUnavailableTitle') : undefined}
+                            className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
+                            onClick={() => {
+                              setLaunchModeChoice('demo')
+                            }}
+                          >
+                            {t('gameLobby.freePlay')}
+                          </button>
+                        </div>
                         <button
                           type="button"
-                          disabled={!realAllowed}
-                          title={!realAllowed ? t('gameLobby.realMoneyOnlyFreePlayTitle') : undefined}
-                          className="flex-1 rounded-casino-md bg-casino-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
-                          onClick={() => {
-                            setLaunchModeChoice('real')
-                          }}
+                          className="w-full text-center text-xs font-medium text-casino-primary underline-offset-2 hover:underline sm:text-sm"
+                          onClick={goBackToCatalog}
                         >
-                          {t('gameLobby.realMoney')}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!demoAllowed}
-                          title={!demoAllowed ? t('gameLobby.freePlayUnavailableTitle') : undefined}
-                          className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
-                          onClick={() => {
-                            setLaunchModeChoice('demo')
-                          }}
-                        >
-                          {t('gameLobby.freePlay')}
+                          {t('gameLobby.backToGames')}
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        className="w-full text-center text-xs font-medium text-casino-primary underline-offset-2 hover:underline sm:text-sm"
-                        onClick={goBackToCatalog}
-                      >
-                        {t('gameLobby.backToGames')}
-                      </button>
-                    </div>
+                    )}
                   </div>
                 </div>
               ) : null}

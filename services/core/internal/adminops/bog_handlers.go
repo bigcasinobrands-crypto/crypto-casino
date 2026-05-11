@@ -13,6 +13,7 @@ import (
 	"github.com/crypto-casino/core/internal/blueocean"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/games"
+	"github.com/crypto-casino/core/internal/paymentflags"
 	"github.com/crypto-casino/core/internal/sitestatus"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -182,16 +183,38 @@ func (h *Handler) BackfillBlueOceanPlayerLinks(w http.ResponseWriter, r *http.Re
 	})
 }
 func (h *Handler) OperationalFlags(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	c := h.cfg()
-	maintEff := sitestatus.MaintenanceEffective(r.Context(), h.Pool, c)
-	writeJSON(w, map[string]any{
-		"maintenance_mode":                    maintEff,
-		"maintenance_mode_env":                c.MaintenanceMode,
-		"disable_game_launch":                 c.DisableGameLaunch,
-		"blueocean_launch_mode": c.BlueOceanLaunchMode,
-		// API process env; worker must use the same value in production for auto-forfeit to match operator expectations.
+	maintEff := sitestatus.MaintenanceEffective(ctx, h.Pool, c)
+	var maintUntil any = nil
+	if u := sitestatus.MaintenanceUntilFromDB(ctx, h.Pool); u != nil {
+		maintUntil = u.UTC().Format(time.RFC3339)
+	}
+
+	out := map[string]any{
+		"maintenance_mode":                      maintEff,
+		"maintenance_mode_env":                  c.MaintenanceMode,
+		"maintenance_until":                     maintUntil,
+		"disable_game_launch":                   c.DisableGameLaunch,
+		"blueocean_launch_mode":                 c.BlueOceanLaunchMode,
 		"bonus_max_bet_violations_auto_forfeit": c.BonusMaxBetViolationsAutoForfeit,
-	})
+	}
+	pf, err := paymentflags.Load(ctx, h.Pool)
+	if err != nil {
+		pf = paymentflags.OperationalFallback()
+	}
+	out["deposits_enabled"] = pf.DepositsEnabled
+	out["withdrawals_enabled"] = pf.WithdrawalsEnabled
+	out["real_play_enabled"] = pf.RealPlayEnabled
+	out["bonuses_enabled"] = pf.BonusesEnabled
+	out["automated_grants_enabled"] = pf.AutomatedGrantsEnabled
+
+	chatEnabled := true
+	_ = h.Pool.QueryRow(ctx, `SELECT COALESCE(chat_enabled, true) FROM chat_settings WHERE id = 1`).Scan(&chatEnabled)
+	out["chat_enabled"] = chatEnabled
+
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, out)
 }
 
 func (h *Handler) ListGamesAdmin(w http.ResponseWriter, r *http.Request) {

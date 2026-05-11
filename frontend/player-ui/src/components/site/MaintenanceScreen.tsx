@@ -110,22 +110,41 @@ export const MaintenanceScreen: FC<Props> = ({ maintenanceUntil, supportEmail, e
           accounts are safe. We&apos;ll be back online shortly.
         </p>
 
-        <div className="mb-8 flex flex-wrap items-center justify-center gap-2 sm:mb-9 sm:gap-3 lg:mb-10 lg:gap-4">
-          <TimeBox value={h} label="Hours" />
-          <span className="mb-[-12px] text-xl font-bold text-casino-muted sm:mb-[-14px] sm:text-2xl lg:mb-[-16px] lg:text-3xl" aria-hidden>
-            :
-          </span>
-          <TimeBox value={m} label="Minutes" />
-          <span className="mb-[-12px] text-xl font-bold text-casino-muted sm:mb-[-14px] sm:text-2xl lg:mb-[-16px] lg:text-3xl" aria-hidden>
-            :
-          </span>
-          <TimeBox value={s} label="Seconds" />
-        </div>
-        {!target ? (
-          <p className="mb-6 text-sm text-casino-muted">
-            End time not scheduled. We&apos;ll enable access from here soon.
-          </p>
-        ) : null}
+        {target ? (
+          <>
+            <div className="mb-8 flex flex-wrap items-center justify-center gap-2 sm:mb-9 sm:gap-3 lg:mb-10 lg:gap-4">
+              <TimeBox value={h} label="Hours" />
+              <span
+                className="mb-[-12px] text-xl font-bold text-casino-muted sm:mb-[-14px] sm:text-2xl lg:mb-[-16px] lg:text-3xl"
+                aria-hidden
+              >
+                :
+              </span>
+              <TimeBox value={m} label="Minutes" />
+              <span
+                className="mb-[-12px] text-xl font-bold text-casino-muted sm:mb-[-14px] sm:text-2xl lg:mb-[-16px] lg:text-3xl"
+                aria-hidden
+              >
+                :
+              </span>
+              <TimeBox value={s} label="Seconds" />
+            </div>
+            {h === 0 && m === 0 && s === 0 ? (
+              <p className="mb-6 text-sm text-casino-muted">
+                The scheduled window has ended. Access should return shortly — try refreshing this page.
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <div className="mb-8 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-5 text-center sm:mb-9 lg:mb-10">
+            <p className="text-sm leading-relaxed text-casino-muted">
+              No maintenance end time is configured yet, so there is no countdown — only this notice updates live.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-casino-muted/90">
+              Ask your operator to set <strong className="text-casino-foreground/90">Maintenance schedule</strong> in admin so players see a real ETA.
+            </p>
+          </div>
+        )}
 
         <label htmlFor="maint-notify-email" className="sr-only">
           Email for notification when live
