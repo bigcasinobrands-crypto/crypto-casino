@@ -43,9 +43,15 @@ export function bifrostHeightPx(): number {
 /**
  * Prefer the laid-out `#bifrost` slot (flex + banners + shell padding). Falls back to viewport math
  * when height is not ready yet — avoids iframe taller than its host, which caused outer/body overscroll on iOS.
+ *
+ * The Oddin shell uses `padding-bottom: env(safe-area)` only on `.casino-shell-scroll--oddin-bifrost`, so flex
+ * often sizes `#bifrost` to the full viewport below the header while our tab bar is `position: fixed`.
+ * Reporting that full flex height makes Bifrost pin controls (e.g. My Bets) under the nav. Always cap by
+ * `bifrostHeightPx()` so the iframe budget matches visible area above the bar.
  */
 export function bifrostContentHeightPx(): number {
-  if (typeof document === 'undefined') return bifrostHeightPx()
+  const viewportBudget = bifrostHeightPx()
+  if (typeof document === 'undefined') return viewportBudget
   const el = document.getElementById('bifrost')
   if (el instanceof HTMLElement) {
     let h = el.clientHeight
@@ -54,8 +60,8 @@ export function bifrostContentHeightPx(): number {
       h = br.height
     }
     if (Number.isFinite(h) && h > 0) {
-      return Math.max(280, Math.floor(h))
+      return Math.max(280, Math.min(Math.floor(h), viewportBudget))
     }
   }
-  return bifrostHeightPx()
+  return viewportBudget
 }
