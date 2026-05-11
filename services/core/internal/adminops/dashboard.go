@@ -39,8 +39,9 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	)
 	// Entry types: see services/core/internal/ledger/entry_types.go
 	// Casino + sportsbook stakes/wins are unified for GGR / wagered / active-user metrics.
-	// Withdrawals use 'withdrawal.pending.settled' (the final outbound debit). 'withdrawal.debit'
-	// has no Go writer and is intentionally excluded.
+	// Withdrawals (finance KPIs): payment_withdrawals PassimPay terminal success (COMPLETED/PAID); volume in
+	// COALESCE(internal_amount_minor, amount_minor), bucketed by provider terminal success (updated_at).
+	// Ledger 'withdrawal.pending.settled' fires at provider submit—exclude failed-in-flight payouts.
 	// Deposits use 'deposit.credit' only. 'deposit.checkout' is a phantom legacy type.
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
@@ -92,19 +93,19 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 				WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 				AND created_at > now()-interval '30 days'), 0),
 
-			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT SUM(ABS(amount_minor)) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT SUM(COALESCE(internal_amount_minor, amount_minor)) FROM payment_withdrawals
+				WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT SUM(COALESCE(internal_amount_minor, amount_minor)) FROM payment_withdrawals
+				WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT SUM(COALESCE(internal_amount_minor, amount_minor)) FROM payment_withdrawals
+				WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now()-interval '30 days'), 0),
 
-			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '24 hours'), 0),
-			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '7 days'), 0),
-			COALESCE((SELECT COUNT(*) FROM ledger_entries
-				WHERE entry_type = 'withdrawal.pending.settled' AND created_at > now()-interval '30 days'), 0),
+			COALESCE((SELECT COUNT(*) FROM payment_withdrawals
+				WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now()-interval '24 hours'), 0),
+			COALESCE((SELECT COUNT(*) FROM payment_withdrawals
+				WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now()-interval '7 days'), 0),
+			COALESCE((SELECT COUNT(*) FROM payment_withdrawals
+				WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now()-interval '30 days'), 0),
 
 			COALESCE((SELECT COUNT(DISTINCT user_id) FROM ledger_entries
 				WHERE entry_type IN ('game.debit','sportsbook.debit') AND created_at > now()-interval '24 hours'), 0),
@@ -214,7 +215,7 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 		"pending_withdrawals_count": pendWdCnt,
 		"metrics_derivation": map[string]string{
 			"deposits":       "ledger_entries: deposit.credit (amount_minor > 0). deposit.checkout is a phantom legacy type with no current writer and is excluded.",
-			"withdrawals":    "ledger_entries: withdrawal.pending.settled (final outbound debit). withdrawal.debit has no current writer and is excluded.",
+			"withdrawals":    "payment_withdrawals: passimpay + COMPLETED or PAID; sum/count by updated_at (terminal success). Excludes failed, rejected, cancelled, and in-flight.",
 			"ggr":            "ledger_entries: casino (game.debit/bet/credit/win/rollback) + sportsbook (sportsbook.debit/credit/rollback) unified",
 			"total_wagered":  "ledger_entries: sum ABS(stake) on game.debit + game.bet + sportsbook.debit (includes cash+bonus stake lines)",
 			"bonus_cost":     "ledger_entries: promo.grant to bonus_locked pocket (single source of truth)",
@@ -258,9 +259,11 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 
 	wdByDay := make([]map[string]any, 0)
 	wdRows, err := h.Pool.Query(ctx, `
-		SELECT date_trunc('day', created_at)::date, COALESCE(SUM(ABS(amount_minor)),0), COUNT(*)
-		FROM ledger_entries
-		WHERE entry_type = 'withdrawal.pending.settled' AND created_at >= $1 AND created_at <= $2
+		SELECT date_trunc('day', updated_at)::date,
+			COALESCE(SUM(COALESCE(internal_amount_minor, amount_minor)),0), COUNT(*)
+		FROM payment_withdrawals
+		WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID')
+		  AND updated_at >= $1 AND updated_at <= $2
 		GROUP BY 1 ORDER BY 1`, start, end)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "charts query failed")
@@ -473,10 +476,9 @@ func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 		depositConvRate = float64(totalWithDep) / float64(totalReg) * 100
 	}
 
-	// LTV = average of (deposits - withdrawals) per depositor, ledger-sourced.
-	// Withdrawals = withdrawal.pending.settled (final outbound debit). The previous
-	// code referenced withdrawal.debit, which has no current writer and made LTV =
-	// cumulative deposits only.
+	// LTV = average of (deposits - withdrawals) per depositor. Deposits = credited
+	// ledger lines. Withdrawals = PassimPay COMPLETED payouts only (internal/crypto
+	// minor as stored on the row).
 	var avgLTV int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(AVG(dep_total - COALESCE(wd_total, 0))::bigint, 0) FROM (
@@ -485,8 +487,9 @@ func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 			WHERE entry_type = 'deposit.credit' AND amount_minor > 0
 			GROUP BY user_id
 		) dep LEFT JOIN (
-			SELECT user_id, SUM(ABS(amount_minor)) AS wd_total
-			FROM ledger_entries WHERE entry_type = 'withdrawal.pending.settled'
+			SELECT user_id, SUM(COALESCE(internal_amount_minor, amount_minor)) AS wd_total
+			FROM payment_withdrawals
+			WHERE provider = 'passimpay' AND status IN ('COMPLETED','PAID')
 			GROUP BY user_id
 		) wd ON wd.user_id = dep.user_id
 	`).Scan(&avgLTV)

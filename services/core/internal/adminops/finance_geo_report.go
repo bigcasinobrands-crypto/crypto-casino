@@ -15,8 +15,8 @@ import (
 
 // FinanceGeoPayload is returned by GET /v1/admin/analytics/finance-geo.
 // Deposits: deposit.credit (amount_minor > 0). deposit.checkout has no current writer.
-// Withdrawals: withdrawal.pending.settled (stored as negative amount_minor; reported as positive volume).
-// withdrawal.debit has no current writer.
+// Withdrawals: PassimPay terminal success (COMPLETED/PAID) in the window (provider-confirmed), attributed
+// from the earliest matching withdrawal.pending.settled ledger line for geo metadata.
 // Country: metadata.geo_country (Fingerprint on-ledger) → metadata.attribution_country_iso2 →
 // most recent traffic_sessions row with last_at <= ledger line time.
 type FinanceGeoPayload struct {
@@ -51,7 +51,7 @@ type FinanceGeoCoverage struct {
 
 func buildFinanceGeoFromDB(ctx context.Context, pool *pgxpool.Pool, start, end time.Time, label string) (FinanceGeoPayload, error) {
 	const q = `
-WITH lined AS (
+WITH deposit_lines AS (
   SELECT
     le.currency,
     le.entry_type,
@@ -72,10 +72,46 @@ WITH lined AS (
     LIMIT 1
   ) tr ON true
   WHERE le.created_at >= $1 AND le.created_at < $2
-    AND (
-      (le.entry_type = 'deposit.credit' AND le.amount_minor > 0)
-      OR (le.entry_type = 'withdrawal.pending.settled' AND le.amount_minor < 0)
-    )
+    AND le.entry_type = 'deposit.credit' AND le.amount_minor > 0
+),
+withdrawal_lines AS (
+  SELECT
+    le.currency,
+    le.entry_type,
+    le.amount_minor,
+    COALESCE(
+      NULLIF(upper(btrim(le.metadata->>'geo_country')), ''),
+      NULLIF(upper(btrim(le.metadata->>'attribution_country_iso2')), ''),
+      NULLIF(upper(btrim(tr.country_iso2)), ''),
+      'ZZ'
+    ) AS country_iso2
+  FROM payment_withdrawals w
+  JOIN LATERAL (
+    SELECT le2.*
+    FROM ledger_entries le2
+    WHERE le2.user_id = w.user_id
+      AND le2.entry_type = 'withdrawal.pending.settled'
+      AND le2.amount_minor < 0
+      AND le2.metadata->>'provider_order_id' = w.provider_order_id
+    ORDER BY le2.created_at ASC
+    LIMIT 1
+  ) le ON true
+  LEFT JOIN LATERAL (
+    SELECT ts.country_iso2
+    FROM traffic_sessions ts
+    WHERE ts.user_id = le.user_id
+      AND ts.last_at <= le.created_at
+    ORDER BY ts.last_at DESC
+    LIMIT 1
+  ) tr ON true
+  WHERE w.provider = 'passimpay'
+    AND w.status IN ('COMPLETED','PAID')
+    AND w.updated_at >= $1 AND w.updated_at < $2
+),
+lined AS (
+  SELECT * FROM deposit_lines
+  UNION ALL
+  SELECT * FROM withdrawal_lines
 )
 SELECT
   country_iso2,
@@ -122,7 +158,7 @@ ORDER BY country_iso2 ASC, currency ASC
 	}
 
 	const covSQL = `
-WITH lined AS (
+WITH deposit_lines AS (
   SELECT
     CASE
       WHEN NULLIF(upper(btrim(le.metadata->>'geo_country')), '') IS NOT NULL THEN 'fingerprint_ledger'
@@ -143,13 +179,52 @@ WITH lined AS (
     WHERE ts.user_id = le.user_id
       AND ts.last_at <= le.created_at
     ORDER BY ts.last_at DESC
-    LIMIT 1
+ LIMIT 1
   ) tr ON true
   WHERE le.created_at >= $1 AND le.created_at < $2
-    AND (
-      (le.entry_type = 'deposit.credit' AND le.amount_minor > 0)
-      OR (le.entry_type = 'withdrawal.pending.settled' AND le.amount_minor < 0)
-    )
+    AND le.entry_type = 'deposit.credit' AND le.amount_minor > 0
+),
+withdrawal_lines AS (
+  SELECT
+    CASE
+      WHEN NULLIF(upper(btrim(le.metadata->>'geo_country')), '') IS NOT NULL THEN 'fingerprint_ledger'
+      WHEN NULLIF(upper(btrim(le.metadata->>'attribution_country_iso2')), '') IS NOT NULL THEN 'ledger_explicit'
+      WHEN NULLIF(upper(btrim(tr.country_iso2)), '') IS NOT NULL THEN 'traffic_session'
+      ELSE 'unknown'
+    END AS src,
+    COALESCE(
+      NULLIF(upper(btrim(le.metadata->>'geo_country')), ''),
+      NULLIF(upper(btrim(le.metadata->>'attribution_country_iso2')), ''),
+      NULLIF(upper(btrim(tr.country_iso2)), ''),
+      'ZZ'
+    ) AS country_iso2
+  FROM payment_withdrawals w
+  JOIN LATERAL (
+    SELECT le2.*
+    FROM ledger_entries le2
+    WHERE le2.user_id = w.user_id
+      AND le2.entry_type = 'withdrawal.pending.settled'
+      AND le2.amount_minor < 0
+      AND le2.metadata->>'provider_order_id' = w.provider_order_id
+    ORDER BY le2.created_at ASC
+    LIMIT 1
+  ) le ON true
+  LEFT JOIN LATERAL (
+    SELECT ts.country_iso2
+    FROM traffic_sessions ts
+    WHERE ts.user_id = le.user_id
+      AND ts.last_at <= le.created_at
+    ORDER BY ts.last_at DESC
+    LIMIT 1
+  ) tr ON true
+  WHERE w.provider = 'passimpay'
+    AND w.status IN ('COMPLETED','PAID')
+    AND w.updated_at >= $1 AND w.updated_at < $2
+),
+lined AS (
+  SELECT * FROM deposit_lines
+  UNION ALL
+  SELECT * FROM withdrawal_lines
 )
 SELECT
   COUNT(*)::bigint,

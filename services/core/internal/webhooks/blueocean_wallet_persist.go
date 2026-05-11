@@ -130,12 +130,18 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 }
 
 // boLockOriginalDebitWalletRow finds a stored debit row for rollback, scoped to the player.
+// When debit_ledger_idem_suffix / split columns were persisted at debit time, rollbacks use those
+// exclusively so ledger reversal cannot miss the original idempotency keys.
 func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyRemote, txnWire string) (
 	rowID int64,
 	storedTxnID string,
+	debitLedgerSuffix string,
 	roundID string,
 	amountMinor int64,
 	hasAmount bool,
+	debitCashSplit int64,
+	debitBonusSplit int64,
+	hasPersistedSplit bool,
 	rolledBack bool,
 	err error,
 ) {
@@ -143,33 +149,58 @@ func boLockOriginalDebitWalletRow(ctx context.Context, tx pgx.Tx, userUUID, keyR
 	keyRemote = strings.TrimSpace(keyRemote)
 	variants := boWalletTxnIDLookupVariants(txnWire)
 	if len(variants) == 0 {
-		return 0, "", "", 0, false, false, nil
+		return 0, "", "", "", 0, false, 0, 0, false, false, nil
 	}
 	var round sql.NullString
 	var amt sql.NullInt64
+	var suffix sql.NullString
+	var cashSplit, bonusSplit sql.NullInt64
 	qErr := tx.QueryRow(ctx, `
-		SELECT id, transaction_id, round_id, amount_minor, rolled_back
+		SELECT id, transaction_id,
+		       debit_ledger_idem_suffix,
+		       round_id, amount_minor,
+		       debit_from_cash_minor, debit_from_bonus_minor,
+		       rolled_back
 		FROM blueocean_wallet_transactions
 		WHERE provider = $1 AND remote_id = $2 AND action = 'debit' AND user_id = $3::uuid
 		  AND transaction_id = ANY($4::text[])
 		ORDER BY id ASC
 		LIMIT 1
 		FOR UPDATE
-	`, boSeamlessProvider, keyRemote, userUUID, variants).Scan(&rowID, &storedTxnID, &round, &amt, &rolledBack)
+	`, boSeamlessProvider, keyRemote, userUUID, variants).Scan(
+		&rowID, &storedTxnID, &suffix, &round, &amt, &cashSplit, &bonusSplit, &rolledBack,
+	)
 	if errors.Is(qErr, pgx.ErrNoRows) {
-		return 0, "", "", 0, false, false, nil
+		return 0, "", "", "", 0, false, 0, 0, false, false, nil
 	}
 	if qErr != nil {
-		return 0, "", "", 0, false, false, qErr
+		return 0, "", "", "", 0, false, 0, 0, false, false, qErr
 	}
 	rd := ""
 	if round.Valid {
 		rd = strings.TrimSpace(round.String)
 	}
-	if amt.Valid {
-		return rowID, storedTxnID, rd, amt.Int64, true, rolledBack, nil
+	if suffix.Valid {
+		debitLedgerSuffix = strings.TrimSpace(suffix.String)
 	}
-	return rowID, storedTxnID, rd, 0, false, rolledBack, nil
+	if cashSplit.Valid || bonusSplit.Valid {
+		hasPersistedSplit = true
+		if cashSplit.Valid {
+			debitCashSplit = cashSplit.Int64
+		}
+		if bonusSplit.Valid {
+			debitBonusSplit = bonusSplit.Int64
+		}
+	} else if debitLedgerSuffix != "" {
+		hasPersistedSplit = true
+	}
+	var totMinor int64
+	var hasAmt bool
+	if amt.Valid {
+		totMinor = amt.Int64
+		hasAmt = true
+	}
+	return rowID, storedTxnID, debitLedgerSuffix, rd, totMinor, hasAmt, debitCashSplit, debitBonusSplit, hasPersistedSplit, rolledBack, nil
 }
 
 // boFindCompletedRollbackReplay returns an earlier rollback callback response for idempotent replays

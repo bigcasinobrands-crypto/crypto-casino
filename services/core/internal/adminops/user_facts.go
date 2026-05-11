@@ -19,17 +19,18 @@ func (h *Handler) GetUserFacts(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
-	// Deposits use 'deposit.credit' only. The previous LIKE 'withdraw%' filter included
-	// 'withdrawal.lock.cash' (the reservation move at request time), which double-counted
-	// each withdrawal. We now use 'withdrawal.pending.settled' (the final outbound debit).
+	// Deposits use 'deposit.credit' only. Withdrawals for player economics use PassimPay
+	// COMPLETED payouts (terminal provider success), not ledger submit-time lines.
 	var deposits7d, deposits30d, withdrawals7d, withdrawals30d int64
 	var depCount7d, depCount30d int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT
 			COALESCE(SUM(CASE WHEN entry_type = 'deposit.credit' AND created_at > now() - interval '7 days' THEN amount_minor ELSE 0 END), 0)::bigint,
 			COALESCE(SUM(CASE WHEN entry_type = 'deposit.credit' AND created_at > now() - interval '30 days' THEN amount_minor ELSE 0 END), 0)::bigint,
-			COALESCE(SUM(CASE WHEN entry_type = 'withdrawal.pending.settled' AND amount_minor < 0 AND created_at > now() - interval '7 days' THEN -amount_minor ELSE 0 END), 0)::bigint,
-			COALESCE(SUM(CASE WHEN entry_type = 'withdrawal.pending.settled' AND amount_minor < 0 AND created_at > now() - interval '30 days' THEN -amount_minor ELSE 0 END), 0)::bigint,
+			(SELECT COALESCE(SUM(COALESCE(internal_amount_minor, amount_minor)), 0)::bigint FROM payment_withdrawals
+			 WHERE user_id = $1::uuid AND provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now() - interval '7 days'),
+			(SELECT COALESCE(SUM(COALESCE(internal_amount_minor, amount_minor)), 0)::bigint FROM payment_withdrawals
+			 WHERE user_id = $1::uuid AND provider = 'passimpay' AND status IN ('COMPLETED','PAID') AND updated_at > now() - interval '30 days'),
 			COUNT(*) FILTER (WHERE entry_type = 'deposit.credit' AND created_at > now() - interval '7 days'),
 			COUNT(*) FILTER (WHERE entry_type = 'deposit.credit' AND created_at > now() - interval '30 days')
 		FROM ledger_entries WHERE user_id = $1::uuid
@@ -66,6 +67,7 @@ func (h *Handler) GetUserFacts(w http.ResponseWriter, r *http.Request) {
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COUNT(*)::bigint FROM user_bonus_instances
 		WHERE user_id = $1::uuid AND created_at > now() - interval '30 days'
+		  AND status IN ('active', 'completed', 'expired', 'forfeited')
 	`, uid).Scan(&bonusGrants30d)
 
 	var allowedR, deniedR, manualR int64

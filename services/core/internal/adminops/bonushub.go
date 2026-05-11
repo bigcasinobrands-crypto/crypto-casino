@@ -69,7 +69,9 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM promotions WHERE status != 'archived'`).Scan(&promos)
 	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM user_bonus_instances WHERE status = 'active'`).Scan(&instActive)
 	_ = h.Pool.QueryRow(ctx, `
-		SELECT COUNT(*)::bigint FROM user_bonus_instances WHERE created_at > now() - interval '24 hours'
+		SELECT COUNT(*)::bigint FROM user_bonus_instances
+		WHERE created_at > now() - interval '24 hours'
+		  AND status IN ('active', 'completed', 'expired', 'forfeited')
 	`).Scan(&grants24)
 	riskPending := bonus.ReviewQueuePending(ctx, h.Pool)
 
@@ -103,7 +105,10 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var avgGrantMinor int64
-	_ = h.Pool.QueryRow(ctx, `SELECT COALESCE(AVG(granted_amount_minor), 0)::bigint FROM user_bonus_instances`).Scan(&avgGrantMinor)
+	_ = h.Pool.QueryRow(ctx, `
+		SELECT COALESCE(AVG(granted_amount_minor), 0)::bigint FROM user_bonus_instances
+		WHERE status IN ('active', 'completed', 'expired', 'forfeited')
+	`).Scan(&avgGrantMinor)
 
 	// GGR includes both casino and sportsbook activity for the bonus-as-percent-of-GGR ratio.
 	var ggr30d int64

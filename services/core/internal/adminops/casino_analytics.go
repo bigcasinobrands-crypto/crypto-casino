@@ -294,7 +294,8 @@ wd AS (
 		COUNT(DISTINCT w.user_id)::bigint AS wd_users,
 		SUM(COALESCE(w.amount_minor,0))::bigint AS wd_volume_minor
 	FROM payment_withdrawals w
-	WHERE w.provider = 'passimpay' AND w.status <> 'FAILED' AND ` + clauseWithAlias(all, "w", start, end) + `
+	WHERE w.provider = 'passimpay' AND w.status IN ('COMPLETED','PAID')
+	  AND ` + financeWithdrawalWindowClause(all, "w", start, end) + `
 	GROUP BY 1,2
 )
 SELECT
