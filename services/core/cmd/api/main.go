@@ -350,6 +350,8 @@ func main() {
 			})
 		})
 		r.HandleFunc("/api/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg, rdb))
+		// Some operator dashboards default to /api/v1/... — alias the seamless wallet here too.
+		r.HandleFunc("/api/v1/blueocean/callback", webhooks.HandleBlueOceanWallet(pool, &cfg, rdb))
 	})
 
 	// All other routes get a 60s context deadline.

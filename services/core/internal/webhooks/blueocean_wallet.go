@@ -33,6 +33,34 @@ import (
 // boWalletErrInternal is surfaced in JSON for Blue Ocean tooling (same casing as their dashboards).
 const boWalletErrInternal = "Internal error"
 
+// boWalletTxnWireKeys lists JSON/query keys for the financial transaction id (ledger idempotency).
+// Prefer real transaction/bet ids. round_id is last — many BO payloads reuse one round across multiple
+// financial operations; treating round as the txn id collapses distinct credits/debits into one key and
+// breaks S2S concurrent tests (balance appears "stuck" when a later amount mismatches the first post).
+var boWalletTxnWireKeys = []string{
+	"transaction_id", "transactionid", "txn_id", "txid",
+	"tid",
+	"trans_id", "transid",
+	"transfer_id", "transferid",
+	"operation_id", "operationid",
+	"ext_transaction_id", "exttransactionid",
+	"external_transaction_id", "externaltransactionid",
+	"reference", "ref",
+	"bet_id", "betid",
+	"win_id", "winid",
+	"payment_id", "paymentid",
+	"round_id", "roundid", "game_round_id",
+}
+
+// boWalletAmountParamKeys tries common Blue Ocean / operator amount field names (merged query + JSON).
+var boWalletAmountParamKeys = []string{
+	"amount", "bet", "win", "sum", "money",
+	"stake", "value",
+	"bet_amount", "betamount",
+	"win_amount", "winamount",
+	"sum_amount", "sumamount",
+}
+
 // boWalletTxMaxAttempts handles deadlocks / serialization failures when BO runs concurrent wallet calls
 // against the same player (stress tests). Keep generous: pool starvation + many threads can amplify retries.
 const boWalletTxMaxAttempts = 32
@@ -185,10 +213,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 
 		// Do not use "tid" here — many BO/live callbacks set tid to a shared session value, which would
 		// collapse distinct financial transactions into one idempotency namespace under concurrency.
-		txnID := firstNonEmptyCI(q,
-			"transaction_id", "transactionid", "txn_id",
-			"round_id", "roundid", "game_round_id",
-		)
+		txnID := strings.TrimSpace(firstNonEmptyCI(q, boWalletTxnWireKeys...))
 		if txnID == "" {
 			txnID = "na"
 		}
@@ -436,8 +461,7 @@ func blueOceanJSONScalarString(v any) (string, bool) {
 }
 
 func parseBOAmountCI(q url.Values, floatIsMajor, intIsMajor bool) (int64, bool) {
-	keyOrder := []string{"amount", "bet", "win", "sum", "money"}
-	for _, key := range keyOrder {
+	for _, key := range boWalletAmountParamKeys {
 		for _, raw := range valuesForKeyCI(q, key) {
 			s := strings.ReplaceAll(strings.TrimSpace(raw), ",", ".")
 			if s == "" {

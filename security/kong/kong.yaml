@@ -22,6 +22,7 @@ services:
       - name: blueocean-wallet-callback
         paths:
           - /api/blueocean/callback
+          - /api/v1/blueocean/callback
         strip_path: false
         plugins:
           - name: correlation-id

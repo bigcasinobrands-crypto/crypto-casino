@@ -150,3 +150,21 @@ func TestFormatBOBalanceMinor(t *testing.T) {
 		t.Fatalf("got %q want non-negative magnitude per BO wallet contract", got)
 	}
 }
+
+func TestBoWalletTxnWireKeysPrefersTidOverRound(t *testing.T) {
+	q := url.Values{}
+	q.Set("round_id", "round-sess")
+	q.Set("tid", "op-unique-7")
+	if got := firstNonEmptyCI(q, boWalletTxnWireKeys...); got != "op-unique-7" {
+		t.Fatalf("got %q want op-unique-7", got)
+	}
+}
+
+func TestParseBOAmountCI_StakeAlias(t *testing.T) {
+	q := url.Values{}
+	q.Set("stake", "5.00")
+	n, ok := parseBOAmountCI(q, false, true)
+	if !ok || n != 500 {
+		t.Fatalf("got %d ok=%v want 500 minor", n, ok)
+	}
+}
