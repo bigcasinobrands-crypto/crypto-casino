@@ -88,7 +88,7 @@ func (h *Handler) DashboardCasinoAnalytics(w http.ResponseWriter, r *http.Reques
 		ftdCount, redepositD7, redepositD30              int64
 		avgFirstDepositMinor                             int64
 		medianTTFDHours                                  float64
-		ggrMinor, bonusCostMinor, rewardCostMinor        int64
+		ggrMinor, bonusCostMinor, rewardCostMinor        int64 // set from NGR breakdown query (authoritative)
 	)
 
 	windowClause := "created_at >= $1 AND created_at <= $2"
@@ -141,25 +141,39 @@ SELECT
 	COALESCE((SELECT AVG(fiw.amount_minor)::bigint FROM first_in_window fiw), 0),
 	COALESCE((SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (fiw.first_at - fiw.reg_at))/3600.0) FROM first_in_window fiw), 0),
 	(SELECT rep_d7 FROM repeat_stats),
-	(SELECT rep_d30 FROM repeat_stats),
-	COALESCE((SELECT
-		SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END) -
-		SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END)
-		FROM ledger_entries le
-		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback') AND ` + clauseWithAlias(all, "le", start, end) + `), 0),
-	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries ubi
-		WHERE ubi.entry_type = 'promo.grant' AND ubi.pocket = 'bonus_locked' AND ubi.amount_minor > 0 AND ` + clauseWithAlias(all, "ubi", start, end) + `), 0),
-	COALESCE((SELECT SUM(amount_minor) FROM ledger_entries re
-		WHERE re.entry_type IN ('promo.rakeback','vip.level_up_cash','promo.daily_hunt_cash') AND re.amount_minor > 0 AND re.pocket = 'cash' AND ` + clauseWithAlias(all, "re", start, end) + `), 0)
+	(SELECT rep_d30 FROM repeat_stats)
 `
 
 	if err := h.Pool.QueryRow(ctx, q, args...).Scan(
 		&registrations, &checkoutAttempts, &settledDeposits, &ftdCount,
 		&avgFirstDepositMinor, &medianTTFDHours, &redepositD7, &redepositD30,
-		&ggrMinor, &bonusCostMinor, &rewardCostMinor,
 	); err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "casino analytics query failed")
 		return
+	}
+
+	ngrBD, err := queryDashboardNGRBreakdown(ctx, h.Pool, start, end, all)
+	if err != nil {
+		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "ngr analytics query failed")
+		return
+	}
+	// Single-source ledger KPIs for GGR / bonus / cash rewards (NGR breakdown is authoritative).
+	ggrMinor = ngrBD.GGR
+	bonusCostMinor = ngrBD.BonusCost
+	rewardCostMinor = ngrBD.RakebackPaid + ngrBD.CashbackPaid + ngrBD.VipRewardsPaid
+	ngrTotal := ngrTotalFromBreakdown(ngrBD)
+	ngrBreak := ngrBreakdownJSON(ngrBD)
+
+	var ngrPrevious *int64
+	if !all && !start.IsZero() {
+		d := end.Sub(start)
+		prevStart := start.Add(-d)
+		prevEnd := end.Add(-d)
+		prevBD, err := queryDashboardNGRBreakdown(ctx, h.Pool, prevStart, prevEnd, false)
+		if err == nil {
+			v := ngrTotalFromBreakdown(prevBD)
+			ngrPrevious = &v
+		}
 	}
 
 	regToFTD := 0.0
@@ -183,28 +197,35 @@ SELECT
 		return
 	}
 
+	kpisOut := map[string]any{
+		"registrations":              registrations,
+		"checkout_attempts":          checkoutAttempts,
+		"settled_deposits":           settledDeposits,
+		"ftd_count":                  ftdCount,
+		"reg_to_ftd_conversion_rate": regToFTD,
+		"checkout_to_ftd_rate":       checkoutToFTD,
+		"avg_first_deposit_minor":    avgFirstDepositMinor,
+		"median_time_to_ftd_hours":   medianTTFDHours,
+		"repeat_deposit_d7_rate":     repeatD7Rate,
+		"repeat_deposit_d30_rate":    repeatD30Rate,
+		"ggr_minor":                  ggrMinor,
+		"ngr_total":                  ngrTotal,
+		"ngr_proxy_minor":            ngrTotal,
+		"bonus_cost_minor":           bonusCostMinor,
+		"reward_expense_minor":       rewardCostMinor,
+		"ngr_breakdown":              ngrBreak,
+	}
+	if ngrPrevious != nil {
+		kpisOut["ngr_previous_period"] = *ngrPrevious
+	}
+
 	writeJSON(w, map[string]any{
 		"window": map[string]any{
 			"start":    start.Format(time.RFC3339),
 			"end":      end.Format(time.RFC3339),
 			"all_time": all,
 		},
-		"kpis": map[string]any{
-			"registrations":              registrations,
-			"checkout_attempts":          checkoutAttempts,
-			"settled_deposits":           settledDeposits,
-			"ftd_count":                  ftdCount,
-			"reg_to_ftd_conversion_rate": regToFTD,
-			"checkout_to_ftd_rate":       checkoutToFTD,
-			"avg_first_deposit_minor":    avgFirstDepositMinor,
-			"median_time_to_ftd_hours":   medianTTFDHours,
-			"repeat_deposit_d7_rate":     repeatD7Rate,
-			"repeat_deposit_d30_rate":    repeatD30Rate,
-			"ggr_minor":                  ggrMinor,
-			"ngr_proxy_minor":            ggrMinor - bonusCostMinor - rewardCostMinor,
-			"bonus_cost_minor":           bonusCostMinor,
-			"reward_expense_minor":       rewardCostMinor,
-		},
+		"kpis":       kpisOut,
 		"timeseries": series,
 	})
 }

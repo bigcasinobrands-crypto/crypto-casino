@@ -112,11 +112,12 @@ export default function DashboardPage() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const periodLabel = selectedPeriodLabel(chartPeriod)
-  const { data: casinoAnalytics, loading: casinoAnalyticsLoading } = useCasinoAnalytics(
-    chartPeriod,
-    customStart,
-    customEnd,
-  )
+  const {
+    data: casinoAnalytics,
+    loading: casinoAnalyticsLoading,
+    error: casinoAnalyticsError,
+    refetch: refetchCasinoAnalytics,
+  } = useCasinoAnalytics(chartPeriod, customStart, customEnd)
   const { data: kpis, loading: kpisLoading, error: kpisError, refetch: refetchKpis } = useDashboardKPIs()
   const { data: charts, loading: chartsLoading, error: chartsError, refetch: refetchCharts } =
     useDashboardCharts(chartPeriod, customStart, customEnd)
@@ -169,10 +170,14 @@ export default function DashboardPage() {
     bonusStatsError && `Bonus summary: ${bonusStatsError}`,
     systemError && `System health: ${systemError}`,
     trafficError && `Traffic / geo: ${trafficError}`,
+    casinoAnalyticsError && `Casino analytics: ${casinoAnalyticsError}`,
   ].filter(Boolean) as string[]
 
   const dummyDashboard = isDashboardDummyMode()
   const selectedGGR = ggrValues.reduce((sum, value) => sum + value, 0)
+  /** Headline GGR/NGR use the same ledger-backed window as `/casino-analytics` (fallback to chart slice if analytics unavailable). */
+  const headlineGGR =
+    casinoAnalytics != null && !casinoAnalyticsError ? (casinoAnalytics.kpis?.ggr_minor ?? selectedGGR) : selectedGGR
   const selectedDeposits = charts?.deposits_by_day.reduce((sum, row) => sum + (row.total_minor ?? 0), 0) ?? 0
   const selectedDepositCount = charts?.deposits_by_day.reduce((sum, row) => sum + (row.count ?? 0), 0) ?? 0
   const selectedWithdrawals = charts?.withdrawals_by_day.reduce((sum, row) => sum + (row.total_minor ?? 0), 0) ?? 0
@@ -329,6 +334,7 @@ export default function DashboardPage() {
               void refetchSystem()
               void refetchBonusStats()
               void refetchTraffic()
+              void refetchCasinoAnalytics()
             }}
           >
             Retry
@@ -421,7 +427,7 @@ export default function DashboardPage() {
       {/* Primary KPIs — AdminLTE small boxes */}
       <div className="row mb-3">
         {kpisLoading ? (
-          Array.from({ length: 6 }).map((_, i) => (
+          Array.from({ length: 7 }).map((_, i) => (
             <div key={i} className="col-xl-2 col-lg-4 col-md-6 col-12">
               <StatSkeleton />
             </div>
@@ -431,8 +437,22 @@ export default function DashboardPage() {
             <div className="col-xl-2 col-lg-4 col-md-6 col-12">
               <StatCard
                 label={`GGR (${periodLabel})`}
-                value={formatCurrency(selectedGGR)}
+                value={formatCurrency(headlineGGR)}
                 iconClass="bi-graph-up-arrow"
+                variant="primary"
+              />
+            </div>
+            <div className="col-xl-2 col-lg-4 col-md-6 col-12">
+              <StatCard
+                label={`NGR (${periodLabel})`}
+                value={
+                  casinoAnalyticsLoading
+                    ? '...'
+                    : casinoAnalyticsError
+                      ? '—'
+                      : formatCurrency(casinoAnalytics?.kpis?.ngr_total ?? 0)
+                }
+                iconClass="bi-piggy-bank"
                 variant="primary"
               />
             </div>
@@ -848,6 +868,21 @@ export default function DashboardPage() {
         </div>
         <div className="col-lg-6">
           <ChartCard title="Finance & bonus risk">
+            <MetricRow
+              label={`NGR (${periodLabel})`}
+              value={
+                casinoAnalyticsLoading
+                  ? '...'
+                  : casinoAnalyticsError
+                    ? '—'
+                    : formatCurrency(casinoAnalytics?.kpis?.ngr_total ?? 0)
+              }
+              subValue={
+                casinoAnalytics?.kpis?.ngr_previous_period != null
+                  ? `Prior period: ${formatCurrency(casinoAnalytics.kpis.ngr_previous_period)}`
+                  : 'Ledger-backed (bonuses, rewards, fees, payouts)'
+              }
+            />
             <MetricRow
               label="Withdrawals in flight"
               value={String(systemHealth?.withdrawals_in_flight ?? '—')}

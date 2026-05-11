@@ -37,6 +37,19 @@ function useApiFetch<T>(path: string): FetchState<T> {
   return { data, loading, error, refetch: fetchData }
 }
 
+export type DashboardNGRBreakdown = {
+  ggr: number
+  bonus_cost: number
+  cashback_paid: number
+  rakeback_paid: number
+  vip_rewards_paid: number
+  affiliate_commission: number
+  jackpot_costs: number
+  payment_provider_fees: number
+  manual_adjustments: number
+  ngr_total: number
+}
+
 export type CasinoAnalyticsResponse = {
   kpis: {
     registrations: number
@@ -50,9 +63,13 @@ export type CasinoAnalyticsResponse = {
     repeat_deposit_d7_rate: number
     repeat_deposit_d30_rate: number
     ggr_minor: number
+    /** Ledger-backed NGR for the selected window (GGR minus settled cost buckets). */
+    ngr_total?: number
+    ngr_previous_period?: number
+    ngr_breakdown?: DashboardNGRBreakdown
     ngr_proxy_minor: number
     bonus_cost_minor: number
-    /** Cash rewards (rakeback, VIP level-up, daily hunt) from ledger, same window as NGR proxy. */
+    /** Cash rewards (rakeback + cashback + VIP/hunt/challenge cash) from ledger; aligns with NGR cost splits. */
     reward_expense_minor?: number
   }
   timeseries: Array<{

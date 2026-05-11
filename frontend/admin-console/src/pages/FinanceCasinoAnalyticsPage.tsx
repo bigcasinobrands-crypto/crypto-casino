@@ -68,8 +68,8 @@ export default function FinanceCasinoAnalyticsPage() {
         </div>
         <div className="col-xl-3 col-md-6">
           <StatCard
-            label="NGR proxy"
-            value={formatCurrency(data?.kpis.ngr_proxy_minor ?? 0)}
+            label="NGR"
+            value={formatCurrency(data?.kpis?.ngr_total ?? data?.kpis?.ngr_proxy_minor ?? 0)}
             iconClass="bi bi-cash-stack"
             variant="primary"
           />
