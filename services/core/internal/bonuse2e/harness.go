@@ -101,6 +101,7 @@ func NewUserWithFixedNoDepositGrant(t *testing.T) *UserFixedGrantResult {
 		t.Fatal(err)
 	}
 	cleanup := func() {
+		_, _ = p.Exec(ctx, `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
 		_, _ = p.Exec(ctx, `DELETE FROM user_bonus_instances WHERE user_id = $1::uuid`, uid)
 		_, _ = p.Exec(ctx, `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
 		_, _ = p.Exec(ctx, `DELETE FROM bonus_risk_decisions WHERE user_id = $1::uuid`, uid)

@@ -15,14 +15,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/crypto-casino/core/internal/blueocean"
-	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/challenges"
 	"github.com/crypto-casino/core/internal/config"
-	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/playcheck"
 	"github.com/jackc/pgx/v5"
@@ -90,37 +87,6 @@ func isBOWalletTxRetryable(err error) bool {
 	return false
 }
 
-func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string) (balance int64, status int, msg string, err error) {
-	var sum int64
-	var st int
-	var boMsg string
-	var lastErr error
-	for attempt := 0; attempt < boWalletTxMaxAttempts; attempt++ {
-		if attempt > 0 {
-			shift := min(attempt-1, 6)
-			backoff := time.Duration(1<<shift) * time.Millisecond
-			if backoff > 100*time.Millisecond {
-				backoff = 100 * time.Millisecond
-			}
-			select {
-			case <-ctx.Done():
-				return sum, st, boMsg, context.Cause(ctx)
-			case <-time.After(backoff):
-			}
-		}
-		sum, st, boMsg, lastErr = applyBOSeamless(ctx, pool, rdb, userID, ccy, multiCurrency, allowNeg, skipBonusBetGuards, action, remote, txnWire, ledgerTxn, amount, gameID)
-		if lastErr == nil {
-			return sum, st, boMsg, nil
-		}
-		if !isBOWalletTxRetryable(lastErr) {
-			return sum, st, boMsg, lastErr
-		}
-		log.Printf("blueocean wallet: transient DB error, retrying (%d/%d): %v", attempt+1, boWalletTxMaxAttempts, lastErr)
-	}
-	return sum, st, boMsg, lastErr
-}
-
-// ShouldRouteBlueOceanWallet is used for GET/POST / when Blue Ocean stores only the API origin.
 // It returns true if the request should hit the seamless wallet handler instead of the API root stub.
 func ShouldRouteBlueOceanWallet(r *http.Request) bool {
 	if r == nil {
@@ -240,15 +206,6 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				amt, ok = parseBOAmountCI(q, cfg.BlueOceanWalletFloatAmountIsMajorUnits, cfg.BlueOceanWalletIntegerAmountIsMajorUnits)
 			}
 			if action == "debit" {
-				if ok && amt == 0 {
-					sum, berr := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)
-					if berr != nil {
-						writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
-						return
-					}
-					writeBOWalletJSON(w, 200, sum, "")
-					return
-				}
 				if !ok || amt < 0 {
 					sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)
 					writeBOWalletJSON(w, 403, sum, "Invalid amount")
@@ -256,62 +213,69 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				}
 			}
 			if action == "credit" {
-				if ok && amt == 0 {
-					sum, berr := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)
-					if berr != nil {
-						writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
-						return
-					}
-					writeBOWalletJSON(w, 200, sum, "")
-					return
+				if !ok {
+					amt, ok = 0, true
 				}
-				if !ok || amt <= 0 {
+				if amt < 0 {
 					sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)
 					writeBOWalletJSON(w, 403, sum, "Invalid amount")
 					return
 				}
 			}
 
-			sum, st, boMsg, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, action, remote, txnID, ledgerTxnID, amt, gameID)
+			persist := boSeamlessPersistMeta{
+				Username:      firstNonEmptyCI(q, "username", "user_name", "callerId", "caller_id"),
+				RoundID:       firstNonEmptyCI(q, "round_id", "roundid", "game_round_id"),
+				GameID:        gameID,
+				SessionID:     firstNonEmptyCI(q, "session_id", "sessionid"),
+				GamesessionID: firstNonEmptyCI(q, "gamesession_id", "gamesessionid"),
+			}
+			replayBody, sum, st, boMsg, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
 				writeBOWalletJSON(w, 500, sum, boWalletErrInternal)
 				return
 			}
-			if st == 200 {
-				bg := context.Background()
-				switch action {
-				case "debit":
-					p := challenges.BODebitPayload{
-						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
-					}
-					if rdb != nil {
-						if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
+			if len(replayBody) > 0 {
+				if st == 200 && !replayed && (action == "debit" || action == "credit") {
+					bg := context.Background()
+					switch action {
+					case "debit":
+						p := challenges.BODebitPayload{
+							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
+						}
+						if rdb != nil {
+							if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
+								go func() {
+									_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
+								}()
+							}
+						} else {
 							go func() {
 								_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
 							}()
 						}
-					} else {
-						go func() {
-							_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
-						}()
-					}
-				case "credit":
-					p := challenges.BOCreditPayload{
-						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: walletCCY,
-					}
-					if rdb != nil {
-						if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
+					case "credit":
+						p := challenges.BOCreditPayload{
+							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: walletCCY,
+						}
+						if rdb != nil {
+							if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
+								go func() {
+									_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
+								}()
+							}
+						} else {
 							go func() {
 								_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
 							}()
 						}
-					} else {
-						go func() {
-							_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
-						}()
 					}
 				}
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(replayBody)
+				return
 			}
 			writeBOWalletJSON(w, st, sum, boMsg)
 			return
@@ -561,6 +525,10 @@ func boGameDebitRollbackScanKeys(userID, remote, txnID string) []string {
 		fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, txnID),
 		fmt.Sprintf("bo:game:rollback:cash:%s:%s", remote, txnID),
 		fmt.Sprintf("bo:game:rollback:bonus:%s:%s", remote, txnID),
+		fmt.Sprintf("blueocean:%s:debit:%s:cash", remote, txnID),
+		fmt.Sprintf("blueocean:%s:debit:%s:bonus", remote, txnID),
+		fmt.Sprintf("blueocean:%s:rollback:%s:cash", remote, txnID),
+		fmt.Sprintf("blueocean:%s:rollback:%s:bonus", remote, txnID),
 	}
 	uid := strings.TrimSpace(userID)
 	if uid == "" {
@@ -582,12 +550,13 @@ func boCreditScanKeys(userID, remote, tid string) []string {
 		return nil
 	}
 	leg := fmt.Sprintf("bo:game:credit:%s:%s", remote, tid)
+	neo := fmt.Sprintf("blueocean:%s:credit:%s", remote, tid)
 	uid := strings.TrimSpace(userID)
 	if uid == "" {
-		return []string{leg}
+		return dedupeBOLedgerKeys([]string{neo, leg})
 	}
 	v2 := fmt.Sprintf("bo:game:credit:%s:%s:%s", uid, remote, tid)
-	return dedupeBOLedgerKeys([]string{v2, leg})
+	return dedupeBOLedgerKeys([]string{neo, v2, leg})
 }
 
 func boWinRollbackScanKeys(userID, remote, tid string) []string {
@@ -597,12 +566,13 @@ func boWinRollbackScanKeys(userID, remote, tid string) []string {
 		return nil
 	}
 	leg := fmt.Sprintf("bo:game:rollback:win:%s:%s", remote, tid)
+	neo := fmt.Sprintf("blueocean:%s:rollback_win:%s", remote, tid)
 	uid := strings.TrimSpace(userID)
 	if uid == "" {
-		return []string{leg}
+		return dedupeBOLedgerKeys([]string{neo, leg})
 	}
 	v2 := fmt.Sprintf("bo:game:rollback:win:%s:%s:%s", uid, remote, tid)
-	return dedupeBOLedgerKeys([]string{v2, leg})
+	return dedupeBOLedgerKeys([]string{neo, v2, leg})
 }
 
 func dedupeBOLedgerKeys(keys []string) []string {
@@ -795,10 +765,18 @@ func maxDebitMagBonusCash(ctx context.Context, tx pgx.Tx, userID, keyRemote, alt
 		scan := func(remote string) {
 			bLeg := fmt.Sprintf("bo:game:debit:bonus:%s:%s", remote, tid)
 			cLeg := fmt.Sprintf("bo:game:debit:cash:%s:%s", remote, tid)
+			bNeo := fmt.Sprintf("blueocean:%s:debit:%s:bonus", remote, tid)
+			cNeo := fmt.Sprintf("blueocean:%s:debit:%s:cash", remote, tid)
 			if b := debitMagnitudeByIdem(ctx, tx, bLeg); b > bonus {
 				bonus = b
 			}
 			if c := debitMagnitudeByIdem(ctx, tx, cLeg); c > cash {
+				cash = c
+			}
+			if b := debitMagnitudeByIdem(ctx, tx, bNeo); b > bonus {
+				bonus = b
+			}
+			if c := debitMagnitudeByIdem(ctx, tx, cNeo); c > cash {
 				cash = c
 			}
 			if uid != "" {
@@ -820,238 +798,6 @@ func maxDebitMagBonusCash(ctx context.Context, tx pgx.Tx, userID, keyRemote, alt
 	return bonus, cash
 }
 
-func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string) (balance int64, status int, msg string, err error) {
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		return 0, 500, "", err
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE`, userID); err != nil {
-		return 0, 500, "", err
-	}
-	keyRemote := boWalletKeyRemoteTx(ctx, tx, userID, remote)
-	altRemote := strings.TrimSpace(remote)
-	if altRemote != "" && boWalletRemoteNorm(altRemote) == boWalletRemoteNorm(keyRemote) {
-		altRemote = ""
-	}
-
-	bal, err := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-	if err != nil {
-		return 0, 500, "", err
-	}
-
-	meta := map[string]any{"remote_id": remote, "txn": txnWire, "game_id": gameID}
-	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, userID, time.Now().UTC(), meta); err != nil {
-		return bal, 500, "", err
-	}
-
-	var notifyWageringProgress bool
-
-	switch action {
-	case "debit":
-		if amount == 0 {
-			bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-			if err != nil {
-				return 0, 500, "", err
-			}
-			return bal, 200, "", nil
-		}
-		net, nerr := boTxnNetLedgerMinor(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)
-		if nerr != nil {
-			return bal, 500, "", nerr
-		}
-		if net < 0 {
-			if amount != -net {
-				return bal, 403, "Invalid amount", nil
-			}
-			bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-			if err != nil {
-				return 0, 500, "", err
-			}
-			return bal, 200, "", nil
-		}
-		if !skipBonusBetGuards {
-			srcRef := userID + ":" + keyRemote + ":" + ledgerTxn
-			if err := bonus.CheckBetAllowedTx(ctx, tx, userID, gameID, amount, srcRef); err != nil {
-				if errors.Is(err, bonus.ErrExcludedGame) || errors.Is(err, bonus.ErrMaxBetExceeded) {
-					return bal, 403, "", nil
-				}
-				return bal, 500, "", err
-			}
-		}
-		if !allowNeg && bal < amount {
-			return bal, 403, "Insufficient funds", nil
-		}
-		bonusBal, err := ledger.BalanceBonusLockedSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-		if err != nil {
-			return bal, 500, "", err
-		}
-		cashBal, err := ledger.BalanceCashSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-		if err != nil {
-			return bal, 500, "", err
-		}
-		// Cash-first: spend withdrawable cash before bonus_locked (enterprise promo policy).
-		fromCash := amount
-		if fromCash > cashBal {
-			fromCash = cashBal
-		}
-		fromBonus := amount - fromCash
-		if fromBonus > bonusBal {
-			if !allowNeg {
-				return bal, 403, "Insufficient funds", nil
-			}
-			fromBonus = bonusBal
-			fromCash = amount - fromBonus
-		}
-		if fromCash > 0 {
-			idemC := fmt.Sprintf("bo:game:debit:cash:%s:%s:%s", userID, keyRemote, ledgerTxn)
-			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta)
-			if err != nil {
-				return bal, 500, "", err
-			}
-		}
-		if fromBonus > 0 {
-			idemB := fmt.Sprintf("bo:game:debit:bonus:%s:%s:%s", userID, keyRemote, ledgerTxn)
-			_, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
-			if err != nil {
-				return bal, 500, "", err
-			}
-		}
-		// Ensure the full stake posted (cash+bonus lines). ON CONFLICT DO NOTHING on one pocket but not the other
-		// would under-debit while still committing — BO concurrent/idempotency drills then show wrong end balances.
-		netAfter, nErr := boTxnNetLedgerMinor(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)
-		if nErr != nil {
-			return bal, 500, "", nErr
-		}
-		if netAfter != -amount {
-			return bal, 500, "", fmt.Errorf("blueocean wallet: debit ledger net %d != -%d (txn %s)", netAfter, amount, txnWire)
-		}
-		wrUpdated, werr := bonus.ApplyPostBetWagering(ctx, tx, userID, gameID, amount)
-		if werr != nil {
-			return bal, 500, "", werr
-		}
-		notifyWageringProgress = wrUpdated
-	case "credit":
-		if amount == 0 {
-			bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-			if err != nil {
-				return 0, 500, "", err
-			}
-			return bal, 200, "", nil
-		}
-		idemP := fmt.Sprintf("bo:game:credit:%s:%s:%s", userID, keyRemote, ledgerTxn)
-		if _, err = ledger.ApplyCreditTx(ctx, tx, userID, ccy, "game.credit", idemP, amount, meta); err != nil {
-			return bal, 500, "", err
-		}
-		sumC, sErr := sumLedgerKeysIN(ctx, tx, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
-		if sErr != nil {
-			return bal, 500, "", sErr
-		}
-		// Strict: aggregated credit lines for this txn namespace must equal the requested win (detect double-keys / drift).
-		if sumC != amount {
-			return bal, 500, "", fmt.Errorf("blueocean wallet: credit ledger sum %d != amount %d (txn %s)", sumC, amount, txnWire)
-		}
-	case "rollback":
-		// BO: empty amount on rollback — reverse using stored movements only.
-		// 1) Bet rollback: reverse prior debit (bonus + cash lines).
-		// 2) Win rollback: reverse prior credit for this transaction_id (tests: "rollback previous win").
-		winRBKeyP := fmt.Sprintf("bo:game:rollback:win:%s:%s:%s", userID, keyRemote, ledgerTxn)
-
-		creditSum, rerr := sumLedgerKeysIN(ctx, tx, boCreditScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
-		if rerr != nil {
-			return bal, 500, "", rerr
-		}
-		winReversedSum, rerr := sumLedgerKeysIN(ctx, tx, boWinRollbackScanKeysAggregate(userID, keyRemote, altRemote, txnWire, ledgerTxn))
-		if rerr != nil {
-			return bal, 500, "", rerr
-		}
-		outstandingWin := creditSum + winReversedSum // e.g. +1000 + (-1000) after win rollback
-
-		fb, fc := maxDebitMagBonusCash(ctx, tx, userID, keyRemote, altRemote, txnWire, ledgerTxn)
-
-		if fb+fc == 0 && creditSum == 0 {
-			return bal, 404, "TRANSACTION_NOT_FOUND", nil
-		}
-
-		if fb+fc > 0 {
-			var wrRollbackStake int64
-			if fb > 0 {
-				idemRB := fmt.Sprintf("bo:game:rollback:bonus:%s:%s:%s", userID, keyRemote, ledgerTxn)
-				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRB, fb, ledger.PocketBonusLocked, meta)
-				if rerr != nil {
-					return bal, 500, "", rerr
-				}
-				if ins {
-					wrRollbackStake += fb
-					if err := bonus.ReverseVIPAccrualForBonusRollbackTx(ctx, tx, userID, fb, idemRB); err != nil {
-						return bal, 500, "", err
-					}
-				}
-			}
-			if fc > 0 {
-				idemRC := fmt.Sprintf("bo:game:rollback:cash:%s:%s:%s", userID, keyRemote, ledgerTxn)
-				ins, rerr := ledger.ApplyCreditTxWithPocket(ctx, tx, userID, ccy, "game.rollback", idemRC, fc, ledger.PocketCash, meta)
-				if rerr != nil {
-					return bal, 500, "", rerr
-				}
-				if ins {
-					wrRollbackStake += fc
-					if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
-						return bal, 500, "", err
-					}
-				}
-			}
-			if wrRollbackStake > 0 {
-				wrRbUpdated, werr := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, gameID, wrRollbackStake)
-				if werr != nil {
-					return bal, 500, "", werr
-				}
-				if wrRbUpdated {
-					notifyWageringProgress = true
-				}
-			}
-		}
-
-		if outstandingWin > 0 {
-			// Balance after any bet-rollback credits (opening bal would be stale here).
-			curBal, cerr := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-			if cerr != nil {
-				return bal, 500, "", cerr
-			}
-			if curBal < outstandingWin {
-				return curBal, 403, "Insufficient funds", nil
-			}
-			_, err = ledger.ApplyDebitTx(ctx, tx, userID, ccy, ledger.EntryTypeGameWinRollback, winRBKeyP, outstandingWin, meta)
-			if err != nil {
-				return curBal, 500, "", err
-			}
-		}
-	}
-
-	bal, err = ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-	if err != nil {
-		return 0, 500, "", err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return bal, 500, "", err
-	}
-	// After commit: notify subscribers when WR progress changed (full stake counts toward WR while active).
-	if (action == "debit" || action == "rollback") && notifyWageringProgress && rdb != nil {
-		if pubErr := bonus.PublishWageringProgressFromPool(ctx, pool, rdb, userID); pubErr != nil {
-			log.Printf("blueocean wallet: redis publish wagering progress: %v", pubErr)
-		}
-	}
-	// Re-read balance from primary after commit so the JSON matches BO's ledger (avoids any in-tx vs settled skew;
-	// must stay aligned with standalone balance requests per seamless wallet contract).
-	postBal, perr := ledger.BalancePlayableSeamless(ctx, pool, userID, ccy, multiCurrency)
-	if perr != nil {
-		return 0, 500, "", perr
-	}
-	return postBal, 200, "", nil
-}
-
-// formatBOBalanceMinor formats ledger minor units for Blue Ocean JSON balance strings.
 // BO seamless tooling and advanced S2S tests expect balance to be a non-negative amount string
 // (operator support: signed negatives break their validators). Use magnitude here; HTTP/json
 // status still carries errors.
@@ -1074,25 +820,14 @@ func formatBOBalanceMinor(minor int64) string {
 }
 
 func writeBOWalletJSON(w http.ResponseWriter, status int, balanceMinor int64, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	type body struct {
-		Status  string `json:"status"`
-		Balance string `json:"balance"`
-		Msg     string `json:"msg,omitempty"`
+	b, err := boMarshalWalletResponseJSON(status, balanceMinor, msg)
+	if err != nil {
+		_, _ = w.Write([]byte(`{"status":"500","balance":"0","msg":"Internal error"}` + "\n"))
+		return
 	}
-	// Blue Ocean public examples use string status and string balance, e.g. {"status":"200","balance":"300"}.
-	// Emitting the same types on every call avoids strict equality failures in BO staging tools (mixed number/string).
-	out := body{
-		Status:  strconv.Itoa(status),
-		Balance: formatBOBalanceMinor(balanceMinor),
-	}
-	if strings.TrimSpace(msg) != "" {
-		out.Msg = msg
-	}
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(out)
+	_, _ = w.Write(b)
 }
 
 // verifyBlueOceanWalletKey checks key = sha1(salt + signingString). Blue Ocean’s PHP sample uses

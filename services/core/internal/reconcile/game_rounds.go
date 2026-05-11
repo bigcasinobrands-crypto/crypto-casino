@@ -62,7 +62,7 @@ func CheckGameRoundReconciliation(ctx context.Context, pool *pgxpool.Pool, lookb
 			WHERE entry_type IN ('game.credit','game.win')
 			  AND amount_minor > 0
 			  AND created_at >= $1
-			  AND idempotency_key LIKE 'bo:game:credit:%'
+			  AND (idempotency_key LIKE 'bo:game:credit:%' OR idempotency_key LIKE 'blueocean:%:credit:%')
 		)
 		SELECT w.id::text, w.user_id::text, w.amount_minor, w.currency,
 		       w.remote_id, w.txn, w.idempotency_key
@@ -160,7 +160,7 @@ func CheckGameRoundReconciliation(ctx context.Context, pool *pgxpool.Pool, lookb
 			WHERE entry_type IN ('game.debit','game.bet')
 			  AND amount_minor < 0
 			  AND created_at < $1
-			  AND idempotency_key LIKE 'bo:game:debit:%'
+			  AND (idempotency_key LIKE 'bo:game:debit:%' OR idempotency_key LIKE 'blueocean:%:debit:%')
 		)
 		SELECT b.id::text, b.user_id::text, b.amount_minor, b.currency,
 		       b.remote_id, b.txn, b.idempotency_key, b.created_at
