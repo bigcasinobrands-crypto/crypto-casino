@@ -26,8 +26,17 @@ func TestBlueOceanInvalidKeyRejected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/?action=balance&remote_id=1&key=deadbeef", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("want 401 got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("want HTTP 200 (JSON status in body) got %d body=%s", w.Code, w.Body.String())
+	}
+	var o struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "401" {
+		t.Fatalf("want JSON status 401 got %q body=%s", o.Status, w.Body.String())
 	}
 }
 

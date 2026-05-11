@@ -37,7 +37,6 @@ const boWalletErrInternal = "Internal error"
 // breaks S2S concurrent tests (balance appears "stuck" when a later amount mismatches the first post).
 var boWalletTxnWireKeys = []string{
 	"transaction_id", "transactionid", "txn_id", "txid",
-	"tid",
 	"trans_id", "transid",
 	"transfer_id", "transferid",
 	"operation_id", "operationid",
@@ -84,6 +83,9 @@ func isBOWalletTxRetryable(err error) bool {
 	if strings.Contains(strings.ToLower(err.Error()), "deadlock") {
 		return true
 	}
+	if strings.Contains(strings.ToLower(err.Error()), "serialization failure") {
+		return true
+	}
 	return false
 }
 
@@ -120,7 +122,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			}
 		}()
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeBOWalletJSON(w, 405, 0, "Method not allowed")
 			return
 		}
 		// SEC-1: BlueOcean seamless wallet must always be HMAC-authenticated.
@@ -129,19 +131,19 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 		salt := strings.TrimSpace(cfg.BlueOceanWalletSalt)
 		if salt == "" {
 			log.Printf("blueocean wallet: BLUEOCEAN_WALLET_SALT is empty — rejecting callback from %s (configure salt to enable)", r.RemoteAddr)
-			http.Error(w, "wallet auth not configured", http.StatusUnauthorized)
+			writeBOWalletJSON(w, 401, 0, "wallet auth not configured")
 			return
 		}
 		q, err := mergeBlueOceanParams(r)
 		if err != nil {
 			log.Printf("blueocean wallet: bad request body from %s: %v", r.RemoteAddr, err)
-			http.Error(w, "bad request", http.StatusBadRequest)
+			writeBOWalletJSON(w, 400, 0, "bad request")
 			return
 		}
 		wantKey := queryValsGetCI(q, "key")
 		if !verifyBlueOceanWalletKey(r, q, salt, wantKey) {
 			log.Printf("blueocean wallet: invalid key from %s", r.RemoteAddr)
-			http.Error(w, "invalid key", http.StatusUnauthorized)
+			writeBOWalletJSON(w, 401, 0, "invalid key")
 			return
 		}
 		remote := strings.TrimSpace(firstNonEmptyCI(q,
@@ -184,7 +186,7 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 			action = "credit"
 		}
 
-		// Do not use "tid" here — many BO/live callbacks set tid to a shared session value, which would
+		// Do not use "tid" in boWalletTxnWireKeys — many BO/live callbacks set tid to a shared session value, which would
 		// collapse distinct financial transactions into one idempotency namespace under concurrency.
 		txnID := strings.TrimSpace(firstNonEmptyCI(q, boWalletTxnWireKeys...))
 		if txnID == "" {
@@ -236,54 +238,61 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				SessionID:     firstNonEmptyCI(q, "session_id", "sessionid"),
 				GamesessionID: firstNonEmptyCI(q, "gamesession_id", "gamesessionid"),
 			}
-			replayBody, sum, st, boMsg, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
+			replayBody, sum, st, _, _, replayed, err := applyBOSeamlessWithRetry(ctx, pool, rdb, userID, walletCCY, cfg.BlueOceanMulticurrency, cfg.BlueOceanWalletAllowNegativeBalance, cfg.BlueOceanWalletSkipBonusBetGuards, cfg.BlueOceanWalletLedgerTxnUsesRound, action, remote, txnID, ledgerTxnID, amt, gameID, persist)
 			if err != nil {
 				log.Printf("blueocean wallet: %v", err)
 				writeBOWalletJSON(w, 500, sum, boWalletErrInternal)
 				return
 			}
-			if len(replayBody) > 0 {
-				if st == 200 && !replayed && (action == "debit" || action == "credit") {
-					bg := context.Background()
-					switch action {
-					case "debit":
-						p := challenges.BODebitPayload{
-							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
-						}
-						if rdb != nil {
-							if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
-								go func() {
-									_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
-								}()
-							}
-						} else {
+			if len(replayBody) == 0 {
+				sum2, sErr := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)
+				if sErr != nil {
+					log.Printf("blueocean wallet: empty handler body, balance read failed: %v", sErr)
+					writeBOWalletJSON(w, 500, 0, boWalletErrInternal)
+					return
+				}
+				log.Printf("blueocean wallet: empty replay body action=%s remote=%s txn=%s st=%d replayed=%v — writing 500 JSON", action, remote, txnID, st, replayed)
+				writeBOWalletJSON(w, 500, sum2, boWalletErrInternal)
+				return
+			}
+			if st == 200 && !replayed && (action == "debit" || action == "credit") {
+				bg := context.Background()
+				switch action {
+				case "debit":
+					p := challenges.BODebitPayload{
+						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
+					}
+					if rdb != nil {
+						if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
 							go func() {
 								_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
 							}()
 						}
-					case "credit":
-						p := challenges.BOCreditPayload{
-							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: walletCCY,
-						}
-						if rdb != nil {
-							if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
-								go func() {
-									_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
-								}()
-							}
-						} else {
+					} else {
+						go func() {
+							_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
+						}()
+					}
+				case "credit":
+					p := challenges.BOCreditPayload{
+						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: walletCCY,
+					}
+					if rdb != nil {
+						if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
 							go func() {
 								_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
 							}()
 						}
+					} else {
+						go func() {
+							_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
+						}()
 					}
 				}
-				w.Header().Set("Content-Type", "application/json; charset=utf-8")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(replayBody)
-				return
 			}
-			writeBOWalletJSON(w, st, sum, boMsg)
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(replayBody)
 			return
 		default:
 			sum, _ := ledger.BalancePlayableSeamless(ctx, pool, userID, walletCCY, cfg.BlueOceanMulticurrency)

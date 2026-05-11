@@ -18,7 +18,7 @@ const boSeamlessProvider = "blueocean"
 
 // boWalletTxAcquireMaxAttempts retries unique-violation races when concurrent callbacks use different
 // transaction_id spellings that map to the same logical id (e.g. ez-hex vs bare hex).
-const boWalletTxAcquireMaxAttempts = 16
+const boWalletTxAcquireMaxAttempts = 64
 
 type boSQLExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
@@ -92,10 +92,10 @@ func boWalletTxAcquire(ctx context.Context, tx pgx.Tx, userID, keyRemote, action
 			SELECT id, response_json, status_code, balance_after_minor
 			FROM blueocean_wallet_transactions
 			WHERE provider = $1 AND remote_id = $2 AND action = $3 AND transaction_id = ANY($4::text[])
-			ORDER BY id ASC
+			ORDER BY CASE WHEN transaction_id = $5 THEN 0 ELSE 1 END, id ASC
 			LIMIT 1
 			FOR UPDATE
-		`, boSeamlessProvider, keyRemote, action, lookupIDs).Scan(&rowID, &raw, &st, &bal)
+		`, boSeamlessProvider, keyRemote, action, lookupIDs, txnWire).Scan(&rowID, &raw, &st, &bal)
 		if qErr == nil {
 			if len(raw) > 0 && st.Valid && bal.Valid {
 				return rowID, raw, bal.Int64, int(st.Int64), nil

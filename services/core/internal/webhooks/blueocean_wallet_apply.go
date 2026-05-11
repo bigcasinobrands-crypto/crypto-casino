@@ -12,6 +12,7 @@ import (
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -45,9 +46,9 @@ func applyBOSeamlessWithRetry(ctx context.Context, pool *pgxpool.Pool, rdb *redi
 }
 
 func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, userID, ccy string, multiCurrency, allowNeg, skipBonusBetGuards, ledgerUsesRound bool, action, remote, txnWire, ledgerTxn string, amount int64, gameID string, persist boSeamlessPersistMeta) (
-	replay []byte, postBal int64, status int, msg string, notifyWageringProgress bool, replayed bool, err error,
+	replay []byte, postBal int64, status int, msg string, notifyWageringProgress bool, 	replayed bool, err error,
 ) {
-	tx, err := pool.Begin(ctx)
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return nil, 0, 500, "", false, false, err
 	}
@@ -66,12 +67,6 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	if altRemote != "" && boWalletRemoteNorm(altRemote) == boWalletRemoteNorm(keyRemote) {
 		altRemote = ""
 	}
-
-	bal, err := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
-	if err != nil {
-		return nil, 0, 500, "", false, false, err
-	}
-	openBal := bal
 
 	meta := map[string]any{"remote_id": remote, "txn": txnWire, "game_id": gameID}
 	if err := fingerprint.MergeTrafficAttributionTx(ctx, tx, userID, time.Now().UTC(), meta); err != nil {
@@ -93,6 +88,12 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			return nil, 0, 500, "", false, false, err
 		}
 		if len(rep) > 0 {
+			slog.Info("blueocean wallet replay",
+				slog.String("action", action),
+				slog.String("remote_id", remote),
+				slog.String("transaction_id", txnWire),
+				slog.Bool("duplicate_detected", true),
+			)
 			if err := tx.Commit(ctx); err != nil {
 				return nil, 0, 500, "", false, false, err
 			}
@@ -100,6 +101,12 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			return rep, repBal, repSt, "", false, true, nil
 		}
 	}
+
+	bal, err := ledger.BalancePlayableSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
+	if err != nil {
+		return nil, 0, 500, "", false, false, err
+	}
+	openBal := bal
 
 	finish := func(st int, balBefore int64, balAfter int64, amt *int64, m string) ([]byte, int64, int, string, error) {
 		body, jerr := boMarshalWalletResponseJSON(st, balAfter, m)

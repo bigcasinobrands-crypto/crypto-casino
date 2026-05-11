@@ -151,12 +151,22 @@ func TestFormatBOBalanceMinor(t *testing.T) {
 	}
 }
 
-func TestBoWalletTxnWireKeysPrefersTidOverRound(t *testing.T) {
+func TestBoWalletTxnWireKeysPrefersTransactionIDOverRound(t *testing.T) {
 	q := url.Values{}
 	q.Set("round_id", "round-sess")
-	q.Set("tid", "op-unique-7")
-	if got := firstNonEmptyCI(q, boWalletTxnWireKeys...); got != "op-unique-7" {
-		t.Fatalf("got %q want op-unique-7", got)
+	q.Set("tid", "shared-tid-should-not-be-used")
+	q.Set("transaction_id", "fin-unique-9")
+	if got := firstNonEmptyCI(q, boWalletTxnWireKeys...); got != "fin-unique-9" {
+		t.Fatalf("got %q want fin-unique-9", got)
+	}
+}
+
+func TestBoWalletTxnWireKeysDoesNotUseTidWhenTransactionIDAbsent(t *testing.T) {
+	q := url.Values{}
+	q.Set("round_id", "fallback-round")
+	q.Set("tid", "shared-tid")
+	if got := firstNonEmptyCI(q, boWalletTxnWireKeys...); got != "fallback-round" {
+		t.Fatalf("got %q want fallback-round (tid ignored; use transaction_id from provider)", got)
 	}
 }
 

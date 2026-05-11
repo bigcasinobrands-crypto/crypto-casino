@@ -40,6 +40,23 @@ func boTestExpectBalance(t *testing.T, body []byte, wantMinor int64) {
 	}
 }
 
+func boTestExpectFinancialJSONOK(t *testing.T, body []byte) {
+	t.Helper()
+	var o struct {
+		Status  string `json:"status"`
+		Balance string `json:"balance"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(body), &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Status != "200" {
+		t.Fatalf("status want 200 got %q raw=%s", o.Status, body)
+	}
+	if strings.TrimSpace(o.Balance) == "" {
+		t.Fatalf("empty balance raw=%s", body)
+	}
+}
+
 func TestBlueOceanConcurrentUniqueDebitsMatrix(t *testing.T) {
 	p, cl := bonuse2e.MustPool(t)
 	defer cl()
@@ -485,5 +502,158 @@ func TestBlueOceanConcurrentDebitAndCreditWinsMatrix(t *testing.T) {
 				t.Fatalf("final playable want minor %d got %d", wantMinor, play)
 			}
 		})
+	}
+}
+
+// Concurrent "with wins" semantics from Blue Ocean S2S: per logical round the tool may fire the same
+// debit transaction_id twice and the same credit transaction_id twice; only one ledger movement each,
+// and duplicate callbacks must replay the first response JSON byte-for-byte.
+func TestBlueOceanConcurrentWithWinsDuplicatePairsMatrix(t *testing.T) {
+	p, cl := bonuse2e.MustPool(t)
+	defer cl()
+	ctx := context.Background()
+
+	for _, n := range blueOceanConcurrencyNSizes {
+		n := n
+		t.Run(strconv.Itoa(n), func(t *testing.T) {
+			uid := uuid.New().String()
+			email := fmt.Sprintf("bo-mat-dw-%d-%s@e2e.local", n, uid[:6])
+			if _, err := p.Exec(ctx, `
+				INSERT INTO users (id, email, password_hash, created_at, terms_accepted_at, terms_version, privacy_version)
+				VALUES ($1::uuid, $2, 'x', $3, now(), '1', '1')
+			`, uid, email, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			startMinor := int64(980_000)
+			if _, err := ledger.ApplyCredit(ctx, p, uid, "EUR", "test.seed", fmt.Sprintf("seed-dw-%d-%s", n, uid), startMinor, nil); err != nil {
+				t.Fatal(err)
+			}
+			rid := fmt.Sprintf("matdw-%d-%s", n, strings.ReplaceAll(uid, "-", "")[:8])
+			_, _ = p.Exec(ctx, `INSERT INTO blueocean_player_links (user_id, remote_player_id) VALUES ($1::uuid, $2)`, uid, rid)
+			t.Cleanup(func() {
+				_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_wallet_transactions WHERE user_id = $1::uuid`, uid)
+				_, _ = p.Exec(context.Background(), `DELETE FROM ledger_entries WHERE user_id = $1::uuid`, uid)
+				_, _ = p.Exec(context.Background(), `DELETE FROM blueocean_player_links WHERE user_id = $1::uuid`, uid)
+				_, _ = p.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, uid)
+			})
+
+			salt := fmt.Sprintf("mat-dupwin-%d", n)
+			cfg := &config.Config{
+				BlueOceanCurrency: "EUR", BlueOceanWalletSalt: salt,
+				BlueOceanWalletIntegerAmountIsMajorUnits: true, BlueOceanWalletSkipBonusBetGuards: true,
+			}
+			h := HandleBlueOceanWallet(p, cfg, nil)
+
+			type shot struct {
+				code int
+				body []byte
+			}
+			shots := make([]shot, n*4)
+			var wg sync.WaitGroup
+			for r := 0; r < n; r++ {
+				debitTxn := fmt.Sprintf("dw-d-%d-%d-%s", n, r, uid[:4])
+				creditTxn := fmt.Sprintf("dw-c-%d-%d-%s", n, r, uid[:4])
+				qDebit := boSignGET(salt, map[string]string{
+					"action": "debit", "remote_id": rid, "transaction_id": debitTxn,
+					"amount": "10", "currency": "EUR", "game_id": "1", "round_id": strconv.Itoa(r),
+				})
+				qCredit := boSignGET(salt, map[string]string{
+					"action": "credit", "remote_id": rid, "transaction_id": creditTxn,
+					"amount": "10", "currency": "EUR", "round_id": strconv.Itoa(r),
+				})
+				base := r * 4
+				for k := 0; k < 2; k++ {
+					wg.Add(1)
+					go func(slot int, q string) {
+						defer wg.Done()
+						req := httptest.NewRequest(http.MethodGet, "/?"+q, nil)
+						w := httptest.NewRecorder()
+						h.ServeHTTP(w, req)
+						b := bytes.TrimSpace(w.Body.Bytes())
+						if len(b) == 0 {
+							t.Errorf("empty response slot=%d", slot)
+							return
+						}
+						shots[slot] = shot{code: w.Code, body: b}
+					}(base+k, qDebit)
+				}
+				for k := 0; k < 2; k++ {
+					wg.Add(1)
+					go func(slot int, q string) {
+						defer wg.Done()
+						req := httptest.NewRequest(http.MethodGet, "/?"+q, nil)
+						w := httptest.NewRecorder()
+						h.ServeHTTP(w, req)
+						b := bytes.TrimSpace(w.Body.Bytes())
+						if len(b) == 0 {
+							t.Errorf("empty response slot=%d", slot)
+							return
+						}
+						shots[slot] = shot{code: w.Code, body: b}
+					}(base+2+k, qCredit)
+				}
+			}
+			wg.Wait()
+			for i := 0; i < len(shots); i++ {
+				if shots[i].code != http.StatusOK {
+					t.Fatalf("shot %d HTTP %d body=%s", i, shots[i].code, shots[i].body)
+				}
+				boTestExpectFinancialJSONOK(t, shots[i].body)
+			}
+			for r := 0; r < n; r++ {
+				base := r * 4
+				if !bytes.Equal(shots[base].body, shots[base+1].body) {
+					t.Fatalf("round %d duplicate debit bodies differ", r)
+				}
+				if !bytes.Equal(shots[base+2].body, shots[base+3].body) {
+					t.Fatalf("round %d duplicate credit bodies differ", r)
+				}
+			}
+			play, err := ledger.BalancePlayableSeamless(ctx, p, uid, "EUR", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if play != startMinor {
+				t.Fatalf("final balance want minor %d got %d", startMinor, play)
+			}
+			var nDebit, nCredit, nLegD, nLegC int
+			_ = p.QueryRow(ctx, `
+				SELECT COUNT(*) FROM blueocean_wallet_transactions
+				WHERE user_id = $1::uuid AND action = 'debit' AND provider = 'blueocean'
+			`, uid).Scan(&nDebit)
+			_ = p.QueryRow(ctx, `
+				SELECT COUNT(*) FROM blueocean_wallet_transactions
+				WHERE user_id = $1::uuid AND action = 'credit' AND provider = 'blueocean'
+			`, uid).Scan(&nCredit)
+			_ = p.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1::uuid AND entry_type = 'game.debit'`, uid).Scan(&nLegD)
+			_ = p.QueryRow(ctx, `SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1::uuid AND entry_type = 'game.credit'`, uid).Scan(&nLegC)
+			if nDebit != n || nCredit != n {
+				t.Fatalf("wallet rows want debit=%d credit=%d got debit=%d credit=%d", n, n, nDebit, nCredit)
+			}
+			if nLegD != n || nLegC != n {
+				t.Fatalf("ledger rows want debit=%d credit=%d got debit=%d credit=%d", n, n, nLegD, nLegC)
+			}
+		})
+	}
+}
+
+func TestBlueOceanHandlerInvalidMethodReturnsNonEmptyJSON(t *testing.T) {
+	cfg := &config.Config{BlueOceanCurrency: "EUR", BlueOceanWalletSalt: "empty-json-guard"}
+	h := HandleBlueOceanWallet(nil, cfg, nil)
+	req := httptest.NewRequest(http.MethodPut, "/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	b := bytes.TrimSpace(w.Body.Bytes())
+	if len(b) == 0 {
+		t.Fatal("expected non-empty JSON body")
+	}
+	var o struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(b, &o); err != nil {
+		t.Fatalf("invalid json: %v body=%s", err, b)
+	}
+	if o.Status != "405" {
+		t.Fatalf("want JSON status 405 got %q body=%s", o.Status, b)
 	}
 }
