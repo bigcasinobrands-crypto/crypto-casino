@@ -3,8 +3,8 @@ import { playerApiUrl } from '../lib/playerApiUrl'
 
 type SiteContent = Record<string, unknown>
 
-/** Minimum dwell before declaring shell paint-ready after CMS bundle settles — keeps tile flashes minimal without stacking too much delay after the ops-health gate. */
-const SHELL_READY_MIN_FROM_MOUNT_MS = 280
+/** Brief dwell after CMS settles — two rAFs already align paint; keep near-zero for fastest boot. */
+const SHELL_READY_MIN_FROM_MOUNT_MS = 48
 
 type SiteContentCtx = {
   content: SiteContent | null

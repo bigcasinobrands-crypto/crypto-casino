@@ -1,7 +1,6 @@
 import { lazy } from 'react'
 
-/** Code-split route modules — keeps initial player-ui bundle smaller for faster first paint. */
-export const LobbyPageLazy = lazy(() => import('../pages/LobbyPage'))
+/** Code-split route modules — catalog `/casino/*` stays eager in App for instant lobby boot. */
 export const GameLobbyPageLazy = lazy(() => import('../pages/GameLobbyPage'))
 export const CasinoSportsPageLazy = lazy(() => import('../pages/CasinoSportsPage'))
 export const StudiosPageLazy = lazy(() => import('../pages/StudiosPage'))

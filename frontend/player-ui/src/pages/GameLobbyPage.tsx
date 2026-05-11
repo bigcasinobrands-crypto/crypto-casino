@@ -956,9 +956,9 @@ export default function GameLobbyPage() {
         <div className="flex w-full min-w-0 flex-1 flex-col gap-0">
           {showInlinePlayer ? (
             <div
-              className={`w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 ${desktopTheaterShellClass} xl:flex xl:min-h-0 xl:flex-1 xl:flex-col max-xl:fixed max-xl:inset-0 max-xl:z-[330] max-xl:m-0 max-xl:flex max-xl:h-auto max-xl:min-h-0 max-xl:w-full max-xl:max-w-none max-xl:shrink-0 max-xl:flex-col max-xl:bg-black max-xl:px-0 max-xl:pt-0 max-xl:touch-manipulation max-xl:[overscroll-behavior:none]`}
+              className={`w-full shrink-0 px-1 pt-1 sm:px-2 sm:pt-2 md:px-3 ${desktopTheaterShellClass} xl:flex xl:min-h-0 xl:shrink-0 xl:flex-col max-xl:fixed max-xl:inset-0 max-xl:z-[330] max-xl:m-0 max-xl:flex max-xl:h-auto max-xl:min-h-0 max-xl:w-full max-xl:max-w-none max-xl:shrink-0 max-xl:flex-col max-xl:bg-black max-xl:px-0 max-xl:pt-0 max-xl:touch-manipulation max-xl:[overscroll-behavior:none]`}
             >
-              <div className="flex w-full min-h-0 shrink-0 flex-col overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)] max-xl:min-h-0 max-xl:flex-1 max-xl:rounded-none max-xl:border-0 max-xl:shadow-none xl:min-h-0 xl:shrink xl:flex-1">
+              <div className="flex w-full min-h-0 shrink-0 flex-col overflow-hidden rounded-casino-lg border border-casino-border bg-casino-surface shadow-[0_8px_28px_rgba(0,0,0,0.45)] max-xl:min-h-0 max-xl:flex-1 max-xl:rounded-none max-xl:border-0 max-xl:shadow-none xl:min-h-0 xl:shrink-0">
                 <div className="hidden items-center gap-1.5 border-b border-white/[0.07] px-2 py-1.5 sm:gap-2 sm:px-3 xl:flex">
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                     <button
@@ -1019,7 +1019,7 @@ export default function GameLobbyPage() {
                     </button>
                   </div>
                 </div>
-                <div className="max-xl:contents xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:justify-center">
+                <div className="max-xl:contents xl:flex xl:min-h-0 xl:shrink-0 xl:flex-col">
                   <div
                     ref={stageRef}
                     className={`${theaterStageFrameClass} ${theaterStageFullscreenClass} touch-pan-y max-xl:aspect-auto max-xl:min-h-0 max-xl:!min-h-0 max-xl:min-w-0 max-xl:max-h-none max-xl:flex-1 ${liveTableTheater ? 'xl:max-h-[min(92dvh,calc(100dvh-10.5rem))]' : ''} xl:flex-none`}
@@ -1456,7 +1456,6 @@ export default function GameLobbyPage() {
                           title={!realAllowed ? t('gameLobby.realMoneyOnlyFreePlayTitle') : undefined}
                           className="flex-1 rounded-casino-md bg-casino-primary px-3 py-2.5 text-xs font-semibold text-white transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
                           onClick={() => {
-                            setRequestedImmersiveLaunch(true)
                             setLaunchModeChoice('real')
                           }}
                         >
@@ -1468,7 +1467,6 @@ export default function GameLobbyPage() {
                           title={!demoAllowed ? t('gameLobby.freePlayUnavailableTitle') : undefined}
                           className="flex-1 rounded-casino-md border border-white/18 bg-white/10 px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-white/16 disabled:pointer-events-none disabled:opacity-40 sm:py-3 sm:text-sm"
                           onClick={() => {
-                            setRequestedImmersiveLaunch(true)
                             setLaunchModeChoice('demo')
                           }}
                         >
@@ -1643,7 +1641,7 @@ export default function GameLobbyPage() {
           onTryReal={() => {
             setLaunchErr(null)
             setLaunchFailCode(undefined)
-            setRequestedImmersiveLaunch(true)
+            if (viewportBelowXl) setRequestedImmersiveLaunch(true)
             setLaunchModeChoice('real')
           }}
           backLabel={showMobileFramelessPlayer ? t('gameLobby.backToGamePage') : t('gameLobby.backToGames')}

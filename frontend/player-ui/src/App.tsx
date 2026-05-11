@@ -68,13 +68,13 @@ import {
   DemoEmbedPageLazy,
   GameLobbyPageLazy,
   LegalPageLazy,
-  LobbyPageLazy,
   ProfilePageLazy,
   StudiosPageLazy,
   VerifyEmailPageLazy,
   VipPageLazy,
   WalletDepositPageLazy,
 } from './lib/lazyRoutePages'
+import LobbyPage from './pages/LobbyPage'
 import { schedulePlayerRouteChunkPrefetch } from './lib/prefetchPlayerRouteChunks'
 import {
   PASSWORD_RESET_TOKEN_PARAM,
@@ -750,7 +750,7 @@ function AppShell() {
                     <Route path="/casino/studios" element={<StudiosPageLazy />} />
                     <Route path="/sportsbook" element={<Navigate to="/esports" replace />} />
                     <Route path="/play/:gameId" element={<LegacyPlayToGameLobby />} />
-                    <Route path="/casino/:section" element={<LobbyPageLazy />} />
+                    <Route path="/casino/:section" element={<LobbyPage />} />
                     <Route path="/login" element={<Navigate to="/casino/games?auth=login" replace />} />
                     <Route path="/register" element={<Navigate to="/casino/games?auth=register" replace />} />
                     <Route path="/forgot-password" element={<Navigate to="/casino/games?auth=forgot" replace />} />

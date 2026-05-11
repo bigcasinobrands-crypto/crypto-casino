@@ -36,50 +36,56 @@ export type OperationalHealth = {
   last_catalog_sync_at?: string | null
 }
 
-const OPS_FETCH_ATTEMPTS = 4
-const OPS_FETCH_GAP_MS = 320
+const OPS_FETCH_ATTEMPTS = 3
+const OPS_FETCH_GAP_MS = 140
 
 /**
  * Polls GET /health/operational for banners, catalog warnings, and geo/maintenance gates.
  * Best-effort: transient failures keep the last good payload for in-session banners.
  *
- * `ready` is true only after we have loaded JSON at least once, or after a short timeout
- * (API unreachable): lets {@link SiteAccessGate} avoid treating “fetch failed” as “site open”.
+ * `ready` becomes true as soon as the first bootstrap wave finishes (JSON OK or retries exhausted),
+ * so {@link SiteAccessGate} does not spin for ~20s on flaky networks. `timedOut` remains a long
+ * backstop for edge cases.
  */
 export function useOperationalHealth(pollMs = 8000) {
   const [data, setData] = useState<OperationalHealth | null>(null)
   const [timedOut, setTimedOut] = useState(false)
+  const [initialBootstrapDone, setInitialBootstrapDone] = useState(false)
 
   useEffect(() => {
-    const id = window.setTimeout(() => setTimedOut(true), 20_000)
+    const id = window.setTimeout(() => setTimedOut(true), 12_000)
     return () => window.clearTimeout(id)
   }, [])
 
   useEffect(() => {
     let cancelled = false
     const load = async () => {
-      for (let attempt = 0; attempt < OPS_FETCH_ATTEMPTS; attempt++) {
-        try {
-          const res = await fetch(playerApiUrl('/health/operational'), {
-            cache: 'no-store',
-            headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-          })
-          if (res.ok) {
-            const j = (await res.json()) as OperationalHealth
-            if (!cancelled) setData(j)
-            return
+      try {
+        for (let attempt = 0; attempt < OPS_FETCH_ATTEMPTS; attempt++) {
+          try {
+            const res = await fetch(playerApiUrl('/health/operational'), {
+              cache: 'no-store',
+              headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+            })
+            if (res.ok) {
+              const j = (await res.json()) as OperationalHealth
+              if (!cancelled) setData(j)
+              return
+            }
+            if (import.meta.env.DEV && !cancelled) {
+              console.debug(`[operational] HTTP ${res.status} (attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS})`)
+            }
+          } catch (e) {
+            if (import.meta.env.DEV && !cancelled) {
+              console.debug(`[operational] fetch failed attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS}`, e)
+            }
           }
-          if (import.meta.env.DEV && !cancelled) {
-            console.debug(`[operational] HTTP ${res.status} (attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS})`)
-          }
-        } catch (e) {
-          if (import.meta.env.DEV && !cancelled) {
-            console.debug(`[operational] fetch failed attempt ${attempt + 1}/${OPS_FETCH_ATTEMPTS}`, e)
+          if (attempt < OPS_FETCH_ATTEMPTS - 1) {
+            await new Promise((r) => setTimeout(r, OPS_FETCH_GAP_MS))
           }
         }
-        if (attempt < OPS_FETCH_ATTEMPTS - 1) {
-          await new Promise((r) => setTimeout(r, OPS_FETCH_GAP_MS))
-        }
+      } finally {
+        if (!cancelled) setInitialBootstrapDone(true)
       }
     }
     void load()
@@ -98,6 +104,6 @@ export function useOperationalHealth(pollMs = 8000) {
     }
   }, [pollMs])
 
-  const ready = data !== null || timedOut
+  const ready = data !== null || timedOut || initialBootstrapDone
   return { data, ready }
 }

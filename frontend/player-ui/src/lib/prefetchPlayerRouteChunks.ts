@@ -5,8 +5,6 @@
 export function schedulePlayerRouteChunkPrefetch(opts: { authenticated: boolean }): () => void {
   if (typeof window === 'undefined') return () => {}
 
-  void import('../pages/LobbyPage')
-
   const loadSecondary = () => {
     void import('../pages/GameLobbyPage')
     void import('../pages/CasinoSportsPage')
