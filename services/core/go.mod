@@ -1,6 +1,6 @@
 module github.com/crypto-casino/core
 
-go 1.23
+go 1.25.7
 
 require (
 	github.com/alicebob/miniredis/v2 v2.32.1
@@ -10,18 +10,18 @@ require (
 	github.com/go-webauthn/webauthn v0.11.2
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.7.2
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
-	github.com/pressly/goose/v3 v3.24.1
+	github.com/pressly/goose/v3 v3.27.1
 	github.com/redis/go-redis/v9 v9.7.0
-	golang.org/x/crypto v0.31.0
-	golang.org/x/sync v0.10.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/sync v0.20.0
 	nhooyr.io/websocket v1.8.17
 )
 
 require (
 	github.com/alicebob/gopher-json v0.0.0-20200520072559-a9ecdc9d1d3a // indirect
-	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-webauthn/x v0.1.14 // indirect
@@ -35,6 +35,6 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 )
