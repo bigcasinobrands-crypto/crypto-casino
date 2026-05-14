@@ -21,21 +21,26 @@ func parsePeriodDays(s string) int {
 	}
 }
 
+// sqlSumReportingSettledStakes returns a COALESCE(SUM(...),0) subquery for stake volume consistent with GGR (net of rollbacks, NGR filter).
+func sqlSumReportingSettledStakes(timePredicate string) string {
+	return `COALESCE((SELECT SUM(` + ledger.SettledStakeAmountCaseSQL("le") + `) FROM ledger_entries le WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit','game.rollback','sportsbook.rollback') AND ` + timePredicate + ` AND ` + ledger.NGRReportingFilterSQL("le") + `), 0)`
+}
+
 func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var (
 		totalWagered24h, totalWagered7d, totalWagered30d, totalWageredAll int64
-		dep24h, dep7d, dep30d          int64
-		depCnt24h, depCnt7d, depCnt30d int64
-		wd24h, wd7d, wd30d             int64
-		wdCnt24h, wdCnt7d, wdCnt30d    int64
-		active24h, active7d, active30d int64
-		reg24h, reg7d, reg30d          int64
-		bonus24h, bonus7d, bonus30d    int64
-		reward24h, reward7d, reward30d int64
-		pendWdVal, pendWdCnt           int64
-		totalUsers, usersWithDeposit   int64
-		avgDepSize30d                  int64
+		dep24h, dep7d, dep30d                                             int64
+		depCnt24h, depCnt7d, depCnt30d                                    int64
+		wd24h, wd7d, wd30d                                                int64
+		wdCnt24h, wdCnt7d, wdCnt30d                                       int64
+		active24h, active7d, active30d                                    int64
+		reg24h, reg7d, reg30d                                             int64
+		bonus24h, bonus7d, bonus30d                                       int64
+		reward24h, reward7d, reward30d                                    int64
+		pendWdVal, pendWdCnt                                              int64
+		totalUsers, usersWithDeposit                                      int64
+		avgDepSize30d                                                     int64
 	)
 	ngrF := ledger.NGRReportingFilterSQL("le")
 	// GGR / NGR / bonus / reward KPIs use queryDashboardNGRBreakdown (same as casino analytics).
@@ -43,17 +48,10 @@ func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	// Deposits: deposit.credit only.
 	err := h.Pool.QueryRow(ctx, `
 		SELECT
-			COALESCE((SELECT SUM(ABS(le.amount_minor)) FROM ledger_entries le
-				WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit')
-				AND le.created_at > now()-interval '24 hours' AND `+ngrF+`), 0),
-			COALESCE((SELECT SUM(ABS(le.amount_minor)) FROM ledger_entries le
-				WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit')
-				AND le.created_at > now()-interval '7 days' AND `+ngrF+`), 0),
-			COALESCE((SELECT SUM(ABS(le.amount_minor)) FROM ledger_entries le
-				WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit')
-				AND le.created_at > now()-interval '30 days' AND `+ngrF+`), 0),
-			COALESCE((SELECT SUM(ABS(le.amount_minor)) FROM ledger_entries le
-				WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit') AND `+ngrF+`), 0),
+			`+sqlSumReportingSettledStakes("le.created_at > now()-interval '24 hours'")+`,
+			`+sqlSumReportingSettledStakes("le.created_at > now()-interval '7 days'")+`,
+			`+sqlSumReportingSettledStakes("le.created_at > now()-interval '30 days'")+`,
+			`+sqlSumReportingSettledStakes("TRUE")+`,
 
 			COALESCE((SELECT SUM(amount_minor) FROM ledger_entries
 				WHERE entry_type = 'deposit.credit' AND amount_minor > 0

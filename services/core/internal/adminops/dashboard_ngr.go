@@ -26,7 +26,7 @@ type dashboardNGRBreakdown struct {
 	JackpotCosts        int64
 	PaymentProviderFees int64
 	ManualAdjustments   int64
-	// TotalWageredDebitMinor is ABS stake volume on debit lines only (matches dashboard KPI "total wagered"; excludes rollbacks).
+	// TotalWageredDebitMinor is gross ABS turnover on debit stake lines only (diagnostic; not the GGR stake basis).
 	TotalWageredDebitMinor int64
 	GGR                    int64 // SettledBetsMinor − SettledWinsMinor after Scan
 }
@@ -82,7 +82,7 @@ func queryDashboardNGRBreakdown(ctx context.Context, pool *pgxpool.Pool, start, 
 
 	q := `
 SELECT
-	COALESCE((SELECT SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(le.amount_minor) WHEN le.entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(le.amount_minor) ELSE 0 END)
+	COALESCE((SELECT SUM(` + ledger.SettledStakeAmountCaseSQL("le") + `)
 		FROM ledger_entries le
 		WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit','game.rollback','sportsbook.rollback')
 		AND ` + win + ` AND ` + ngrF + `), 0),
@@ -161,20 +161,21 @@ WHERE le.entry_type IN ('game.debit','sportsbook.debit')
 func ngrBreakdownJSON(b dashboardNGRBreakdown) map[string]any {
 	ngr := ngrTotalFromBreakdown(b)
 	return map[string]any{
-		"settled_bets_minor":    b.SettledBetsMinor,
-		"settled_wins_minor":    b.SettledWinsMinor,
-		"total_wagered_minor":   b.TotalWageredDebitMinor,
-		"ggr":                   b.GGR,
-		"ggr_minor":             b.GGR,
-		"bonus_cost":            b.BonusCost,
-		"cashback_paid":         b.CashbackPaid,
-		"rakeback_paid":         b.RakebackPaid,
-		"vip_rewards_paid":      b.VipRewardsPaid,
-		"affiliate_commission":  b.AffiliateCommission,
-		"jackpot_costs":         b.JackpotCosts,
-		"payment_provider_fees": b.PaymentProviderFees,
-		"manual_adjustments":    b.ManualAdjustments,
-		"ngr_total":             ngr,
+		"settled_bets_minor":               b.SettledBetsMinor,
+		"settled_wins_minor":               b.SettledWinsMinor,
+		"total_wagered_minor":              b.SettledBetsMinor,
+		"gross_stake_debit_turnover_minor": b.TotalWageredDebitMinor,
+		"ggr":                              b.GGR,
+		"ggr_minor":                        b.GGR,
+		"bonus_cost":                       b.BonusCost,
+		"cashback_paid":                    b.CashbackPaid,
+		"rakeback_paid":                    b.RakebackPaid,
+		"vip_rewards_paid":                 b.VipRewardsPaid,
+		"affiliate_commission":             b.AffiliateCommission,
+		"jackpot_costs":                    b.JackpotCosts,
+		"payment_provider_fees":            b.PaymentProviderFees,
+		"manual_adjustments":               b.ManualAdjustments,
+		"ngr_total":                        ngr,
 	}
 }
 

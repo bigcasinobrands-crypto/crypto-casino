@@ -230,7 +230,8 @@ SELECT
 		"ngr_per_wagering_user":      ngrPerWageringUser,
 		"bonus_cost_minor":           bonusCostMinor,
 		"reward_expense_minor":       rewardCostMinor,
-		"total_wagered_minor":        ngrBD.TotalWageredDebitMinor,
+		"total_wagered_minor":                ngrBD.SettledBetsMinor,
+		"gross_stake_debit_turnover_minor":   ngrBD.TotalWageredDebitMinor,
 		"ngr_breakdown":              ngrBreak,
 	}
 	if ngrPrevious != nil {

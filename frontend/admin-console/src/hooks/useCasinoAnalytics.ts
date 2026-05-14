@@ -41,6 +41,7 @@ function useApiFetch<T>(path: string): FetchState<T> {
 export type DashboardNGRBreakdown = {
   ggr: number
   total_wagered_minor?: number
+  gross_stake_debit_turnover_minor?: number
   bonus_cost: number
   cashback_paid: number
   rakeback_paid: number
@@ -77,8 +78,10 @@ export type CasinoAnalyticsResponse = {
     bonus_cost_minor: number
     /** Cash rewards (rakeback + cashback + VIP/hunt/challenge cash) from ledger; aligns with NGR cost splits. */
     reward_expense_minor?: number
-    /** ABS stake volume (game.debit / game.bet / sportsbook.debit) in the same window as NGR; matches dashboard total wagered semantics. */
+    /** Same basis as GGR stake side: debits/bets net of rollbacks (not raw debit turnover). */
     total_wagered_minor?: number
+    /** Raw SUM(ABS) on stake debit lines only; diagnostic. */
+    gross_stake_debit_turnover_minor?: number
   }
   timeseries: Array<{
     date: string

@@ -81,4 +81,8 @@ func TestNgrBreakdownJSONMatchesFormula(t *testing.T) {
 	if ngr != ngrTotalFromBreakdown(b) {
 		t.Fatalf("ngr_total in map doesn't match formula")
 	}
+	twm, _ := m["total_wagered_minor"].(int64)
+	if twm != b.SettledBetsMinor {
+		t.Fatalf("total_wagered_minor should match settled stakes, got %d want %d", twm, b.SettledBetsMinor)
+	}
 }

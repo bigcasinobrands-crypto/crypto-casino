@@ -437,7 +437,7 @@ export default function DashboardPage() {
           <>
             <div className="col-lg col-md-6 col-12">
               <StatCard
-                label={`Total wagered (${periodLabel})`}
+                label={`Settled wager (${periodLabel})`}
                 value={
                   casinoAnalyticsError
                     ? '—'
