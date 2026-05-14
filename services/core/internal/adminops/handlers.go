@@ -93,6 +93,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/dashboard/player-stats", h.DashboardPlayerStats)
 	r.Get("/dashboard/system", h.DashboardSystem)
 	r.Get("/dashboard/casino-analytics", h.DashboardCasinoAnalytics)
+	r.Get("/dashboard/ngr-breakdown", h.DashboardNGRBreakdown)
 	r.Get("/dashboard/crypto-chain-summary", h.DashboardCryptoChainSummary)
 	r.Get("/analytics/traffic", h.TrafficAnalytics)
 	r.Get("/analytics/finance-geo", h.FinanceGeoAnalytics)

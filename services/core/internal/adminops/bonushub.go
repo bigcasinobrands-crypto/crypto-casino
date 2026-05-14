@@ -112,13 +112,14 @@ func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// GGR includes both casino and sportsbook activity for the bonus-as-percent-of-GGR ratio.
 	var ggr30d int64
+	ngrF := ledger.NGRReportingFilterSQL("le")
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
-			SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END) -
-			SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END), 0
-		)::bigint FROM ledger_entries
-		WHERE entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
-		  AND created_at > now() - interval '30 days'
+			SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(le.amount_minor) WHEN le.entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(le.amount_minor) ELSE 0 END) -
+			SUM(CASE WHEN le.entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN le.amount_minor ELSE 0 END), 0
+		)::bigint FROM ledger_entries le
+		WHERE le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+		  AND le.created_at > now() - interval '30 days' AND `+ngrF+`
 	`).Scan(&ggr30d)
 
 	var bonusPctOfGGR float64

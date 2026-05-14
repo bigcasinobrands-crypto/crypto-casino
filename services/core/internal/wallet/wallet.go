@@ -42,14 +42,16 @@ func BalanceHandler(pool *pgxpool.Pool, cfg *config.Config) http.HandlerFunc {
 		cash, _ := ledger.BalanceCashSeamless(ctx, pool, id, ccy, multi)
 		bonus, _ := ledger.BalanceBonusLockedSeamless(ctx, pool, id, ccy, multi)
 		pendingWD, _ := ledger.BalancePendingWithdrawal(ctx, pool, id)
+		wagerRem, _ := ActiveWageringRemainingMinor(ctx, pool, id, ccy, multi)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"balance_minor":               sum,
-			"cash_minor":                  cash,
-			"bonus_locked_minor":          bonus,
-			"pending_withdrawal_minor":    pendingWD,
-			"playable_balance_minor":      sum,
-			"currency":                    ccy,
+			"balance_minor":            sum,
+			"cash_minor":               cash,
+			"bonus_locked_minor":       bonus,
+			"wagering_remaining_minor": wagerRem,
+			"pending_withdrawal_minor": pendingWD,
+			"playable_balance_minor":   sum,
+			"currency":                 ccy,
 		})
 	}
 }

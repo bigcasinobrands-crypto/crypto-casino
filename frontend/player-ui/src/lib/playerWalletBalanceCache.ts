@@ -9,6 +9,8 @@ export type PlayerWalletBalanceCache = {
   balance_minor: number
   cash_minor: number
   bonus_locked_minor: number
+  /** Remaining bonus playthrough (minor units); optional for older cached sessions */
+  wagering_remaining_minor?: number
   currency: string
 }
 
@@ -28,11 +30,13 @@ export function readPlayerWalletBalanceCache(): PlayerWalletBalanceCache | null 
     const bonus = isFin(j.bonus_locked_minor) ? j.bonus_locked_minor : 0
     const currency =
       typeof j.currency === 'string' && j.currency.trim() ? j.currency.trim().toUpperCase() : 'EUR'
+    const wagerRem = isFin(j.wagering_remaining_minor) ? j.wagering_remaining_minor : 0
     return {
       userId: j.userId.trim(),
       balance_minor: j.balance_minor,
       cash_minor: cash,
       bonus_locked_minor: bonus,
+      wagering_remaining_minor: wagerRem,
       currency,
     }
   } catch {

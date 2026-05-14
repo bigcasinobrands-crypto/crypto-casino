@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
+	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
@@ -37,22 +38,23 @@ func (h *Handler) GetUserFacts(w http.ResponseWriter, r *http.Request) {
 	`, uid).Scan(&deposits7d, &deposits30d, &withdrawals7d, &withdrawals30d, &depCount7d, &depCount30d)
 
 	// Per-user GGR includes both casino and sportsbook stake/win activity.
+	ngrF := ledger.NGRReportingFilterSQL("le")
 	var ggr7d, ggr30d int64
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
-		  SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
-		  - SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)::bigint
-		FROM ledger_entries
-		WHERE user_id = $1::uuid AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
-		  AND created_at > now() - interval '7 days'
+		  SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(le.amount_minor) WHEN le.entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(le.amount_minor) ELSE 0 END)
+		  - SUM(CASE WHEN le.entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN le.amount_minor ELSE 0 END), 0)::bigint
+		FROM ledger_entries le
+		WHERE le.user_id = $1::uuid AND le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+		  AND le.created_at > now() - interval '7 days' AND `+ngrF+`
 	`, uid).Scan(&ggr7d)
 	_ = h.Pool.QueryRow(ctx, `
 		SELECT COALESCE(
-		  SUM(CASE WHEN entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(amount_minor) WHEN entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(amount_minor) ELSE 0 END)
-		  - SUM(CASE WHEN entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN amount_minor ELSE 0 END), 0)::bigint
-		FROM ledger_entries
-		WHERE user_id = $1::uuid AND entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
-		  AND created_at > now() - interval '30 days'
+		  SUM(CASE WHEN le.entry_type IN ('game.debit','game.bet','sportsbook.debit') THEN ABS(le.amount_minor) WHEN le.entry_type IN ('game.rollback','sportsbook.rollback') THEN -ABS(le.amount_minor) ELSE 0 END)
+		  - SUM(CASE WHEN le.entry_type IN ('game.credit','game.win','game.win_rollback','sportsbook.credit') THEN le.amount_minor ELSE 0 END), 0)::bigint
+		FROM ledger_entries le
+		WHERE le.user_id = $1::uuid AND le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback','sportsbook.debit','sportsbook.credit','sportsbook.rollback')
+		  AND le.created_at > now() - interval '30 days' AND `+ngrF+`
 	`, uid).Scan(&ggr30d)
 
 	var launches7d, launches30d int64

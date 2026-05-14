@@ -767,6 +767,8 @@
     "ledgerDenomLabel": "Ledger currency: {{currency}}",
     "headerBonusBalanceTitle": "Bonus balance",
     "headerCashBalanceTitle": "Cash balance",
+    "headerWagerBalanceTitle": "Wager balance",
+    "headerWagerBalanceTooltip": "Remaining stake you still need to place to complete the wagering requirement on your active bonus.",
     "headerBalanceHintPassimpay": "Passim Pay settles deposits in USDT or USDC. Amounts here use your chosen display currency (ECB-market rates). Play and bonuses follow your account ledger in the currency shown above.",
     "fxRatesUnavailableShort": "Live rates unavailable — amounts shown in {{currency}}.",
     "fxRatesLoading": "Updating exchange rates…",

@@ -749,6 +749,8 @@
     "ledgerDenomLabel": "Devise du grand livre : {{currency}}",
     "headerBonusBalanceTitle": "Solde bonus",
     "headerCashBalanceTitle": "Solde en espèces",
+    "headerWagerBalanceTitle": "Solde à miser",
+    "headerWagerBalanceTooltip": "Mise restante à placer pour terminer l’exigence de mise sur votre bonus actif.",
     "headerBalanceHintPassimpay": "Passim Pay règle les dépôts en USDT ou USDC. Les montants utilisent votre devise d’affichage (taux basés sur la BCE). Le jeu et les bonus suivent le grand livre dans la devise indiquée ci-dessus.",
     "fxRatesUnavailableShort": "Taux indisponibles — montants en {{currency}}.",
     "fxRatesLoading": "Mise à jour des taux…",

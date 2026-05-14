@@ -43,16 +43,18 @@ func BalanceStreamHandler(pool *pgxpool.Pool, cfg *config.Config) http.HandlerFu
 			}
 			cash, _ := ledger.BalanceCashSeamless(ctx, pool, uid, ccy, multi)
 			bon, _ := ledger.BalanceBonusLockedSeamless(ctx, pool, uid, ccy, multi)
-			sig := fmt.Sprintf("%s:%d:%d:%d", ccy, bal, cash, bon)
+			wagerRem, _ := ActiveWageringRemainingMinor(ctx, pool, uid, ccy, multi)
+			sig := fmt.Sprintf("%s:%d:%d:%d:%d", ccy, bal, cash, bon, wagerRem)
 			if sig == lastSig {
 				return
 			}
 			lastSig = sig
 			payload, _ := json.Marshal(map[string]any{
-				"balance_minor":      bal,
-				"cash_minor":         cash,
-				"bonus_locked_minor": bon,
-				"currency":           ccy,
+				"balance_minor":            bal,
+				"cash_minor":               cash,
+				"bonus_locked_minor":       bon,
+				"wagering_remaining_minor": wagerRem,
+				"currency":                 ccy,
 			})
 			fmt.Fprintf(w, "data: %s\n\n", payload)
 			flusher.Flush()

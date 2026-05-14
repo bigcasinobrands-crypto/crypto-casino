@@ -82,6 +82,8 @@ export type LoginResult =
 export type BalanceBreakdown = {
   cashMinor: number
   bonusLockedMinor: number
+  /** Remaining bonus playthrough to stake (minor units, same ledger currency as cash/bonus) */
+  wageringRemainingMinor: number
 }
 
 function readInitialWalletBalanceState(): {
@@ -101,7 +103,11 @@ function readInitialWalletBalanceState(): {
   }
   return {
     balanceMinor: c.balance_minor,
-    balanceBreakdown: { cashMinor: c.cash_minor, bonusLockedMinor: c.bonus_locked_minor },
+    balanceBreakdown: {
+      cashMinor: c.cash_minor,
+      bonusLockedMinor: c.bonus_locked_minor,
+      wageringRemainingMinor: typeof c.wagering_remaining_minor === 'number' ? c.wagering_remaining_minor : 0,
+    },
     playableBalanceCurrency: c.currency,
   }
 }
@@ -359,6 +365,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
           balance_minor: number
           cash_minor?: number
           bonus_locked_minor?: number
+          wagering_remaining_minor?: number
           currency?: string
         }
         setBal(j.balance_minor)
@@ -366,13 +373,15 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
         setPlayableBalanceCurrency(c)
         const cash = typeof j.cash_minor === 'number' ? j.cash_minor : j.balance_minor
         const bonus = typeof j.bonus_locked_minor === 'number' ? j.bonus_locked_minor : 0
-        setBalanceBreakdown({ cashMinor: cash, bonusLockedMinor: bonus })
+        const wagerRem = typeof j.wagering_remaining_minor === 'number' ? j.wagering_remaining_minor : 0
+        setBalanceBreakdown({ cashMinor: cash, bonusLockedMinor: bonus, wageringRemainingMinor: wagerRem })
         if (resolvedUserId) {
           writePlayerWalletBalanceCache({
             userId: resolvedUserId,
             balance_minor: j.balance_minor,
             cash_minor: cash,
             bonus_locked_minor: bonus,
+            wagering_remaining_minor: wagerRem,
             currency: c ?? 'EUR',
           })
         }
@@ -754,6 +763,7 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
                     balance_minor?: number
                     cash_minor?: number
                     bonus_locked_minor?: number
+                    wagering_remaining_minor?: number
                     currency?: string
                   }
                   if (typeof j.balance_minor === 'number') {
@@ -766,9 +776,12 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
                     typeof j.cash_minor === 'number' &&
                     typeof j.bonus_locked_minor === 'number'
                   ) {
+                    const wagerRem =
+                      typeof j.wagering_remaining_minor === 'number' ? j.wagering_remaining_minor : 0
                     setBalanceBreakdown({
                       cashMinor: j.cash_minor,
                       bonusLockedMinor: j.bonus_locked_minor,
+                      wageringRemainingMinor: wagerRem,
                     })
                   }
                   const uid = meIdRef.current
@@ -782,11 +795,14 @@ export function PlayerAuthProvider({ children }: { children: ReactNode }) {
                       typeof j.currency === 'string' && j.currency.trim()
                         ? j.currency.trim().toUpperCase()
                         : 'EUR'
+                    const wagerRem =
+                      typeof j.wagering_remaining_minor === 'number' ? j.wagering_remaining_minor : 0
                     writePlayerWalletBalanceCache({
                       userId: uid,
                       balance_minor: j.balance_minor,
                       cash_minor: j.cash_minor,
                       bonus_locked_minor: j.bonus_locked_minor,
+                      wagering_remaining_minor: wagerRem,
                       currency: ccy,
                     })
                   }

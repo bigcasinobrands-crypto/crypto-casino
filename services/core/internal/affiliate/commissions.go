@@ -95,6 +95,7 @@ func accrueOnePartner(ctx context.Context, pool *pgxpool.Pool, partnerID, partne
 	// NGR per currency for the partner's referred users in the window.
 	// referred_ngr = wager - win - rollback. We bucket by currency so a
 	// multi-currency casino can pay commissions in the right unit.
+	ngrF := ledger.NGRReportingFilterSQL("le")
 	ngrRows, err := pool.Query(ctx, `
 		SELECT le.currency,
 		       COUNT(DISTINCT le.user_id)::int AS user_count,
@@ -110,7 +111,7 @@ func accrueOnePartner(ctx context.Context, pool *pgxpool.Pool, partnerID, partne
 		  AND le.pocket = 'cash'
 		  AND le.entry_type IN ('game.debit','game.bet','game.credit','game.win','game.rollback','game.win_rollback',
 		                        'sportsbook.debit','sportsbook.credit','sportsbook.rollback')
-		  AND le.created_at >= $2 AND le.created_at < $3
+		  AND le.created_at >= $2 AND le.created_at < $3 AND `+ngrF+`
 		GROUP BY le.currency
 	`, partnerID, dayStart, dayEnd)
 	if err != nil {

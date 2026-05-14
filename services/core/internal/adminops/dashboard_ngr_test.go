@@ -41,6 +41,28 @@ func TestNgrTotalFromBreakdownNoCostsEqualsGGR(t *testing.T) {
 	}
 }
 
+func TestNgrBreakdownGGR900AfterCosts(t *testing.T) {
+	t.Parallel()
+	b := dashboardNGRBreakdown{
+		SettledBetsMinor: 1000,
+		SettledWinsMinor: 0,
+		GGR:              1000,
+		BonusCost:        100,
+	}
+	if got := ngrTotalFromBreakdown(b); got != 900 {
+		t.Fatalf("NGR = %d want 900", got)
+	}
+}
+
+func TestNgrBreakdownDepositsOmittedFromFormula(t *testing.T) {
+	t.Parallel()
+	// Deposits never enter dashboardNGRBreakdown struct; GGR is ledger-mapped only.
+	b := dashboardNGRBreakdown{GGR: 100, BonusCost: 0}
+	if ngrTotalFromBreakdown(b) != 100 {
+		t.Fatal("unexpected NGR drift")
+	}
+}
+
 func TestNgrBreakdownJSONMatchesFormula(t *testing.T) {
 	t.Parallel()
 	b := dashboardNGRBreakdown{

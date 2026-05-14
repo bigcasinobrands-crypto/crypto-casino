@@ -13,6 +13,7 @@ import {
   PLAYER_CHROME_CLOSE_REWARDS_EVENT,
   PLAYER_CHROME_CLOSE_WALLET_EVENT,
 } from '../lib/playerChromeEvents'
+import { WalletInfoTrigger } from './wallet/WalletShell'
 
 type HeaderWalletBarProps = {
   onOpenWallet: (tab: WalletMainTab) => void
@@ -136,6 +137,7 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
       : formatMinor(balanceMinor!, locale)
 
   const bonusMinor = balanceBreakdown?.bonusLockedMinor ?? 0
+  const wagerMinor = balanceBreakdown?.wageringRemainingMinor ?? 0
   const cashMinorLedger =
     typeof balanceBreakdown?.cashMinor === 'number'
       ? balanceBreakdown.cashMinor
@@ -147,6 +149,8 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
     cashMinorLedger != null && !balancePending ? formatMinor(cashMinorLedger, locale) : null
   const bonusAmountStr =
     !balancePending && isAuthenticated ? formatMinor(bonusMinor, locale) : null
+  const wagerAmountStr =
+    !balancePending && isAuthenticated ? formatMinor(wagerMinor, locale) : null
   const showBonusSubtitle = isAuthenticated && !balancePending && bonusMinor > 0
   /** Overall wallet balance zero — show perimeter pulse on every breakpoint. */
   const showZeroBalanceAlert = isAuthenticated && !balancePending && balanceMinor === 0
@@ -372,6 +376,26 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
                       />
                     ) : (
                       bonusAmountStr
+                    )}
+                  </p>
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-sky-400/25 bg-sky-500/[0.07] px-4 py-3.5">
+                  <p className="flex items-center justify-center gap-1 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-sky-200/85">
+                    <span>{t('wallet.headerWagerBalanceTitle')}</span>
+                    <WalletInfoTrigger
+                      label={t('wallet.headerWagerBalanceTooltip')}
+                      title={t('wallet.headerWagerBalanceTooltip')}
+                    />
+                  </p>
+                  <p className="mt-1.5 text-center text-lg font-bold tabular-nums text-sky-100">
+                    {balancePending || wagerAmountStr == null ? (
+                      <span
+                        className="inline-block h-[1.15em] w-[5rem] max-w-[75%] animate-pulse rounded-lg bg-sky-200/20"
+                        aria-hidden
+                      />
+                    ) : (
+                      wagerAmountStr
                     )}
                   </p>
                 </div>

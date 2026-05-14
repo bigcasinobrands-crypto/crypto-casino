@@ -157,6 +157,9 @@ SELECT
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "ngr analytics query failed")
 		return
 	}
+	if ngrDebugEnabled() {
+		logNGRDebug("casino_analytics", start, end, all, ngrBD)
+	}
 	activeWagering, err := queryActiveWageringUsers(ctx, h.Pool, start, end, all)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "wagering users query failed")
