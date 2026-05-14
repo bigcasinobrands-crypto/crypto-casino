@@ -81,6 +81,9 @@ func TestE2ENGRBreakdownLedgerRules(t *testing.T) {
 	if want := int64(500); ngrTotalFromBreakdown(b) != want {
 		t.Fatalf("NGR = %d want %d", ngrTotalFromBreakdown(b), want)
 	}
+	if b.TotalWageredDebitMinor != 1000 {
+		t.Fatalf("total wagered debit = %d want 1000", b.TotalWageredDebitMinor)
+	}
 }
 
 func TestE2ENGRLedgerRollbackNetZero(t *testing.T) {
@@ -119,5 +122,8 @@ func TestE2ENGRLedgerRollbackNetZero(t *testing.T) {
 	}
 	if b.GGR != 0 {
 		t.Fatalf("GGR want 0 got %d", b.GGR)
+	}
+	if b.TotalWageredDebitMinor != 500 {
+		t.Fatalf("total wagered debit want 500 (stake line only) got %d", b.TotalWageredDebitMinor)
 	}
 }

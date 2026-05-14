@@ -14,12 +14,15 @@ export function useTrafficAnalytics(period: TrafficPeriod = '30d', customStart?:
 
   const load = useCallback(async () => {
     setLoading(true)
+    setData(null)
     setError(null)
     try {
       const q = new URLSearchParams()
       if (period === 'custom' && customStart && customEnd) {
         q.set('start', customStart)
         q.set('end', customEnd)
+      } else if (period === 'custom') {
+        q.set('period', '30d')
       } else {
         q.set('period', period)
       }

@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import PageMeta from '../components/common/PageMeta'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import { BarChart, StatCard } from '../components/dashboard'
 import { CHART_COLORS } from '../components/dashboard'
 import type { TrafficChannelRow } from '../lib/trafficAnalytics'
 import { useTrafficAnalytics, type TrafficPeriod } from '../hooks/useTrafficAnalytics'
+import { buildAnalyticsTimeframeSearch, parseTrafficPeriodParam } from '../lib/analyticsTimeframeQuery'
 import { formatCompact } from '../lib/format'
 import DataTimeframeBar from '../components/dashboard/DataTimeframeBar'
 
@@ -20,10 +21,25 @@ const PERIOD_OPTIONS = [
 ]
 
 export default function TrafficSourcesPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [period, setPeriod] = useState<TrafficPeriod>('30d')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const { data, loading, error, refetch } = useTrafficAnalytics(period, customStart, customEnd)
+
+  useEffect(() => {
+    setPeriod(parseTrafficPeriodParam(searchParams.get('period')))
+    setCustomStart(searchParams.get('start') ?? '')
+    setCustomEnd(searchParams.get('end') ?? '')
+  }, [searchParams])
+
+  const pushTimeframeToUrl = useCallback(
+    (p: TrafficPeriod, start: string, end: string) => {
+      const qs = buildAnalyticsTimeframeSearch(p, start, end)
+      setSearchParams(new URLSearchParams(qs), { replace: true })
+    },
+    [setSearchParams],
+  )
 
   const topChannel = (data?.channels ?? []).reduce<TrafficChannelRow | null>(
     (best, c) => (!best || c.sessions > best.sessions ? c : best),
@@ -120,12 +136,26 @@ export default function TrafficSourcesPage() {
 
       <DataTimeframeBar
         value={period}
-        onChange={(next) => setPeriod(next as TrafficPeriod)}
+        onChange={(next) => {
+          const p = next as TrafficPeriod
+          setPeriod(p)
+          if (p === 'custom') {
+            pushTimeframeToUrl('custom', customStart, customEnd)
+          } else {
+            pushTimeframeToUrl(p, '', '')
+          }
+        }}
         options={PERIOD_OPTIONS}
         startDate={customStart}
         endDate={customEnd}
-        onStartDateChange={setCustomStart}
-        onEndDateChange={setCustomEnd}
+        onStartDateChange={(v) => {
+          setCustomStart(v)
+          if (period === 'custom') pushTimeframeToUrl('custom', v, customEnd)
+        }}
+        onEndDateChange={(v) => {
+          setCustomEnd(v)
+          if (period === 'custom') pushTimeframeToUrl('custom', customStart, v)
+        }}
       />
 
       {error ? (
@@ -142,7 +172,17 @@ export default function TrafficSourcesPage() {
           <div className="card shadow-sm h-100">
             <div className="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
               <h3 className="card-title mb-0 fs-6">Acquisition channels</h3>
-              <Link to="/analytics/demographics" className="btn btn-sm btn-outline-secondary">
+              <Link
+                to={
+                  searchParams.toString()
+                    ? {
+                        pathname: '/analytics/demographics',
+                        search: `?${searchParams.toString()}`,
+                      }
+                    : '/analytics/demographics'
+                }
+                className="btn btn-sm btn-outline-secondary"
+              >
                 Geo overview
               </Link>
             </div>

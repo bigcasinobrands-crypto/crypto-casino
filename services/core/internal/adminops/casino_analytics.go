@@ -37,6 +37,8 @@ func parseAnalyticsWindow(r *http.Request) (time.Time, time.Time, bool, error) {
 	switch q.Get("period") {
 	case "7d":
 		return now.AddDate(0, 0, -7), now, false, nil
+	case "30d":
+		return now.AddDate(0, 0, -30), now, false, nil
 	case "90d":
 		return now.AddDate(0, 0, -90), now, false, nil
 	case "6m":
@@ -228,6 +230,7 @@ SELECT
 		"ngr_per_wagering_user":      ngrPerWageringUser,
 		"bonus_cost_minor":           bonusCostMinor,
 		"reward_expense_minor":       rewardCostMinor,
+		"total_wagered_minor":        ngrBD.TotalWageredDebitMinor,
 		"ngr_breakdown":              ngrBreak,
 	}
 	if ngrPrevious != nil {

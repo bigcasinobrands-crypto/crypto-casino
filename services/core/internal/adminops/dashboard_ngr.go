@@ -18,7 +18,6 @@ import (
 type dashboardNGRBreakdown struct {
 	SettledBetsMinor    int64
 	SettledWinsMinor    int64
-	GGR                 int64
 	BonusCost           int64
 	CashbackPaid        int64
 	RakebackPaid        int64
@@ -27,6 +26,9 @@ type dashboardNGRBreakdown struct {
 	JackpotCosts        int64
 	PaymentProviderFees int64
 	ManualAdjustments   int64
+	// TotalWageredDebitMinor is ABS stake volume on debit lines only (matches dashboard KPI "total wagered"; excludes rollbacks).
+	TotalWageredDebitMinor int64
+	GGR                    int64 // SettledBetsMinor − SettledWinsMinor after Scan
 }
 
 // ngrTotalFromBreakdown returns GGR minus all cost buckets (safe when GGR is 0).
@@ -62,6 +64,7 @@ func logNGRDebug(windowLabel string, start, end time.Time, all bool, b dashboard
 		"jackpot_costs_minor", b.JackpotCosts,
 		"payment_provider_fees_minor", b.PaymentProviderFees,
 		"manual_adjustments_minor", b.ManualAdjustments,
+		"total_wagered_debit_minor", b.TotalWageredDebitMinor,
 		"ngr_minor", ngr,
 	)
 }
@@ -106,7 +109,9 @@ SELECT
 	COALESCE((SELECT SUM(-le.amount_minor) FROM ledger_entries le
 		WHERE le.entry_type = 'provider.fee' AND le.pocket = 'cash' AND le.amount_minor < 0 AND ` + win + ` AND ` + ngrF + `), 0),
 	COALESCE((SELECT SUM(le.amount_minor) FROM ledger_entries le
-		WHERE le.entry_type = 'admin.play_credit' AND le.pocket = 'cash' AND le.amount_minor > 0 AND ` + win + ` AND ` + ngrF + `), 0)
+		WHERE le.entry_type = 'admin.play_credit' AND le.pocket = 'cash' AND le.amount_minor > 0 AND ` + win + ` AND ` + ngrF + `), 0),
+	COALESCE((SELECT SUM(ABS(le.amount_minor)) FROM ledger_entries le
+		WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit') AND ` + win + ` AND ` + ngrF + `), 0)
 `
 	args := []any{start, end}
 	if all {
@@ -123,6 +128,7 @@ SELECT
 		&b.JackpotCosts,
 		&b.PaymentProviderFees,
 		&b.ManualAdjustments,
+		&b.TotalWageredDebitMinor,
 	)
 	if err != nil {
 		return b, err
@@ -157,6 +163,7 @@ func ngrBreakdownJSON(b dashboardNGRBreakdown) map[string]any {
 	return map[string]any{
 		"settled_bets_minor":    b.SettledBetsMinor,
 		"settled_wins_minor":    b.SettledWinsMinor,
+		"total_wagered_minor":   b.TotalWageredDebitMinor,
 		"ggr":                   b.GGR,
 		"ggr_minor":             b.GGR,
 		"bonus_cost":            b.BonusCost,

@@ -17,6 +17,7 @@ function useApiFetch<T>(path: string): FetchState<T> {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
+    setData(null)
     try {
       const res = await apiFetch(path)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -39,6 +40,7 @@ function useApiFetch<T>(path: string): FetchState<T> {
 
 export type DashboardNGRBreakdown = {
   ggr: number
+  total_wagered_minor?: number
   bonus_cost: number
   cashback_paid: number
   rakeback_paid: number
@@ -75,6 +77,8 @@ export type CasinoAnalyticsResponse = {
     bonus_cost_minor: number
     /** Cash rewards (rakeback + cashback + VIP/hunt/challenge cash) from ledger; aligns with NGR cost splits. */
     reward_expense_minor?: number
+    /** ABS stake volume (game.debit / game.bet / sportsbook.debit) in the same window as NGR; matches dashboard total wagered semantics. */
+    total_wagered_minor?: number
   }
   timeseries: Array<{
     date: string

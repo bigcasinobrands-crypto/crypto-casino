@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import PageMeta from '../components/common/PageMeta'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import WorldSessionsMap from '../components/analytics/WorldSessionsMap'
 import { StatCard } from '../components/dashboard'
 import { useBootstrapTooltip } from '../hooks/useBootstrapTooltip'
 import { useTrafficAnalytics, type TrafficPeriod } from '../hooks/useTrafficAnalytics'
+import { buildAnalyticsTimeframeSearch, parseTrafficPeriodParam } from '../lib/analyticsTimeframeQuery'
 import { formatCompact } from '../lib/format'
 import DataTimeframeBar from '../components/dashboard/DataTimeframeBar'
 
@@ -29,11 +30,26 @@ function formatDuration(sec: number): string {
 }
 
 export default function DemographicsOverviewPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [period, setPeriod] = useState<TrafficPeriod>('30d')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const { data, loading, error, refetch } = useTrafficAnalytics(period, customStart, customEnd)
   const worldMapTitleRef = useBootstrapTooltip<HTMLHeadingElement>(WORLD_MAP_TOOLTIP)
+
+  useEffect(() => {
+    setPeriod(parseTrafficPeriodParam(searchParams.get('period')))
+    setCustomStart(searchParams.get('start') ?? '')
+    setCustomEnd(searchParams.get('end') ?? '')
+  }, [searchParams])
+
+  const pushTimeframeToUrl = useCallback(
+    (p: TrafficPeriod, start: string, end: string) => {
+      const qs = buildAnalyticsTimeframeSearch(p, start, end)
+      setSearchParams(new URLSearchParams(qs), { replace: true })
+    },
+    [setSearchParams],
+  )
 
   return (
     <>
@@ -120,12 +136,26 @@ export default function DemographicsOverviewPage() {
 
       <DataTimeframeBar
         value={period}
-        onChange={(next) => setPeriod(next as TrafficPeriod)}
+        onChange={(next) => {
+          const p = next as TrafficPeriod
+          setPeriod(p)
+          if (p === 'custom') {
+            pushTimeframeToUrl('custom', customStart, customEnd)
+          } else {
+            pushTimeframeToUrl(p, '', '')
+          }
+        }}
         options={PERIOD_OPTIONS}
         startDate={customStart}
         endDate={customEnd}
-        onStartDateChange={setCustomStart}
-        onEndDateChange={setCustomEnd}
+        onStartDateChange={(v) => {
+          setCustomStart(v)
+          if (period === 'custom') pushTimeframeToUrl('custom', v, customEnd)
+        }}
+        onEndDateChange={(v) => {
+          setCustomEnd(v)
+          if (period === 'custom') pushTimeframeToUrl('custom', customStart, v)
+        }}
         trailing={
           <button
             type="button"
@@ -156,7 +186,17 @@ export default function DemographicsOverviewPage() {
               <h3 ref={worldMapTitleRef} className="card-title mb-0 fs-6 cursor-help" tabIndex={0}>
                 World map · sessions by country
               </h3>
-              <Link to="/analytics/traffic-sources" className="btn btn-sm btn-outline-primary">
+              <Link
+                to={
+                  searchParams.toString()
+                    ? {
+                        pathname: '/analytics/traffic-sources',
+                        search: `?${searchParams.toString()}`,
+                      }
+                    : '/analytics/traffic-sources'
+                }
+                className="btn btn-sm btn-outline-primary"
+              >
                 Traffic sources
               </Link>
             </div>

@@ -28,6 +28,7 @@ import {
 } from '../lib/format'
 import { alignDailyCounts, alignTwoDailyTotals } from '../lib/dashboardSeries'
 import { isDashboardDummyMode } from '../lib/dashboardDummy'
+import { buildAnalyticsTimeframeSearch } from '../lib/analyticsTimeframeQuery'
 import WorldSessionsMap from '../components/analytics/WorldSessionsMap'
 import { useBootstrapTooltip } from '../hooks/useBootstrapTooltip'
 import { useTrafficAnalytics, type TrafficPeriod } from '../hooks/useTrafficAnalytics'
@@ -35,7 +36,7 @@ import { useCasinoAnalytics } from '../hooks/useCasinoAnalytics'
 import DataTimeframeBar from '../components/dashboard/DataTimeframeBar'
 
 const VISITOR_GEOGRAPHY_TOOLTIP =
-  'Sessions by country for the period shown under the title. Figures come from player lobby traffic (one browser session per row in the database). Open Demographics for the full map, top countries table, device mix, and 7 / 30 / 90-day ranges.'
+  'Sessions by country for the period selected in Timeframe above. Figures come from player lobby traffic (one browser session per row). Open Demographics for the full map, top countries, device mix, and sources — the hub uses the same period when opened from here.'
 
 const CHART_PERIODS = ['30d', '7d', '90d']
 const DASHBOARD_PERIOD_OPTIONS = [
@@ -112,6 +113,10 @@ export default function DashboardPage() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const periodLabel = selectedPeriodLabel(chartPeriod)
+  const analyticsHubSearch = useMemo(
+    () => buildAnalyticsTimeframeSearch(chartPeriod, customStart, customEnd),
+    [chartPeriod, customStart, customEnd],
+  )
   const {
     data: casinoAnalytics,
     loading: casinoAnalyticsLoading,
@@ -177,7 +182,9 @@ export default function DashboardPage() {
   const selectedGGR = ggrValues.reduce((sum, value) => sum + value, 0)
   /** Headline GGR/NGR use the same ledger-backed window as `/casino-analytics` (fallback to chart slice if analytics unavailable). */
   const headlineGGR =
-    casinoAnalytics != null && !casinoAnalyticsError ? (casinoAnalytics.kpis?.ggr_minor ?? selectedGGR) : selectedGGR
+    casinoAnalytics != null && !casinoAnalyticsError && !casinoAnalyticsLoading
+      ? (casinoAnalytics.kpis?.ggr_minor ?? selectedGGR)
+      : selectedGGR
   const selectedDeposits = charts?.deposits_by_day.reduce((sum, row) => sum + (row.total_minor ?? 0), 0) ?? 0
   const selectedDepositCount = charts?.deposits_by_day.reduce((sum, row) => sum + (row.count ?? 0), 0) ?? 0
   const selectedWithdrawals = charts?.withdrawals_by_day.reduce((sum, row) => sum + (row.total_minor ?? 0), 0) ?? 0
@@ -198,11 +205,19 @@ export default function DashboardPage() {
         ? (kpis?.arpu_7d ?? 0)
         : (kpis?.arpu_30d ?? 0)
   const selectedTotalWagered = useMemo(() => {
+    if (
+      casinoAnalytics != null &&
+      !casinoAnalyticsError &&
+      !casinoAnalyticsLoading &&
+      typeof casinoAnalytics.kpis.total_wagered_minor === 'number'
+    ) {
+      return casinoAnalytics.kpis.total_wagered_minor
+    }
     if (!kpis) return 0
     if (chartPeriod === '7d') return kpis.total_wagered_7d ?? 0
     if (chartPeriod === 'all') return kpis.total_wagered_all ?? 0
     return kpis.total_wagered_30d ?? 0
-  }, [chartPeriod, kpis])
+  }, [chartPeriod, kpis, casinoAnalytics, casinoAnalyticsError, casinoAnalyticsLoading])
   const selectedAvgDeposit = selectedDepositCount > 0 ? selectedDeposits / selectedDepositCount : 0
 
   const [challengesSummary, setChallengesSummary] = useState<ChallengesSummaryJSON | null>(null)
@@ -422,8 +437,14 @@ export default function DashboardPage() {
           <>
             <div className="col-lg col-md-6 col-12">
               <StatCard
-                label={`Total wagered (${periodLabel === '7d' ? '7d' : periodLabel === 'all' ? 'all' : '30d roll-up'})`}
-                value={formatCurrency(selectedTotalWagered)}
+                label={`Total wagered (${periodLabel})`}
+                value={
+                  casinoAnalyticsError
+                    ? '—'
+                    : casinoAnalyticsLoading
+                      ? '...'
+                      : formatCurrency(selectedTotalWagered)
+                }
                 iconClass="bi-dice-5"
                 variant="secondary"
               />
@@ -431,7 +452,13 @@ export default function DashboardPage() {
             <div className="col-lg col-md-6 col-12">
               <StatCard
                 label={`ARPU / wagering user (${periodLabel})`}
-                value={formatCurrency(selectedArpu)}
+                value={
+                  casinoAnalyticsError
+                    ? '—'
+                    : casinoAnalyticsLoading
+                      ? '...'
+                      : formatCurrency(selectedArpu)
+                }
                 iconClass="bi-currency-dollar"
                 variant="secondary"
               />
@@ -477,7 +504,13 @@ export default function DashboardPage() {
             <div className="col-xl-2 col-lg-4 col-md-6 col-12">
               <StatCard
                 label={`GGR (${periodLabel})`}
-                value={formatCurrency(headlineGGR)}
+                value={
+                  casinoAnalyticsError
+                    ? '—'
+                    : casinoAnalyticsLoading
+                      ? '...'
+                      : formatCurrency(headlineGGR)
+                }
                 iconClass="bi-graph-up-arrow"
                 variant="primary"
               />
@@ -514,8 +547,14 @@ export default function DashboardPage() {
             </div>
             <div className="col-xl-2 col-lg-4 col-md-6 col-12">
               <StatCard
-                label={`Active players (${periodLabel === '7d' ? '7d' : '30d'})`}
-                value={formatCompact(selectedActivePlayers)}
+                label={`Active players (${periodLabel})`}
+                value={
+                  casinoAnalyticsError
+                    ? '—'
+                    : casinoAnalyticsLoading
+                      ? '...'
+                      : formatCompact(selectedActivePlayers)
+                }
                 iconClass="bi-people"
                 variant="warning"
               />
@@ -601,7 +640,7 @@ export default function DashboardPage() {
                   Sessions by country (last {traffic?.period ?? periodLabel})
                 </p>
               </div>
-              <Link to="/analytics/demographics" className="btn btn-sm btn-outline-primary">
+              <Link to={`/analytics/demographics?${analyticsHubSearch}`} className="btn btn-sm btn-outline-primary">
                 Open demographics hub
               </Link>
             </div>
@@ -611,7 +650,7 @@ export default function DashboardPage() {
               ) : trafficError && !traffic ? (
                 <p className="text-secondary small mb-0">
                   Map unavailable ({trafficError}). Open{' '}
-                  <Link to="/analytics/demographics">Demographics</Link> to retry.
+                  <Link to={`/analytics/demographics?${analyticsHubSearch}`}>Demographics</Link> to retry.
                 </p>
               ) : traffic ? (
                 <WorldSessionsMap countries={traffic.countries} height={280} />
@@ -649,7 +688,7 @@ export default function DashboardPage() {
                 </table>
               </div>
               <div className="p-2 border-top bg-body-secondary">
-                <Link to="/analytics/traffic-sources" className="small link-primary">
+                <Link to={`/analytics/traffic-sources?${analyticsHubSearch}`} className="small link-primary">
                   Traffic sources &amp; attribution →
                 </Link>
               </div>

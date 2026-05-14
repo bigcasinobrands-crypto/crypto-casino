@@ -53,6 +53,10 @@ func parseTrafficWindow(period, startRaw, endRaw string) (start, end time.Time, 
 	case "all":
 		label = "all"
 		start = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	case "custom":
+		// Callers should use start/end; if only period=custom appears, behave like trailing 30d.
+		label = "30d"
+		start = end.Add(-30 * 24 * time.Hour)
 	default:
 		err = fmt.Errorf("unsupported period")
 	}
