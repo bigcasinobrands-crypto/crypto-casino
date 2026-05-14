@@ -224,13 +224,21 @@ export function IconSwords(props: IconProps) {
   )
 }
 
-/** “Hot now” / trending — flame mark (stroke; uses `currentColor`). */
-export function IconFlame(props: IconProps) {
-  const b = base(props)
+const HOT_NOW_FLAME_SRC = '/icons/hot-now-flame.png'
+
+/** “Hot now” — brand flame asset (purple on dark); raster for exact art/colour match. */
+export function IconFlame({ size = 20, className, style, id }: IconProps) {
   return (
-    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none">
-      <path d="M8.5 14.5A2.5 2.5 0 0 0 12 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 2 8 0 2.5-2.5 4.5-5 4.5z" />
-    </svg>
+    <img
+      id={id}
+      src={HOT_NOW_FLAME_SRC}
+      width={size}
+      height={size}
+      alt=""
+      aria-hidden
+      style={style}
+      className={`shrink-0 select-none object-contain ${className ?? ''}`.trim() || undefined}
+    />
   )
 }
 
