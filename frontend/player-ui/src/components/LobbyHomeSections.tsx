@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FC, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
@@ -9,7 +9,7 @@ import { emitPlayerBarrierFromBody, emitPlayerBarrierIfKnown } from '../lib/play
 import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { GameCardSkeleton } from './GameCardSkeleton'
-import { IconChevronLeft, IconChevronRight } from './icons'
+import { IconBanknote, IconChevronLeft, IconChevronRight, IconFlame, IconGem, IconRadio, IconSparkles } from './icons'
 import StudioMarqueeSection from './StudioMarqueeSection'
 
 type Game = {
@@ -233,11 +233,14 @@ function ViewAllScrollCluster({
 
 function GameSection({
   title,
+  icon,
   viewAllTo,
   games,
   showSkeletons,
 }: {
   title: string
+  /** Optional leading icon (matches casino nav / category semantics). */
+  icon?: ReactNode
   viewAllTo: string
   games: Game[]
   /** Section-specific: hide skeleton as soon as this row’s catalog slice resolves (not gated on slower rows). */
@@ -296,8 +299,13 @@ function GameSection({
       <div className="mb-2 flex flex-nowrap items-center justify-between gap-2 sm:mb-2.5 sm:gap-2.5 min-[1280px]:mb-3">
         <Link
           to={viewAllTo}
-          className="group/rowtitle flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-bold leading-tight tracking-tight text-white transition-colors duration-150 hover:text-white/95 sm:text-sm sm:font-extrabold"
+          className="group/rowtitle flex min-w-0 flex-1 items-center gap-2 text-[15px] font-bold leading-tight tracking-tight text-white transition-colors duration-150 hover:text-white/95 sm:text-sm sm:font-extrabold"
         >
+          {icon ? (
+            <span className="shrink-0 text-casino-primary [&>svg]:block" aria-hidden>
+              {icon}
+            </span>
+          ) : null}
           <span className="min-w-0">{title}</span>
           <IconChevronRight
             size={17}
@@ -496,16 +504,41 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
         </div>
       ) : null}
       <GameSection
+        icon={<IconFlame size={18} />}
         title={t('nav.casino.hot_now')}
         viewAllTo="/casino/challenges"
         games={logoRowGames}
         showSkeletons={!hotRowReady}
       />
-      <GameSection title={t('nav.casino.slots')} viewAllTo="/casino/slots" games={slots} showSkeletons={!slotsLoaded} />
+      <GameSection
+        icon={<IconGem size={18} />}
+        title={t('nav.casino.slots')}
+        viewAllTo="/casino/slots"
+        games={slots}
+        showSkeletons={!slotsLoaded}
+      />
       <StudioMarqueeSection />
-      <GameSection title={t('nav.casino.new_releases')} viewAllTo="/casino/new" games={newRel} showSkeletons={!newLoaded} />
-      <GameSection title={t('lobby.sectionLiveCasino')} viewAllTo="/casino/live" games={live} showSkeletons={!liveLoaded} />
-      <GameSection title={t('nav.casino.bonus_buys')} viewAllTo="/casino/bonus-buys" games={bonus} showSkeletons={!bonusLoaded} />
+      <GameSection
+        icon={<IconSparkles size={18} />}
+        title={t('nav.casino.new_releases')}
+        viewAllTo="/casino/new"
+        games={newRel}
+        showSkeletons={!newLoaded}
+      />
+      <GameSection
+        icon={<IconRadio size={18} />}
+        title={t('lobby.sectionLiveCasino')}
+        viewAllTo="/casino/live"
+        games={live}
+        showSkeletons={!liveLoaded}
+      />
+      <GameSection
+        icon={<IconBanknote size={18} />}
+        title={t('nav.casino.bonus_buys')}
+        viewAllTo="/casino/bonus-buys"
+        games={bonus}
+        showSkeletons={!bonusLoaded}
+      />
     </div>
   )
 }

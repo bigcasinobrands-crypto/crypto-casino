@@ -11,8 +11,8 @@ import {
   IconGem,
   IconRadio,
   IconSearch,
+  IconFlame,
   IconSparkles,
-  IconZap,
 } from './icons'
 
 const SEARCH_DEBOUNCE_MS = 360
@@ -79,7 +79,7 @@ export const CasinoCatalogNavPills: FC<CasinoCatalogNavPillsProps> = ({
         key: 'hot',
         to: '/casino/games',
         label: t('nav.casino.hot_now'),
-        icon: IconZap,
+        icon: IconFlame,
         isActive: ({ lobbyDashboardHome: home }) => home,
       },
       {

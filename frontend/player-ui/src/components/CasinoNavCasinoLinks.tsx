@@ -10,7 +10,7 @@ import {
   IconRadio,
   IconSparkles,
   IconStar,
-  IconSwords,
+  IconFlame,
   IconTarget,
 } from './icons'
 import type { CasinoNavCategory } from '../lib/casinoNav'
@@ -23,7 +23,7 @@ import {
 } from '../lib/casinoNav'
 
 const ICON_MAP: Record<string, (size: number) => ReactNode> = {
-  hot_now: (s) => <IconSwords size={s} aria-hidden />,
+  hot_now: (s) => <IconFlame size={s} aria-hidden />,
   new_releases: (s) => <IconSparkles size={s} aria-hidden />,
   slots: (s) => <IconGem size={s} aria-hidden />,
   bonus_buys: (s) => <IconBanknote size={s} aria-hidden />,
