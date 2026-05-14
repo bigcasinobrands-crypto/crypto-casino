@@ -244,6 +244,9 @@ type Config struct {
 	// country and as Oddin iframe fallback; avoids hard-coding US for brands that block it.
 	OddinDefaultCountry string
 	OddinDarkMode       bool
+	// CasinoAnalyticsARPUUseGGR — when true, headline ARPU (ngr_per_wagering_user) divides GGR by active
+	// wagering users instead of NGR. Default false (CASINO_ANALYTICS_ARPU_USE_GGR).
+	CasinoAnalyticsARPUUseGGR bool
 }
 
 // DepositAssetCanonicalKeys are standard symbol_network combinations surfaced in admin UI (aligned with payment_currencies.symbol/network).
@@ -611,6 +614,7 @@ func Load() (Config, error) {
 	} else {
 		c.OddinDarkMode = parseBoolEnv(os.Getenv("ODDIN_DARK_MODE"))
 	}
+	c.CasinoAnalyticsARPUUseGGR = parseBoolEnv(os.Getenv("CASINO_ANALYTICS_ARPU_USE_GGR"))
 	if c.DatabaseURL == "" {
 		return c, fmt.Errorf("DATABASE_URL is required — copy services/core/.env.example to services/core/.env, start Postgres (e.g. `docker compose up -d postgres redis`), then retry (or run `npm run dev:casino` from the repo root)")
 	}

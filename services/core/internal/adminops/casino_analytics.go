@@ -3,6 +3,8 @@ package adminops
 import (
 	"context"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/crypto-casino/core/internal/adminapi"
@@ -34,7 +36,11 @@ func parseAnalyticsWindow(r *http.Request) (time.Time, time.Time, bool, error) {
 		return start, end, false, nil
 	}
 
-	switch q.Get("period") {
+	period := strings.TrimSpace(q.Get("period"))
+	if period == "" {
+		period = strings.TrimSpace(q.Get("range"))
+	}
+	switch period {
 	case "7d":
 		return now.AddDate(0, 0, -7), now, false, nil
 	case "30d":
@@ -207,37 +213,43 @@ SELECT
 		return
 	}
 
-	var ngrPerWageringUser float64
-	if activeWagering > 0 {
-		ngrPerWageringUser = float64(ngrTotal) / float64(activeWagering)
+	useGGRForARPU := h.Cfg != nil && h.Cfg.CasinoAnalyticsARPUUseGGR
+	ngrPerWageringUser := arpuPerWageringUserMinor(useGGRForARPU, ggrMinor, ngrTotal, activeWagering)
+	arpuMetric := "ngr"
+	if useGGRForARPU {
+		arpuMetric = "ggr"
 	}
 
 	kpisOut := map[string]any{
-		"registrations":              registrations,
-		"checkout_attempts":          checkoutAttempts,
-		"settled_deposits":           settledDeposits,
-		"ftd_count":                  ftdCount,
-		"reg_to_ftd_conversion_rate": regToFTD,
-		"checkout_to_ftd_rate":       checkoutToFTD,
-		"avg_first_deposit_minor":    avgFirstDepositMinor,
-		"median_time_to_ftd_hours":   medianTTFDHours,
-		"repeat_deposit_d7_rate":     repeatD7Rate,
-		"repeat_deposit_d30_rate":    repeatD30Rate,
-		"ggr_minor":                  ggrMinor,
-		"ngr_total":                  ngrTotal,
-		"ngr_proxy_minor":            ngrTotal,
-		"active_wagering_users":      activeWagering,
-		"ngr_per_wagering_user":      ngrPerWageringUser,
-		"bonus_cost_minor":           bonusCostMinor,
-		"reward_expense_minor":       rewardCostMinor,
-		"total_wagered_minor":                ngrBD.SettledBetsMinor,
-		"gross_stake_debit_turnover_minor":   ngrBD.TotalWageredDebitMinor,
-		"ngr_breakdown":              ngrBreak,
+		"analytics_schema_version":         AnalyticsSchemaVersion,
+		"registrations":                    registrations,
+		"checkout_attempts":                checkoutAttempts,
+		"settled_deposits":                 settledDeposits,
+		"ftd_count":                        ftdCount,
+		"reg_to_ftd_conversion_rate":       regToFTD,
+		"checkout_to_ftd_rate":             checkoutToFTD,
+		"avg_first_deposit_minor":          avgFirstDepositMinor,
+		"median_time_to_ftd_hours":         medianTTFDHours,
+		"repeat_deposit_d7_rate":           repeatD7Rate,
+		"repeat_deposit_d30_rate":          repeatD30Rate,
+		"ggr_minor":                        ggrMinor,
+		"ggr_total":                        ggrMinor,
+		"ngr_total":                        ngrTotal,
+		"active_wagering_users":            activeWagering,
+		"ngr_per_wagering_user":            ngrPerWageringUser,
+		"arpu_metric":                      arpuMetric,
+		"bonus_cost_minor":                 bonusCostMinor,
+		"reward_expense_minor":             rewardCostMinor,
+		"total_wagered_minor":              ngrBD.SettledBetsMinor,
+		"settled_wager_total":              ngrBD.SettledBetsMinor,
+		"gross_stake_debit_turnover_minor": ngrBD.TotalWageredDebitMinor,
+		"ngr_breakdown":                    ngrBreak,
 	}
 	if ngrPrevious != nil {
 		kpisOut["ngr_previous_period"] = *ngrPrevious
 	}
 
+	w.Header().Set("X-Analytics-Schema-Version", strconv.FormatInt(AnalyticsSchemaVersion, 10))
 	writeJSON(w, map[string]any{
 		"window": map[string]any{
 			"start":    start.Format(time.RFC3339),

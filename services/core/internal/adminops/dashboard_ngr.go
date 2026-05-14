@@ -3,6 +3,7 @@ package adminops
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/crypto-casino/core/internal/adminapi"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"net/http"
 )
 
 // dashboardNGRBreakdown holds ledger-backed GGR components and NGR cost buckets (minor units).
@@ -36,6 +36,17 @@ func ngrTotalFromBreakdown(b dashboardNGRBreakdown) int64 {
 	costs := b.BonusCost + b.CashbackPaid + b.RakebackPaid + b.VipRewardsPaid +
 		b.AffiliateCommission + b.JackpotCosts + b.PaymentProviderFees + b.ManualAdjustments
 	return b.GGR - costs
+}
+
+// arpuPerWageringUserMinor returns headline ARPU in minor units per distinct wagering user (see CASINO_ANALYTICS_ARPU_USE_GGR).
+func arpuPerWageringUserMinor(useGGR bool, ggr, ngr, active int64) float64 {
+	if active <= 0 {
+		return 0
+	}
+	if useGGR {
+		return float64(ggr) / float64(active)
+	}
+	return float64(ngr) / float64(active)
 }
 
 func ngrDebugEnabled() bool {
@@ -147,7 +158,7 @@ func queryActiveWageringUsers(ctx context.Context, pool *pgxpool.Pool, start, en
 	q := `
 SELECT COALESCE(COUNT(DISTINCT le.user_id), 0)
 FROM ledger_entries le
-WHERE le.entry_type IN ('game.debit','sportsbook.debit')
+WHERE le.entry_type IN ('game.debit','game.bet','sportsbook.debit')
   AND ` + win + ` AND ` + ngrF
 	args := []any{start, end}
 	if all {

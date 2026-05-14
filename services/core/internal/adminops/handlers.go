@@ -97,6 +97,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.With(adminapi.RequireAnyRole("superadmin")).Get("/debug/finance-ggr", h.DebugFinanceGGR)
 	r.With(adminapi.RequireAnyRole("superadmin")).Get("/debug/finance-ngr", h.DebugFinanceNGR)
 	r.With(adminapi.RequireAnyRole("superadmin")).Get("/debug/finance-ledger-reconciliation", h.DebugFinanceLedgerReconciliation)
+	r.With(adminapi.RequireAnyRole("superadmin")).Get("/debug/analytics-breakdown", h.DebugAnalyticsBreakdown)
 	r.Get("/dashboard/crypto-chain-summary", h.DashboardCryptoChainSummary)
 	r.Get("/analytics/traffic", h.TrafficAnalytics)
 	r.Get("/analytics/finance-geo", h.FinanceGeoAnalytics)

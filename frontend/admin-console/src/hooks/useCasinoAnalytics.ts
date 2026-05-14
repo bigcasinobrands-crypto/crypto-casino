@@ -72,9 +72,14 @@ export type CasinoAnalyticsResponse = {
     ngr_per_wagering_user?: number
     /** Ledger-backed NGR for the selected window (GGR minus settled cost buckets). */
     ngr_total?: number
+    analytics_schema_version?: number
+    /** Same as ggr_minor; explicit alias for finance dashboards. */
+    ggr_total?: number
+    settled_wager_total?: number
+    /** "ngr" (default) or "ggr" when CASINO_ANALYTICS_ARPU_USE_GGR is set on the API. */
+    arpu_metric?: string
     ngr_previous_period?: number
     ngr_breakdown?: DashboardNGRBreakdown
-    ngr_proxy_minor: number
     bonus_cost_minor: number
     /** Cash rewards (rakeback + cashback + VIP/hunt/challenge cash) from ledger; aligns with NGR cost splits. */
     reward_expense_minor?: number

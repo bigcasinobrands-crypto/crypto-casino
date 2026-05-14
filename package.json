@@ -37,6 +37,7 @@
     "dev:api": "node scripts/go-dev.mjs ./cmd/api",
     "migrate:core": "node scripts/go-dev.mjs ./cmd/migrate",
     "seed:dashboard-kpis": "node scripts/go-dev.mjs ./cmd/dashboardseed",
+    "admin:rebuild-analytics": "node scripts/go-dev.mjs ./cmd/adminrebuildanalytics",
     "dev:worker": "node scripts/go-dev.mjs ./cmd/worker",
     "dev:financial-core": "npm run start:dev -w @repo/financial-core",
     "ngrok:api": "ngrok http 9090",
