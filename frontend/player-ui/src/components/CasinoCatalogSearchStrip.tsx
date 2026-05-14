@@ -51,7 +51,7 @@ const pillBaseCompact =
 const pillIdle =
   'text-white/[0.88] hover:bg-white/[0.08] hover:text-white active:bg-white/[0.11] [&_svg]:text-white/[0.88] hover:[&_svg]:text-white'
 const pillActive =
-  'bg-casino-primary text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:bg-casino-primary-dim hover:text-white active:brightness-[0.95] [&_svg]:text-white'
+  'bg-casino-primary text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] hover:bg-casino-primary-dim hover:text-white active:brightness-[0.95] [&_svg]:text-white [&_img]:brightness-0 [&_img]:invert'
 
 export type CasinoCatalogNavPillsProps = {
   pathname: string
