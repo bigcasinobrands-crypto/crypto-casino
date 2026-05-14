@@ -199,17 +199,23 @@ export function IconPanelLeftOpen(props: IconProps) {
   )
 }
 
-export function IconDices(props: IconProps) {
+/** Casino / games — overlapping playing cards (stroke + pips; follows `currentColor` like other shell icons). */
+export function IconCasino(props: IconProps) {
   const b = base(props)
   return (
     <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="2" width="9" height="9" rx="1.5" />
-      <rect x="13" y="13" width="9" height="9" rx="1.5" />
-      <circle cx="5.5" cy="5.5" r="1" />
-      <circle cx="18.5" cy="18.5" r="1" />
+      {/* rear card, upper-right */}
+      <rect x="10.5" y="2.5" width="8.5" height="12" rx="2" fill="none" />
+      {/* front card, lower-left */}
+      <rect x="3" y="7.5" width="8.5" height="12" rx="2" fill="none" />
+      <rect x="12.25" y="4.25" width="2.25" height="2.25" rx="0.45" fill="currentColor" stroke="none" />
+      <rect x="4.75" y="9.25" width="2.25" height="2.25" rx="0.45" fill="currentColor" stroke="none" />
     </svg>
   )
 }
+
+/** Same glyph as {@link IconCasino} — legacy export name. */
+export const IconDices = IconCasino
 
 export function IconSwords(props: IconProps) {
   const b = base(props)

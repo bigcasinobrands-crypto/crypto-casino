@@ -23,7 +23,7 @@ import { RequireAuthNavLink } from './RequireAuthNavLink'
 import { LanguageMenu } from './LanguageMenu'
 import {
   IconChevronDown,
-  IconDices,
+  IconCasino,
   IconFileText,
   IconHeadphones,
   IconMessageSquare,
@@ -121,7 +121,7 @@ export default function MobileCasinoMenuOverlay({
               onClick={(e) => e.stopPropagation()}
             >
               <span className="flex min-w-0 items-center gap-2.5">
-                <IconDices size={15} className="shrink-0 text-casino-muted" aria-hidden />
+                <IconCasino size={15} className="shrink-0 text-casino-muted" aria-hidden />
                 {t('sidebar.casino')}
               </span>
               <IconChevronDown size={15} className="shrink-0 text-casino-muted/90" aria-hidden />
@@ -137,7 +137,7 @@ export default function MobileCasinoMenuOverlay({
               }}
             >
               <span className="flex min-w-0 items-center gap-2.5">
-                <IconDices size={15} className="shrink-0 text-white/90" aria-hidden />
+                <IconCasino size={15} className="shrink-0 text-white/90" aria-hidden />
                 {t('sidebar.casino')}
               </span>
               <IconChevronDown

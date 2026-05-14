@@ -6,7 +6,7 @@ import { useAuthModal } from '../authModalContext'
 import { usePlayerAuth } from '../playerAuth'
 import {
   IconBanknote,
-  IconDices,
+  IconCasino,
   IconGift,
   IconMenu,
   IconSearch,
@@ -178,7 +178,7 @@ export default function PlayerMobileBottomNav({
           className={() => tabShell(casinoHighlighted)}
           aria-current={casinoHighlighted ? 'page' : undefined}
         >
-          <IconDices size={20} className={casinoHighlighted ? iconActive : iconInactive} aria-hidden />
+          <IconCasino size={20} className={casinoHighlighted ? iconActive : iconInactive} aria-hidden />
           <span className={labelClass(casinoHighlighted)}>{t('mobileNav.casino')}</span>
         </NavLink>
       </div>

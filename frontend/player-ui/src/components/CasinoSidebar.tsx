@@ -24,7 +24,7 @@ import {
   IconChevronDown,
   IconClock,
   IconCrown,
-  IconDices,
+  IconCasino,
   IconFileText,
   IconGem,
   IconGift,
@@ -291,7 +291,7 @@ export default function CasinoSidebar({
                 className={`${navItem} ${hotNowSidebarActive ? navItemActive : ''}`}
                 title={t('sidebar.casino')}
               >
-                <IconDices size={15} className="shrink-0" aria-hidden />
+                <IconCasino size={15} className="shrink-0" aria-hidden />
               </NavLink>
             ) : onSports ? (
               <Link
@@ -300,7 +300,7 @@ export default function CasinoSidebar({
                 onClick={(e) => e.stopPropagation()}
               >
                 <span className="flex min-w-0 items-center gap-2.5">
-                  <IconDices size={15} className="shrink-0 text-casino-muted" aria-hidden />
+                  <IconCasino size={15} className="shrink-0 text-casino-muted" aria-hidden />
                   {t('sidebar.casino')}
                 </span>
                 <IconChevronDown size={15} className="shrink-0 text-casino-muted/90" aria-hidden />
@@ -316,7 +316,7 @@ export default function CasinoSidebar({
                 aria-expanded={casinoOpen}
               >
                 <span className="flex min-w-0 items-center gap-2.5 text-white">
-                  <IconDices size={15} className="shrink-0 text-white/90" aria-hidden />
+                  <IconCasino size={15} className="shrink-0 text-white/90" aria-hidden />
                   {t('sidebar.casino')}
                 </span>
                 <IconChevronDown
