@@ -1,5 +1,6 @@
 import type { ImgHTMLAttributes, ReactNode } from 'react'
 import type { SVGProps } from 'react'
+import { useId } from 'react'
 import { PigmoAssetIcon } from './PigmoAssetIcon'
 import { getPigmoShellIconUrl } from '../lib/pigmoShellIconMap'
 import type { PigmoShellIconSlot } from '../lib/pigmoShellIconMap'
@@ -199,17 +200,20 @@ export function IconPanelLeftOpen(props: IconProps) {
   )
 }
 
-/** Casino / games — overlapping playing cards (stroke + pips; follows `currentColor` like other shell icons). */
+const CASINO_CARDS_SRC = '/icons/casino-cards.png'
+
+/** Casino / games — brand playing-cards asset; tinted via `currentColor` (SVG mask) like stroke icons. */
 export function IconCasino(props: IconProps) {
+  const maskId = useId().replace(/:/g, '')
   const b = base(props)
   return (
-    <svg {...b} aria-hidden stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      {/* rear card, upper-right */}
-      <rect x="10.5" y="2.5" width="8.5" height="12" rx="2" fill="none" />
-      {/* front card, lower-left */}
-      <rect x="3" y="7.5" width="8.5" height="12" rx="2" fill="none" />
-      <rect x="12.25" y="4.25" width="2.25" height="2.25" rx="0.45" fill="currentColor" stroke="none" />
-      <rect x="4.75" y="9.25" width="2.25" height="2.25" rx="0.45" fill="currentColor" stroke="none" />
+    <svg {...b} aria-hidden>
+      <defs>
+        <mask id={maskId} maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+          <image href={CASINO_CARDS_SRC} width="24" height="24" preserveAspectRatio="xMidYMid meet" />
+        </mask>
+      </defs>
+      <rect width="24" height="24" fill="currentColor" mask={`url(#${maskId})`} />
     </svg>
   )
 }
