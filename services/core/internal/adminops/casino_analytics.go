@@ -90,6 +90,11 @@ func (h *Handler) DashboardCasinoAnalytics(w http.ResponseWriter, r *http.Reques
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if h.dashboardDisplaySuppressed(ctx) {
+		w.Header().Set("X-Analytics-Schema-Version", strconv.FormatInt(AnalyticsSchemaVersion, 10))
+		writeJSON(w, zeroCasinoAnalyticsPayload(start, end, all))
+		return
+	}
 
 	var (
 		registrations, checkoutAttempts, settledDeposits int64
@@ -322,6 +327,10 @@ func (h *Handler) DashboardCryptoChainSummary(w http.ResponseWriter, r *http.Req
 	}
 	if err != nil {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroCryptoChainSummaryMap(start, end, all))
 		return
 	}
 

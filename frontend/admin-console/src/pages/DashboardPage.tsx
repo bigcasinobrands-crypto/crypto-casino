@@ -30,9 +30,11 @@ import { alignDailyCounts, alignTwoDailyTotals } from '../lib/dashboardSeries'
 import { isDashboardDummyMode } from '../lib/dashboardDummy'
 import { buildAnalyticsTimeframeSearch } from '../lib/analyticsTimeframeQuery'
 import WorldSessionsMap from '../components/analytics/WorldSessionsMap'
-import { useBootstrapTooltip } from '../hooks/useBootstrapTooltip'
+import { useMetricsDisplaySuppress } from '../context/MetricsDisplaySuppressContext'
+import { toast } from 'sonner'
 import { useTrafficAnalytics, type TrafficPeriod } from '../hooks/useTrafficAnalytics'
 import { useCasinoAnalytics } from '../hooks/useCasinoAnalytics'
+import { useBootstrapTooltip } from '../hooks/useBootstrapTooltip'
 import DataTimeframeBar from '../components/dashboard/DataTimeframeBar'
 
 const VISITOR_GEOGRAPHY_TOOLTIP =
@@ -109,6 +111,15 @@ type AttentionRow = {
 
 export default function DashboardPage() {
   const { role, apiFetch } = useAdminAuth()
+  const metricsSuppress = useMetricsDisplaySuppress()
+  const [resetDisplayBusy, setResetDisplayBusy] = useState(false)
+  const [showTestExclusionTip, setShowTestExclusionTip] = useState(() => {
+    try {
+      return localStorage.getItem('admin_dashboard_show_test_exclusion_tip') === '1'
+    } catch {
+      return false
+    }
+  })
   const [chartPeriod, setChartPeriod] = useState('30d')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
@@ -223,6 +234,17 @@ export default function DashboardPage() {
   const [challengesSummary, setChallengesSummary] = useState<ChallengesSummaryJSON | null>(null)
 
   useEffect(() => {
+    if (metricsSuppress.effectiveSuppressed) {
+      setChallengesSummary({
+        active_challenges: 0,
+        draft_challenges: 0,
+        entries_last_30d: 0,
+        challenge_wagered_minor: 0,
+        prizes_paid_minor_30d: 0,
+        flagged_pending: 0,
+      })
+      return
+    }
     let cancelled = false
     void (async () => {
       try {
@@ -236,7 +258,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [apiFetch])
+  }, [apiFetch, metricsSuppress.effectiveSuppressed])
 
   const needsAttention = useMemo((): AttentionRow[] => {
     if (dummyDashboard) return []
@@ -325,7 +347,20 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      {role === 'superadmin' && !dummyDashboard ? (
+      {!dummyDashboard && metricsSuppress.effectiveSuppressed ? (
+        <div className="alert alert-secondary small py-2 mb-3" role="status">
+          <strong>Display cleared:</strong> headline KPIs and charts show zeros until you click{' '}
+          <em>Restore live metrics</em> in the dev / demo panel below. No ledger or payment rows were deleted.
+          {metricsSuppress.clientFallback ? (
+            <span className="d-block mt-1 text-warning">
+              Browser fallback is active (API Redis not configured); only this browser is forced to zeros until you
+              restore.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {(role === 'superadmin' || role === 'admin') && !dummyDashboard ? (
         <details className="card border mb-3 shadow-sm">
           <summary className="card-header py-2 px-3 user-select-none" style={{ cursor: 'pointer' }}>
             How to populate dashboard metrics (dev / demo)
@@ -335,7 +370,7 @@ export default function DashboardPage() {
               Tiles and charts read from <strong>Postgres</strong> (ledger, users, payments). Clearing browser storage only
               affects this browser, not these figures.
             </p>
-            <ul className="mb-0">
+            <ul className="mb-3">
               <li className="mb-2">
                 <strong>UI-only:</strong> set <code className="user-select-all">VITE_ADMIN_DUMMY_DASHBOARD=true</code> on
                 this admin project — the dashboard uses deterministic demo payloads without extra DB writes.
@@ -349,8 +384,112 @@ export default function DashboardPage() {
                 <code>services/core</code>). Safe to re-run; rows use fixed idempotency keys.
               </li>
             </ul>
+            <div className="border-top pt-3">
+              <div className="fw-semibold mb-2">Reset dashboard metrics display</div>
+              <p className="mb-2 text-secondary">
+                Hides corrupted or demo-heavy numbers on <strong>this deployment</strong> by serving zeroed analytics from
+                the API (Redis flag). Does <strong>not</strong> delete ledger, payments, players, or audit logs.
+              </p>
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
+                  disabled={resetDisplayBusy}
+                  onClick={() => {
+                    void (async () => {
+                      setResetDisplayBusy(true)
+                      try {
+                        const r = await metricsSuppress.resetDisplayCache()
+                        if (r.ok === false) {
+                          toast.error('Clear failed', { description: 'Unexpected response from API.' })
+                          return
+                        }
+                        toast.success('Dashboard display data cleared', {
+                          description: r.client_fallback
+                            ? 'Redis not set on API — this browser only will show zeros until restore.'
+                            : 'All admins now see zeros until live metrics are restored.',
+                        })
+                        void refetchKpis()
+                        void refetchCharts()
+                        void refetchTopGames()
+                        void refetchPlayerStats()
+                        void refetchBonusStats()
+                        void refetchTraffic()
+                        void refetchCasinoAnalytics()
+                        void refetchSystem()
+                      } finally {
+                        setResetDisplayBusy(false)
+                      }
+                    })()
+                  }}
+                >
+                  Clear dashboard display data
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary"
+                  disabled={resetDisplayBusy}
+                  onClick={() => {
+                    void (async () => {
+                      setResetDisplayBusy(true)
+                      try {
+                        const r = await metricsSuppress.resumeDisplayCache()
+                        if (!r.ok) {
+                          toast.error('Restore failed', { description: 'Could not resume live metrics from the API.' })
+                          return
+                        }
+                        toast.success('Live dashboard metrics restored')
+                        void refetchKpis()
+                        void refetchCharts()
+                        void refetchTopGames()
+                        void refetchPlayerStats()
+                        void refetchBonusStats()
+                        void refetchTraffic()
+                        void refetchCasinoAnalytics()
+                        void refetchSystem()
+                      } finally {
+                        setResetDisplayBusy(false)
+                      }
+                    })()
+                  }}
+                >
+                  Restore live metrics
+                </button>
+              </div>
+              <div className="form-check">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="dash-test-exclusion-tip"
+                  checked={showTestExclusionTip}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setShowTestExclusionTip(on)
+                    try {
+                      if (on) localStorage.setItem('admin_dashboard_show_test_exclusion_tip', '1')
+                      else localStorage.removeItem('admin_dashboard_show_test_exclusion_tip')
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                />
+                <label className="form-check-label" htmlFor="dash-test-exclusion-tip">
+                  Show tip: excluding BlueOcean / provider test traffic from KPIs uses{' '}
+                  <code>users.exclude_from_dashboard_analytics</code> plus server filters (test.seed, debit_reset
+                  credits, etc.).
+                </label>
+              </div>
+            </div>
           </div>
         </details>
+      ) : null}
+
+      {!dummyDashboard && showTestExclusionTip && (role === 'admin' || role === 'superadmin') ? (
+        <div className="alert alert-light border small py-2 mb-3" role="note">
+          <strong>Test / provider traffic:</strong> KPI SQL already filters known test patterns where configured. Flag
+          sandbox players with <code className="user-select-all">exclude_from_dashboard_analytics</code> on the user row
+          to remove them from GGR/NGR-style rollups. Turn this reminder off in the dev / demo panel above.
+        </div>
       ) : null}
 
       <DataTimeframeBar

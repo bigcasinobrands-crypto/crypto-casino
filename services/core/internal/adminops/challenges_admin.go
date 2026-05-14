@@ -251,6 +251,10 @@ func (h *Handler) mountChallenges(r chi.Router) {
 
 func (h *Handler) challengesSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroChallengesSummaryMap())
+		return
+	}
 	var active, drafts int
 	var entries30, wager30, prizes30 int64
 	var flagged int
@@ -350,7 +354,7 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 			"id": id, "slug": slug, "title": title, "description": desc, "challenge_type": ctype, "status": st, "prize_type": ptype,
 			"max_winners": maxW, "winners_count": win,
 			"starts_at": starts.UTC().Format(time.RFC3339), "ends_at": ends.UTC().Format(time.RFC3339),
-			"created_at": created.UTC().Format(time.RFC3339),
+			"created_at":           created.UTC().Format(time.RFC3339),
 			"min_bet_amount_minor": minBet,
 			"prize_currency":       prizeCur,
 			"vip_only":             vipOnly,

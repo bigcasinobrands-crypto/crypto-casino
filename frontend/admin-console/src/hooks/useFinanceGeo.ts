@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAdminAuth } from '../authContext'
-import type { FinanceGeoPayload } from '../lib/financeGeo'
+import { useMetricsDisplaySuppress } from '../context/MetricsDisplaySuppressContext'
+import { emptyFinanceGeoPayload, type FinanceGeoPayload } from '../lib/financeGeo'
 
 export type FinanceGeoPeriod = '7d' | '30d' | '90d' | '6m' | 'ytd' | 'all' | 'custom'
 
 export function useFinanceGeo(period: FinanceGeoPeriod = '30d', customStart?: string, customEnd?: string) {
   const { apiFetch } = useAdminAuth()
+  const { effectiveSuppressed } = useMetricsDisplaySuppress()
   const [data, setData] = useState<FinanceGeoPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -13,6 +15,13 @@ export function useFinanceGeo(period: FinanceGeoPeriod = '30d', customStart?: st
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    if (effectiveSuppressed) {
+      const label =
+        period === 'custom' && customStart && customEnd ? `${customStart}–${customEnd}` : period
+      setData(emptyFinanceGeoPayload(label))
+      setLoading(false)
+      return
+    }
     try {
       const q = new URLSearchParams()
       if (period === 'custom' && customStart && customEnd) {
@@ -34,7 +43,7 @@ export function useFinanceGeo(period: FinanceGeoPeriod = '30d', customStart?: st
     } finally {
       setLoading(false)
     }
-  }, [apiFetch, period, customStart, customEnd])
+  }, [apiFetch, period, customStart, customEnd, effectiveSuppressed])
 
   useEffect(() => {
     void load()

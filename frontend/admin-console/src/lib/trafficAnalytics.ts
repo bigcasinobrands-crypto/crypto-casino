@@ -66,3 +66,21 @@ export type TrafficAnalyticsPayload = {
   technology: TrafficTechnology
   notes?: string
 }
+
+export function emptyTrafficAnalyticsPayload(period: string): TrafficAnalyticsPayload {
+  return {
+    period,
+    sessions_total: 0,
+    unique_visitors: 0,
+    new_visitors_pct: 0,
+    avg_session_seconds: 0,
+    countries: [],
+    channels: [],
+    social_platforms: [],
+    referrers: [],
+    utm_campaigns: [],
+    landing_pages: [],
+    technology: { mobile_pct: 0, desktop_pct: 0, tablet_pct: 0 },
+    notes: 'display_suppressed',
+  }
+}

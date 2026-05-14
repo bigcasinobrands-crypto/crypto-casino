@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminAuthProvider } from './authContext'
+import { MetricsDisplaySuppressProvider } from './context/MetricsDisplaySuppressContext'
 import { AppToaster } from './components/AppToaster'
 import { ReportingErrorBoundary } from './components/ReportingErrorBoundary'
 import { BlueOceanCatalogSyncProvider } from './context/BlueOceanCatalogSyncContext'
@@ -57,7 +58,8 @@ const KYCAIDSettingsPage = lazy(() => import('./pages/KYCAIDSettingsPage'))
 export default function App() {
   return (
     <AdminAuthProvider>
-      <AdminActivityLogProvider>
+      <MetricsDisplaySuppressProvider>
+        <AdminActivityLogProvider>
         <BlueOceanCatalogSyncProvider>
           <AppToaster />
           <ReportingErrorBoundary>
@@ -187,6 +189,7 @@ export default function App() {
           </ReportingErrorBoundary>
         </BlueOceanCatalogSyncProvider>
       </AdminActivityLogProvider>
+      </MetricsDisplaySuppressProvider>
     </AdminAuthProvider>
   )
 }

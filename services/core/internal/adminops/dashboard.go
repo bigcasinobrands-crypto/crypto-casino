@@ -28,6 +28,10 @@ func sqlSumReportingSettledStakes(timePredicate string) string {
 
 func (h *Handler) DashboardKPIs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroDashboardKPIsMap())
+		return
+	}
 	var (
 		totalWagered24h, totalWagered7d, totalWagered30d, totalWageredAll int64
 		dep24h, dep7d, dep30d                                             int64
@@ -223,6 +227,10 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", "invalid timeframe")
 		return
 	}
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroDashboardChartsMap())
+		return
+	}
 
 	depByDay := make([]map[string]any, 0)
 	depRows, err := h.Pool.Query(ctx, `
@@ -366,6 +374,10 @@ func (h *Handler) DashboardCharts(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DashboardTopGames(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroTopGamesMap())
+		return
+	}
 	limit := parseLimit(r.URL.Query().Get("limit"), 10)
 	if limit > 50 {
 		limit = 50
@@ -445,6 +457,10 @@ func (h *Handler) DashboardTopGames(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DashboardPlayerStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroPlayerStatsMap())
+		return
+	}
 
 	// Active users are defined uniformly across all dashboards as players who have a
 	// real ledger-backed wager (game.debit OR sportsbook.debit) in the window.

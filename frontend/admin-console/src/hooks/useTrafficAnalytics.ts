@@ -2,17 +2,28 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAdminAuth } from '../authContext'
 import { isDashboardDummyMode } from '../lib/dashboardDummy'
 import type { TrafficAnalyticsPayload } from '../lib/trafficAnalytics'
+import { emptyTrafficAnalyticsPayload } from '../lib/trafficAnalytics'
 import { dummyTrafficAnalyticsPayload } from '../lib/trafficAnalyticsDummy'
+import { useMetricsDisplaySuppress } from '../context/MetricsDisplaySuppressContext'
 
 export type TrafficPeriod = '7d' | '30d' | '90d' | '6m' | 'ytd' | 'all' | 'custom'
 
 export function useTrafficAnalytics(period: TrafficPeriod = '30d', customStart?: string, customEnd?: string) {
   const { apiFetch } = useAdminAuth()
+  const { effectiveSuppressed } = useMetricsDisplaySuppress()
   const [data, setData] = useState<TrafficAnalyticsPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
+    if (effectiveSuppressed) {
+      const label =
+        period === 'custom' && customStart && customEnd ? 'custom' : period === 'custom' ? '30d' : period
+      setData(emptyTrafficAnalyticsPayload(label === 'custom' ? '30d' : label))
+      setError(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setData(null)
     setError(null)
@@ -66,7 +77,7 @@ export function useTrafficAnalytics(period: TrafficPeriod = '30d', customStart?:
     } finally {
       setLoading(false)
     }
-  }, [apiFetch, period, customStart, customEnd])
+  }, [apiFetch, period, customStart, customEnd, effectiveSuppressed])
 
   useEffect(() => {
     void load()

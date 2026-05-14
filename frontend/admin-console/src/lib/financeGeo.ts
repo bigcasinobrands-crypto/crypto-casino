@@ -27,3 +27,23 @@ export type FinanceGeoPayload = {
   rows: FinanceGeoRow[]
   coverage: FinanceGeoCoverage
 }
+
+const zeroCoverage = (): FinanceGeoCoverage => ({
+  total_lines: 0,
+  fingerprint_ledger_lines: 0,
+  traffic_session_lines: 0,
+  ledger_explicit_lines: 0,
+  unknown_source_lines: 0,
+  unknown_country_lines: 0,
+  country_resolved_pct: 0,
+})
+
+/** Matches server zero payload when analytics display is suppressed (no DB deletes). */
+export function emptyFinanceGeoPayload(periodLabel: string): FinanceGeoPayload {
+  return {
+    period: periodLabel,
+    notes: 'display_suppressed',
+    rows: [],
+    coverage: zeroCoverage(),
+  }
+}

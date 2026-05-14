@@ -25,6 +25,11 @@ func (h *Handler) DebugAnalyticsBreakdown(w http.ResponseWriter, r *http.Request
 		adminapi.WriteError(w, http.StatusServiceUnavailable, "db_unavailable", "database not configured")
 		return
 	}
+	if h.dashboardDisplaySuppressed(ctx) {
+		w.Header().Set("X-Analytics-Schema-Version", strconv.FormatInt(AnalyticsSchemaVersion, 10))
+		writeJSON(w, zeroDebugAnalyticsBreakdownMap(start, end, all))
+		return
+	}
 	w.Header().Set("X-Analytics-Schema-Version", strconv.FormatInt(AnalyticsSchemaVersion, 10))
 
 	b, err := queryDashboardNGRBreakdown(ctx, h.Pool, start, end, all)

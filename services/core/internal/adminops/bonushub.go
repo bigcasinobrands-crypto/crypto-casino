@@ -65,6 +65,10 @@ func (h *Handler) mountBonusHub(r chi.Router) {
 
 func (h *Handler) bonusHubDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroBonusHubDashboardMap())
+		return
+	}
 	var promos, instActive, grants24 int64
 	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM promotions WHERE status != 'archived'`).Scan(&promos)
 	_ = h.Pool.QueryRow(ctx, `SELECT COUNT(*)::bigint FROM user_bonus_instances WHERE status = 'active'`).Scan(&instActive)

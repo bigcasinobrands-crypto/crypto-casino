@@ -198,6 +198,10 @@ func (h *Handler) DashboardNGRBreakdown(w http.ResponseWriter, r *http.Request) 
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if h.dashboardDisplaySuppressed(ctx) {
+		writeJSON(w, zeroNGRBreakdownPayload(start, end, all))
+		return
+	}
 	b, err := queryDashboardNGRBreakdown(ctx, h.Pool, start, end, all)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "ngr breakdown query failed")

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useAdminAuth } from '../authContext'
 import { useEffect, useState, useCallback } from 'react'
+import { useMetricsDisplaySuppress } from '../context/MetricsDisplaySuppressContext'
 
 type FetchState<T> = {
   data: T | null
@@ -9,13 +10,26 @@ type FetchState<T> = {
   refetch: () => Promise<void>
 }
 
-function useApiFetch<T>(path: string): FetchState<T> {
+type FetchOpts<T> = {
+  skip?: boolean
+  staticData?: T | null
+}
+
+function useApiFetch<T>(path: string, opts?: FetchOpts<T>): FetchState<T> {
   const { apiFetch } = useAdminAuth()
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(true)
+  const skip = opts?.skip === true
+  const staticData = opts?.staticData ?? null
+  const [data, setData] = useState<T | null>(() => (skip && staticData != null ? staticData : null))
+  const [loading, setLoading] = useState(!skip)
   const [error, setError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
+    if (skip) {
+      setData(staticData ?? null)
+      setError(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setData(null)
     try {
@@ -29,7 +43,7 @@ function useApiFetch<T>(path: string): FetchState<T> {
     } finally {
       setLoading(false)
     }
-  }, [apiFetch, path])
+  }, [apiFetch, path, skip, staticData])
 
   useEffect(() => {
     void fetchData()
@@ -116,25 +130,89 @@ export type CryptoChainSummaryResponse = {
   }>
 }
 
+function emptyNGRBreakdown(): DashboardNGRBreakdown {
+  return {
+    ggr: 0,
+    total_wagered_minor: 0,
+    gross_stake_debit_turnover_minor: 0,
+    bonus_cost: 0,
+    cashback_paid: 0,
+    rakeback_paid: 0,
+    vip_rewards_paid: 0,
+    affiliate_commission: 0,
+    jackpot_costs: 0,
+    payment_provider_fees: 0,
+    manual_adjustments: 0,
+    ngr_total: 0,
+  }
+}
+
+function emptyCasinoAnalytics(): CasinoAnalyticsResponse {
+  return {
+    kpis: {
+      registrations: 0,
+      checkout_attempts: 0,
+      settled_deposits: 0,
+      ftd_count: 0,
+      reg_to_ftd_conversion_rate: 0,
+      checkout_to_ftd_rate: 0,
+      avg_first_deposit_minor: 0,
+      median_time_to_ftd_hours: 0,
+      repeat_deposit_d7_rate: 0,
+      repeat_deposit_d30_rate: 0,
+      ggr_minor: 0,
+      ggr_total: 0,
+      ngr_total: 0,
+      active_wagering_users: 0,
+      ngr_per_wagering_user: 0,
+      arpu_metric: 'ngr',
+      bonus_cost_minor: 0,
+      reward_expense_minor: 0,
+      total_wagered_minor: 0,
+      settled_wager_total: 0,
+      gross_stake_debit_turnover_minor: 0,
+      ngr_breakdown: emptyNGRBreakdown(),
+    },
+    timeseries: [],
+  }
+}
+
+function emptyCryptoSummary(): CryptoChainSummaryResponse {
+  return {
+    summary: { gross_inflow_minor: 0, gross_outflow_minor: 0, net_flow_minor: 0 },
+    items: [],
+  }
+}
+
 export function useCasinoAnalytics(period: string, customStart?: string, customEnd?: string) {
+  const { effectiveSuppressed } = useMetricsDisplaySuppress()
   const query = useMemo(() => {
     if (period === 'custom' && customStart && customEnd) {
       return `start=${encodeURIComponent(customStart)}&end=${encodeURIComponent(customEnd)}`
     }
     return `period=${encodeURIComponent(period)}`
   }, [period, customStart, customEnd])
-
-  return useApiFetch<CasinoAnalyticsResponse>(`/v1/admin/dashboard/casino-analytics?${query}`)
+  const path = `/v1/admin/dashboard/casino-analytics?${query}`
+  const staticData = useMemo(() => (effectiveSuppressed ? emptyCasinoAnalytics() : null), [effectiveSuppressed])
+  return useApiFetch<CasinoAnalyticsResponse>(path, {
+    skip: effectiveSuppressed,
+    staticData,
+  })
 }
 
 export function useCryptoChainSummary(period: string, customStart?: string, customEnd?: string) {
+  const { effectiveSuppressed } = useMetricsDisplaySuppress()
   const query = useMemo(() => {
     if (period === 'custom' && customStart && customEnd) {
       return `start=${encodeURIComponent(customStart)}&end=${encodeURIComponent(customEnd)}`
     }
     return `period=${encodeURIComponent(period)}`
   }, [period, customStart, customEnd])
-
-  return useApiFetch<CryptoChainSummaryResponse>(`/v1/admin/dashboard/crypto-chain-summary?${query}`)
+  const path = `/v1/admin/dashboard/crypto-chain-summary?${query}`
+  const staticData = useMemo(() => (effectiveSuppressed ? emptyCryptoSummary() : null), [effectiveSuppressed])
+  return useApiFetch<CryptoChainSummaryResponse>(path, {
+    skip: effectiveSuppressed,
+    staticData,
+  })
 }
 

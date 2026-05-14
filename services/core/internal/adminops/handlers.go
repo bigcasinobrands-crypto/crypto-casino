@@ -101,6 +101,8 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/dashboard/crypto-chain-summary", h.DashboardCryptoChainSummary)
 	r.Get("/analytics/traffic", h.TrafficAnalytics)
 	r.Get("/analytics/finance-geo", h.FinanceGeoAnalytics)
+	r.With(adminapi.RequireAnyRole("admin", "superadmin")).Post("/analytics/reset-display-cache", h.PostAnalyticsResetDisplayCache)
+	r.With(adminapi.RequireAnyRole("admin", "superadmin")).Get("/analytics/display-suppressed", h.GetAnalyticsDisplaySuppressed)
 	r.Get("/finance/fund-segregation", h.FundSegregationHandler())
 	r.Get("/finance/failed-jobs", h.ListFinancialFailedJobs)
 	r.Get("/finance/treasury-status", h.TreasuryStatus)

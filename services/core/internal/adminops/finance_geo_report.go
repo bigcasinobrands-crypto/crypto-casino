@@ -285,6 +285,10 @@ func (h *Handler) FinanceGeoAnalytics(w http.ResponseWriter, r *http.Request) {
 		adminapi.WriteError(w, http.StatusBadRequest, "invalid_period", "use period=7d,30d,90d,6m,ytd,all or start/end")
 		return
 	}
+	if h.dashboardDisplaySuppressed(r.Context()) {
+		_ = json.NewEncoder(w).Encode(zeroFinanceGeoPayload(label))
+		return
+	}
 	payload, err := buildFinanceGeoFromDB(r.Context(), h.Pool, start, end, label)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusInternalServerError, "db_error", "finance geo query failed")
