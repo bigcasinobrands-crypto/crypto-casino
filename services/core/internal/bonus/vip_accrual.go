@@ -3,6 +3,7 @@ package bonus
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -12,23 +13,94 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AccrueVIPFromGameDebit records VIP wager accrual idempotently from a ledger stake line (game.debit / sportsbook.debit).
-// Both cash and bonus_locked stakes count toward lifetime wager / points — aligned with playable turnover from the ledger.
+// AccrueVIPFromGameDebit records VIP lifetime/points idempotently from a ledger stake line
+// (game.debit, game.bet, sportsbook.debit). Matching rollbacks are resolved via vipLedgerStakeNetTx.
+// If no rollbacks exist yet, we credit **gross** stake (later game.rollback / sportsbook.rollback lines
+// still trigger ReverseVIPAccrual* so VIP stays aligned with settled wallet activity). If rollbacks
+// already exist before first VIP credit, we credit **net** only because ReverseVIP already ran when
+// those rollback rows were written (avoids double-counting with Blue Ocean’s rollback path).
+// The ledger row is re-read to verify user_id; wagerMinor/pocket from callers are cross-checked only.
+//
+// Audit: vip_point_ledger — positive deltas use reason `game_wager`; zero deltas use
+// `stake_net_zero_after_rollbacks`, `stake_zero_amount`, or `vip_ineligible_pocket` so rows are not retried forever.
 func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID string, entryID int64, wagerMinor int64, pocket string) error {
-	if wagerMinor <= 0 {
-		return nil
-	}
-	switch ledger.NormalizePocket(pocket) {
-	case ledger.PocketCash, ledger.PocketBonusLocked:
-	default:
-		return nil
-	}
 	idem := fmt.Sprintf("vip:accrual:%d", entryID)
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	var dup int
+	err = tx.QueryRow(ctx, `SELECT 1 FROM vip_point_ledger WHERE idempotency_key = $1`, idem).Scan(&dup)
+	if err == nil {
+		return tx.Commit(ctx)
+	}
+	if err != pgx.ErrNoRows {
+		return err
+	}
+
+	dbUser, entryType, dbPocket, gross, rolledBack, net, err := vipLedgerStakeNetTx(ctx, tx, entryID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("vip accrual: ledger entry %d not found", entryID)
+		}
+		return err
+	}
+	if err := validateStakeEntryType(entryType); err != nil {
+		return err
+	}
+	if dbUser != userID {
+		return fmt.Errorf("vip accrual: user mismatch for ledger %d (ledger user %s, caller %s)", entryID, dbUser, userID)
+	}
+
+	normPocket := ledger.NormalizePocket(dbPocket)
+	switch normPocket {
+	case ledger.PocketCash, ledger.PocketBonusLocked:
+	default:
+		if _, insErr := tx.Exec(ctx, `
+			INSERT INTO vip_point_ledger (user_id, delta, reason, idempotency_key)
+			VALUES ($1::uuid, 0, 'vip_ineligible_pocket', $2)
+		`, dbUser, idem); insErr != nil {
+			return insErr
+		}
+		return tx.Commit(ctx)
+	}
+
+	if wagerMinor > 0 && wagerMinor != gross {
+		slog.WarnContext(ctx, "vip_accrual_gross_mismatch",
+			"ledger_entry_id", entryID,
+			"caller_amount_minor", wagerMinor,
+			"ledger_gross_minor", gross)
+	}
+	if pocket != "" && ledger.NormalizePocket(pocket) != normPocket {
+		slog.WarnContext(ctx, "vip_accrual_pocket_mismatch",
+			"ledger_entry_id", entryID,
+			"caller_pocket", pocket,
+			"ledger_pocket", dbPocket)
+	}
+
+	if net <= 0 {
+		reason := "stake_net_zero_after_rollbacks"
+		if rolledBack == 0 && gross == 0 {
+			reason = "stake_zero_amount"
+		}
+		if _, insErr := tx.Exec(ctx, `
+			INSERT INTO vip_point_ledger (user_id, delta, reason, idempotency_key)
+			VALUES ($1::uuid, 0, $2, $3)
+		`, dbUser, reason, idem); insErr != nil {
+			return insErr
+		}
+		return tx.Commit(ctx)
+	}
+
+	// If rollbacks already posted before this accrual, Blue Ocean applies ReverseVIP when each
+	// rollback commits — so we credit **net** only. If no rollbacks yet, we credit **gross** and
+	// later rollbacks continue to reverse VIP the same way (no double-count).
+	accrueAmt := gross
+	if rolledBack > 0 {
+		accrueAmt = net
+	}
 
 	var oldTierID *int
 	hadVIPRow := true
@@ -41,18 +113,10 @@ func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID stri
 		return err
 	}
 
-	var dup int
-	err = tx.QueryRow(ctx, `SELECT 1 FROM vip_point_ledger WHERE idempotency_key = $1`, idem).Scan(&dup)
-	if err == nil {
-		return tx.Commit(ctx)
-	}
-	if err != pgx.ErrNoRows {
-		return err
-	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO vip_point_ledger (user_id, delta, reason, idempotency_key)
 		VALUES ($1::uuid, $2, 'game_wager', $3)
-	`, userID, wagerMinor, idem)
+	`, userID, accrueAmt, idem)
 	if err != nil {
 		return err
 	}
@@ -64,7 +128,7 @@ func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID stri
 			lifetime_wager_minor = player_vip_state.lifetime_wager_minor + EXCLUDED.lifetime_wager_minor,
 			last_accrual_at = now(),
 			updated_at = now()
-	`, userID, wagerMinor)
+	`, userID, accrueAmt)
 	if err != nil {
 		return err
 	}
@@ -104,13 +168,39 @@ func AccrueVIPFromGameDebit(ctx context.Context, pool *pgxpool.Pool, userID stri
 	}
 	newSO, newOk := TierSortOrder(ctx, pool, newTierID)
 	if newOk && newSO > oldSO {
-		// First-ever accrual that lands only on entry tier (sort 0): skip unlock noise
 		if !hadVIPRow && newSO == 0 {
 			return nil
 		}
 		ApplyVIPTierUpgrade(ctx, pool, userID, oldTierID, newTierID, lifeWager)
 	}
 	return nil
+}
+
+// AccrueVIPFromLedgerIdempotencyKey applies VIP lifetime/points for the ledger row with this
+// idempotency key when it is a qualifying stake (game.debit, game.bet, sportsbook.debit).
+// Safe to call right after the outer transaction commits; duplicates are ignored via vip_point_ledger.
+func AccrueVIPFromLedgerIdempotencyKey(ctx context.Context, pool *pgxpool.Pool, idempotencyKey string) error {
+	key := strings.TrimSpace(idempotencyKey)
+	if key == "" {
+		return nil
+	}
+	var entryID int64
+	var uid string
+	var amt int64
+	var pocket string
+	err := pool.QueryRow(ctx, `
+		SELECT le.id, le.user_id::text, ABS(le.amount_minor), COALESCE(NULLIF(trim(both from le.pocket), ''), 'cash')
+		FROM ledger_entries le
+		WHERE le.idempotency_key = $1
+		  AND le.entry_type IN ('game.debit', 'game.bet', 'sportsbook.debit')
+	`, key).Scan(&entryID, &uid, &amt, &pocket)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return AccrueVIPFromGameDebit(ctx, pool, uid, entryID, amt, pocket)
 }
 
 // ReverseVIPAccrualForCashRollbackTx subtracts cash rollback stake from VIP lifetime/points (idempotent).
@@ -235,16 +325,16 @@ func ProcessRecentVIPAccruals(ctx context.Context, pool *pgxpool.Pool, limit int
 	if limit <= 0 {
 		limit = 500
 	}
-	// Accrue from BOTH casino (game.debit) and sportsbook (sportsbook.debit)
-	// stake lines. Restricting to game.debit-only would have made high-roller
-	// sports bettors invisible to the VIP engine — same dollar wagered on
-	// roulette would tier them up but the same dollar on a parlay would not.
+	// Accrue from casino (game.debit / game.bet) and sportsbook (sportsbook.debit)
+	// stake lines. game.bet is included so any legacy or alternate provider path
+	// that posts bet-only stake lines still counts toward VIP (dashboard KPIs
+	// already sum game.bet stakes).
 	// vip_point_ledger.idempotency_key is keyed off the ledger row id so each
 	// stake line accrues exactly once regardless of product.
 	rows, err := pool.Query(ctx, `
 		SELECT le.id, le.user_id::text, ABS(le.amount_minor), le.pocket
 		FROM ledger_entries le
-		WHERE le.entry_type IN ('game.debit', 'sportsbook.debit')
+		WHERE le.entry_type IN ('game.debit', 'game.bet', 'sportsbook.debit')
 		  AND NOT EXISTS (
 			SELECT 1 FROM vip_point_ledger v
 			WHERE v.idempotency_key = 'vip:accrual:' || le.id::text

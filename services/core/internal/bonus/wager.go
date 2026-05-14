@@ -18,6 +18,11 @@ var (
 	ErrMaxBetExceeded = errors.New("bonus: stake exceeds max bet for active bonus")
 )
 
+// WagerSyntheticSportsbookGameID is the game_id passed to ApplyPostBetWagering /
+// ApplyPostBetRollbackWagering for sportsbook ledger stakes (e.g. Oddin). It is not a row in
+// `games`; contribution weight falls through to category "other" and profile defaults (typically 100%).
+const WagerSyntheticSportsbookGameID = "sportsbook"
+
 func snapPositiveInt64FromMap(obj map[string]any, key string) int64 {
 	if obj == nil {
 		return 0

@@ -112,6 +112,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	}
 	openBal := bal
 	rollbackMetaTarget := ""
+	vipStakeIdemKeys := make([]string, 0, 2)
 
 	finish := func(st int, balBefore int64, balAfter int64, amt *int64, m string) ([]byte, int64, int, string, error) {
 		body, jerr := boMarshalWalletResponseJSON(st, balAfter, m)
@@ -249,8 +250,12 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		if allowCompat && bal < amount {
 			fromCash, fromBonus = amount, 0
 			idemC := fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", userID, keyRemote, ledgerTxn)
-			if _, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, amount, ledger.PocketCash, meta); err != nil {
+			ins, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, amount, ledger.PocketCash, meta)
+			if err != nil {
 				return nil, 0, 500, "", false, false, err
+			}
+			if ins {
+				vipStakeIdemKeys = append(vipStakeIdemKeys, idemC)
 			}
 		} else {
 			bonusBal, err := ledger.BalanceBonusLockedSeamlessTx(ctx, tx, userID, ccy, multiCurrency)
@@ -275,14 +280,22 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 			}
 			if fromCash > 0 {
 				idemC := fmt.Sprintf("blueocean:%s:%s:debit:%s:cash", userID, keyRemote, ledgerTxn)
-				if _, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta); err != nil {
+				ins, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemC, fromCash, ledger.PocketCash, meta)
+				if err != nil {
 					return nil, 0, 500, "", false, false, err
+				}
+				if ins {
+					vipStakeIdemKeys = append(vipStakeIdemKeys, idemC)
 				}
 			}
 			if fromBonus > 0 {
 				idemB := fmt.Sprintf("blueocean:%s:%s:debit:%s:bonus", userID, keyRemote, ledgerTxn)
-				if _, err = ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta); err != nil {
+				ins, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, "game.debit", idemB, fromBonus, ledger.PocketBonusLocked, meta)
+				if err != nil {
 					return nil, 0, 500, "", false, false, err
+				}
+				if ins {
+					vipStakeIdemKeys = append(vipStakeIdemKeys, idemB)
 				}
 			}
 		}
@@ -622,6 +635,16 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 		return nil, 0, 500, "", false, false, cerr
 	}
 	committed = true
+
+	if len(vipStakeIdemKeys) > 0 {
+		accrueCtx, accrueCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		for _, k := range vipStakeIdemKeys {
+			if err := bonus.AccrueVIPFromLedgerIdempotencyKey(accrueCtx, pool, k); err != nil {
+				slog.ErrorContext(ctx, "vip_accrual_sync_failed", slog.String("idempotency_key", k), slog.Any("err", err))
+			}
+		}
+		accrueCancel()
+	}
 
 	if (action == "debit" || action == "rollback") && notifyWageringProgress && rdb != nil {
 		if pubErr := bonus.PublishWageringProgressFromPool(ctx, pool, rdb, userID); pubErr != nil {

@@ -126,6 +126,10 @@ type Config struct {
 	// AllowProductionMissingBlueOceanWebhookSecret — production bootstrap only: skip ValidateProduction check
 	// for WEBHOOK_BLUEOCEAN_SECRET. POST /v1/webhooks/blueocean still returns 401 until the secret is set; use openssl rand -hex 32 and configure in Render + BlueOcean.
 	AllowProductionMissingBlueOceanWebhookSecret bool
+	// AllowAdminZeroPlayableBalances — when true, superadmins may POST /v1/admin/ops/zero-playable-balances
+	// to post ledger adjustments that bring each player's cash + bonus_locked balance to zero per currency (does not delete rows).
+	// Unsafe: reconcile treasury / compliance before use. Env: ALLOW_ADMIN_ZERO_PLAYABLE_BALANCES.
+	AllowAdminZeroPlayableBalances bool
 	// CoinMarketCap Pro API (server-side only; used for public /v1/market/crypto-tickers)
 	CoinMarketCapAPIKey string
 	// Logo.dev — crypto/blockchain logos (https://img.logo.dev/crypto/{symbol}?token=pk_…)
@@ -435,6 +439,7 @@ func Load() (Config, error) {
 	c.HIBPCheckPasswords = parseBoolEnv(os.Getenv("HIBP_CHECK_PASSWORDS"))
 	c.AllowJWTHS256InProduction = parseBoolEnv(os.Getenv("ALLOW_JWT_HS256_IN_PRODUCTION"))
 	c.AllowProductionMissingBlueOceanWebhookSecret = parseBoolEnv(os.Getenv("ALLOW_PRODUCTION_MISSING_BLUEOCEAN_WEBHOOK_SECRET"))
+	c.AllowAdminZeroPlayableBalances = parseBoolEnv(os.Getenv("ALLOW_ADMIN_ZERO_PLAYABLE_BALANCES"))
 	c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("COINMARKETCAP_API_KEY"))
 	if c.CoinMarketCapAPIKey == "" {
 		c.CoinMarketCapAPIKey = strings.TrimSpace(os.Getenv("CMC_API_KEY"))

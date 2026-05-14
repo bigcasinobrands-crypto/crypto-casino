@@ -152,27 +152,86 @@ func computeRewardsHubAggregatesForStrip(
 	return wr, bl, lt, nil
 }
 
+// ledgerLifetimePlayableMinor sums net qualifying stake (cash + bonus_locked; casino + sportsbook; net of rollbacks)
+// from account creation through asOf. Used so VIP progress UI matches the ledger source of truth.
+func ledgerLifetimePlayableMinor(ctx context.Context, pool *pgxpool.Pool, userID string, asOf time.Time) (int64, bool) {
+	var userCreated time.Time
+	if err := pool.QueryRow(ctx, `SELECT created_at FROM users WHERE id = $1::uuid`, userID).Scan(&userCreated); err != nil {
+		return 0, false
+	}
+	n, err := ledger.SumSuccessfulPlayableStakeForWindow(ctx, pool, userID, userCreated.UTC(), asOf.UTC())
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 // VIPStatusMap returns the same payload as GET /v1/vip/status.
 // country is optional ISO country (e.g. X-Geo-Country) for tier_perks claimable offer checks.
 func VIPStatusMap(ctx context.Context, pool *pgxpool.Pool, uid string, country string) (map[string]any, error) {
+	now := time.Now().UTC()
+	ledgerLife, ledgerOK := ledgerLifetimePlayableMinor(ctx, pool, uid, now)
+
 	var tierID *int
 	var points, lifeWager int64
+	var hasPVS bool
 	err := pool.QueryRow(ctx, `
 		SELECT tier_id, points_balance, lifetime_wager_minor
 		FROM player_vip_state WHERE user_id = $1::uuid
 	`, uid).Scan(&tierID, &points, &lifeWager)
 	if err == pgx.ErrNoRows {
 		tierID, points, lifeWager = nil, 0, 0
+		hasPVS = false
 	} else if err != nil {
 		return nil, err
 	} else {
+		hasPVS = true
+	}
+
+	if !hasPVS && ledgerOK && ledgerLife > 0 {
+		wantTier, wtErr := bonus.EffectiveTierIDForLifetimeWager(ctx, pool, ledgerLife)
+		if wtErr != nil {
+			return nil, wtErr
+		}
+		var tierArg any
+		if wantTier != nil {
+			tierArg = *wantTier
+		}
+		if _, insErr := pool.Exec(ctx, `
+			INSERT INTO player_vip_state (user_id, tier_id, points_balance, lifetime_wager_minor, updated_at)
+			VALUES ($1::uuid, $2, 0, $3, now())
+			ON CONFLICT (user_id) DO UPDATE SET
+				lifetime_wager_minor = EXCLUDED.lifetime_wager_minor,
+				tier_id = COALESCE(EXCLUDED.tier_id, player_vip_state.tier_id),
+				updated_at = now()
+		`, uid, tierArg, ledgerLife); insErr != nil {
+			return nil, insErr
+		}
+		if err := pool.QueryRow(ctx, `
+			SELECT tier_id, points_balance, lifetime_wager_minor
+			FROM player_vip_state WHERE user_id = $1::uuid
+		`, uid).Scan(&tierID, &points, &lifeWager); err != nil {
+			return nil, err
+		}
+		hasPVS = true
+	} else if hasPVS && ledgerOK && ledgerLife != lifeWager {
+		if _, uErr := pool.Exec(ctx, `
+			UPDATE player_vip_state SET lifetime_wager_minor = $2, updated_at = now() WHERE user_id = $1::uuid
+		`, uid, ledgerLife); uErr != nil {
+			return nil, uErr
+		}
+		lifeWager = ledgerLife
+	}
+
+	if hasPVS {
 		if _, err := bonus.SyncPlayerVIPTierToWager(ctx, pool, uid); err != nil {
 			return nil, err
 		}
-		err = pool.QueryRow(ctx, `SELECT tier_id FROM player_vip_state WHERE user_id = $1::uuid`, uid).Scan(&tierID)
-		if err != nil {
+		if err := pool.QueryRow(ctx, `SELECT tier_id, lifetime_wager_minor FROM player_vip_state WHERE user_id = $1::uuid`, uid).Scan(&tierID, &lifeWager); err != nil {
 			return nil, err
 		}
+	} else if ledgerOK {
+		lifeWager = ledgerLife
 	}
 
 	var tierName string

@@ -8,7 +8,9 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/crypto-casino/core/internal/obs"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -147,6 +149,7 @@ func clampVipRebatePercentAdd(n float64) float64 {
 
 // ApplyVIPTierUpgrade runs after tier promotion (strictly higher sort_order). Logs events and grant_promotion benefits.
 func ApplyVIPTierUpgrade(ctx context.Context, pool *pgxpool.Pool, userID string, fromTierID, toTierID *int, lifeWager int64) {
+	upgradeAt := time.Now().UTC()
 	if toTierID == nil {
 		return
 	}
@@ -219,7 +222,7 @@ func ApplyVIPTierUpgrade(ctx context.Context, pool *pgxpool.Pool, userID string,
 			}
 			amt, err = GrantAmountForVIPTierBenefit(ctx, pool, pvID, b.Config)
 		} else {
-			amt, err = levelUpCashPercentAmount(ctx, pool, fromTierID, lifeWager, b.Config)
+			amt, err = levelUpCashPercentAmount(ctx, pool, userID, fromTierID, lifeWager, b.Config, upgradeAt)
 		}
 		if err != nil || amt <= 0 {
 			log.Printf("vip tier grant amount: %v", err)
@@ -313,7 +316,49 @@ func ApplyVIPTierUpgrade(ctx context.Context, pool *pgxpool.Pool, userID string,
 	}
 }
 
-func levelUpCashPercentAmount(ctx context.Context, pool *pgxpool.Pool, fromTierID *int, lifeWager int64, cfgRaw json.RawMessage) (int64, error) {
+// levelUpCashBaseFromLedger is net successful stake (cash + bonus_locked; casino + sportsbook; net of rollbacks)
+// from the last time the user reached fromTierID until upgradeAt. That matches "wagering while on the previous level"
+// rather than lifetime_wager_minor minus the previous tier threshold (which can diverge after tier rebalances).
+// If no vip_tier_events row exists for that tier (migrated users), falls back to the lifetime band lifeWager-prevMin.
+// When fromTierID is nil (first tier), the base remains lifetime_wager_minor (no prior tier in the product sense).
+func levelUpCashBaseFromLedger(ctx context.Context, pool *pgxpool.Pool, userID string, fromTierID *int, lifeWager, prevMin int64, upgradeAt time.Time) int64 {
+	if fromTierID == nil || *fromTierID <= 0 {
+		if lifeWager < 0 {
+			return 0
+		}
+		return lifeWager
+	}
+	fallbackBand := func() int64 {
+		b := lifeWager - prevMin
+		if b < 0 {
+			b = lifeWager
+		}
+		if b < 0 {
+			return 0
+		}
+		return b
+	}
+	var tierEnteredAt time.Time
+	err := pool.QueryRow(ctx, `
+		SELECT created_at
+		FROM vip_tier_events
+		WHERE user_id = $1::uuid AND to_tier_id = $2
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`, userID, *fromTierID).Scan(&tierEnteredAt)
+	if err != nil {
+		return fallbackBand()
+	}
+	start := tierEnteredAt.UTC()
+	end := upgradeAt.UTC()
+	w, sErr := ledger.SumSuccessfulPlayableStakeForWindow(ctx, pool, userID, start, end)
+	if sErr != nil {
+		return fallbackBand()
+	}
+	return w
+}
+
+func levelUpCashPercentAmount(ctx context.Context, pool *pgxpool.Pool, userID string, fromTierID *int, lifeWager int64, cfgRaw json.RawMessage, upgradeAt time.Time) (int64, error) {
 	var cfg map[string]any
 	_ = json.Unmarshal(cfgRaw, &cfg)
 	pctF, _ := cfg["percent_of_previous_level_wager"].(float64)
@@ -324,10 +369,7 @@ func levelUpCashPercentAmount(ctx context.Context, pool *pgxpool.Pool, fromTierI
 	if fromTierID != nil && *fromTierID > 0 {
 		_ = pool.QueryRow(ctx, `SELECT min_lifetime_wager_minor FROM vip_tiers WHERE id = $1`, *fromTierID).Scan(&prevMin)
 	}
-	base := lifeWager - prevMin
-	if base < 0 {
-		base = lifeWager
-	}
+	base := levelUpCashBaseFromLedger(ctx, pool, userID, fromTierID, lifeWager, prevMin, upgradeAt)
 	if base <= 0 {
 		return 0, nil
 	}

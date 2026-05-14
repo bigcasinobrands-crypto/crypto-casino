@@ -1007,7 +1007,7 @@
     "tierBadgeUnlock": "Unlock your first tier",
     "vipTierLabel": "VIP tier",
     "tierFallback": "Novice",
-    "lifetimeWagerBlurb": "Lifetime wager from real-money spins (summed stake on each qualifying game bet). Builds toward tier unlocks.",
+    "lifetimeWagerBlurb": "Lifetime wager from your account ledger: qualifying casino and sportsbook stakes (cash and bonus locked), net of rollbacks. Builds toward tier unlocks.",
     "statWagered": "Wagered",
     "statNextTier": "Next tier",
     "statRemaining": "Remaining",

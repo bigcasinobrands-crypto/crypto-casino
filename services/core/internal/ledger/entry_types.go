@@ -70,6 +70,9 @@ const (
 	// EntryTypeAdminPlayCredit — superadmin manual credit to cash for real-money
 	// seamless wallet play (e.g. Blue Ocean) without a bonus instance / WR rules.
 	EntryTypeAdminPlayCredit = "admin.play_credit"
+	// EntryTypeAdminPlayableZero — superadmin one-shot adjustment per (user, pocket, currency) to bring
+	// playable balance to exactly zero. Excluded from GGR; does not delete historical rows.
+	EntryTypeAdminPlayableZero = "admin.playable_zero"
 )
 
 // CasinoStakeEntryTypes returns entry types that count as casino stakes.

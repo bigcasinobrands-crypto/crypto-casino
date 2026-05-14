@@ -99,6 +99,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/finance/fund-segregation", h.FundSegregationHandler())
 	r.Get("/finance/failed-jobs", h.ListFinancialFailedJobs)
 	r.Get("/finance/treasury-status", h.TreasuryStatus)
+	r.With(adminapi.RequireAnyRole("superadmin")).Post("/ops/zero-playable-balances", h.ZeroPlayableBalances)
 	r.Post("/auth/step-up", h.PostStepUpAssertion)
 	r.Get("/compliance/kyc/pending", h.ListPendingKYC)
 	r.Get("/compliance/kyc/{id}", h.GetUserKYC)

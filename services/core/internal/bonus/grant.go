@@ -76,6 +76,8 @@ func countPrimarySlotBonuses(ctx context.Context, q rowQuerier, userID string) (
 }
 
 // GrantFromPromotionVersion creates a bonus instance and credits bonus_locked idempotently.
+// wr_required_minor is derived from published rules and GrantAmountMinor (never from the client).
+// The grant is always paired with a `promo.grant` ledger line keyed by IdempotencyKey so balances and audits stay ledger-backed.
 func GrantFromPromotionVersion(ctx context.Context, pool *pgxpool.Pool, a GrantArgs) (inserted bool, err error) {
 	if a.GrantAmountMinor <= 0 {
 		return false, fmt.Errorf("bonus: grant amount must be positive")

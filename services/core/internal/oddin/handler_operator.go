@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
 	"github.com/google/uuid"
@@ -24,8 +25,9 @@ import (
 )
 
 // OperatorHandler serves Oddin operator (S2S) callbacks. `userDetails` validates Oddin iframe
-// (Bifrost) session tokens issued by `POST /v1/sportsbook/oddin/session-token`; `debitUser` / `creditUser` are
-// stubs until the wallet → ledger contract is wired.
+// (Bifrost) session tokens issued by `POST /v1/sportsbook/oddin/session-token`. Debit/credit/rollback
+// write `sportsbook.*` ledger rows; the iframe only renders UI — VIP accrual and bonus wagering (WR)
+// use the same ledger lines (post-commit VIP accrual; in-txn WR on debit/rollback).
 //
 // Response shape — seamless wallet convention used by Oddin / EvenBet / similar providers:
 //   - HTTP **200** always.
@@ -542,7 +544,7 @@ func (h *OperatorHandler) DebitUser(w http.ResponseWriter, r *http.Request) {
 		ccy = sessionCcy
 	}
 
-	bal, status, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "debit", txnID, ticketID, amount)
+	bal, status, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "debit", txnID, ticketID, amount, "")
 	if err != nil {
 		slog.ErrorContext(ctx, "oddin_debit_failed", "err", err, "txn", txnID)
 		out := errorBody(ErrCodeInvalidParams, "operator processing error")
@@ -554,6 +556,11 @@ func (h *OperatorHandler) DebitUser(w http.ResponseWriter, r *http.Request) {
 	case "INSUFFICIENT":
 		out := errorBody(ErrCodeInsufficientFunds, "insufficient funds")
 		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "INSUFFICIENT", BodyOut: out})
+		writeOperatorJSON(w, out)
+		return
+	case "BONUS_BLOCKED":
+		out := errorBody(ErrCodeInvalidParams, "bet not allowed under active bonus rules")
+		h.logRequest(ctx, "debitUser", body, operatorLog{Endpoint: "debitUser", Status: "BONUS_BLOCKED", BodyOut: out})
 		writeOperatorJSON(w, out)
 		return
 	}
@@ -610,7 +617,7 @@ func (h *OperatorHandler) CreditUser(w http.ResponseWriter, r *http.Request) {
 		ccy = sessionCcy
 	}
 
-	bal, _, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "credit", txnID, ticketID, amount)
+	bal, _, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "credit", txnID, ticketID, amount, "")
 	if err != nil {
 		slog.ErrorContext(ctx, "oddin_credit_failed", "err", err, "txn", txnID)
 		out := errorBody(ErrCodeInvalidParams, "operator processing error")
@@ -702,7 +709,7 @@ func (h *OperatorHandler) RollbackUser(w http.ResponseWriter, r *http.Request) {
 		ccy = sessionCcy
 	}
 
-	bal, _, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "rollback", txnID, ticketID, amount)
+	bal, _, err := applyOddinSeamless(ctx, h.Pool, uid, ccy, "rollback", txnID, ticketID, amount, refTxnID)
 	if err != nil {
 		slog.ErrorContext(ctx, "oddin_rollback_failed", "err", err, "txn", txnID)
 		out := errorBody(ErrCodeInvalidParams, "operator processing error")
@@ -729,12 +736,18 @@ func (h *OperatorHandler) RollbackUser(w http.ResponseWriter, r *http.Request) {
 //     provider transactionId, so duplicate Oddin retries are no-ops
 //   - the returned balance is computed AFTER the write and AFTER the commit
 //     so Oddin gets the post-state and not a stale snapshot
-func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, action, txnID, ticketID string, amount int64) (int64, string, error) {
+// stakeTxnForRollback is the original debit transaction id (Oddin referenceTransactionId).
+// When non-empty on rollback, it is stored on the rollback ledger row as stake_transaction_id
+// so VIP / analytics can correlate rollback lines to the stake debit when Oddin uses a
+// different transactionId for the rollback webhook than for the original debit.
+func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, action, txnID, ticketID string, amount int64, stakeTxnForRollback string) (int64, string, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, "ERROR", err
 	}
 	defer tx.Rollback(ctx)
+
+	var syncVIPStakeKey string
 
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE`, userID); err != nil {
 		return 0, "ERROR", err
@@ -750,15 +763,31 @@ func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, ac
 		"transaction_id": txnID,
 		"ticket_id":      ticketID,
 	}
+	if action == "rollback" && strings.TrimSpace(stakeTxnForRollback) != "" {
+		meta["stake_transaction_id"] = strings.TrimSpace(stakeTxnForRollback)
+	}
 
 	switch action {
 	case "debit":
 		if bal < amount {
 			return bal, "INSUFFICIENT", nil
 		}
-		idem := fmt.Sprintf("oddin:sportsbook:debit:%s", txnID)
-		if _, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, ledger.EntryTypeSportsbookDebit, idem, amount, ledger.PocketCash, meta); err != nil {
+		if err := bonus.CheckBetAllowedTx(ctx, tx, userID, bonus.WagerSyntheticSportsbookGameID, amount, "oddin:"+txnID); err != nil {
+			if errors.Is(err, bonus.ErrExcludedGame) || errors.Is(err, bonus.ErrMaxBetExceeded) {
+				return bal, "BONUS_BLOCKED", nil
+			}
 			return bal, "ERROR", err
+		}
+		idem := fmt.Sprintf("oddin:sportsbook:debit:%s", txnID)
+		ins, err := ledger.ApplyDebitTxWithPocket(ctx, tx, userID, ccy, ledger.EntryTypeSportsbookDebit, idem, amount, ledger.PocketCash, meta)
+		if err != nil {
+			return bal, "ERROR", err
+		}
+		if ins {
+			syncVIPStakeKey = idem
+			if _, werr := bonus.ApplyPostBetWagering(ctx, tx, userID, bonus.WagerSyntheticSportsbookGameID, amount); werr != nil {
+				return bal, "ERROR", werr
+			}
 		}
 	case "credit":
 		idem := fmt.Sprintf("oddin:sportsbook:credit:%s", txnID)
@@ -776,8 +805,17 @@ func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, ac
 		}
 	case "rollback":
 		idem := fmt.Sprintf("oddin:sportsbook:rollback:%s", txnID)
-		if _, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, ledger.EntryTypeSportsbookRollback, idem, amount, meta); err != nil {
+		ins, err := ledger.ApplyCreditTx(ctx, tx, userID, ccy, ledger.EntryTypeSportsbookRollback, idem, amount, meta)
+		if err != nil {
 			return bal, "ERROR", err
+		}
+		if ins {
+			if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, amount, idem); err != nil {
+				return bal, "ERROR", err
+			}
+			if _, werr := bonus.ApplyPostBetRollbackWagering(ctx, tx, userID, bonus.WagerSyntheticSportsbookGameID, amount); werr != nil {
+				return bal, "ERROR", werr
+			}
 		}
 	default:
 		return bal, "ERROR", fmt.Errorf("oddin seamless: unknown action %q", action)
@@ -789,6 +827,13 @@ func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, ac
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return bal, "ERROR", err
+	}
+	if syncVIPStakeKey != "" {
+		accrueCtx, accrueCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer accrueCancel()
+		if err := bonus.AccrueVIPFromLedgerIdempotencyKey(accrueCtx, pool, syncVIPStakeKey); err != nil {
+			slog.ErrorContext(ctx, "vip_accrual_sync_failed", slog.String("provider", "oddin"), slog.String("idempotency_key", syncVIPStakeKey), slog.Any("err", err))
+		}
 	}
 	return bal, "OK", nil
 }

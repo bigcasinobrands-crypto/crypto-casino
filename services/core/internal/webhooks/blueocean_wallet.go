@@ -138,8 +138,8 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 		if err != nil {
 			log.Printf("blueocean wallet: bad request body from %s: %v", r.RemoteAddr, err)
 			writeBOWalletJSON(w, 400, 0, "bad request")
-			return
-		}
+				return
+			}
 		wantKey := queryValsGetCI(q, "key")
 		if !verifyBlueOceanWalletKey(r, q, salt, wantKey) {
 			log.Printf("blueocean wallet: invalid key from %s", r.RemoteAddr)
@@ -265,40 +265,40 @@ func HandleBlueOceanWallet(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.Cl
 				if action == "debit" && amt < 0 {
 					// Debt-reset callback: no challenge wager mirror.
 				} else {
-					bg := context.Background()
-					switch action {
-					case "debit":
-						p := challenges.BODebitPayload{
-							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
-						}
-						if rdb != nil {
-							if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
-								go func() {
-									_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
-								}()
-							}
-						} else {
+				bg := context.Background()
+				switch action {
+				case "debit":
+					p := challenges.BODebitPayload{
+						UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, StakeMinor: amt,
+					}
+					if rdb != nil {
+						if err := challenges.EnqueueDebit(bg, rdb, p); err != nil {
 							go func() {
 								_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
 							}()
 						}
-					case "credit":
-						p := challenges.BOCreditPayload{
+					} else {
+						go func() {
+							_ = challenges.ProcessDebit(context.Background(), pool, cfg, p)
+						}()
+					}
+				case "credit":
+					p := challenges.BOCreditPayload{
 							UserID: userID, RemoteID: remote, TxnID: txnID, GameID: gameID, WinMinor: amt, Currency: walletCCY,
-						}
-						if rdb != nil {
-							if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
-								go func() {
-									_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
-								}()
-							}
-						} else {
+					}
+					if rdb != nil {
+						if err := challenges.EnqueueCredit(bg, rdb, p); err != nil {
 							go func() {
 								_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
 							}()
 						}
+					} else {
+						go func() {
+							_ = challenges.ProcessCredit(context.Background(), pool, cfg, p)
+						}()
 					}
 				}
+			}
 			}
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -495,28 +495,28 @@ func tryParseBOAmountString(s string, floatIsMajor, intIsMajor bool) (int64, boo
 			return 0, false
 		}
 	}
-	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
-		n, _ := strconv.ParseInt(s, 10, 64)
+		if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+			n, _ := strconv.ParseInt(s, 10, 64)
 		if intIsMajor {
 			n *= 100
 		}
 		if neg {
 			n = -n
 		}
-		return n, true
-	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+			return n, true
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
 		return 0, false
 	}
 	if neg {
 		f = -f
-	}
+		}
 	if !floatIsMajor && !intIsMajor {
-		return int64(math.Round(f)), true
+			return int64(math.Round(f)), true
+		}
+		return int64(math.Round(f * 100)), true
 	}
-	return int64(math.Round(f * 100)), true
-}
 
 func resolveBlueOceanRemoteUser(ctx context.Context, pool *pgxpool.Pool, remote string) (string, error) {
 	uid, err := blueocean.ResolveWalletRemoteToUserID(ctx, pool, remote)
