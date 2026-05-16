@@ -13,8 +13,13 @@ import {
 /** Sonner id so health polls update one toast instead of stacking. */
 export const PLAYER_CATALOG_SYNC_TOAST_ID = 'player-catalog-sync-warning'
 
+/** Fiat invoice failures replace the same toast instead of stacking on double-submit / retries. */
+export const PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID = 'player-fiat-deposit-invoice'
+
 export type PlayerToastOpts = {
   skipToast?: boolean
+  /** When set, Sonner merges updates into a single visible toast (dedupes rapid repeats). */
+  toastId?: string
 }
 
 export function truncate(s: string, max: number): string {
@@ -39,6 +44,7 @@ export function toastPlayerApiError(
     description = description?.trim() ? `${description.trim()}\n\n${dbg}` : dbg
   }
   toast.error(resolved.title, {
+    id: opts?.toastId,
     description,
     duration: 14_000,
   })
@@ -54,6 +60,7 @@ export function toastPlayerNetworkError(message: string, source: string, opts?: 
     description = description?.trim() ? `${description.trim()}\n\n${dbg}` : dbg
   }
   toast.error(resolved.title, {
+    id: opts?.toastId,
     description,
     duration: 14_000,
   })

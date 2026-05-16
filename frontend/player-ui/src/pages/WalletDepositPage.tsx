@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Navigate, Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
@@ -21,11 +21,16 @@ import { operationalDepositsEnabled } from '../lib/operationalPaymentGate'
 import { isFiatDepositCurrencyCode } from '../lib/fiatCurrencies'
 import { fetchPassimpayFiatInvoiceUrl } from '../lib/passimpayFiatInvoice'
 import { usePlayerAuth } from '../playerAuth'
-import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
+import {
+  PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
+  toastPlayerApiError,
+  toastPlayerNetworkError,
+} from '../notifications/playerToast'
 
 const MIN_USD = 10
 
 export default function WalletDepositPage() {
+  const fiatPayLockRef = useRef(false)
   const { t } = useTranslation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const { data: opHealth } = useSharedOperationalHealth()
@@ -103,19 +108,26 @@ export default function WalletDepositPage() {
       setFiatPayErr(t('wallet.enterMinFiat', { min: MIN_USD, currency: fiatDepositCurrency }))
       return
     }
+    if (fiatPayLockRef.current) return
+    fiatPayLockRef.current = true
     setFiatPayBusy(true)
     try {
       const minor = Math.round(parsed * 100)
       const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
       const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
       if (!result.ok) {
-        toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice')
+        toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice', null, {
+          toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
+        })
         return
       }
       setPassimpayHostedUrl(result.invoiceUrl)
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice')
+      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice', {
+        toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
+      })
     } finally {
+      fiatPayLockRef.current = false
       setFiatPayBusy(false)
     }
   }, [amountUsd, apiFetch, fiatDepositCurrency, t])

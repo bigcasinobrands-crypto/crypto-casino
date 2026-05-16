@@ -178,6 +178,37 @@ export function resolvePlayerApiToastCopy(
       return { title: t('errors.email_mfa_unavailable') }
     case 'fingerprint_required':
       return { title: t('errors.fingerprint_required') }
+    case 'passimpay_unconfigured':
+      return {
+        title: t('errors.passimpay_unconfigured_title'),
+        description: t('errors.passimpay_unconfigured_body'),
+      }
+    case 'passimpay_error':
+      return {
+        title: t('errors.passimpay_error_title'),
+        description: t('errors.passimpay_error_body'),
+      }
+    case 'intent_persist_failed':
+      return {
+        title: t('errors.passimpay_intent_failed_title'),
+        description: t('errors.passimpay_intent_failed_body'),
+      }
+    case 'below_min_deposit':
+      return {
+        title: t('errors.below_min_deposit_title'),
+        description: apiMsg.trim() ? apiMsg : t('errors.genericBody'),
+      }
+    case 'invalid_currency':
+      return {
+        title: t('errors.invalid_currency_title'),
+        description: t('errors.invalid_currency_body'),
+      }
+    case 'invalid_body':
+    case 'invalid_json':
+      return {
+        title: t('errors.invalid_request_title'),
+        description: t('errors.invalid_request_body'),
+      }
     default:
       return {
         title: t('errors.genericTitle'),

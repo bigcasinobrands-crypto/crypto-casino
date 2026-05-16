@@ -9,7 +9,11 @@ import { passimpayNetworkLabel, passimpayWithdrawRailMeetsBalance } from '../lib
 import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
 import type { PassimpayCurrency } from '../lib/paymentCurrencies'
 import { usePlayerAuth } from '../playerAuth'
-import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
+import {
+  PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
+  toastPlayerApiError,
+  toastPlayerNetworkError,
+} from '../notifications/playerToast'
 import { DepositAddressPanel, DepositSentPanel, type DepositAddrRes } from './walletDepositPanels'
 import { WithdrawFormPanel, WithdrawSuccessPanel } from './walletWithdrawPanels'
 import { WalletDepositPickStep } from './wallet/WalletDepositPickStep'
@@ -81,6 +85,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     payment_id?: number
   } | null>(null)
 
+  const fiatPayLockRef = useRef(false)
   const sheetLiftRef = useRef<HTMLDivElement>(null)
   const [currencyMenuLiftPx, setCurrencyMenuLiftPx] = useState(0)
   const onCurrencyMenuLiftPxChange = useCallback((px: number) => {
@@ -103,6 +108,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     setDepositMethod('crypto')
     setFiatDepositCurrency('USD')
     setFiatPayErr(null)
+    fiatPayLockRef.current = false
     setFiatPayBusy(false)
     setPassimpayHostedUrl(null)
     setCurrencyMenuLiftPx(0)
@@ -120,19 +126,26 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
       return
     }
     if (!isAuthenticated) return
+    if (fiatPayLockRef.current) return
+    fiatPayLockRef.current = true
     setFiatPayBusy(true)
     try {
       const minor = Math.round(parsed * 100)
       const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
       const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
       if (!result.ok) {
-        toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice')
+        toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice', null, {
+          toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
+        })
         return
       }
       setPassimpayHostedUrl(result.invoiceUrl)
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice')
+      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice', {
+        toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
+      })
     } finally {
+      fiatPayLockRef.current = false
       setFiatPayBusy(false)
     }
   }, [amountUsd, apiFetch, fiatDepositCurrency, isAuthenticated, t])
