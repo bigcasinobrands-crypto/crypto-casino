@@ -367,7 +367,7 @@ func RewardsHubHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		var instances []map[string]any
 		for rows.Next() {
 			var id, st, ccy, title, desc, btype string
-			var pvid int64
+			var pvid sql.NullInt64
 			var g, wr, wc int64
 			var exPrimary bool
 			var ct time.Time
@@ -377,12 +377,29 @@ func RewardsHubHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			if err := rows.Scan(&id, &pvid, &st, &g, &ccy, &wr, &wc, &ct, &exPrimary, &title, &desc, &btype, &pubAt, &vf, &vt, &snap, &hero); err != nil {
 				continue
 			}
+			pvNum := int64(0)
+			if pvid.Valid {
+				pvNum = pvid.Int64
+			}
+			titleShown := title
+			if (!pvid.Valid || pvid.Int64 == 0) && len(snap) > 0 {
+				var obj map[string]any
+				if json.Unmarshal(snap, &obj) == nil {
+					if ctit, ok := obj["challenge_title"].(string); ok && strings.TrimSpace(ctit) != "" {
+						titleShown = strings.TrimSpace(ctit)
+					}
+				}
+			}
+			btShown := btype
+			if (!pvid.Valid || pvid.Int64 == 0) && btShown == "" {
+				btShown = "challenge_bonus"
+			}
 			item := map[string]any{
-				"id": id, "promotion_version_id": pvid, "status": st,
+				"id": id, "promotion_version_id": pvNum, "status": st,
 				"granted_amount_minor": g, "currency": ccy,
 				"wr_required_minor": wr, "wr_contributed_minor": wc,
 				"exempt_from_primary_slot": exPrimary,
-				"title": bonus.HumanizeOfferTitle(pvid, title, desc, btype), "bonus_type": btype,
+				"title": bonus.HumanizeOfferTitle(pvNum, titleShown, desc, btShown), "bonus_type": btShown,
 				"description": desc,
 				"created_at":  ct.UTC().Format(time.RFC3339),
 			}

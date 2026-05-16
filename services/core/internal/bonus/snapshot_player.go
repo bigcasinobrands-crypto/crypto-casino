@@ -35,6 +35,7 @@ func PlayerSnapshotDetails(snapshot []byte) map[string]any {
 	for _, k := range []string{
 		"excluded_game_ids", "allowed_game_ids", "max_bet_minor", "game_weight_pct",
 		"withdraw_policy", "deposit_minor", "grant_minor",
+		"challenge_title", "challenge_id", "challenge_entry_id", "source",
 	} {
 		if v, ok := obj[k]; ok {
 			out[k] = v

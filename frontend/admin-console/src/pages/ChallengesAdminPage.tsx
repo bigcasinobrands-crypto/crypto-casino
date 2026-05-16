@@ -30,6 +30,8 @@ type Row = {
   min_bet_amount_minor?: number
   prize_amount_minor?: number
   prize_currency?: string
+  prize_wagering_multiplier?: number
+  prize_free_spins?: number
   /** When true, anonymous players never see this challenge; VIP eligibility is enforced on the API. */
   vip_only?: boolean
 }
@@ -62,7 +64,14 @@ function formatPrize(r: Row): string {
   if (r.prize_type === 'cash' && typeof r.prize_amount_minor === 'number') {
     return formatMinorToMajor(r.prize_amount_minor)
   }
-  if (r.prize_type === 'free_spins') return 'Free spins'
+  if (r.prize_type === 'bonus' && typeof r.prize_amount_minor === 'number') {
+    const wr = typeof r.prize_wagering_multiplier === 'number' ? r.prize_wagering_multiplier : 0
+    return `${formatMinorToMajor(r.prize_amount_minor)} bonus ×${wr} WR`
+  }
+  if (r.prize_type === 'free_spins') {
+    const n = typeof r.prize_free_spins === 'number' ? r.prize_free_spins : null
+    return n != null && n > 0 ? `${n} free spins` : 'Free spins'
+  }
   return r.prize_type.replace(/_/g, ' ')
 }
 

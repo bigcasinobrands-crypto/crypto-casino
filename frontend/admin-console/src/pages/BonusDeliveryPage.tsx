@@ -18,6 +18,40 @@ type VersionRow = {
   player_hero_image_url?: string
   promo_code?: string
   priority?: number
+  bonus_type?: string
+  rules?: Record<string, unknown>
+}
+
+function freeSpinDraftIssues(
+  bonusType: string | undefined,
+  rules: Record<string, unknown> | undefined,
+  boOutbound: boolean | null,
+): string[] {
+  const bt = (bonusType ?? '').trim().toLowerCase()
+  if (bt !== 'free_spins_only' && bt !== 'composite_match_and_fs') return []
+  const out: string[] = []
+  const r = rules ?? {}
+  let rounds = 0
+  let gameId = ''
+  if (bt === 'composite_match_and_fs') {
+    const fs = r.free_spins as Record<string, unknown> | undefined
+    rounds = Number(fs?.rounds)
+    gameId = String(fs?.game_id ?? '').trim()
+  } else {
+    const rew = r.reward as Record<string, unknown> | undefined
+    rounds = Number(rew?.rounds)
+    gameId = String(rew?.game_id ?? '').trim()
+  }
+  if (!Number.isFinite(rounds) || rounds < 1) {
+    out.push('Free spins rounds must be at least 1 in promotion rules.')
+  }
+  if (!gameId) {
+    out.push('A catalog game_id is required for free spins in promotion rules.')
+  }
+  if (boOutbound === false) {
+    out.push('Blue Ocean outbound is disabled — enable outbound in Provider Ops before publishing free-spin promotions.')
+  }
+  return out
 }
 
 type PaymentFlags = {
@@ -73,6 +107,7 @@ export default function BonusDeliveryPage() {
   const [playerTitle, setPlayerTitle] = useState('')
   const [playerDescription, setPlayerDescription] = useState('')
   const [playerHeroUrl, setPlayerHeroUrl] = useState('')
+  const [boOutbound, setBoOutbound] = useState<boolean | null>(null)
 
   /** Highest version row (often a draft sitting above an older published version). */
   const latest = versions[0] ?? null
@@ -110,9 +145,10 @@ export default function BonusDeliveryPage() {
     setErr(null)
     setLoading(true)
     try {
-      const [res, flagsRes] = await Promise.all([
+      const [res, flagsRes, boRes] = await Promise.all([
         apiFetch(`/v1/admin/bonushub/promotions/${promoId}`),
         apiFetch('/v1/admin/ops/payment-flags'),
+        apiFetch('/v1/admin/integrations/blueocean/status'),
       ])
       if (!res.ok) {
         const e = await readApiError(res)
@@ -154,6 +190,13 @@ export default function BonusDeliveryPage() {
         setFlags(fj)
       } else {
         setFlags(null)
+      }
+
+      if (boRes.ok) {
+        const bj = (await boRes.json().catch(() => null)) as { outbound_enabled?: boolean } | null
+        setBoOutbound(bj?.outbound_enabled === true ? true : bj?.outbound_enabled === false ? false : null)
+      } else {
+        setBoOutbound(null)
       }
     } catch {
       setErr('Network error')
@@ -338,6 +381,11 @@ export default function BonusDeliveryPage() {
             ? 'Archived'
             : 'Blocked'
 
+  const freeSpinPublishIssues = useMemo(() => {
+    if (!latest || latest.published) return []
+    return freeSpinDraftIssues(latest.bonus_type, latest.rules, boOutbound)
+  }, [latest, boOutbound])
+
   return (
     <>
       <PageMeta
@@ -367,13 +415,23 @@ export default function BonusDeliveryPage() {
                   {derivedStatus === 'paused' ? ' · grants paused' : null}
                   {derivedStatus === 'blocked' ? ' · toggles off' : null}
                 </span>
+                {freeSpinPublishIssues.length > 0 ? (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                    <p className="m-0 font-semibold">Before publishing (free spins)</p>
+                    <ul className="mb-0 mt-2 list-disc pl-5">
+                      {freeSpinPublishIssues.map((msg) => (
+                        <li key={msg}>{msg}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 {latest && status !== 'archived' && !latest.published ? (
                   <button
                     type="button"
                     className={btnPrimary}
-                    disabled={!isSuper || busy !== null}
+                    disabled={!isSuper || busy !== null || freeSpinPublishIssues.length > 0}
                     onClick={() => void publish()}
                   >
                     {busy === 'publish' ? 'Publishing…' : `Publish version ${latest.version}`}
@@ -429,7 +487,7 @@ export default function BonusDeliveryPage() {
                   <Link to={`/bonushub/promotions/${promoId}/rules`} className={btnSecondary}>
                     Edit rules
                   </Link>
-                  <Link to="/bonushub/operations" className={btnSecondary}>
+                  <Link to="/bonushub?tab=simulate" className={btnSecondary}>
                     Operations
                   </Link>
                   <Link to={`/bonushub/calendar?promo=${promoId}`} className={btnSecondary}>

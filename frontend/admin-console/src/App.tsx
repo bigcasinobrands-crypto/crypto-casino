@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AdminAuthProvider } from './authContext'
 import { MetricsDisplaySuppressProvider } from './context/MetricsDisplaySuppressContext'
 import { AppToaster } from './components/AppToaster'
@@ -54,6 +54,11 @@ const ContentCmsPage = lazy(() => import('./pages/ContentCmsPage'))
 const ReferralProgramTiersPage = lazy(() => import('./pages/ReferralProgramTiersPage'))
 const EmailSettingsPage = lazy(() => import('./pages/EmailSettingsPage'))
 const KYCAIDSettingsPage = lazy(() => import('./pages/KYCAIDSettingsPage'))
+
+function BonusHubOperationsRedirect() {
+  const loc = useLocation()
+  return <Navigate to={{ pathname: '/bonushub', search: loc.search }} replace />
+}
 
 export default function App() {
   return (
@@ -155,7 +160,7 @@ export default function App() {
                 <Route path="recommendations" element={<BonusRecommendationsPage />} />
                 <Route path="calendar" element={<Navigate to="/bonushub" replace />} />
                 <Route path="campaign-analytics" element={<BonusCampaignStatsPage />} />
-                <Route path="operations" element={<Navigate to="/bonushub" replace />} />
+                <Route path="operations" element={<BonusHubOperationsRedirect />} />
                 <Route path="risk" element={<BonusHubRiskPage />} />
                 <Route path="bonus-audit" element={<BonusHubCompliancePage />} />
                 <Route path="wizard/new" element={<Navigate to="/bonushub" replace />} />

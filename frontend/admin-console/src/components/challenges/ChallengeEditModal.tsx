@@ -72,6 +72,7 @@ type GameRow = {
   thumbnail_url?: string | null
   provider: string
   provider_system?: string
+  bog_game_id?: number | null
 }
 
 type VIPTierRow = {
@@ -214,6 +215,10 @@ export function ChallengeEditModal({
   const [isFeatured, setIsFeatured] = useState(false)
   const [status, setStatus] = useState('draft')
   const [prizeUsd, setPrizeUsd] = useState('0')
+  const [prizeKindEdit, setPrizeKindEdit] = useState<'cash' | 'bonus' | 'free_spins'>('cash')
+  const [bonusWrMult, setBonusWrMult] = useState('30')
+  const [fsRounds, setFsRounds] = useState('10')
+  const [fsGameId, setFsGameId] = useState('')
   const [minBetUsd, setMinBetUsd] = useState('0')
   const [targetMult, setTargetMult] = useState(100)
   const [targetWagerUsd, setTargetWagerUsd] = useState('500')
@@ -464,6 +469,13 @@ export function ChallengeEditModal({
 
         const pm = num(j.prize_amount_minor)
         setPrizeUsd(pm != null ? (pm / 100).toFixed(2) : '0')
+        const ptk = str(j.prize_type).trim().toLowerCase()
+        setPrizeKindEdit(ptk === 'bonus' ? 'bonus' : ptk === 'free_spins' ? 'free_spins' : 'cash')
+        const wr = num(j.prize_wagering_multiplier)
+        setBonusWrMult(wr != null && wr >= 1 ? String(Math.trunc(wr)) : '30')
+        const fsN = num(j.prize_free_spins)
+        setFsRounds(fsN != null && fsN >= 1 ? String(Math.trunc(fsN)) : '10')
+        setFsGameId(str(j.prize_free_spin_game_id))
         const mm = num(j.min_bet_amount_minor)
         setMinBetUsd(mm != null ? (mm / 100).toFixed(2) : '0')
 
@@ -593,7 +605,7 @@ export function ChallengeEditModal({
       toast.error('Upload or paste a thumbnail when more than one game is selected.')
       return
     }
-    const ptype = str(meta?.prize_type)
+    const ptype = prizeKindEdit
     const minMinor = parseUsdToMinor(minBetUsd)
     if (minMinor == null || minMinor <= 0) {
       toast.error('Enter a valid minimum bet (USD).')
@@ -644,6 +656,7 @@ export function ChallengeEditModal({
       starts_at: startsAt,
       ends_at: endsAt,
       prize_currency: prizeCurrency,
+      prize_type: ptype,
       vip_only: vipOnly,
       ...(vipOnly && vipTierMin != null ? { vip_tier_minimum: vipTierMin } : {}),
     }
@@ -651,13 +664,37 @@ export function ChallengeEditModal({
       body.prize_payout_asset_key = payoutAssetKey.trim()
     }
 
-    if (ptype === 'cash') {
+    if (ptype === 'cash' || ptype === 'bonus') {
       const prizeMinor = parseUsdToMinor(prizeUsd)
       if (prizeMinor == null || prizeMinor <= 0) {
         toast.error('Enter a valid prize amount (USD).')
         return
       }
       body.prize_amount_minor = prizeMinor
+    }
+
+    if (ptype === 'bonus') {
+      const wm = Number.parseInt(bonusWrMult, 10)
+      if (!Number.isFinite(wm) || wm < 1) {
+        toast.error('Bonus prize requires wagering multiplier ≥ 1.')
+        return
+      }
+      body.prize_wagering_multiplier = wm
+    }
+
+    if (ptype === 'free_spins') {
+      const r = Number.parseInt(fsRounds, 10)
+      if (!Number.isFinite(r) || r < 1) {
+        toast.error('Enter free spin rounds (≥ 1).')
+        return
+      }
+      if (!fsGameId.trim()) {
+        toast.error('Select a game id with Blue Ocean sync for free-spin prizes.')
+        return
+      }
+      body.prize_free_spins = r
+      body.prize_free_spin_game_id = fsGameId.trim()
+      body.prize_bet_per_round_minor = 1
     }
 
     if (ctype === 'multiplier') {
@@ -1132,10 +1169,25 @@ export function ChallengeEditModal({
 
           <div className="border border-secondary rounded p-3 bg-body-secondary mb-3">
             <div className="fw-semibold small mb-2">Winner prize</div>
-            <div className="row g-2 align-items-end">
+            <div className="row g-2 align-items-end mb-2">
               <div className="col-md-4">
-                <label className="form-label small text-secondary mb-1">Amount (USD major)</label>
-                {str(meta.prize_type) === 'cash' ? (
+                <label className="form-label small text-secondary mb-1">Prize type</label>
+                <select
+                  className="form-select form-select-sm"
+                  value={prizeKindEdit}
+                  onChange={(e) => setPrizeKindEdit(e.target.value as 'cash' | 'bonus' | 'free_spins')}
+                  disabled={!isSuper || saving}
+                >
+                  <option value="cash">Cash (ledger cash pocket)</option>
+                  <option value="bonus">Bonus locked + wagering</option>
+                  <option value="free_spins">Free spins (Blue Ocean queue)</option>
+                </select>
+              </div>
+            </div>
+            {(prizeKindEdit === 'cash' || prizeKindEdit === 'bonus') && (
+              <div className="row g-2 align-items-end">
+                <div className="col-md-4">
+                  <label className="form-label small text-secondary mb-1">Amount (USD major)</label>
                   <div className="input-group input-group-sm">
                     <span className="input-group-text">$</span>
                     <input
@@ -1146,18 +1198,63 @@ export function ChallengeEditModal({
                       inputMode="decimal"
                     />
                   </div>
-                ) : (
-                  <p className="small text-secondary mb-0 py-1">
-                    Prize type {str(meta.prize_type)} — only cash prizes are editable here.
-                  </p>
-                )}
-                {str(meta.prize_type) === 'cash' ? (
                   <p className="text-secondary small mt-1 mb-0">Ledger currency: {prizeCurrency} minor units.</p>
+                </div>
+                {prizeKindEdit === 'bonus' ? (
+                  <div className="col-md-4">
+                    <label className="form-label small text-secondary mb-1">WR multiplier</label>
+                    <input
+                      type="number"
+                      className="form-control form-control-sm"
+                      min={1}
+                      value={bonusWrMult}
+                      onChange={(e) => setBonusWrMult(e.target.value)}
+                      disabled={!isSuper || saving}
+                    />
+                  </div>
                 ) : null}
               </div>
+            )}
+            {prizeKindEdit === 'free_spins' ? (
+              <div className="row g-2 align-items-end mt-1">
+                <div className="col-md-3">
+                  <label className="form-label small text-secondary mb-1">Rounds</label>
+                  <input
+                    type="number"
+                    className="form-control form-control-sm"
+                    min={1}
+                    value={fsRounds}
+                    onChange={(e) => setFsRounds(e.target.value)}
+                    disabled={!isSuper || saving}
+                  />
+                </div>
+                <div className="col-md-5">
+                  <label className="form-label small text-secondary mb-1">Game (catalog id)</label>
+                  <select
+                    className="form-select form-select-sm"
+                    value={fsGameId}
+                    onChange={(e) => setFsGameId(e.target.value)}
+                    disabled={!isSuper || saving}
+                  >
+                    <option value="">— Select BO-linked game —</option>
+                    {games
+                      .filter((g) => typeof g.bog_game_id === 'number' && g.bog_game_id > 0)
+                      .map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.title}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-secondary small mt-1 mb-0">
+                    Only games with a Blue Ocean id can receive automated free-spin grants.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            <div className="row g-2 align-items-end mt-3">
               <div className="col-md-8">
                 <label className="form-label small text-secondary mb-1">
-                  Payout asset &amp; chain (PassimPay)
+                  Display asset key <span className="text-muted">(optional legacy label)</span>
                 </label>
                 <PayoutAssetDropdown
                   options={depositAssets}
@@ -1165,6 +1262,9 @@ export function ChallengeEditModal({
                   onChange={setPayoutAssetKey}
                   disabled={!isSuper || saving}
                 />
+                <p className="text-secondary small mt-1 mb-0">
+                  Ledger prizes use <strong>{prizeCurrency}</strong>; this dropdown is mainly for historical PassimPay labelling.
+                </p>
               </div>
             </div>
           </div>

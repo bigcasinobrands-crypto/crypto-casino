@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { readApiError, formatApiError } from '../../api/errors'
 import { useAdminAuth } from '../../authContext'
 import { ApiResultSummary } from '../admin/ApiResultSummary'
 import { SelectField, adminInputCls } from '../admin-ui'
 import { ADMIN_CURRENCY_OPTIONS } from '../../lib/adminCurrencies'
 import { COUNTRY_OPTIONS, flagEmoji } from '../../lib/countryIsoList'
+import { SIMULATE_PAYMENT_SETTLED_CHANNEL } from '../../lib/depositChannels'
 
 type BonusInstance = {
   id: string
@@ -33,6 +35,7 @@ type PromotionOption = {
   id: number
   name: string
   latest_version_id?: number
+  bonus_type?: string
   status?: string
   has_published_version?: boolean
   grants_paused?: boolean
@@ -84,14 +87,21 @@ function promotionOperationalState(p: PromotionOption): 'live' | 'scheduled' | '
   return 'live'
 }
 
-type OpsTab = 'instances' | 'simulate' | 'failed_jobs' | 'manual_grant' | 'manual_grants_log'
+type OpsTab =
+  | 'instances'
+  | 'simulate'
+  | 'failed_jobs'
+  | 'manual_grant'
+  | 'manual_grants_log'
+  | 'free_spin_grants'
 
 const TABS: { id: OpsTab; label: string }[] = [
   { id: 'instances', label: 'Instances' },
-  { id: 'simulate', label: 'Simulate payment' },
+  { id: 'simulate', label: 'Simulate ledger deposit' },
   { id: 'failed_jobs', label: 'Failed jobs' },
   { id: 'manual_grant', label: 'Manual grant' },
   { id: 'manual_grants_log', label: 'Manual grants log' },
+  { id: 'free_spin_grants', label: 'Free spin grants' },
 ]
 
 const primaryBtn = 'btn btn-primary btn-sm'
@@ -102,6 +112,24 @@ const simCountrySelectOptions = [
   ...COUNTRY_OPTIONS.map((c) => ({ value: c.code, label: `${flagEmoji(c.code)} ${c.name} (${c.code})` })),
 ]
 const manualCurrencyOptions = ADMIN_CURRENCY_OPTIONS
+
+export const BONUS_OPS_TAB_IDS = [
+  'instances',
+  'simulate',
+  'failed_jobs',
+  'manual_grant',
+  'manual_grants_log',
+  'free_spin_grants',
+] as const
+
+export type BonusOpsTabId = (typeof BONUS_OPS_TAB_IDS)[number]
+
+export function parseBonusOpsTab(raw: string | null | undefined): BonusOpsTabId {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+  return (BONUS_OPS_TAB_IDS as readonly string[]).includes(s) ? (s as BonusOpsTabId) : 'instances'
+}
 
 function errFromParsedBody(status: number, body: unknown) {
   if (body && typeof body === 'object' && 'error' in body) {
@@ -119,13 +147,21 @@ function newAdminGrantIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 14)}`
 }
 
-export default function BonusOperationsTools() {
+type BonusOperationsToolsProps = {
+  initialTab?: BonusOpsTabId
+}
+
+export default function BonusOperationsTools({ initialTab }: BonusOperationsToolsProps) {
   const { apiFetch, role } = useAdminAuth()
   const isSuper = role === 'superadmin'
   const showRawApiDebug =
     isSuper && typeof localStorage !== 'undefined' && localStorage.getItem('admin_debug_raw') === '1'
 
-  const [tab, setTab] = useState<OpsTab>('instances')
+  const [tab, setTab] = useState<OpsTab>(() => initialTab ?? 'instances')
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab)
+  }, [initialTab])
 
   const [instances, setInstances] = useState<BonusInstance[]>([])
   const [instancesLoading, setInstancesLoading] = useState(false)
@@ -136,7 +172,6 @@ export default function BonusOperationsTools() {
   const [simUserId, setSimUserId] = useState('')
   const [simAmount, setSimAmount] = useState('')
   const [simCurrency, setSimCurrency] = useState('USDT')
-  const [simChannel, setSimChannel] = useState('on_chain_deposit')
   const [simProviderRes, setSimProviderRes] = useState('')
   const [simDepositIndex, setSimDepositIndex] = useState('0')
   const [simFirstDeposit, setSimFirstDeposit] = useState(false)
@@ -173,6 +208,21 @@ export default function BonusOperationsTools() {
   const [mgLogLoading, setMgLogLoading] = useState(false)
   const [mgLogErr, setMgLogErr] = useState<string | null>(null)
   const [mgLogQuery, setMgLogQuery] = useState('')
+
+  type FreeSpinGrantRow = Record<string, unknown>
+
+  const [fsGrants, setFsGrants] = useState<FreeSpinGrantRow[]>([])
+  const [fsErr, setFsErr] = useState<string | null>(null)
+  const [fsLoading, setFsLoading] = useState(false)
+  const [fsUserFilter, setFsUserFilter] = useState('')
+  const [fsCreateUser, setFsCreateUser] = useState('')
+  const [fsCreateRounds, setFsCreateRounds] = useState('20')
+  const [fsCreateGameId, setFsCreateGameId] = useState('')
+  const [fsCreateBet, setFsCreateBet] = useState('1')
+  const [fsCreateIdem, setFsCreateIdem] = useState('')
+  const [fsCreatePvid, setFsCreatePvid] = useState('')
+  const [fsCreateBusy, setFsCreateBusy] = useState(false)
+  const [fsGames, setFsGames] = useState<{ id: string; title: string; bog_game_id?: number }[]>([])
 
   useEffect(() => {
     if (mgCreditTarget !== 'cash') return
@@ -296,7 +346,7 @@ export default function BonusOperationsTools() {
           user_id: simUserId.trim(),
           amount_minor: amount,
           currency: simCurrency.trim() || 'USDT',
-          channel: simChannel,
+          channel: SIMULATE_PAYMENT_SETTLED_CHANNEL,
           provider_resource_id: simProviderRes.trim(),
           ...(cc ? { country: cc } : {}),
           deposit_index: depIdx,
@@ -378,22 +428,50 @@ export default function BonusOperationsTools() {
     const ccy = mgCurrency.trim() || 'USDT'
     const isCash = mgCreditTarget === 'cash'
     const isActiveTopUp = mgCreditTarget === 'bonus_active'
-    if (!uid || Number.isNaN(amt) || amt <= 0) {
-      setMgErr('user_id and positive grant_amount_minor are required')
+    const promoRow = mgPromotionOptions.find((p) => p.latest_version_id === pvid)
+    const isFreeSpinsOnly = promoRow?.bonus_type === 'free_spins_only'
+    const isCompositeFs = promoRow?.bonus_type === 'composite_match_and_fs'
+
+    if (!uid) {
+      setMgErr('user_id is required')
       return
     }
-    if (isActiveTopUp) {
+
+    if (isCash) {
+      if (Number.isNaN(amt) || amt <= 0) {
+        setMgErr('Cash grants require a positive grant_amount_minor')
+        return
+      }
+    } else if (isActiveTopUp) {
       if (!mgBonusInstanceId.trim()) {
         setMgErr('bonus_instance_id (UUID) is required for active bonus top-up')
         return
       }
-    } else if (!isCash && (Number.isNaN(pvid) || pvid <= 0)) {
-      setMgErr('promotion_version_id is required for new bonus grants')
-      return
+      if (Number.isNaN(amt) || amt <= 0) {
+        setMgErr('Top-up requires a positive grant_amount_minor')
+        return
+      }
+    } else {
+      if (Number.isNaN(pvid) || pvid <= 0) {
+        setMgErr('promotion_version_id is required for new bonus grants')
+        return
+      }
+      if (isFreeSpinsOnly && amt !== 0) {
+        setMgErr('Free-spins-only promotions require grant amount 0 — free rounds are taken from promotion rules.')
+        return
+      }
+      const fsRulesOnly = isCompositeFs && amt === 0
+      if (!isFreeSpinsOnly && !fsRulesOnly && (Number.isNaN(amt) || amt <= 0)) {
+        setMgErr('user_id and positive grant_amount_minor are required')
+        return
+      }
     }
 
+    const skipDupCheck =
+      !isCash && !isActiveTopUp && ((isFreeSpinsOnly && amt === 0) || (isCompositeFs && amt === 0))
+
     // Safety pre-check: warn before issuing a likely duplicate grant (new bonus path only).
-    if (!isCash && !isActiveTopUp) {
+    if (!isCash && !isActiveTopUp && !skipDupCheck) {
       try {
         const q = new URLSearchParams({ user_id: uid, limit: '200' })
         const res = await apiFetch(`/v1/admin/bonushub/instances?${q.toString()}`)
@@ -426,6 +504,37 @@ export default function BonusOperationsTools() {
       allowWithdrawable: mgAllowWithdrawable,
       creditTarget: isCash ? 'cash' : isActiveTopUp ? 'bonus_active' : 'bonus_locked',
       bonusInstanceId: isActiveTopUp ? mgBonusInstanceId : undefined,
+    })
+  }
+
+  const manualGrantFreeSpinsFromCompositeRules = async () => {
+    const pvid = Number.parseInt(mgPvid, 10)
+    const uid = mgUserId.trim()
+    const ccy = mgCurrency.trim() || 'USDT'
+    const promoRow = mgPromotionOptions.find((p) => p.latest_version_id === pvid)
+    if (!uid) {
+      setMgErr('user_id is required')
+      return
+    }
+    if (mgCreditTarget !== 'bonus_locked') {
+      setMgErr('Switch credit target to “New bonus” for free-spin enqueue from rules')
+      return
+    }
+    if (Number.isNaN(pvid) || pvid <= 0) {
+      setMgErr('Select a promotion version first')
+      return
+    }
+    if (promoRow?.bonus_type !== 'composite_match_and_fs') {
+      setMgErr('This action applies to composite (match + free spins) promotions only')
+      return
+    }
+    await performManualGrant({
+      userId: uid,
+      promotionVersionId: pvid,
+      grantAmountMinor: 0,
+      currency: ccy,
+      allowWithdrawable: mgAllowWithdrawable,
+      creditTarget: 'bonus_locked',
     })
   }
 
@@ -472,6 +581,44 @@ export default function BonusOperationsTools() {
     }
   }, [apiFetch])
 
+  const loadFreeSpinGrants = useCallback(async () => {
+    setFsErr(null)
+    setFsLoading(true)
+    try {
+      const q = new URLSearchParams({ limit: '80' })
+      if (fsUserFilter.trim()) q.set('user_id', fsUserFilter.trim())
+      const res = await apiFetch(`/v1/admin/bonushub/free-spin-grants?${q.toString()}`)
+      if (!res.ok) {
+        const e = await readApiError(res)
+        setFsErr(formatApiError(e, `Load failed (${res.status})`))
+        setFsGrants([])
+        return
+      }
+      const j = (await res.json()) as { grants?: FreeSpinGrantRow[] }
+      setFsGrants(Array.isArray(j.grants) ? j.grants : [])
+    } catch {
+      setFsErr('Network error loading free spin grants')
+      setFsGrants([])
+    } finally {
+      setFsLoading(false)
+    }
+  }, [apiFetch, fsUserFilter])
+
+  const loadFsGameCatalog = useCallback(async () => {
+    try {
+      const res = await apiFetch('/v1/admin/games?limit=500')
+      if (!res.ok) {
+        setFsGames([])
+        return
+      }
+      const j = (await res.json()) as { games?: { id: string; title: string; bog_game_id?: number }[] }
+      const rows = Array.isArray(j.games) ? j.games : []
+      setFsGames(rows.filter((g) => (g.bog_game_id ?? 0) > 0))
+    } catch {
+      setFsGames([])
+    }
+  }, [apiFetch])
+
   useEffect(() => {
     if (tab === 'instances') void loadInstances()
   }, [tab, loadInstances])
@@ -489,6 +636,12 @@ export default function BonusOperationsTools() {
     if (tab !== 'manual_grants_log') return
     void loadManualGrantLog()
   }, [tab, loadManualGrantLog])
+
+  useEffect(() => {
+    if (tab !== 'free_spin_grants') return
+    void loadFreeSpinGrants()
+    void loadFsGameCatalog()
+  }, [tab, loadFreeSpinGrants, loadFsGameCatalog])
 
   useEffect(() => {
     if (tab !== 'manual_grant') return
@@ -544,6 +697,59 @@ export default function BonusOperationsTools() {
     )
   })
 
+  const mgResolvedPromo = useMemo(() => {
+    const pvid = Number.parseInt(mgPvid, 10)
+    if (Number.isNaN(pvid) || pvid <= 0) return null
+    return mgPromotionOptions.find((p) => p.latest_version_id === pvid) ?? null
+  }, [mgPvid, mgPromotionOptions])
+
+  const createFreeSpinGrantAdmin = async () => {
+    setFsErr(null)
+    const uid = fsCreateUser.trim()
+    const rounds = Number.parseInt(fsCreateRounds, 10)
+    const bet = Number.parseInt(fsCreateBet, 10)
+    const idem = fsCreateIdem.trim()
+    const pvidRaw = fsCreatePvid.trim()
+    if (!uid || !idem || Number.isNaN(rounds) || rounds <= 0 || !fsCreateGameId.trim()) {
+      setFsErr('user_id, rounds, game_id, and idempotency_key are required')
+      return
+    }
+    if (Number.isNaN(bet) || bet < 0) {
+      setFsErr('bet_minor must be a non-negative integer')
+      return
+    }
+    setFsCreateBusy(true)
+    try {
+      const body: Record<string, unknown> = {
+        user_id: uid,
+        rounds,
+        game_id: fsCreateGameId.trim(),
+        bet_minor: bet,
+        idempotency_key: idem,
+      }
+      if (pvidRaw) {
+        const pv = Number.parseInt(pvidRaw, 10)
+        if (!Number.isNaN(pv) && pv > 0) body.promotion_version_id = pv
+      }
+      const res = await apiFetch('/v1/admin/bonushub/free-spin-grants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) {
+        const e = errFromParsedBody(res.status, j)
+        setFsErr(formatApiError(e, `Create failed (${res.status})`))
+        return
+      }
+      void loadFreeSpinGrants()
+    } catch {
+      setFsErr('Network error creating grant')
+    } finally {
+      setFsCreateBusy(false)
+    }
+  }
+
   return (
     <>
       <div className="mb-3 d-flex flex-wrap align-items-center gap-2">
@@ -581,6 +787,11 @@ export default function BonusOperationsTools() {
               {instancesLoading ? 'Loading…' : 'Apply filter'}
             </button>
           </div>
+          <p className="small text-secondary mb-3">
+            Financial truth lives in the ledger (<code className="small">promo.grant</code>,{' '}
+            <code className="small">promo.free_spin_grant</code>). Rows here are bonus entitlements — reconcile with{' '}
+            <code className="small">GET /v1/admin/users/&#123;id&#125;/economic-timeline</code> when investigating balances.
+          </p>
           {instancesLoading && instances.length === 0 ? (
             <p className="small text-secondary mb-0">Loading…</p>
           ) : (
@@ -644,6 +855,11 @@ export default function BonusOperationsTools() {
         <>
           {!isSuper ? <p className="mb-3 small text-warning">Superadmin only.</p> : null}
           {simErr ? <p className="mb-3 text-sm text-danger">{simErr}</p> : null}
+          <p className="mb-3 max-w-2xl text-sm text-secondary">
+            Simulates a <strong>ledger-settled deposit</strong> (same <code className="small">channel</code> as PassimPay
+            after <code className="small">deposit.credit</code>). Does not run the full payment pipeline — only bonus
+            evaluation.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelCls}>Player ID</label>
@@ -663,12 +879,9 @@ export default function BonusOperationsTools() {
                 disabled={!isSuper}
               />
             </div>
-            <div>
-              <label className={labelCls}>channel</label>
-              <select className={inputCls} value={simChannel} onChange={(e) => setSimChannel(e.target.value)}>
-                <option value="on_chain_deposit">on_chain_deposit</option>
-                <option value="hosted_checkout">hosted_checkout</option>
-              </select>
+            <div className="sm:col-span-2">
+              <span className={labelCls}>Ledger settlement channel</span>
+              <p className="small text-secondary mb-0 font-mono">{SIMULATE_PAYMENT_SETTLED_CHANNEL}</p>
             </div>
             <div className="sm:col-span-2">
               <SelectField
@@ -827,6 +1040,18 @@ export default function BonusOperationsTools() {
                   promo rules stored on that instance.
                 </p>
               ) : null}
+              {mgCreditTarget === 'bonus_locked' && mgResolvedPromo?.bonus_type === 'free_spins_only' ? (
+                <p className="small text-info mt-2 mb-0">
+                  <strong>Free-spins-only:</strong> set grant amount to <strong>0</strong> — rounds and game come from the
+                  published promotion rules and enqueue <code className="small">free_spin_grants</code> / Blue Ocean.
+                </p>
+              ) : null}
+              {mgCreditTarget === 'bonus_locked' && mgResolvedPromo?.bonus_type === 'composite_match_and_fs' ? (
+                <p className="small text-secondary mt-2 mb-0">
+                  <strong>Composite:</strong> use a positive amount for the deposit-match bonus, or amount <strong>0</strong>{' '}
+                  / &quot;Grant free spins only&quot; to enqueue free rounds from rules without extra bonus cash.
+                </p>
+              ) : null}
             </div>
             <div>
               <label className={labelCls}>Player (UUID / email / username)</label>
@@ -923,6 +1148,12 @@ export default function BonusOperationsTools() {
                           <div className="fw-semibold text-break">{p.name}</div>
                           <div className="small text-secondary">
                             v{p.latest_version_id} · {state}
+                            {p.bonus_type ? (
+                              <>
+                                {' '}
+                                · <span className="font-monospace">{p.bonus_type}</span>
+                              </>
+                            ) : null}
                           </div>
                         </button>
                       )
@@ -1004,12 +1235,136 @@ export default function BonusOperationsTools() {
           <button type="button" className={`mt-3 ${primaryBtn}`} onClick={() => void manualGrant()} disabled={mgBusy || !isSuper}>
             {mgBusy ? 'Granting…' : 'Grant'}
           </button>
+          {mgCreditTarget === 'bonus_locked' && mgResolvedPromo?.bonus_type === 'composite_match_and_fs' ? (
+            <button
+              type="button"
+              className={`mt-2 ms-2 ${primaryBtn}`}
+              disabled={mgBusy || !isSuper}
+              onClick={() => void manualGrantFreeSpinsFromCompositeRules()}
+            >
+              Grant free spins only (from rules)
+            </button>
+          ) : null}
           {mgResult != null ? (
             <div className="mt-3">
               <ApiResultSummary data={mgResult} />
               {showRawApiDebug ? <pre className="small mt-2">{JSON.stringify(mgResult, null, 2)}</pre> : null}
             </div>
           ) : null}
+        </>
+      ) : null}
+
+      {tab === 'free_spin_grants' ? (
+        <>
+          {fsErr ? <p className="mb-3 text-sm text-danger">{fsErr}</p> : null}
+          <p className="small text-secondary mb-3">
+            Queue rows processed by the worker → Blue Ocean <code className="small">addFreeRounds</code>. Requires{' '}
+            <code className="small">free_spins_v1.outbound_enabled</code> and synced <code className="small">bog_game_id</code>.
+          </p>
+          <div className="mb-4 d-flex flex-wrap items-end gap-3">
+            <div className="min-w-[240px] flex-1">
+              <label className={labelCls} htmlFor="fs-filter-user">
+                Filter by user UUID (optional)
+              </label>
+              <input
+                id="fs-filter-user"
+                className={inputCls}
+                value={fsUserFilter}
+                onChange={(e) => setFsUserFilter(e.target.value)}
+                placeholder="uuid"
+              />
+            </div>
+            <button type="button" className={primaryBtn} onClick={() => void loadFreeSpinGrants()} disabled={fsLoading}>
+              {fsLoading ? 'Loading…' : 'Refresh list'}
+            </button>
+          </div>
+          <h6 className="small fw-semibold text-uppercase text-secondary">Create grant</h6>
+          <div className="grid gap-3 sm:grid-cols-2 mb-4">
+            <div>
+              <label className={labelCls}>User ID</label>
+              <input className={inputCls} value={fsCreateUser} onChange={(e) => setFsCreateUser(e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Rounds</label>
+              <input type="number" min={1} className={inputCls} value={fsCreateRounds} onChange={(e) => setFsCreateRounds(e.target.value)} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelCls}>Game (BO-linked catalog id)</label>
+              <select className={inputCls} value={fsCreateGameId} onChange={(e) => setFsCreateGameId(e.target.value)}>
+                <option value="">— Select —</option>
+                {fsGames.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title} · BO #{g.bog_game_id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Bet minor</label>
+              <input type="number" min={0} className={inputCls} value={fsCreateBet} onChange={(e) => setFsCreateBet(e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Promotion version ID (optional)</label>
+              <input className={inputCls} value={fsCreatePvid} onChange={(e) => setFsCreatePvid(e.target.value)} placeholder="e.g. 42" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelCls}>Idempotency key</label>
+              <input className={inputCls} value={fsCreateIdem} onChange={(e) => setFsCreateIdem(e.target.value)} placeholder="unique per grant" />
+            </div>
+          </div>
+          <button type="button" className={primaryBtn} disabled={fsCreateBusy || !isSuper} onClick={() => void createFreeSpinGrantAdmin()}>
+            {fsCreateBusy ? 'Creating…' : 'Enqueue grant'}
+          </button>
+          {!isSuper ? <p className="small text-warning mt-2 mb-0">Superadmin required to create grants.</p> : null}
+
+          {fsLoading && fsGrants.length === 0 ? (
+            <p className="small text-secondary mt-4 mb-0">Loading…</p>
+          ) : (
+            <div className="table-responsive rounded border mt-4">
+              <table className="table table-sm mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th>ID</th>
+                    <th>User</th>
+                    <th>Game</th>
+                    <th>Rounds</th>
+                    <th>Status</th>
+                    <th>Provider ref</th>
+                    <th>Created</th>
+                    <th>Player</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fsGrants.map((row) => {
+                    const id = String(row.id ?? '')
+                    const uid = String(row.user_id ?? '')
+                    return (
+                      <tr key={id ? id : `${uid}-${String(row.created_at ?? '')}`}>
+                        <td className="font-monospace small">{id.slice(0, 10)}…</td>
+                        <td className="font-monospace small">{uid.slice(0, 8)}…</td>
+                        <td className="small">{String(row.game_id ?? '—')}</td>
+                        <td className="small">
+                          {String(row.rounds_remaining ?? '—')} / {String(row.rounds_total ?? '—')}
+                        </td>
+                        <td>{String(row.status ?? '—')}</td>
+                        <td className="small">{String(row.provider_ref ?? '—')}</td>
+                        <td className="small text-secondary">{String(row.created_at ?? '—')}</td>
+                        <td>
+                          {uid ? (
+                            <Link className="small" to={`/support/player/${encodeURIComponent(uid)}`}>
+                              Open player
+                            </Link>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       ) : null}
 

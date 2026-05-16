@@ -5,6 +5,7 @@ export type MyEntry = {
   total_wagered_minor?: number
   qualifying_bets?: number
   prize_awarded_minor?: number
+  prize_awarded_at?: string
   can_claim_prize?: boolean
 }
 
@@ -21,6 +22,8 @@ export type PlayerChallengeListItem = {
   max_winners?: number
   winners_so_far?: number
   prize_amount_minor?: number
+  prize_wagering_multiplier?: number
+  prize_free_spins?: number
   target_multiplier?: number
   target_wager_amount_minor?: number
   hero_image_url?: string

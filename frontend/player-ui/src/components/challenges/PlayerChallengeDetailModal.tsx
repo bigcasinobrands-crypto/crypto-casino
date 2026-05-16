@@ -405,12 +405,25 @@ export function PlayerChallengeDetailModal({
                         })}
                       </div>
                     ) : null}
-                    {typeof modalChallenge.my_entry.prize_awarded_minor === 'number' &&
-                    modalChallenge.my_entry.prize_awarded_minor > 0 ? (
+                    {modalChallenge.my_entry &&
+                    (typeof modalChallenge.my_entry.prize_awarded_at === 'string' ||
+                      (typeof modalChallenge.my_entry.prize_awarded_minor === 'number' &&
+                        modalChallenge.my_entry.prize_awarded_minor > 0)) ? (
                       <div className="mt-3 text-[12px] font-bold text-casino-success">
-                        {t('challenges.modal.prizePaid', {
-                          amount: formatUsdMinor(modalChallenge.my_entry.prize_awarded_minor),
-                        })}
+                        {modalChallenge.prize_type === 'cash' &&
+                        typeof modalChallenge.my_entry.prize_awarded_minor === 'number' ? (
+                          <>
+                            {t('challenges.modal.prizePaid', {
+                              amount: formatUsdMinor(modalChallenge.my_entry.prize_awarded_minor),
+                            })}
+                          </>
+                        ) : modalChallenge.prize_type === 'bonus' ? (
+                          <>Bonus prize credited — finish wagering under My Bonuses.</>
+                        ) : modalChallenge.prize_type === 'free_spins' ? (
+                          <>Free spins queued — eligible rounds will appear on the selected game.</>
+                        ) : (
+                          <>Prize recorded.</>
+                        )}
                       </div>
                     ) : null}
                     {modalChallenge.my_entry.can_claim_prize ? (
@@ -424,10 +437,12 @@ export function PlayerChallengeDetailModal({
                       </button>
                     ) : null}
                     {modalChallenge.my_entry.status === 'completed' &&
-                    modalChallenge.prize_type === 'cash' &&
                     !modalChallenge.my_entry.can_claim_prize &&
-                    (!(typeof modalChallenge.my_entry.prize_awarded_minor === 'number') ||
-                      modalChallenge.my_entry.prize_awarded_minor <= 0) ? (
+                    !(
+                      typeof modalChallenge.my_entry.prize_awarded_at === 'string' ||
+                      (typeof modalChallenge.my_entry.prize_awarded_minor === 'number' &&
+                        modalChallenge.my_entry.prize_awarded_minor > 0)
+                    ) ? (
                       <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
                         {modalChallenge.require_claim_for_prize === false
                           ? t('challenges.modal.prizeAutoCredit')

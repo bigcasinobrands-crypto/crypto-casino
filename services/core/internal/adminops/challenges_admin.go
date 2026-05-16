@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +16,8 @@ import (
 	"github.com/crypto-casino/core/internal/challenges"
 	"github.com/crypto-casino/core/internal/games"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func gameIDFromJSONElement(e any) string {
@@ -107,6 +111,67 @@ func parseGameIDSlice(v any) []string {
 	default:
 		return nil
 	}
+}
+
+func validateChallengePrizeFields(ctx context.Context, pool *pgxpool.Pool, ptype string, pam *int64, wrMult int64, prizeFreeSpins *int64, fsGame string) error {
+	pt := strings.TrimSpace(strings.ToLower(ptype))
+	switch pt {
+	case "bonus":
+		if pam == nil || *pam <= 0 {
+			return fmt.Errorf("bonus prize requires prize_amount_minor > 0")
+		}
+		if wrMult < 1 {
+			return fmt.Errorf("bonus prize requires prize_wagering_multiplier >= 1")
+		}
+	case "free_spins":
+		if prizeFreeSpins == nil || *prizeFreeSpins <= 0 {
+			return fmt.Errorf("free_spins prize requires prize_free_spins > 0")
+		}
+		g := strings.TrimSpace(fsGame)
+		if g == "" {
+			return fmt.Errorf("free_spins prize requires prize_free_spin_game_id")
+		}
+		var bog int32
+		err := pool.QueryRow(ctx, `
+			SELECT COALESCE(bog_game_id, 0) FROM games WHERE id = $1 OR id_hash = $1 LIMIT 1
+		`, g).Scan(&bog)
+		if errors.Is(err, pgx.ErrNoRows) || bog <= 0 {
+			return fmt.Errorf("free_spin game must have a Blue Ocean catalog id")
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *Handler) validateStoredChallengePrizes(ctx context.Context, id string) error {
+	var ptype string
+	var pam sql.NullInt64
+	var wrm int64
+	var fs sql.NullInt64
+	var fsGame sql.NullString
+	err := h.Pool.QueryRow(ctx, `
+		SELECT prize_type, prize_amount_minor, COALESCE(prize_wagering_multiplier, 0),
+		       prize_free_spins, prize_free_spin_game_id
+		FROM challenges WHERE id = $1::uuid
+	`, id).Scan(&ptype, &pam, &wrm, &fs, &fsGame)
+	if err != nil {
+		return err
+	}
+	var pamPtr *int64
+	if pam.Valid {
+		pamPtr = &pam.Int64
+	}
+	var fsPtr *int64
+	if fs.Valid && fs.Int64 > 0 {
+		fsPtr = &fs.Int64
+	}
+	fsG := ""
+	if fsGame.Valid {
+		fsG = fsGame.String
+	}
+	return validateChallengePrizeFields(ctx, h.Pool, ptype, pamPtr, wrm, fsPtr, fsG)
 }
 
 func normalizeGameIDsInAdminDetailMap(m map[string]any) {
@@ -324,6 +389,7 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 		SELECT id::text, slug, title, description, challenge_type, status, prize_type, max_winners, winners_count,
 		       starts_at, ends_at, created_at,
 		       hero_image_url, badge_label, min_bet_amount_minor, prize_amount_minor, prize_currency,
+		       COALESCE(prize_wagering_multiplier, 0), prize_free_spins,
 		       COALESCE(game_ids, '{}'::text[]),
 		       COALESCE(vip_only, false)
 		FROM challenges
@@ -345,9 +411,11 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 		var minBet int64
 		var prizeMinor sql.NullInt64
 		var prizeCur string
+		var wrMult int64
+		var prizeFS sql.NullInt64
 		var gameIDs []string
 		var vipOnly bool
-		if err := rows.Scan(&id, &slug, &title, &desc, &ctype, &st, &ptype, &maxW, &win, &starts, &ends, &created, &hero, &badge, &minBet, &prizeMinor, &prizeCur, &gameIDs, &vipOnly); err != nil {
+		if err := rows.Scan(&id, &slug, &title, &desc, &ctype, &st, &ptype, &maxW, &win, &starts, &ends, &created, &hero, &badge, &minBet, &prizeMinor, &prizeCur, &wrMult, &prizeFS, &gameIDs, &vipOnly); err != nil {
 			continue
 		}
 		item := map[string]any{
@@ -358,6 +426,7 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 			"min_bet_amount_minor": minBet,
 			"prize_currency":       prizeCur,
 			"vip_only":             vipOnly,
+			"prize_wagering_multiplier": wrMult,
 		}
 		heroOut := ""
 		if hero != nil {
@@ -382,6 +451,9 @@ func (h *Handler) listChallengesAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 		if prizeMinor.Valid {
 			item["prize_amount_minor"] = prizeMinor.Int64
+		}
+		if prizeFS.Valid && prizeFS.Int64 > 0 {
+			item["prize_free_spins"] = prizeFS.Int64
 		}
 		list = append(list, item)
 	}
@@ -511,6 +583,51 @@ func (h *Handler) createChallenge(w http.ResponseWriter, r *http.Request) {
 		payoutAsset = &p
 	}
 
+	wrMultPrize, _ := jsonInt64FromMap(body, "prize_wagering_multiplier")
+	maxBetPrizeMinor, hasMaxBetPrize := jsonInt64FromMap(body, "prize_max_bet_minor")
+	prizeBetFS, okBetFS := jsonInt64FromMap(body, "prize_bet_per_round_minor")
+	if !okBetFS || prizeBetFS <= 0 {
+		prizeBetFS = 1
+	}
+	withdrawPrize := ""
+	if s, ok := body["prize_withdraw_policy"].(string); ok {
+		withdrawPrize = strings.TrimSpace(s)
+	}
+	fsGameID := ""
+	if s, ok := body["prize_free_spin_game_id"].(string); ok {
+		fsGameID = strings.TrimSpace(s)
+	}
+	var prizeFreeSpinsPtr *int64
+	if v, ok := jsonInt64FromMap(body, "prize_free_spins"); ok && v > 0 {
+		prizeFreeSpinsPtr = &v
+	}
+
+	if err := validateChallengePrizeFields(r.Context(), h.Pool, prizeType, prizeMinor, wrMultPrize, prizeFreeSpinsPtr, fsGameID); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "validation", err.Error())
+		return
+	}
+
+	var prizeFSAny any
+	if prizeFreeSpinsPtr != nil {
+		prizeFSAny = *prizeFreeSpinsPtr
+	} else {
+		prizeFSAny = nil
+	}
+	var prizeMaxBetAny any
+	if hasMaxBetPrize && maxBetPrizeMinor > 0 {
+		prizeMaxBetAny = maxBetPrizeMinor
+	} else {
+		prizeMaxBetAny = nil
+	}
+	withdrawAny := any(nil)
+	if withdrawPrize != "" {
+		withdrawAny = withdrawPrize
+	}
+	fsGameAny := any(nil)
+	if fsGameID != "" {
+		fsGameAny = fsGameID
+	}
+
 	var sid *string
 	if id, ok := adminapi.StaffIDFromContext(r.Context()); ok {
 		sid = &id
@@ -524,7 +641,9 @@ func (h *Handler) createChallenge(w http.ResponseWriter, r *http.Request) {
 		  prize_type, prize_currency, prize_amount_minor, max_winners,
 		  starts_at, ends_at, created_by,
 		  game_ids, hero_image_url, require_claim_for_prize, badge_label, is_featured,
-		  vip_only, vip_tier_minimum, prize_payout_asset_key
+		  vip_only, vip_tier_minimum, prize_payout_asset_key,
+		  prize_free_spins, prize_wagering_multiplier, prize_max_bet_minor,
+		  prize_withdraw_policy, prize_free_spin_game_id, prize_bet_per_round_minor
 		) VALUES (
 		  $1, $2, $3, $4, $5, $6, $7,
 		  $8::bigint, $9::bigint,
@@ -532,7 +651,8 @@ func (h *Handler) createChallenge(w http.ResponseWriter, r *http.Request) {
 		  $12, $13, $14::bigint, $15::int,
 		  COALESCE($16::timestamptz, now()), COALESCE($17::timestamptz, now() + interval '7 days'), $18::uuid,
 		  $19::text[], $20, $21, $22, $23,
-		  $24, $25, $26
+		  $24, $25, $26,
+		  $27, $28, $29, $30, $31, $32
 		) RETURNING id::text
 	`, slug, title, desc, rules, terms, ctype, status,
 		minBet, maxBet,
@@ -541,6 +661,7 @@ func (h *Handler) createChallenge(w http.ResponseWriter, r *http.Request) {
 		body["starts_at"], body["ends_at"], sid,
 		gameIDs, hero, reqClaim, badge, featured,
 		vipOnly, vipMinTier, payoutAsset,
+		prizeFSAny, wrMultPrize, prizeMaxBetAny, withdrawAny, fsGameAny, prizeBetFS,
 	).Scan(&idOut)
 	if err != nil {
 		adminapi.WriteError(w, http.StatusBadRequest, "insert_failed", err.Error())
@@ -780,6 +901,65 @@ func (h *Handler) patchChallenge(w http.ResponseWriter, r *http.Request) {
 			adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
 			return
 		}
+	}
+	if v, ok := patch["prize_type"].(string); ok && strings.TrimSpace(v) != "" {
+		if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_type = $2, updated_by = $3::uuid, updated_at = now() WHERE id = $1::uuid`, id, strings.TrimSpace(v), staff); err != nil {
+			adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+			return
+		}
+	}
+	if _, ok := patch["prize_wagering_multiplier"]; ok && patch["prize_wagering_multiplier"] != nil {
+		if n, ok2 := jsonInt64FromMap(patch, "prize_wagering_multiplier"); ok2 {
+			if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_wagering_multiplier = $2::int, updated_by = $3::uuid, updated_at = now() WHERE id = $1::uuid`, id, n, staff); err != nil {
+				adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+				return
+			}
+		}
+	}
+	if _, ok := patch["prize_max_bet_minor"]; ok && patch["prize_max_bet_minor"] != nil {
+		if n, ok2 := jsonInt64FromMap(patch, "prize_max_bet_minor"); ok2 {
+			if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_max_bet_minor = $2::bigint, updated_by = $3::uuid, updated_at = now() WHERE id = $1::uuid`, id, n, staff); err != nil {
+				adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+				return
+			}
+		}
+	}
+	if v, ok := patch["prize_withdraw_policy"].(string); ok {
+		if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_withdraw_policy = NULLIF(trim($2),''), updated_by = $3::uuid, updated_at = now() WHERE id = $1::uuid`, id, v, staff); err != nil {
+			adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+			return
+		}
+	}
+	if v, ok := patch["prize_free_spin_game_id"].(string); ok {
+		if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_free_spin_game_id = NULLIF(trim($2),''), updated_by = $3::uuid, updated_at = now() WHERE id = $1::uuid`, id, v, staff); err != nil {
+			adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+			return
+		}
+	}
+	if _, ok := patch["prize_bet_per_round_minor"]; ok && patch["prize_bet_per_round_minor"] != nil {
+		if n, ok2 := jsonInt64FromMap(patch, "prize_bet_per_round_minor"); ok2 && n > 0 {
+			if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_bet_per_round_minor = $2::bigint, updated_by = $3::uuid, updated_at = now() WHERE id = $1::uuid`, id, n, staff); err != nil {
+				adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+				return
+			}
+		}
+	}
+	if raw, hasFS := patch["prize_free_spins"]; hasFS {
+		if raw == nil {
+			if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_free_spins = NULL, updated_by = $2::uuid, updated_at = now() WHERE id = $1::uuid`, id, staff); err != nil {
+				adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+				return
+			}
+		} else if n, ok2 := jsonInt64FromMap(patch, "prize_free_spins"); ok2 {
+			if _, err := h.Pool.Exec(ctx, `UPDATE challenges SET prize_free_spins = $2::int, updated_by = $3::uuid, updated_at = now() WHERE id = $1::uuid`, id, n, staff); err != nil {
+				adminapi.WriteError(w, http.StatusBadRequest, "update_failed", err.Error())
+				return
+			}
+		}
+	}
+	if err := h.validateStoredChallengePrizes(ctx, id); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "prize_validation", err.Error())
+		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
 }

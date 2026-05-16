@@ -6,6 +6,7 @@ import ComponentCard from '../common/ComponentCard'
 import { Field, adminInputCls } from '../admin-ui'
 import RulesEditor from './RulesEditor'
 import { defaultRulesForType } from './bonusRuleTemplates'
+import { validateWizardFreeSpinRules } from './FreeSpinsRewardSection'
 
 type BonusTypeRow = { id: string; label: string; description: string }
 const CALENDAR_COLOR_PRESETS = ['#3B82F6', '#10B981', '#EAB308', '#EF4444', '#06B6D4', '#6B7280', '#8B5CF6']
@@ -135,6 +136,11 @@ export default function BonusWizardFlow({ onCancel, onCreated }: Props) {
     const rulesPayload = rules
     if (!rulesPayload || typeof rulesPayload !== 'object' || Object.keys(rulesPayload as object).length === 0) {
       setErr('Configure rules before creating.')
+      return
+    }
+    const fsErr = validateWizardFreeSpinRules(selectedTypeId, rulesPayload)
+    if (fsErr) {
+      setErr(fsErr)
       return
     }
     setBusy(true)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { readApiError, formatApiError } from '../api/errors'
 import { useAdminAuth } from '../authContext'
 import { StatCard } from '../components/dashboard'
@@ -7,7 +7,7 @@ import ComponentCard from '../components/common/ComponentCard'
 import PageBreadcrumb from '../components/common/PageBreadCrumb'
 import PageMeta from '../components/common/PageMeta'
 import BonusWizardFlow from '../components/bonus/BonusWizardFlow'
-import BonusOperationsTools from '../components/bonus/BonusOperationsTools'
+import BonusOperationsTools, { parseBonusOpsTab } from '../components/bonus/BonusOperationsTools'
 import { useBonusStats } from '../hooks/useDashboard'
 import { formatCompact, formatCurrency, formatPct } from '../lib/format'
 import {
@@ -81,6 +81,7 @@ const BONUS_TYPE_TONES: Record<string, BonusTypeTone> = {
   deposit_match: { label: 'Deposit match', dotClass: 'bg-primary', itemClass: 'text-bg-primary' },
   cashback: { label: 'Cashback', dotClass: 'bg-success', itemClass: 'text-bg-success' },
   free_spins: { label: 'Free spins', dotClass: 'bg-warning', itemClass: 'text-bg-warning' },
+  free_spins_only: { label: 'Free spins', dotClass: 'bg-warning', itemClass: 'text-bg-warning' },
   wager_race: { label: 'Wager race', dotClass: 'bg-danger', itemClass: 'text-bg-danger' },
   vip: { label: 'VIP', dotClass: 'bg-info', itemClass: 'text-bg-info' },
   referral: { label: 'Referral', dotClass: 'bg-secondary', itemClass: 'text-bg-secondary' },
@@ -205,6 +206,8 @@ function staffCanPlayerHubToggle(r: string | null): boolean {
 
 export default function BonusesCatalogPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const bonusOpsInitialTab = useMemo(() => parseBonusOpsTab(searchParams.get('tab')), [searchParams])
   const { apiFetch, role } = useAdminAuth()
   const isSuper = role === 'superadmin'
   const canPlayerHubToggle = staffCanPlayerHubToggle(role)
@@ -228,6 +231,13 @@ export default function BonusesCatalogPage() {
   const [calendarEvents, setCalendarEvents] = useState<CalEvent[]>([])
   const [calendarLoading, setCalendarLoading] = useState(false)
   const [calendarErr, setCalendarErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    const raw = searchParams.get('tab')
+    if (raw && parseBonusOpsTab(raw) !== 'instances') {
+      setOperationsExpanded(true)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQ(q.trim()), 300)
@@ -1097,7 +1107,9 @@ export default function BonusesCatalogPage() {
         <div className="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
           <div>
             <h3 className="card-title mb-0 fs-6">Operations tools</h3>
-            <p className="text-secondary small mb-0 mt-1">Instances, simulation, failed jobs, manual grant</p>
+            <p className="text-secondary small mb-0 mt-1">
+              Instances, ledger deposit simulation, failed jobs, manual grant, free spin grants
+            </p>
           </div>
           <button
             type="button"
@@ -1109,7 +1121,7 @@ export default function BonusesCatalogPage() {
         </div>
         {operationsExpanded ? (
           <div className="card-body">
-            <BonusOperationsTools />
+            <BonusOperationsTools initialTab={bonusOpsInitialTab} />
           </div>
         ) : null}
       </div>

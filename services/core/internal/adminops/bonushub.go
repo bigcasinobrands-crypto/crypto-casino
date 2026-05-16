@@ -842,12 +842,13 @@ func (h *Handler) bonusHubPublishVersion(w http.ResponseWriter, r *http.Request)
 	}
 	ctx := r.Context()
 	var rulesJSON []byte
+	var bonusType *string
 	var offerFam, dedupe *string
 	var publishedAt *time.Time
 	err = h.Pool.QueryRow(ctx, `
-		SELECT rules, offer_family, dedupe_group_key, published_at
+		SELECT rules, bonus_type, offer_family, dedupe_group_key, published_at
 		FROM promotion_versions WHERE id = $1
-	`, vid).Scan(&rulesJSON, &offerFam, &dedupe, &publishedAt)
+	`, vid).Scan(&rulesJSON, &bonusType, &offerFam, &dedupe, &publishedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			adminapi.WriteError(w, http.StatusBadRequest, "version_not_found", "promotion version not found (check catalog refresh)")
@@ -859,6 +860,14 @@ func (h *Handler) bonusHubPublishVersion(w http.ResponseWriter, r *http.Request)
 	// Idempotent: UI may think the version is still a draft (stale list, or grants paused vs publish confusion).
 	if publishedAt != nil {
 		writeJSON(w, map[string]any{"ok": true, "already_published": true})
+		return
+	}
+	bt := ""
+	if bonusType != nil {
+		bt = *bonusType
+	}
+	if err := bonus.ValidatePromotionVersionForPublish(ctx, h.Pool, bt, rulesJSON); err != nil {
+		adminapi.WriteError(w, http.StatusBadRequest, "invalid_rules", err.Error())
 		return
 	}
 	var fam string

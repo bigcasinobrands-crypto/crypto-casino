@@ -11,6 +11,7 @@ import (
 
 	"github.com/crypto-casino/core/internal/adminapi"
 	"github.com/crypto-casino/core/internal/blueocean"
+	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/games"
 	"github.com/crypto-casino/core/internal/paymentflags"
@@ -80,6 +81,14 @@ func (h *Handler) BlueOceanStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if cur != nil {
 		out["last_sync_currency"] = *cur
+	}
+	if h.Pool != nil {
+		if fs, err := bonus.LoadFreeSpinsV1Config(r.Context(), h.Pool); err == nil {
+			out["free_spins_v1"] = map[string]any{
+				"api_enabled":       fs.APIEnabled,
+				"outbound_enabled":  fs.OutboundEnabled,
+			}
+		}
 	}
 	writeJSON(w, out)
 }

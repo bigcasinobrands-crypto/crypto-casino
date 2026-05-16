@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 import { SliderField, adminInputCls, ImageUrlField, adminHintCls } from '../admin-ui'
-import { DEPOSIT_CHANNEL_OPTIONS } from '../../lib/depositChannels'
 import { isDepositFamily, isScheduleFamily } from './bonusRuleTemplates'
 import GameExcludePicker from './GameExcludePicker'
 import SegmentTargetingSection from './SegmentTargetingSection'
+import FreeSpinsRewardSection from './FreeSpinsRewardSection'
 
 const inputCls = adminInputCls
 const moneyPreviewFmt = {
@@ -26,6 +26,19 @@ function asRew(r: Record<string, unknown>) {
 
 function asWag(r: Record<string, unknown>) {
   return asRec(r.wagering)
+}
+
+function asFreeSpins(r: Record<string, unknown>) {
+  const d = { rounds: 20, game_id: '', bet_per_round_minor: 1 }
+  const fs = r.free_spins
+  if (!fs || typeof fs !== 'object' || Array.isArray(fs)) return d
+  const o = fs as Record<string, unknown>
+  return {
+    rounds: typeof o.rounds === 'number' ? o.rounds : d.rounds,
+    game_id: typeof o.game_id === 'string' ? o.game_id : d.game_id,
+    bet_per_round_minor:
+      typeof o.bet_per_round_minor === 'number' ? o.bet_per_round_minor : d.bet_per_round_minor,
+  }
 }
 
 type ApiFetch = (path: string, init?: RequestInit) => Promise<Response>
@@ -205,38 +218,17 @@ export default function RulesEditor({
                 onChangeMinor={(n) => setTrigger('max_minor', n)}
               />
             </div>
-            <div className="sm:col-span-2">
-              <span className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                Deposit channels (none selected = any channel)
-              </span>
-              <div className="flex flex-wrap gap-3">
-                {DEPOSIT_CHANNEL_OPTIONS.map((ch) => {
-                  const chs = Array.isArray(t.channels) ? (t.channels as string[]) : []
-                  const on = chs.includes(ch.id)
-                  return (
-                    <label key={ch.id} className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        className="rounded border-gray-300 text-brand-600"
-                        onChange={() => {
-                          const next = on ? chs.filter((x) => x !== ch.id) : [...chs, ch.id]
-                          setTrigger('channels', next)
-                        }}
-                      />
-                      {ch.label}
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
+            <p className={`${adminHintCls} sm:col-span-2`}>
+              Deposit bonuses qualify when a deposit is <strong>credited to the player ledger</strong> (PassimPay
+              settlement). Trigger filters below apply to that event.
+            </p>
           </div>
         </div>
 
         <div>
           <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Reward</h4>
           <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
-            {bonusTypeId !== 'free_spins_only' ? (
+            {bonusTypeId === 'composite_match_and_fs' ? (
               <>
                 <div className="sm:col-span-2">
                   <SliderField
@@ -257,14 +249,85 @@ export default function RulesEditor({
                   />
                 </div>
               </>
-            ) : (
-              <p className="text-sm text-gray-600 dark:text-gray-300 sm:col-span-2">
-                Free spins package — fulfillment is configured with your game provider. Reward type stays{' '}
-                <code className="rounded bg-gray-100 px-1 text-xs dark:bg-white/10">freespins</code>.
-              </p>
-            )}
+            ) : bonusTypeId !== 'free_spins_only' ? (
+              <>
+                <div className="sm:col-span-2">
+                  <SliderField
+                    label="Match %"
+                    hint="Percentage of qualifying deposit credited as bonus."
+                    min={0}
+                    max={200}
+                    value={typeof rw.percent === 'number' ? rw.percent : 0}
+                    onChange={(n) => setReward('percent', n)}
+                    formatDisplay={(n) => `${n}%`}
+                  />
+                </div>
+                <div>
+                  <MoneyMinorField
+                    label="Bonus cap"
+                    valueMinor={typeof rw.cap_minor === 'number' ? rw.cap_minor : 0}
+                    onChangeMinor={(n) => setReward('cap_minor', n)}
+                  />
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
+
+        {bonusTypeId === 'free_spins_only' && apiFetch ? (
+          <FreeSpinsRewardSection
+            apiFetch={apiFetch}
+            variant="reward"
+            rounds={typeof rw.rounds === 'number' ? rw.rounds : 20}
+            gameId={typeof rw.game_id === 'string' ? rw.game_id : ''}
+            betPerRoundMinor={typeof rw.bet_per_round_minor === 'number' ? rw.bet_per_round_minor : 1}
+            onChange={(p) =>
+              patch({
+                reward: {
+                  ...rw,
+                  type: 'freespins',
+                  percent: 0,
+                  cap_minor: 0,
+                  fixed_minor: 0,
+                  rounds: p.rounds ?? (typeof rw.rounds === 'number' ? rw.rounds : 20),
+                  game_id: p.game_id ?? (typeof rw.game_id === 'string' ? rw.game_id : ''),
+                  bet_per_round_minor:
+                    p.bet_per_round_minor ??
+                    (typeof rw.bet_per_round_minor === 'number' ? rw.bet_per_round_minor : 1),
+                },
+              })
+            }
+          />
+        ) : bonusTypeId === 'free_spins_only' && !apiFetch ? (
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            Free spins editor requires catalog access. Open rules from the bonus wizard or catalog with a logged-in admin
+            session.
+          </p>
+        ) : null}
+
+        {bonusTypeId === 'composite_match_and_fs' && apiFetch ? (
+          <FreeSpinsRewardSection
+            apiFetch={apiFetch}
+            variant="free_spins_block"
+            rounds={asFreeSpins(r).rounds}
+            gameId={asFreeSpins(r).game_id}
+            betPerRoundMinor={asFreeSpins(r).bet_per_round_minor}
+            onChange={(p) => {
+              const cur = asFreeSpins(r)
+              patch({
+                free_spins: {
+                  rounds: p.rounds ?? cur.rounds,
+                  game_id: p.game_id ?? cur.game_id,
+                  bet_per_round_minor: p.bet_per_round_minor ?? cur.bet_per_round_minor,
+                },
+              })
+            }}
+          />
+        ) : bonusTypeId === 'composite_match_and_fs' && !apiFetch ? (
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            Composite free spins editor requires catalog access (game list API).
+          </p>
+        ) : null}
 
         <div className="space-y-8">
           <div>

@@ -1,8 +1,5 @@
 /**
- * Deposit channel ids in bonus rules `trigger.channels` must match
- * `PaymentSettled.channel` from payment webhooks (empty = any channel).
+ * `PaymentSettled.channel` value emitted when PassimPay settles and credits the player ledger.
+ * Admin “simulate deposit bonus” uses this so evaluation matches production deposit bonuses.
  */
-export const DEPOSIT_CHANNEL_OPTIONS: { id: string; label: string }[] = [
-  { id: 'on_chain_deposit', label: 'On-chain deposit' },
-  { id: 'hosted_checkout', label: 'Hosted checkout' },
-]
+export const SIMULATE_PAYMENT_SETTLED_CHANNEL = 'on_chain_deposit' as const

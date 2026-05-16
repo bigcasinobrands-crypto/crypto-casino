@@ -2,6 +2,7 @@ package challenges
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -231,10 +232,11 @@ func applyMyEntry(ctx context.Context, pool *pgxpool.Pool, uid string, c map[str
 	var tw int64
 	var qb int
 	var pam *int64
+	var awardedAt sql.NullTime
 	err := pool.QueryRow(ctx, `
-		SELECT status, COALESCE(progress_value, 0)::float8, best_multiplier, total_wagered_minor, qualifying_bets, prize_awarded_minor
+		SELECT status, COALESCE(progress_value, 0)::float8, best_multiplier, total_wagered_minor, qualifying_bets, prize_awarded_minor, prize_awarded_at
 		FROM challenge_entries WHERE challenge_id = $1::uuid AND user_id = $2::uuid
-	`, cid, uid).Scan(&st, &prog, &best, &tw, &qb, &pam)
+	`, cid, uid).Scan(&st, &prog, &best, &tw, &qb, &pam, &awardedAt)
 	if err != nil {
 		return
 	}
@@ -245,10 +247,15 @@ func applyMyEntry(ctx context.Context, pool *pgxpool.Pool, uid string, c map[str
 	if pam != nil {
 		me["prize_awarded_minor"] = *pam
 	}
+	if awardedAt.Valid {
+		me["prize_awarded_at"] = awardedAt.Time.UTC().Format(time.RFC3339)
+	}
 	ptype, _ := c["prize_type"].(string)
+	pt := strings.TrimSpace(strings.ToLower(ptype))
 	reqClaim, _ := c["require_claim_for_prize"].(bool)
 	manual, _ := c["prize_manual_review"].(bool)
-	canClaim := st == "completed" && ptype == "cash" && !manual && reqClaim && (pam == nil || *pam == 0)
+	canClaim := st == "completed" && !manual && reqClaim && !awardedAt.Valid &&
+		(pt == "cash" || pt == "bonus" || pt == "free_spins")
 	me["can_claim_prize"] = canClaim
 	c["my_entry"] = me
 }
@@ -263,7 +270,9 @@ func getChallengeHandler(pool *pgxpool.Pool, catalogImageBase string) http.Handl
 			       min_bet_amount_minor, max_bet_amount_minor, target_multiplier, target_wager_amount_minor,
 			       prize_type, prize_amount_minor, prize_currency, max_winners, winners_count, starts_at, ends_at,
 			       game_ids, is_featured, display_order, require_claim_for_prize, prize_manual_review,
-			       vip_only, vip_tier_minimum, prize_payout_asset_key
+			       vip_only, vip_tier_minimum, prize_payout_asset_key,
+			       COALESCE(prize_wagering_multiplier, 0), prize_free_spins, prize_free_spin_game_id,
+			       COALESCE(prize_bet_per_round_minor, 1)
 			FROM challenges WHERE id = $1::uuid
 		`, id)
 		c, err := scanChallengeDetailRow(row)
@@ -292,7 +301,11 @@ func scanChallengeDetailRow(row pgx.Row) (map[string]any, error) {
 	var reqClaim, prizeManual bool
 	var vipOnly bool
 	var vipMin, payoutKey *string
-	if err := row.Scan(&id, &slug, &title, &desc, &rules, &terms, &ctype, &status, &hero, &badge, &minBet, &maxBet, &tgtMult, &targetWager, &prizeType, &prizeMinor, &currency, &maxWinners, &winners, &starts, &ends, &gameIDs, &featured, &disp, &reqClaim, &prizeManual, &vipOnly, &vipMin, &payoutKey); err != nil {
+	var wrMult int
+	var fsRounds sql.NullInt64
+	var fsGame sql.NullString
+	var fsBet int64
+	if err := row.Scan(&id, &slug, &title, &desc, &rules, &terms, &ctype, &status, &hero, &badge, &minBet, &maxBet, &tgtMult, &targetWager, &prizeType, &prizeMinor, &currency, &maxWinners, &winners, &starts, &ends, &gameIDs, &featured, &disp, &reqClaim, &prizeManual, &vipOnly, &vipMin, &payoutKey, &wrMult, &fsRounds, &fsGame, &fsBet); err != nil {
 		return nil, err
 	}
 	m := map[string]any{
@@ -328,6 +341,18 @@ func scanChallengeDetailRow(row pgx.Row) (map[string]any, error) {
 	if prizeMinor != nil {
 		m["prize_amount_minor"] = *prizeMinor
 	}
+	if wrMult > 0 {
+		m["prize_wagering_multiplier"] = wrMult
+	}
+	if fsRounds.Valid && fsRounds.Int64 > 0 {
+		m["prize_free_spins"] = fsRounds.Int64
+	}
+	if fsGame.Valid && strings.TrimSpace(fsGame.String) != "" {
+		m["prize_free_spin_game_id"] = strings.TrimSpace(fsGame.String)
+	}
+	if fsBet > 0 {
+		m["prize_bet_per_round_minor"] = fsBet
+	}
 	if len(gameIDs) > 0 {
 		m["game_ids"] = gameIDs
 	}
@@ -344,7 +369,9 @@ func getChallengeBySlugHandler(pool *pgxpool.Pool, catalogImageBase string) http
 			       min_bet_amount_minor, max_bet_amount_minor, target_multiplier, target_wager_amount_minor,
 			       prize_type, prize_amount_minor, prize_currency, max_winners, winners_count, starts_at, ends_at,
 			       game_ids, is_featured, display_order, require_claim_for_prize, prize_manual_review,
-			       vip_only, vip_tier_minimum, prize_payout_asset_key
+			       vip_only, vip_tier_minimum, prize_payout_asset_key,
+			       COALESCE(prize_wagering_multiplier, 0), prize_free_spins, prize_free_spin_game_id,
+			       COALESCE(prize_bet_per_round_minor, 1)
 			FROM challenges WHERE lower(slug) = lower($1)
 		`, slug)
 		c, err := scanChallengeDetailRow(row)

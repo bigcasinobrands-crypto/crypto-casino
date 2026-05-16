@@ -2,6 +2,7 @@ package bonus
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -256,7 +257,8 @@ func retireInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorSt
 
 	var uid, ccy string
 	var status string
-	var granted, pvid int64
+	var granted int64
+	var pvid sql.NullInt64
 	err = tx.QueryRow(ctx, `
 		SELECT user_id::text, currency, status, granted_amount_minor, promotion_version_id
 		FROM user_bonus_instances WHERE id = $1::uuid FOR UPDATE
@@ -327,7 +329,11 @@ func retireInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorSt
 	if debit > 0 {
 		auditDelta = -debit
 	}
-	if err := insertBonusAuditLog(ctx, tx, auditEvent, ffActor, ffActorID, uid, instanceID, pvid, auditDelta, ccy,
+	pvAudit := int64(0)
+	if pvid.Valid {
+		pvAudit = pvid.Int64
+	}
+	if err := insertBonusAuditLog(ctx, tx, auditEvent, ffActor, ffActorID, uid, instanceID, pvAudit, auditDelta, ccy,
 		map[string]any{"reason": reason, "debit_bonus_locked_minor": debit}); err != nil {
 		return err
 	}
@@ -335,14 +341,14 @@ func retireInstance(ctx context.Context, pool *pgxpool.Pool, instanceID, actorSt
 		return err
 	}
 
-	if recordPlayerRelinquishment {
+	if recordPlayerRelinquishment && pvid.Valid && pvid.Int64 > 0 {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO player_promotion_relinquishments (user_id, promotion_version_id, source)
 			VALUES ($1::uuid, $2, $3)
 			ON CONFLICT (user_id, promotion_version_id) DO UPDATE SET
 				source = EXCLUDED.source,
 				created_at = now()
-		`, uid, pvid, RelinquishForfeit)
+		`, uid, pvid.Int64, RelinquishForfeit)
 		if err != nil {
 			return err
 		}

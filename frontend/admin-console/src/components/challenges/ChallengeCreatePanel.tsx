@@ -23,6 +23,7 @@ type GameRow = {
   thumbnail_url: string
   provider: string
   provider_system?: string
+  bog_game_id?: number | null
 }
 
 type VIPTierRow = {
@@ -115,6 +116,10 @@ export function ChallengeCreatePanel({
   const [targetMult, setTargetMult] = useState(20)
   const [targetWagerUsd, setTargetWagerUsd] = useState('500')
   const [prizeUsd, setPrizeUsd] = useState('25')
+  const [prizeKind, setPrizeKind] = useState<'cash' | 'bonus' | 'free_spins'>('cash')
+  const [bonusWrMult, setBonusWrMult] = useState('30')
+  const [fsRounds, setFsRounds] = useState('25')
+  const [fsGameId, setFsGameId] = useState('')
   const [minBetUsd, setMinBetUsd] = useState('1')
   const [maxWinners, setMaxWinners] = useState('10')
   const [badgeLabel, setBadgeLabel] = useState('FEATURED')
@@ -400,12 +405,31 @@ export function ChallengeCreatePanel({
       setErr('Upload or paste a thumbnail when more than one game is selected.')
       return
     }
-    const prizeMinor = parseUsdToMinor(prizeUsd)
-    const minMinor = parseUsdToMinor(minBetUsd)
-    if (prizeMinor == null || prizeMinor <= 0) {
+    const prizeMinor =
+      prizeKind === 'cash' || prizeKind === 'bonus' ? parseUsdToMinor(prizeUsd) : null
+    if ((prizeKind === 'cash' || prizeKind === 'bonus') && (prizeMinor == null || prizeMinor <= 0)) {
       setErr('Enter a valid prize amount.')
       return
     }
+    if (prizeKind === 'bonus') {
+      const wm = Number.parseInt(bonusWrMult, 10)
+      if (!Number.isFinite(wm) || wm < 1) {
+        setErr('Bonus prize requires wagering multiplier ≥ 1.')
+        return
+      }
+    }
+    if (prizeKind === 'free_spins') {
+      const r = Number.parseInt(fsRounds, 10)
+      if (!Number.isFinite(r) || r < 1) {
+        setErr('Enter free spin rounds (≥ 1).')
+        return
+      }
+      if (!fsGameId.trim()) {
+        setErr('Pick a catalog game with a Blue Ocean id for the free-spin prize.')
+        return
+      }
+    }
+    const minMinor = parseUsdToMinor(minBetUsd)
     if (minMinor == null || minMinor <= 0) {
       setErr('Enter a valid minimum bet (USD).')
       return
@@ -454,15 +478,26 @@ export function ChallengeCreatePanel({
       game_ids: selectedIds,
       hero_image_url: resolvedHero || null,
       min_bet_amount_minor: minMinor,
-      prize_type: 'cash',
+      prize_type: prizeKind,
       prize_currency: prizeCurrency,
-      prize_amount_minor: prizeMinor,
       max_winners: mw,
       require_claim_for_prize: true,
       starts_at: startsAt,
       ends_at: endsAt,
       vip_only: vipOnly,
       ...(vipOnly && vipTierMin != null ? { vip_tier_minimum: vipTierMin } : {}),
+    }
+    if (prizeKind === 'cash' || prizeKind === 'bonus') {
+      body.prize_amount_minor = prizeMinor!
+    }
+    if (prizeKind === 'bonus') {
+      body.prize_wagering_multiplier = Number.parseInt(bonusWrMult, 10)
+      body.prize_withdraw_policy = 'block'
+    }
+    if (prizeKind === 'free_spins') {
+      body.prize_free_spins = Number.parseInt(fsRounds, 10)
+      body.prize_free_spin_game_id = fsGameId.trim()
+      body.prize_bet_per_round_minor = 1
     }
     if (payoutAssetKey.trim()) {
       body = { ...body, prize_payout_asset_key: payoutAssetKey.trim() }
@@ -787,23 +822,88 @@ export function ChallengeCreatePanel({
         <div className="col-12">
           <div className="border border-secondary rounded p-3 bg-body-secondary">
             <div className="fw-semibold mb-2">Winner prize</div>
-            <div className="row g-2 align-items-end">
+            <div className="row g-2 align-items-end mb-2">
               <div className="col-md-4">
-                <label className="form-label small text-secondary mb-1">Amount (major units)</label>
-                <div className="input-group input-group-sm">
-                  <span className="input-group-text">$</span>
+                <label className="form-label small text-secondary mb-1">Prize type</label>
+                <select
+                  className="form-select form-select-sm"
+                  value={prizeKind}
+                  onChange={(e) => setPrizeKind(e.target.value as 'cash' | 'bonus' | 'free_spins')}
+                  disabled={busy}
+                >
+                  <option value="cash">Cash (ledger)</option>
+                  <option value="bonus">Bonus locked + WR</option>
+                  <option value="free_spins">Free spins</option>
+                </select>
+              </div>
+            </div>
+            {(prizeKind === 'cash' || prizeKind === 'bonus') && (
+              <div className="row g-2 align-items-end">
+                <div className="col-md-4">
+                  <label className="form-label small text-secondary mb-1">Amount (major units)</label>
+                  <div className="input-group input-group-sm">
+                    <span className="input-group-text">$</span>
+                    <input
+                      className="form-control"
+                      value={prizeUsd}
+                      onChange={(e) => setPrizeUsd(e.target.value)}
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <p className="text-secondary small mt-1 mb-0">Credited in ledger as {prizeCurrency} minor units.</p>
+                </div>
+                {prizeKind === 'bonus' ? (
+                  <div className="col-md-4">
+                    <label className="form-label small text-secondary mb-1">WR multiplier</label>
+                    <input
+                      type="number"
+                      className="form-control form-control-sm"
+                      min={1}
+                      value={bonusWrMult}
+                      onChange={(e) => setBonusWrMult(e.target.value)}
+                      disabled={busy}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            )}
+            {prizeKind === 'free_spins' ? (
+              <div className="row g-2 align-items-end mt-2">
+                <div className="col-md-3">
+                  <label className="form-label small text-secondary mb-1">Rounds</label>
                   <input
-                    className="form-control"
-                    value={prizeUsd}
-                    onChange={(e) => setPrizeUsd(e.target.value)}
-                    inputMode="decimal"
+                    type="number"
+                    className="form-control form-control-sm"
+                    min={1}
+                    value={fsRounds}
+                    onChange={(e) => setFsRounds(e.target.value)}
+                    disabled={busy}
                   />
                 </div>
-                <p className="text-secondary small mt-1 mb-0">Credited in ledger as {prizeCurrency} minor units.</p>
+                <div className="col-md-5">
+                  <label className="form-label small text-secondary mb-1">Game</label>
+                  <select
+                    className="form-select form-select-sm"
+                    value={fsGameId}
+                    onChange={(e) => setFsGameId(e.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">— BO-linked game —</option>
+                    {games
+                      .filter((g) => typeof g.bog_game_id === 'number' && g.bog_game_id > 0)
+                      .map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.title}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               </div>
+            ) : null}
+            <div className="row g-2 align-items-end mt-3">
               <div className="col-md-8">
                 <label className="form-label small text-secondary mb-1">
-                  Payout asset &amp; chain (PassimPay / cashier — same rails as wallet deposits)
+                  Display asset key <span className="text-muted">(optional)</span>
                 </label>
                 <PayoutAssetDropdown
                   options={depositAssets}
@@ -812,8 +912,7 @@ export function ChallengeCreatePanel({
                   disabled={busy}
                 />
                 <p className="text-secondary small mt-1 mb-0">
-                  Shown on player challenge cards (which crypto they receive on-chain). Prize is still booked in the
-                  ledger as <strong>{prizeCurrency}</strong>; align this key with your PassimPay currency rows.
+                  Ledger settlement uses <strong>{prizeCurrency}</strong>; this key is for cashier display only.
                 </p>
               </div>
             </div>
