@@ -4,12 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { isFiatDepositCurrencyCode } from '../lib/fiatCurrencies'
 import { fetchPassimpayFiatInvoiceUrl } from '../lib/passimpayFiatInvoice'
-import {
-  closePassimpayHostedPopup,
-  navigatePassimpayHostedPopup,
-  openPassimpayHostedBlankWindow,
-} from '../lib/passimpayHostedWindow'
-import { PassimpayHostedCheckoutOverlay } from './PassimpayHostedCheckoutOverlay'
 import { passimpayNetworkLabel, passimpayWithdrawRailMeetsBalance } from '../lib/paymentCurrencies'
 import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
 import type { PassimpayCurrency } from '../lib/paymentCurrencies'
@@ -79,7 +73,6 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
   const [fiatDepositCurrency, setFiatDepositCurrency] = useState('USD')
   const [fiatPayErr, setFiatPayErr] = useState<string | null>(null)
   const [fiatPayBusy, setFiatPayBusy] = useState(false)
-  const [passimpayHostedUrl, setPassimpayHostedUrl] = useState<string | null>(null)
   const [committedAmountUsd, setCommittedAmountUsd] = useState('10.00')
 
   const [withdrawFlowStep, setWithdrawFlowStep] = useState<'form' | 'success'>('form')
@@ -115,7 +108,6 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     setFiatPayErr(null)
     fiatPayLockRef.current = false
     setFiatPayBusy(false)
-    setPassimpayHostedUrl(null)
     setCurrencyMenuLiftPx(0)
   }, [open, initialTab, emailVerified, depositsEnabled, withdrawalsEnabled])
 
@@ -133,24 +125,19 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     if (!isAuthenticated) return
     if (fiatPayLockRef.current) return
     fiatPayLockRef.current = true
-    const hostedPopup = openPassimpayHostedBlankWindow()
     setFiatPayBusy(true)
     try {
       const minor = Math.round(parsed * 100)
       const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
       const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
       if (!result.ok) {
-        closePassimpayHostedPopup(hostedPopup)
         toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice', null, {
           toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
         })
         return
       }
-      if (!navigatePassimpayHostedPopup(hostedPopup, result.invoiceUrl)) {
-        setPassimpayHostedUrl(result.invoiceUrl)
-      }
+      window.location.assign(result.invoiceUrl)
     } catch {
-      closePassimpayHostedPopup(hostedPopup)
       toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice', {
         toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
       })
@@ -226,15 +213,11 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (passimpayHostedUrl) {
-        setPassimpayHostedUrl(null)
-        return
-      }
       onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, passimpayHostedUrl])
+  }, [open, onClose])
 
   const handleMainTabChange = useCallback(
     (next: WalletMainTab) => {
@@ -283,7 +266,6 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     committedDepositKey && depositAddrPrefetch?.key === committedDepositKey ? depositAddrPrefetch.data : null
 
   return (
-    <>
     <div
       className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-end justify-center sm:items-center sm:p-4`}
       role="presentation"
@@ -393,7 +375,6 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
                       onBack={() => setDepositFlowStep('pick')}
                       onSent={() => setDepositFlowStep('sent')}
                       initialDepositSnapshot={initialDepositSnapshot}
-                      onHostedInvoiceUrl={setPassimpayHostedUrl}
                     />
                   ) : depositFlowStep === 'sent' && committedDeposit ? (
                     <DepositSentPanel
@@ -438,8 +419,6 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
         </div>
       </div>
     </div>
-    <PassimpayHostedCheckoutOverlay url={passimpayHostedUrl} onClose={() => setPassimpayHostedUrl(null)} />
-    </>
   )
 }
 

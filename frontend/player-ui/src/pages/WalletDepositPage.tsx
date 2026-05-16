@@ -15,16 +15,10 @@ import {
 import { WalletDepositPickStep } from '../components/wallet/WalletDepositPickStep'
 import { WalletFiatOnrampPanel } from '../components/wallet/WalletFiatOnrampPanel'
 import { WalletDepositMethodTabs, type WalletDepositMethodId } from '../components/wallet/WalletShell'
-import { PassimpayHostedCheckoutOverlay } from '../components/PassimpayHostedCheckoutOverlay'
 import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
 import { operationalDepositsEnabled } from '../lib/operationalPaymentGate'
 import { isFiatDepositCurrencyCode } from '../lib/fiatCurrencies'
 import { fetchPassimpayFiatInvoiceUrl } from '../lib/passimpayFiatInvoice'
-import {
-  closePassimpayHostedPopup,
-  navigatePassimpayHostedPopup,
-  openPassimpayHostedBlankWindow,
-} from '../lib/passimpayHostedWindow'
 import { usePlayerAuth } from '../playerAuth'
 import {
   PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
@@ -59,7 +53,6 @@ export default function WalletDepositPage() {
   const [fiatDepositCurrency, setFiatDepositCurrency] = useState('USD')
   const [fiatPayErr, setFiatPayErr] = useState<string | null>(null)
   const [fiatPayBusy, setFiatPayBusy] = useState(false)
-  const [passimpayHostedUrl, setPassimpayHostedUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (searchParams.get('step') === 'address' && !validAddressStepParams(searchParams)) {
@@ -115,24 +108,19 @@ export default function WalletDepositPage() {
     }
     if (fiatPayLockRef.current) return
     fiatPayLockRef.current = true
-    const hostedPopup = openPassimpayHostedBlankWindow()
     setFiatPayBusy(true)
     try {
       const minor = Math.round(parsed * 100)
       const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
       const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
       if (!result.ok) {
-        closePassimpayHostedPopup(hostedPopup)
         toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice', null, {
           toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
         })
         return
       }
-      if (!navigatePassimpayHostedPopup(hostedPopup, result.invoiceUrl)) {
-        setPassimpayHostedUrl(result.invoiceUrl)
-      }
+      window.location.assign(result.invoiceUrl)
     } catch {
-      closePassimpayHostedPopup(hostedPopup)
       toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice', {
         toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
       })
@@ -212,17 +200,6 @@ export default function WalletDepositPage() {
 
   if (!isAuthenticated) return <Navigate to="/casino/games?auth=login" replace />
 
-  const passimpayHostedCheckout = (
-    <PassimpayHostedCheckoutOverlay url={passimpayHostedUrl} onClose={() => setPassimpayHostedUrl(null)} />
-  )
-
-  const wrapWithPassimpayCheckout = (inner: ReactNode) => (
-    <>
-      {inner}
-      {passimpayHostedCheckout}
-    </>
-  )
-
   const shell = (children: ReactNode) => (
     <div className="min-h-[min(100dvh,880px)] bg-wallet-backdrop px-4 py-10 pb-16 sm:py-14">
       <div className="mx-auto w-full max-w-[440px] rounded-2xl border border-casino-border bg-wallet-modal p-6 shadow-[0_32px_64px_rgba(0,0,0,0.55)]">
@@ -234,8 +211,7 @@ export default function WalletDepositPage() {
   const depositsOk = operationalDepositsEnabled(opHealth)
 
   if (!depositsOk) {
-    return wrapWithPassimpayCheckout(
-      shell(
+    return shell(
       <>
         <h1 className="mb-4 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <p className="text-sm leading-relaxed text-casino-muted">{t('operational.depositsUnavailable')}</p>
@@ -246,13 +222,11 @@ export default function WalletDepositPage() {
           {t('catalog.section.games')}
         </Link>
       </>,
-      ),
     )
   }
 
   if (phase === 'address' && paymentIdFromUrl != null) {
-    return wrapWithPassimpayCheckout(
-      shell(
+    return shell(
       <>
         <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <DepositAddressPanel
@@ -268,17 +242,14 @@ export default function WalletDepositPage() {
           onBack={backFromAddress}
           onSent={markSent}
           initialDepositSnapshot={initialDepositSnapshot}
-          onHostedInvoiceUrl={setPassimpayHostedUrl}
         />
       </>,
-      ),
     )
   }
 
   if (phase === 'sent') {
     const txHash = searchParams.get('tx_hash')?.trim() ?? ''
-    return wrapWithPassimpayCheckout(
-      shell(
+    return shell(
       <>
         <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <DepositSentPanel
@@ -290,12 +261,10 @@ export default function WalletDepositPage() {
           showHeader={false}
         />
       </>,
-      ),
     )
   }
 
-  return wrapWithPassimpayCheckout(
-    shell(
+  return shell(
     <>
       <h1 className="mb-4 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
       <WalletDepositMethodTabs
@@ -332,6 +301,5 @@ export default function WalletDepositPage() {
         />
       )}
     </>,
-    ),
   )
 }

@@ -3,11 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { buildDepositQrPayload, isLikelyWebHttpUrl } from '../lib/depositQrPayload'
-import {
-  closePassimpayHostedPopup,
-  navigatePassimpayHostedPopup,
-  openPassimpayHostedBlankWindow,
-} from '../lib/passimpayHostedWindow'
 import { readApiError } from '../api/errors'
 import { resolvePlayerApiToastCopy, resolvePlayerNetworkToastCopy } from '../notifications/playerErrorCopy'
 import { resolveCryptoLogoUrl, useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
@@ -77,11 +72,6 @@ type DepositAddressPanelProps = {
   onSent: () => void
   /** When present (e.g. prefetched on pick step), show details immediately and refresh in background */
   initialDepositSnapshot?: DepositAddrRes | null
-  /**
-   * PassimPay hosted crypto invoice (Invoice Editor / createorder type 1).
-   * When set, opens in-app ({@link PassimpayHostedCheckoutOverlay}); otherwise falls back to a new tab.
-   */
-  onHostedInvoiceUrl?: (url: string) => void
 }
 
 export function DepositAddressPanel({
@@ -93,7 +83,6 @@ export function DepositAddressPanel({
   onBack,
   onSent,
   initialDepositSnapshot = null,
-  onHostedInvoiceUrl,
 }: DepositAddressPanelProps) {
   const { t } = useTranslation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
@@ -190,7 +179,6 @@ export function DepositAddressPanel({
     }
     setInvoiceErr(null)
     setInvoiceBusy(true)
-    const hostedPopup = openPassimpayHostedBlankWindow()
     try {
       const res = await apiFetch('/v1/wallet/deposit-invoice', {
         method: 'POST',
@@ -203,7 +191,6 @@ export function DepositAddressPanel({
         }),
       })
       if (!res.ok) {
-        closePassimpayHostedPopup(hostedPopup)
         const parsed = await readApiError(res)
         const friendly = resolvePlayerApiToastCopy(parsed, res.status, '').title
         setInvoiceErr(friendly)
@@ -212,28 +199,16 @@ export function DepositAddressPanel({
       const j = (await res.json()) as { invoice_url?: string }
       const url = j.invoice_url?.trim()
       if (!url) {
-        closePassimpayHostedPopup(hostedPopup)
         setInvoiceErr(t('wallet.depositInvoiceFailed'))
         return
       }
-      if (navigatePassimpayHostedPopup(hostedPopup, url)) {
-        return
-      }
-      if (onHostedInvoiceUrl) {
-        onHostedInvoiceUrl(url)
-        return
-      }
-      const popup = window.open(url, '_blank', 'noopener,noreferrer')
-      if (!popup) {
-        window.location.href = url
-      }
+      window.location.assign(url)
     } catch {
-      closePassimpayHostedPopup(hostedPopup)
       setInvoiceErr(t('wallet.depositInvoiceFailed'))
     } finally {
       setInvoiceBusy(false)
     }
-  }, [amountMinorResolved, apiFetch, network, onHostedInvoiceUrl, paymentId, symbol, t])
+  }, [amountMinorResolved, apiFetch, network, paymentId, symbol, t])
 
   const address = data?.address?.trim() ?? ''
   const qrUrl = data?.qr_url?.trim()
