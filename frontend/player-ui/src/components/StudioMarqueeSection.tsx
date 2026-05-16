@@ -102,7 +102,7 @@ export default function StudioMarqueeSection() {
       </div>
 
       <div
-        className="relative -mx-0.5 overflow-hidden py-1"
+        className="relative -mx-0.5 overflow-hidden py-1 mask-marquee-fade-x"
         role="region"
         aria-label="Partner studios, scrolling"
       >

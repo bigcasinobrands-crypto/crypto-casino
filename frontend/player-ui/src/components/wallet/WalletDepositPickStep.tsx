@@ -77,12 +77,17 @@ export function WalletDepositPickStep({
 
   const fields = (
     <>
-      <UsdAmountField value={amountUsd} onChange={onAmountUsd} minUsd={minUsd} tone="wallet" />
-      {amountErr ? (
-        <p className="mb-2 text-xs text-red-400" role="alert">
-          {amountErr}
+      <WalletPanel className="mb-4 border border-white/[0.06] shadow-none">
+        <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-casino-muted">
+          {t('wallet.depositSectionAmount')}
         </p>
-      ) : null}
+        <UsdAmountField value={amountUsd} onChange={onAmountUsd} minUsd={minUsd} tone="wallet" />
+        {amountErr ? (
+          <p className="mt-2 text-xs text-red-400" role="alert">
+            {amountErr}
+          </p>
+        ) : null}
+      </WalletPanel>
 
       <ChooseAssetNetworkHint />
 
@@ -109,7 +114,10 @@ export function WalletDepositPickStep({
         </p>
       ) : null}
 
-      <WalletPanel className="mb-4 mt-2">
+      <WalletPanel className="mb-4 border border-white/[0.06] shadow-none">
+        <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-casino-muted">
+          {t('wallet.depositSectionAsset')}
+        </p>
         <WalletNativeSelectRow
           label={t('wallet.passimpayCurrency')}
           value={selected ? String(selected.payment_id) : ''}
@@ -122,7 +130,7 @@ export function WalletDepositPickStep({
           onMenuLiftPxChange={onMenuLiftPxChange}
         />
         {selected && (minPassimpay || selected.requires_tag) ? (
-          <p className="mb-4 text-[11px] leading-snug text-casino-muted">
+          <p className="-mt-2 mb-0 text-[11px] leading-snug text-casino-muted">
             {minPassimpay ? t('wallet.passimpayMinDeposit', { amount: minPassimpay }) : null}
             {minPassimpay && selected.requires_tag ? ' ' : null}
             {selected.requires_tag ? t('wallet.passimpayRequiresTag') : null}
@@ -131,7 +139,7 @@ export function WalletDepositPickStep({
       </WalletPanel>
 
       {selected ? (
-        <div className="mb-3">
+        <div className="mb-1">
           <DepositWrongChainWarning
             symbol={selected.symbol}
             networkLabel={passimpayNetworkLabel(selected.network)}

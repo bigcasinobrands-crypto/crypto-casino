@@ -197,7 +197,7 @@ const AcceptedCurrenciesStrip: FC = () => {
         </p>
       ) : null}
       <div
-        className="relative -mx-1 w-full overflow-hidden py-0.5"
+        className="relative -mx-1 w-full overflow-hidden py-0.5 mask-marquee-fade-x"
         role="region"
         aria-label={t('crypto.regionAriaLabel')}
       >

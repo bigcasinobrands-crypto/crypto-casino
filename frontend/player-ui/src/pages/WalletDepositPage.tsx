@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
@@ -13,9 +13,15 @@ import {
   validAddressStepParams,
 } from '../components/walletDepositPanels'
 import { WalletDepositPickStep } from '../components/wallet/WalletDepositPickStep'
+import { WalletFiatOnrampPanel } from '../components/wallet/WalletFiatOnrampPanel'
+import { WalletDepositMethodTabs, type WalletDepositMethodId } from '../components/wallet/WalletShell'
+import { PassimpayHostedCheckoutOverlay } from '../components/PassimpayHostedCheckoutOverlay'
 import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
 import { operationalDepositsEnabled } from '../lib/operationalPaymentGate'
+import { isFiatDepositCurrencyCode } from '../lib/fiatCurrencies'
+import { fetchPassimpayFiatInvoiceUrl } from '../lib/passimpayFiatInvoice'
 import { usePlayerAuth } from '../playerAuth'
+import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 
 const MIN_USD = 10
 
@@ -39,6 +45,11 @@ export default function WalletDepositPage() {
   const [amountErr, setAmountErr] = useState<string | null>(null)
 
   const [selected, setSelected] = useState<PassimpayCurrency | null>(null)
+  const [depositMethod, setDepositMethod] = useState<WalletDepositMethodId>('crypto')
+  const [fiatDepositCurrency, setFiatDepositCurrency] = useState('USD')
+  const [fiatPayErr, setFiatPayErr] = useState<string | null>(null)
+  const [fiatPayBusy, setFiatPayBusy] = useState(false)
+  const [passimpayHostedUrl, setPassimpayHostedUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (searchParams.get('step') === 'address' && !validAddressStepParams(searchParams)) {
@@ -56,7 +67,7 @@ export default function WalletDepositPage() {
   }, [currencies, searchParams])
 
   useEffect(() => {
-    if (!isAuthenticated || phase !== 'form' || !selected) return
+    if (!isAuthenticated || phase !== 'form' || !selected || depositMethod !== 'crypto') return
     const key = `${selected.payment_id}|${selected.symbol}|${selected.network}`
     let cancelled = false
     void (async () => {
@@ -79,7 +90,35 @@ export default function WalletDepositPage() {
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated, phase, selected, apiFetch])
+  }, [isAuthenticated, phase, selected, depositMethod, apiFetch])
+
+  useEffect(() => {
+    setFiatPayErr(null)
+  }, [amountUsd, fiatDepositCurrency])
+
+  const handleFiatPay = useCallback(async () => {
+    setFiatPayErr(null)
+    const parsed = Number(amountUsd.replace(',', '.'))
+    if (!Number.isFinite(parsed) || parsed < MIN_USD) {
+      setFiatPayErr(t('wallet.enterMinFiat', { min: MIN_USD, currency: fiatDepositCurrency }))
+      return
+    }
+    setFiatPayBusy(true)
+    try {
+      const minor = Math.round(parsed * 100)
+      const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
+      const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
+      if (!result.ok) {
+        toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice')
+        return
+      }
+      setPassimpayHostedUrl(result.invoiceUrl)
+    } catch {
+      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice')
+    } finally {
+      setFiatPayBusy(false)
+    }
+  }, [amountUsd, apiFetch, fiatDepositCurrency, t])
 
   const paymentIdFromUrl = useMemo(() => {
     const pid = Number(searchParams.get('payment_id'))
@@ -151,6 +190,17 @@ export default function WalletDepositPage() {
 
   if (!isAuthenticated) return <Navigate to="/casino/games?auth=login" replace />
 
+  const passimpayHostedCheckout = (
+    <PassimpayHostedCheckoutOverlay url={passimpayHostedUrl} onClose={() => setPassimpayHostedUrl(null)} />
+  )
+
+  const wrapWithPassimpayCheckout = (inner: ReactNode) => (
+    <>
+      {inner}
+      {passimpayHostedCheckout}
+    </>
+  )
+
   const shell = (children: ReactNode) => (
     <div className="min-h-[min(100dvh,880px)] bg-wallet-backdrop px-4 py-10 pb-16 sm:py-14">
       <div className="mx-auto w-full max-w-[440px] rounded-2xl border border-casino-border bg-wallet-modal p-6 shadow-[0_32px_64px_rgba(0,0,0,0.55)]">
@@ -162,7 +212,8 @@ export default function WalletDepositPage() {
   const depositsOk = operationalDepositsEnabled(opHealth)
 
   if (!depositsOk) {
-    return shell(
+    return wrapWithPassimpayCheckout(
+      shell(
       <>
         <h1 className="mb-4 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <p className="text-sm leading-relaxed text-casino-muted">{t('operational.depositsUnavailable')}</p>
@@ -173,11 +224,13 @@ export default function WalletDepositPage() {
           {t('catalog.section.games')}
         </Link>
       </>,
+      ),
     )
   }
 
   if (phase === 'address' && paymentIdFromUrl != null) {
-    return shell(
+    return wrapWithPassimpayCheckout(
+      shell(
       <>
         <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <DepositAddressPanel
@@ -195,12 +248,14 @@ export default function WalletDepositPage() {
           initialDepositSnapshot={initialDepositSnapshot}
         />
       </>,
+      ),
     )
   }
 
   if (phase === 'sent') {
     const txHash = searchParams.get('tx_hash')?.trim() ?? ''
-    return shell(
+    return wrapWithPassimpayCheckout(
+      shell(
       <>
         <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
         <DepositSentPanel
@@ -212,26 +267,48 @@ export default function WalletDepositPage() {
           showHeader={false}
         />
       </>,
+      ),
     )
   }
 
-  return shell(
+  return wrapWithPassimpayCheckout(
+    shell(
     <>
-      <h1 className="mb-6 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
-      <WalletDepositPickStep
-        amountUsd={amountUsd}
-        onAmountUsd={setAmountUsd}
-        amountErr={amountErr}
-        minUsd={MIN_USD}
-        onContinue={continueToAddress}
-        continueLabel={t('wallet.continue')}
-        currencies={currencies}
-        currenciesLoading={currenciesLoading}
-        currenciesError={currenciesError}
-        onRetryCurrencies={() => void reloadCurrencies()}
-        selected={selected}
-        onSelect={setSelected}
+      <h1 className="mb-4 text-lg font-bold text-white">{t('wallet.deposit')}</h1>
+      <WalletDepositMethodTabs
+        active={depositMethod}
+        onChange={setDepositMethod}
+        cryptoLabel={t('wallet.railCrypto')}
+        fiatLabel={t('wallet.depositMethodFiat')}
       />
+      {depositMethod === 'crypto' ? (
+        <WalletDepositPickStep
+          amountUsd={amountUsd}
+          onAmountUsd={setAmountUsd}
+          amountErr={amountErr}
+          minUsd={MIN_USD}
+          onContinue={continueToAddress}
+          continueLabel={t('wallet.continue')}
+          currencies={currencies}
+          currenciesLoading={currenciesLoading}
+          currenciesError={currenciesError}
+          onRetryCurrencies={() => void reloadCurrencies()}
+          selected={selected}
+          onSelect={setSelected}
+        />
+      ) : (
+        <WalletFiatOnrampPanel
+          amountUsd={amountUsd}
+          onAmountUsd={setAmountUsd}
+          minUsd={MIN_USD}
+          fiatCurrency={fiatDepositCurrency}
+          onFiatCurrency={setFiatDepositCurrency}
+          amountErr={fiatPayErr}
+          onPay={handleFiatPay}
+          payBusy={fiatPayBusy}
+        />
+      )}
     </>,
+    ),
   )
 }

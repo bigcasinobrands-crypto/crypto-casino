@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n'
-import { IconCopy, IconSearch } from './icons'
+import { IconChevronDown, IconCopy, IconSearch } from './icons'
 
 export type DepositNetworkId = 'BEP20' | 'ERC20' | 'TRC20'
 export type DepositAssetSymbol = 'USDT' | 'USDC' | 'ETH' | 'TRX'
@@ -313,30 +314,210 @@ export function WithdrawNetworkCardGrid({
   )
 }
 
+/** Fiat ISO dropdown styled like wallet chrome — not a native `<select>` (OS lists can’t match theme). */
+function FiatCurrencyCustomSelect({
+  value,
+  options,
+  onChange,
+  wallet,
+  ariaLabel,
+}: {
+  value: string
+  options: readonly string[]
+  onChange: (code: string) => void
+  wallet: boolean
+  ariaLabel: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLUListElement>(null)
+  const listId = useId()
+
+  const updatePosition = () => {
+    const el = triggerRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const rowH = 40
+    const pad = 8
+    const estH = Math.min(options.length, 8) * rowH + pad
+    let top = r.bottom + 4
+    if (top + estH > window.innerHeight - 16) {
+      top = Math.max(12, r.top - estH - 4)
+    }
+    setMenuPos({ top, left: r.left, width: r.width })
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    updatePosition()
+    menuRef.current?.focus({ preventScroll: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- measure uses live DOM / options length
+  }, [open, options.length])
+
+  useEffect(() => {
+    if (!open) return
+    const onScrollCapture = () => updatePosition()
+    const onResize = () => updatePosition()
+    window.addEventListener('resize', onResize)
+    window.addEventListener('scroll', onScrollCapture, true)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('scroll', onScrollCapture, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t)) return
+      if (menuRef.current?.contains(t)) return
+      setOpen(false)
+      setMenuPos(null)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open || !menuRef.current) return
+    const el = menuRef.current
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+      setMenuPos(null)
+      triggerRef.current?.focus()
+    }
+    el.addEventListener('keydown', onKey)
+    return () => el.removeEventListener('keydown', onKey)
+  }, [open])
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false)
+      setMenuPos(null)
+      return
+    }
+    updatePosition()
+    setOpen(true)
+  }
+
+  const triggerClass = wallet
+    ? 'flex min-w-[5.25rem] shrink-0 cursor-pointer items-center justify-between gap-2 rounded-lg border border-casino-border bg-casino-segment-track px-3 py-3 text-xs font-semibold text-white outline-none transition hover:border-white/15 hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-casino-primary/45'
+    : 'flex min-w-[5.25rem] shrink-0 cursor-pointer items-center justify-between gap-2 rounded-lg border border-casino-border bg-casino-segment-track px-2.5 py-2 text-xs font-semibold text-white outline-none transition hover:border-white/15 hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-casino-primary/45'
+
+  const menu =
+    open && menuPos ? (
+      <ul
+        ref={menuRef}
+        id={listId}
+        tabIndex={-1}
+        role="listbox"
+        aria-activedescendant={`${listId}-${value}`}
+        className="fixed z-[340] max-h-[min(280px,calc(100vh-24px))] overflow-auto rounded-lg border border-casino-border bg-casino-bg p-1 shadow-[0_16px_40px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.06] outline-none focus:outline-none"
+        style={{
+          top: menuPos.top,
+          left: menuPos.left,
+          width: menuPos.width,
+        }}
+      >
+        {options.map((c) => {
+          const selected = c === value
+          return (
+            <li key={c} role="presentation">
+              <button
+                type="button"
+                role="option"
+                aria-selected={selected}
+                id={`${listId}-${c}`}
+                onClick={() => {
+                  onChange(c)
+                  setOpen(false)
+                  setMenuPos(null)
+                }}
+                className={`flex w-full items-center rounded-md px-3 py-2.5 text-left text-xs font-semibold outline-none transition focus-visible:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-casino-primary/45 ${
+                  selected
+                    ? 'bg-casino-primary/20 text-white ring-1 ring-inset ring-casino-primary/40'
+                    : 'text-white/90 hover:bg-white/[0.06]'
+                }`}
+              >
+                {c}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    ) : null
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-label={ariaLabel}
+        onClick={toggle}
+        className={triggerClass}
+      >
+        <span className="tabular-nums">{value}</span>
+        <IconChevronDown
+          size={14}
+          className={`shrink-0 text-casino-muted transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
+      </button>
+      {typeof document !== 'undefined' && menu ? createPortal(menu, document.body) : null}
+    </div>
+  )
+}
+
 export function UsdAmountField({
   value,
   onChange,
   minUsd,
   tone = 'default',
+  fiatCurrency,
 }: {
   value: string
   onChange: (v: string) => void
   minUsd?: number
   /** Banani-style wallet chrome (dark panels + field wells) */
   tone?: 'default' | 'wallet'
+  /** When set, shows a fiat ISO selector instead of a static USD pill (fiat on-ramp only). */
+  fiatCurrency?: { value: string; options: readonly string[]; onChange: (code: string) => void }
 }) {
   const { t } = useTranslation()
   const min = minUsd ?? 10
   const wallet = tone === 'wallet'
+  const code = fiatCurrency?.value ?? 'USD'
   return (
     <div className="mb-3">
       <label
         className={`mb-2 block text-xs ${wallet ? 'text-casino-muted' : 'font-medium text-casino-foreground'}`}
       >
-        {t('wallet.amountMinUsd')}
-        <span className={wallet ? 'font-normal text-casino-muted/90' : 'font-normal text-casino-muted'}>
-          {t('wallet.amountMinSuffix', { min })}
-        </span>
+        {fiatCurrency ? (
+          <>
+            {t('wallet.amountMinFiatCurrency', { currency: code })}
+            <span className={wallet ? 'font-normal text-casino-muted/90' : 'font-normal text-casino-muted'}>
+              {t('wallet.amountMinSuffix', { min })}
+            </span>
+          </>
+        ) : (
+          <>
+            {t('wallet.amountMinUsd')}
+            <span className={wallet ? 'font-normal text-casino-muted/90' : 'font-normal text-casino-muted'}>
+              {t('wallet.amountMinSuffix', { min })}
+            </span>
+          </>
+        )}
       </label>
       <div className="flex gap-1.5">
         <input
@@ -350,15 +531,25 @@ export function UsdAmountField({
               : 'min-w-0 flex-1 rounded-lg border border-casino-border bg-casino-bg px-2.5 py-2 text-sm text-casino-foreground outline-none focus:border-casino-primary'
           }
         />
-        <div
-          className={
-            wallet
-              ? 'flex items-center rounded-lg border border-casino-border bg-casino-segment-track px-3 text-xs font-semibold text-casino-muted'
-              : 'flex items-center rounded-lg border border-casino-border bg-casino-segment-track px-2.5 text-xs font-semibold text-casino-muted'
-          }
-        >
-          {t('wallet.currencyUsd')}
-        </div>
+        {fiatCurrency ? (
+          <FiatCurrencyCustomSelect
+            value={fiatCurrency.value}
+            options={fiatCurrency.options}
+            onChange={fiatCurrency.onChange}
+            wallet={wallet}
+            ariaLabel={t('wallet.fiatCurrencyAria')}
+          />
+        ) : (
+          <div
+            className={
+              wallet
+                ? 'flex items-center rounded-lg border border-casino-border bg-casino-segment-track px-3 text-xs font-semibold text-casino-muted'
+                : 'flex items-center rounded-lg border border-casino-border bg-casino-segment-track px-2.5 text-xs font-semibold text-casino-muted'
+            }
+          >
+            {t('wallet.currencyUsd')}
+          </div>
+        )}
       </div>
     </div>
   )

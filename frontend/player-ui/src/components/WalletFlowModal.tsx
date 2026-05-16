@@ -2,14 +2,24 @@ import { useCallback, useEffect, useId, useRef, useState, type FC } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
+import { isFiatDepositCurrencyCode } from '../lib/fiatCurrencies'
+import { fetchPassimpayFiatInvoiceUrl } from '../lib/passimpayFiatInvoice'
+import { PassimpayHostedCheckoutOverlay } from './PassimpayHostedCheckoutOverlay'
 import { passimpayNetworkLabel, passimpayWithdrawRailMeetsBalance } from '../lib/paymentCurrencies'
 import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
 import type { PassimpayCurrency } from '../lib/paymentCurrencies'
 import { usePlayerAuth } from '../playerAuth'
+import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { DepositAddressPanel, DepositSentPanel, type DepositAddrRes } from './walletDepositPanels'
 import { WithdrawFormPanel, WithdrawSuccessPanel } from './walletWithdrawPanels'
 import { WalletDepositPickStep } from './wallet/WalletDepositPickStep'
-import { WalletCloseButton, WalletMainTabs } from './wallet/WalletShell'
+import { WalletFiatOnrampPanel } from './wallet/WalletFiatOnrampPanel'
+import {
+  WalletCloseButton,
+  WalletDepositMethodTabs,
+  WalletMainTabs,
+  type WalletDepositMethodId,
+} from './wallet/WalletShell'
 
 export type WalletMainTab = 'deposit' | 'withdraw'
 
@@ -56,6 +66,11 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
   const [committedDeposit, setCommittedDeposit] = useState<PassimpayCurrency | null>(null)
 
   const [depositFlowStep, setDepositFlowStep] = useState<'pick' | 'address' | 'sent'>('pick')
+  const [depositMethod, setDepositMethod] = useState<WalletDepositMethodId>('crypto')
+  const [fiatDepositCurrency, setFiatDepositCurrency] = useState('USD')
+  const [fiatPayErr, setFiatPayErr] = useState<string | null>(null)
+  const [fiatPayBusy, setFiatPayBusy] = useState(false)
+  const [passimpayHostedUrl, setPassimpayHostedUrl] = useState<string | null>(null)
   const [committedAmountUsd, setCommittedAmountUsd] = useState('10.00')
 
   const [withdrawFlowStep, setWithdrawFlowStep] = useState<'form' | 'success'>('form')
@@ -85,8 +100,42 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     setDepositPick(null)
     setWithdrawPick(null)
     setDepositAddrPrefetch(null)
+    setDepositMethod('crypto')
+    setFiatDepositCurrency('USD')
+    setFiatPayErr(null)
+    setFiatPayBusy(false)
+    setPassimpayHostedUrl(null)
     setCurrencyMenuLiftPx(0)
   }, [open, initialTab, emailVerified, depositsEnabled, withdrawalsEnabled])
+
+  useEffect(() => {
+    setFiatPayErr(null)
+  }, [amountUsd, fiatDepositCurrency])
+
+  const handleFiatPay = useCallback(async () => {
+    setFiatPayErr(null)
+    const parsed = Number(amountUsd.replace(',', '.'))
+    if (!Number.isFinite(parsed) || parsed < MIN_USD) {
+      setFiatPayErr(t('wallet.enterMinFiat', { min: MIN_USD, currency: fiatDepositCurrency }))
+      return
+    }
+    if (!isAuthenticated) return
+    setFiatPayBusy(true)
+    try {
+      const minor = Math.round(parsed * 100)
+      const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
+      const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
+      if (!result.ok) {
+        toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice')
+        return
+      }
+      setPassimpayHostedUrl(result.invoiceUrl)
+    } catch {
+      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice')
+    } finally {
+      setFiatPayBusy(false)
+    }
+  }, [amountUsd, apiFetch, fiatDepositCurrency, isAuthenticated, t])
 
   useEffect(() => {
     if (open) return
@@ -94,7 +143,15 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
   }, [open])
 
   useEffect(() => {
-    if (!open || !isAuthenticated || mainTab !== 'deposit' || depositFlowStep !== 'pick' || !depositPick) return
+    if (
+      !open ||
+      !isAuthenticated ||
+      mainTab !== 'deposit' ||
+      depositFlowStep !== 'pick' ||
+      depositMethod !== 'crypto' ||
+      !depositPick
+    )
+      return
     const key = `${depositPick.payment_id}|${depositPick.symbol}|${depositPick.network}`
     let cancelled = false
     void (async () => {
@@ -117,7 +174,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     return () => {
       cancelled = true
     }
-  }, [open, isAuthenticated, mainTab, depositFlowStep, depositPick, apiFetch])
+  }, [open, isAuthenticated, mainTab, depositFlowStep, depositMethod, depositPick, apiFetch])
 
   useEffect(() => {
     if (!currencies.length) return
@@ -145,11 +202,16 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      if (passimpayHostedUrl) {
+        setPassimpayHostedUrl(null)
+        return
+      }
+      onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, onClose, passimpayHostedUrl])
 
   const handleMainTabChange = useCallback(
     (next: WalletMainTab) => {
@@ -198,6 +260,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     committedDepositKey && depositAddrPrefetch?.key === committedDepositKey ? depositAddrPrefetch.data : null
 
   return (
+    <>
     <div
       className={`fixed inset-0 ${PLAYER_MODAL_OVERLAY_Z} flex items-end justify-center sm:items-center sm:p-4`}
       role="presentation"
@@ -253,23 +316,44 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
               </p>
             ) : mainTab === 'deposit' ? (
               depositFlowStep === 'pick' ? (
-                <WalletDepositPickStep
-                  splitFooter
-                  menuLiftScopeRef={sheetLiftRef}
-                  onMenuLiftPxChange={onCurrencyMenuLiftPxChange}
-                  amountUsd={amountUsd}
-                  onAmountUsd={setAmountUsd}
-                  amountErr={amountErr}
-                  minUsd={MIN_USD}
-                  onContinue={continueToAddressInModal}
-                  continueLabel={t('wallet.continue')}
-                  currencies={currencies}
-                  currenciesLoading={currenciesLoading}
-                  currenciesError={currenciesError}
-                  onRetryCurrencies={() => void reloadCurrencies()}
-                  selected={depositPick}
-                  onSelect={setDepositPick}
-                />
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden max-sm:flex-none">
+                  <WalletDepositMethodTabs
+                    active={depositMethod}
+                    onChange={setDepositMethod}
+                    cryptoLabel={t('wallet.railCrypto')}
+                    fiatLabel={t('wallet.depositMethodFiat')}
+                  />
+                  {depositMethod === 'crypto' ? (
+                    <WalletDepositPickStep
+                      splitFooter
+                      menuLiftScopeRef={sheetLiftRef}
+                      onMenuLiftPxChange={onCurrencyMenuLiftPxChange}
+                      amountUsd={amountUsd}
+                      onAmountUsd={setAmountUsd}
+                      amountErr={amountErr}
+                      minUsd={MIN_USD}
+                      onContinue={continueToAddressInModal}
+                      continueLabel={t('wallet.continue')}
+                      currencies={currencies}
+                      currenciesLoading={currenciesLoading}
+                      currenciesError={currenciesError}
+                      onRetryCurrencies={() => void reloadCurrencies()}
+                      selected={depositPick}
+                      onSelect={setDepositPick}
+                    />
+                  ) : (
+                    <WalletFiatOnrampPanel
+                      amountUsd={amountUsd}
+                      onAmountUsd={setAmountUsd}
+                      minUsd={MIN_USD}
+                      fiatCurrency={fiatDepositCurrency}
+                      onFiatCurrency={setFiatDepositCurrency}
+                      amountErr={fiatPayErr}
+                      onPay={handleFiatPay}
+                      payBusy={fiatPayBusy}
+                    />
+                  )}
+                </div>
               ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scroll-smooth scrollbar-casino max-sm:max-h-[min(75dvh,calc(100dvh-var(--casino-mobile-nav-offset)-10rem))]">
                   {depositFlowStep === 'address' && committedDeposit ? (
@@ -330,6 +414,8 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
         </div>
       </div>
     </div>
+    <PassimpayHostedCheckoutOverlay url={passimpayHostedUrl} onClose={() => setPassimpayHostedUrl(null)} />
+    </>
   )
 }
 

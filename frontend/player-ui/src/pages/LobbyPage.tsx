@@ -31,8 +31,7 @@ import {
 import LobbyHomeSections from '../components/LobbyHomeSections'
 import { GameCardSkeleton } from '../components/GameCardSkeleton'
 import PromoHero from '../components/PromoHero'
-import HomeCryptoPaymentsBanner from '../components/HomeCryptoPaymentsBanner'
-import { operationalDepositsEnabled } from '../lib/operationalPaymentGate'
+import RecentWinsMarquee from '../components/RecentWinsMarquee'
 import { useCompleteInitialLoad } from '../context/InitialAppLoadContext'
 import { useFavouritesRevision } from '../hooks/useFavouritesRevision'
 import ChallengesPageContent from '../components/challenges/ChallengesPageContent'
@@ -451,7 +450,7 @@ export default function LobbyPage() {
     return (
       <div className="player-casino-max min-w-0 shrink-0 pb-12 pt-3 pl-[max(1rem,env(safe-area-inset-left,0px))] pr-[max(1rem,env(safe-area-inset-right,0px))] sm:pt-4 sm:pl-[max(1.25rem,env(safe-area-inset-left,0px))] sm:pr-[max(1.25rem,env(safe-area-inset-right,0px))] md:pl-[max(1.5rem,env(safe-area-inset-left,0px))] md:pr-[max(1.5rem,env(safe-area-inset-right,0px))] lg:pl-[max(2rem,env(safe-area-inset-left,0px))] lg:pr-[max(2rem,env(safe-area-inset-right,0px))]">
         <PromoHero />
-        <HomeCryptoPaymentsBanner depositsEnabled={operationalDepositsEnabled(operationalData)} />
+        <RecentWinsMarquee />
         <CasinoCatalogSearchStrip pathname={pathname} lobbyDashboardHome={isDashboardHome} />
         <LobbyHomeSections catalogSyncAt={operationalData?.last_catalog_sync_at} />
       </div>

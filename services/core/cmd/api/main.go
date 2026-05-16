@@ -514,6 +514,8 @@ func main() {
 						Get("/wallet/deposit-address", wallet.DepositAddressHandler(pool, &cfg))
 					r.With(playerapi.LimitByUserID(120, time.Hour)).
 						Post("/wallet/deposit-invoice", wallet.DepositInvoiceHandler(pool, &cfg))
+					r.With(playerapi.LimitByUserID(120, time.Hour)).
+						Post("/wallet/fiat-deposit-invoice", wallet.FiatDepositInvoiceHandler(pool, &cfg))
 					r.Post("/wallet/deposit-session", wallet.DepositSessionHandler(pool, &cfg))
 				})
 			})

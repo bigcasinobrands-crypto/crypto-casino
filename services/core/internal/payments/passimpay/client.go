@@ -129,6 +129,36 @@ func (c *Client) CreateInvoiceOrder(ctx context.Context, orderID, amountUSD stri
 	return u, nil
 }
 
+// CreateFiatInvoiceOrder wraps POST /v2/createorder with type=2 (fiat / on-ramp checkout only).
+// https://passimpay.gitbook.io/passimpay-api/create-an-invoice-link
+// Amount uses two decimal places in the invoice fiat (ISO 4217 symbol). Omit currencies so PassimPay shows configured fiat methods.
+func (c *Client) CreateFiatInvoiceOrder(ctx context.Context, orderID, amount, symbol string) (payURL string, err error) {
+	st, j, _, err := c.post(ctx, "/v2/createorder", map[string]any{
+		"orderId": orderID,
+		"amount":  amount,
+		"symbol":  symbol,
+		"type":    2,
+	})
+	if err != nil {
+		return "", err
+	}
+	if st < 200 || st >= 300 {
+		msg := ""
+		if j != nil && j["message"] != nil {
+			msg = strings.TrimSpace(fmt.Sprint(j["message"]))
+		}
+		return "", fmt.Errorf("passimpay fiat createorder: HTTP %d %s", st, msg)
+	}
+	if res, ok := j["result"].(float64); !ok || int(res) != 1 {
+		return "", fmt.Errorf("passimpay fiat createorder: result not success %+v", j)
+	}
+	u := strings.TrimSpace(fmt.Sprint(j["url"]))
+	if u == "" {
+		return "", fmt.Errorf("passimpay fiat createorder: missing url in %+v", j)
+	}
+	return u, nil
+}
+
 // CreateWithdraw wraps POST /v2/withdraw. Rate limited to 1 rps upstream.
 func (c *Client) CreateWithdraw(ctx context.Context, paymentID int, addressTo, amount string, orderID string) (txID string, err error) {
 	st, j, _, err := c.post(ctx, "/v2/withdraw", map[string]any{

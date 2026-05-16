@@ -118,6 +118,57 @@ export function WalletMainTabs({
   )
 }
 
+export type WalletDepositMethodId = 'crypto' | 'fiat'
+
+/** Crypto vs fiat funding — below Deposit/Withdraw; matches segment styling for Passim Pay on-ramp entry. */
+export function WalletDepositMethodTabs({
+  active,
+  onChange,
+  cryptoLabel,
+  fiatLabel,
+}: {
+  active: WalletDepositMethodId
+  onChange: (m: WalletDepositMethodId) => void
+  cryptoLabel: string
+  fiatLabel: string
+}) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className="mb-5 flex rounded-[10px] bg-casino-segment-track p-1 ring-1 ring-white/[0.06]"
+      role="tablist"
+      aria-label={t('wallet.depositMethodAria')}
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === 'crypto'}
+        onClick={() => onChange('crypto')}
+        className={`flex-1 rounded-lg py-2 text-center text-xs font-semibold transition sm:text-[13px] ${
+          active === 'crypto'
+            ? 'bg-casino-primary/25 text-white ring-1 ring-casino-primary/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+            : 'text-casino-muted hover:text-white/85'
+        }`}
+      >
+        {cryptoLabel}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === 'fiat'}
+        onClick={() => onChange('fiat')}
+        className={`flex-1 rounded-lg py-2 text-center text-xs font-semibold transition sm:text-[13px] ${
+          active === 'fiat'
+            ? 'bg-casino-primary/25 text-white ring-1 ring-casino-primary/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+            : 'text-casino-muted hover:text-white/85'
+        }`}
+      >
+        {fiatLabel}
+      </button>
+    </div>
+  )
+}
+
 export type WalletRailId = 'crypto' | 'banking'
 
 export function WalletRailTabs({
