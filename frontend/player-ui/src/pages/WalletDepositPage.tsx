@@ -20,6 +20,11 @@ import { useSharedOperationalHealth } from '../context/OperationalHealthContext'
 import { operationalDepositsEnabled } from '../lib/operationalPaymentGate'
 import { isFiatDepositCurrencyCode } from '../lib/fiatCurrencies'
 import { fetchPassimpayFiatInvoiceUrl } from '../lib/passimpayFiatInvoice'
+import {
+  closePassimpayHostedPopup,
+  navigatePassimpayHostedPopup,
+  openPassimpayHostedBlankWindow,
+} from '../lib/passimpayHostedWindow'
 import { usePlayerAuth } from '../playerAuth'
 import {
   PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
@@ -110,19 +115,24 @@ export default function WalletDepositPage() {
     }
     if (fiatPayLockRef.current) return
     fiatPayLockRef.current = true
+    const hostedPopup = openPassimpayHostedBlankWindow()
     setFiatPayBusy(true)
     try {
       const minor = Math.round(parsed * 100)
       const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
       const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
       if (!result.ok) {
+        closePassimpayHostedPopup(hostedPopup)
         toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice', null, {
           toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
         })
         return
       }
-      setPassimpayHostedUrl(result.invoiceUrl)
+      if (!navigatePassimpayHostedPopup(hostedPopup, result.invoiceUrl)) {
+        setPassimpayHostedUrl(result.invoiceUrl)
+      }
     } catch {
+      closePassimpayHostedPopup(hostedPopup)
       toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice', {
         toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
       })

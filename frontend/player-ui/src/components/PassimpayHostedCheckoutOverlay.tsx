@@ -5,10 +5,13 @@ import { PLAYER_MODAL_STACK_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { WalletCloseButton } from './wallet/WalletShell'
 
 /**
- * Hosted PassimPay checkout in an iframe, styled as the next step of the wallet deposit sheet
- * (same width, backdrop, and mobile inset as {@link WalletFlowModal}).
+ * Hosted PassimPay checkout — iframe fallback only.
  *
- * If PassimPay blocks framing, the iframe may stay blank — footer links to a new tab.
+ * PassimPay's payment pages (`payment.passimpay.io`) typically send clickjacking protection
+ * (X-Frame-Options / CSP `frame-ancestors`) so they cannot load inside a cross-origin iframe
+ * (broken-document icon). The primary flow opens a centered popup from the Pay click handler
+ * (`openPassimpayHostedBlankWindow` + `navigatePassimpayHostedPopup` in `passimpayHostedWindow.ts`);
+ * this overlay is used when popups are blocked or as an escape hatch via "Open in new window".
  */
 export function PassimpayHostedCheckoutOverlay({
   url,
@@ -52,7 +55,7 @@ export function PassimpayHostedCheckoutOverlay({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="animate-passimpay-flow-in relative z-10 flex min-h-0 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border border-casino-border bg-wallet-modal shadow-[0_32px_64px_rgba(0,0,0,0.55)] max-sm:mb-[var(--casino-mobile-nav-offset)] max-sm:max-h-[calc(100dvh-var(--casino-mobile-nav-offset))] sm:max-h-[min(90vh,720px)] sm:rounded-2xl"
+        className="animate-passimpay-flow-in relative z-10 flex min-h-0 w-full max-w-[min(560px,calc(100vw-1rem))] flex-col overflow-hidden rounded-t-2xl border border-casino-border bg-wallet-modal shadow-[0_32px_64px_rgba(0,0,0,0.55)] max-sm:mb-[var(--casino-mobile-nav-offset)] max-sm:max-h-[calc(100dvh-var(--casino-mobile-nav-offset))] sm:max-h-[min(92vh,800px)] sm:rounded-2xl"
       >
         <div className="flex shrink-0 flex-col gap-3 border-b border-white/[0.06] px-6 pb-4 pt-5 max-sm:px-5 max-sm:pb-3 max-sm:pt-4">
           <div className="flex items-start justify-between gap-3">
@@ -84,8 +87,8 @@ export function PassimpayHostedCheckoutOverlay({
           <iframe
             src={url}
             title={t('wallet.passimpayHostedIframeTitle')}
-            className="relative z-0 size-full min-h-[min(52dvh,420px)] sm:min-h-[min(56vh,480px)]"
-            referrerPolicy="no-referrer-when-downgrade"
+            className="relative z-0 size-full min-h-[min(70dvh,560px)] sm:min-h-[min(72vh,620px)]"
+            referrerPolicy="strict-origin-when-cross-origin"
             allow="payment *; fullscreen"
           />
         </div>

@@ -4,6 +4,11 @@ import { useTranslation } from 'react-i18next'
 import { PLAYER_MODAL_OVERLAY_Z } from '../lib/playerChromeLayers'
 import { isFiatDepositCurrencyCode } from '../lib/fiatCurrencies'
 import { fetchPassimpayFiatInvoiceUrl } from '../lib/passimpayFiatInvoice'
+import {
+  closePassimpayHostedPopup,
+  navigatePassimpayHostedPopup,
+  openPassimpayHostedBlankWindow,
+} from '../lib/passimpayHostedWindow'
 import { PassimpayHostedCheckoutOverlay } from './PassimpayHostedCheckoutOverlay'
 import { passimpayNetworkLabel, passimpayWithdrawRailMeetsBalance } from '../lib/paymentCurrencies'
 import { usePassimpayCurrencies } from '../hooks/usePassimpayCurrencies'
@@ -128,19 +133,24 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
     if (!isAuthenticated) return
     if (fiatPayLockRef.current) return
     fiatPayLockRef.current = true
+    const hostedPopup = openPassimpayHostedBlankWindow()
     setFiatPayBusy(true)
     try {
       const minor = Math.round(parsed * 100)
       const cur = isFiatDepositCurrencyCode(fiatDepositCurrency) ? fiatDepositCurrency : 'USD'
       const result = await fetchPassimpayFiatInvoiceUrl(apiFetch, minor, cur)
       if (!result.ok) {
+        closePassimpayHostedPopup(hostedPopup)
         toastPlayerApiError(result.apiErr, result.status, 'POST /v1/wallet/fiat-deposit-invoice', null, {
           toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
         })
         return
       }
-      setPassimpayHostedUrl(result.invoiceUrl)
+      if (!navigatePassimpayHostedPopup(hostedPopup, result.invoiceUrl)) {
+        setPassimpayHostedUrl(result.invoiceUrl)
+      }
     } catch {
+      closePassimpayHostedPopup(hostedPopup)
       toastPlayerNetworkError('Network error.', 'POST /v1/wallet/fiat-deposit-invoice', {
         toastId: PLAYER_FIAT_DEPOSIT_INVOICE_TOAST_ID,
       })

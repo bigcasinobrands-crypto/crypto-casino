@@ -3,6 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { buildDepositQrPayload, isLikelyWebHttpUrl } from '../lib/depositQrPayload'
+import {
+  closePassimpayHostedPopup,
+  navigatePassimpayHostedPopup,
+  openPassimpayHostedBlankWindow,
+} from '../lib/passimpayHostedWindow'
 import { readApiError } from '../api/errors'
 import { resolvePlayerApiToastCopy, resolvePlayerNetworkToastCopy } from '../notifications/playerErrorCopy'
 import { resolveCryptoLogoUrl, useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
@@ -185,6 +190,7 @@ export function DepositAddressPanel({
     }
     setInvoiceErr(null)
     setInvoiceBusy(true)
+    const hostedPopup = openPassimpayHostedBlankWindow()
     try {
       const res = await apiFetch('/v1/wallet/deposit-invoice', {
         method: 'POST',
@@ -197,6 +203,7 @@ export function DepositAddressPanel({
         }),
       })
       if (!res.ok) {
+        closePassimpayHostedPopup(hostedPopup)
         const parsed = await readApiError(res)
         const friendly = resolvePlayerApiToastCopy(parsed, res.status, '').title
         setInvoiceErr(friendly)
@@ -205,7 +212,11 @@ export function DepositAddressPanel({
       const j = (await res.json()) as { invoice_url?: string }
       const url = j.invoice_url?.trim()
       if (!url) {
+        closePassimpayHostedPopup(hostedPopup)
         setInvoiceErr(t('wallet.depositInvoiceFailed'))
+        return
+      }
+      if (navigatePassimpayHostedPopup(hostedPopup, url)) {
         return
       }
       if (onHostedInvoiceUrl) {
@@ -217,6 +228,7 @@ export function DepositAddressPanel({
         window.location.href = url
       }
     } catch {
+      closePassimpayHostedPopup(hostedPopup)
       setInvoiceErr(t('wallet.depositInvoiceFailed'))
     } finally {
       setInvoiceBusy(false)
