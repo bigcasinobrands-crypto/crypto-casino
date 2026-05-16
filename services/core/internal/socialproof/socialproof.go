@@ -22,6 +22,16 @@ type Config struct {
 	OnlineVariancePct      float64 `json:"online_variance_pct"`
 	OnlineBucketSecs       int     `json:"online_bucket_secs"`
 	WagerDisplayMultiplier float64 `json:"wager_display_multiplier"`
+
+	// Recent wins strip (lobby): mixes ledger wins with deterministic bot rows; marquee speed scales with displayed online count.
+	RecentWinsEnabled                 bool    `json:"recent_wins_enabled"`
+	RecentWinsBaseDurationSec         float64 `json:"recent_wins_base_duration_sec"` // full loop when online ≈ online_target
+	RecentWinsFeedSize                int     `json:"recent_wins_feed_size"`
+	RecentWinsRealCap               int     `json:"recent_wins_real_cap"`
+	RecentWinsMinRealMinor          int64   `json:"recent_wins_min_real_minor"`
+	RecentWinsBotMinMinor           int64   `json:"recent_wins_bot_min_minor"`
+	RecentWinsBotMaxMinor           int64   `json:"recent_wins_bot_max_minor"`
+	RecentWinsRealWeight            int     `json:"recent_wins_real_weight"` // odds weight vs one bot when merging (1–10)
 }
 
 func DefaultConfig() Config {
@@ -31,6 +41,15 @@ func DefaultConfig() Config {
 		OnlineVariancePct:      22,
 		OnlineBucketSecs:       90,
 		WagerDisplayMultiplier: 1,
+
+		RecentWinsEnabled:         false,
+		RecentWinsBaseDurationSec: 42,
+		RecentWinsFeedSize:        28,
+		RecentWinsRealCap:         14,
+		RecentWinsMinRealMinor:    500,           // $5.00 in USD cents-style minors
+		RecentWinsBotMinMinor:     800,           // $8
+		RecentWinsBotMaxMinor:     250_000_00,    // $250k cap for display spice
+		RecentWinsRealWeight:    3,
 	}
 }
 
@@ -41,6 +60,15 @@ type configPatch struct {
 	OnlineVariancePct      *float64 `json:"online_variance_pct,omitempty"`
 	OnlineBucketSecs       *int     `json:"online_bucket_secs,omitempty"`
 	WagerDisplayMultiplier *float64 `json:"wager_display_multiplier,omitempty"`
+
+	RecentWinsEnabled         *bool    `json:"recent_wins_enabled,omitempty"`
+	RecentWinsBaseDurationSec *float64 `json:"recent_wins_base_duration_sec,omitempty"`
+	RecentWinsFeedSize        *int     `json:"recent_wins_feed_size,omitempty"`
+	RecentWinsRealCap       *int     `json:"recent_wins_real_cap,omitempty"`
+	RecentWinsMinRealMinor  *int64   `json:"recent_wins_min_real_minor,omitempty"`
+	RecentWinsBotMinMinor   *int64   `json:"recent_wins_bot_min_minor,omitempty"`
+	RecentWinsBotMaxMinor   *int64   `json:"recent_wins_bot_max_minor,omitempty"`
+	RecentWinsRealWeight    *int     `json:"recent_wins_real_weight,omitempty"`
 }
 
 // MergeJSON overlays keys from raw JSON onto defaults (missing fields keep defaults).
@@ -67,6 +95,33 @@ func MergeJSON(raw []byte) Config {
 	}
 	if patch.WagerDisplayMultiplier != nil && *patch.WagerDisplayMultiplier > 0 {
 		cfg.WagerDisplayMultiplier = clampFloat(*patch.WagerDisplayMultiplier, 0.01, 100)
+	}
+	if patch.RecentWinsEnabled != nil {
+		cfg.RecentWinsEnabled = *patch.RecentWinsEnabled
+	}
+	if patch.RecentWinsBaseDurationSec != nil && *patch.RecentWinsBaseDurationSec > 0 {
+		cfg.RecentWinsBaseDurationSec = clampFloat(*patch.RecentWinsBaseDurationSec, 8, 240)
+	}
+	if patch.RecentWinsFeedSize != nil && *patch.RecentWinsFeedSize > 0 {
+		cfg.RecentWinsFeedSize = clampInt(*patch.RecentWinsFeedSize, 8, 80)
+	}
+	if patch.RecentWinsRealCap != nil && *patch.RecentWinsRealCap >= 0 {
+		cfg.RecentWinsRealCap = clampInt(*patch.RecentWinsRealCap, 0, 40)
+	}
+	if patch.RecentWinsMinRealMinor != nil && *patch.RecentWinsMinRealMinor >= 0 {
+		cfg.RecentWinsMinRealMinor = *patch.RecentWinsMinRealMinor
+	}
+	if patch.RecentWinsBotMinMinor != nil && *patch.RecentWinsBotMinMinor >= 0 {
+		cfg.RecentWinsBotMinMinor = *patch.RecentWinsBotMinMinor
+	}
+	if patch.RecentWinsBotMaxMinor != nil && *patch.RecentWinsBotMaxMinor > 0 {
+		cfg.RecentWinsBotMaxMinor = *patch.RecentWinsBotMaxMinor
+	}
+	if patch.RecentWinsRealWeight != nil && *patch.RecentWinsRealWeight > 0 {
+		cfg.RecentWinsRealWeight = clampInt(*patch.RecentWinsRealWeight, 1, 10)
+	}
+	if cfg.RecentWinsBotMinMinor > cfg.RecentWinsBotMaxMinor {
+		cfg.RecentWinsBotMinMinor, cfg.RecentWinsBotMaxMinor = cfg.RecentWinsBotMaxMinor, cfg.RecentWinsBotMinMinor
 	}
 	return cfg
 }

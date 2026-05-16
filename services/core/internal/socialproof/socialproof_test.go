@@ -50,3 +50,29 @@ func TestMergeJSONPreservesEnabledDefaultWhenOmitted(t *testing.T) {
 		t.Fatalf("target %d", cfg.OnlineTarget)
 	}
 }
+
+func TestMergeRecentWinsDefaults(t *testing.T) {
+	cfg := MergeJSON([]byte(`{"recent_wins_enabled":true,"recent_wins_feed_size":16}`))
+	if !cfg.RecentWinsEnabled {
+		t.Fatal("recent_wins_enabled")
+	}
+	if cfg.RecentWinsFeedSize != 16 {
+		t.Fatalf("feed %d", cfg.RecentWinsFeedSize)
+	}
+	def := DefaultConfig()
+	if cfg.RecentWinsBaseDurationSec != def.RecentWinsBaseDurationSec {
+		t.Fatalf("base dur %v", cfg.RecentWinsBaseDurationSec)
+	}
+}
+
+func TestMaskPlayerLabel(t *testing.T) {
+	if got := MaskPlayerLabel(""); got != "Player***" {
+		t.Fatalf("%q", got)
+	}
+	if got := MaskPlayerLabel("ab"); got != "a***" {
+		t.Fatalf("%q", got)
+	}
+	if got := MaskPlayerLabel("Satoshi"); len(got) < 4 {
+		t.Fatalf("%q", got)
+	}
+}

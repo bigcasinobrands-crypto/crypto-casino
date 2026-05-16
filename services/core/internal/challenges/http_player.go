@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -186,7 +187,8 @@ func listChallengesHandler(pool *pgxpool.Pool, catalogImageBase string) http.Han
 			LIMIT 100
 		`, gameFilter)
 		if err != nil {
-			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", err.Error())
+			log.Printf("challenges list: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "Could not load challenges.")
 			return
 		}
 		defer rows.Close()
@@ -412,15 +414,16 @@ func enterHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, ErrAlreadyEntered):
-				playerapi.WriteError(w, http.StatusConflict, "already_entered", err.Error())
+				playerapi.WriteError(w, http.StatusConflict, "already_entered", "You are already entered in this challenge.")
 			case errors.Is(err, ErrSelfExcluded):
-				playerapi.WriteError(w, http.StatusForbidden, "self_excluded", err.Error())
+				playerapi.WriteError(w, http.StatusForbidden, "self_excluded", "Play is not available for your account.")
 			case errors.Is(err, ErrVIPNotEligible):
-				playerapi.WriteError(w, http.StatusForbidden, "vip_tier_required", err.Error())
+				playerapi.WriteError(w, http.StatusForbidden, "vip_tier_required", "This challenge requires a higher VIP tier.")
 			case errors.Is(err, ErrChallengeNotEnterable):
-				playerapi.WriteError(w, http.StatusBadRequest, "not_enterable", err.Error())
+				playerapi.WriteError(w, http.StatusBadRequest, "not_enterable", "This challenge cannot be joined right now.")
 			default:
-				playerapi.WriteError(w, http.StatusBadRequest, "enter_failed", err.Error())
+				log.Printf("challenge enter: %v", err)
+				playerapi.WriteError(w, http.StatusBadRequest, "enter_failed", "Could not join this challenge.")
 			}
 			return
 		}
@@ -437,7 +440,8 @@ func claimHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		id := strings.TrimSpace(chi.URLParam(r, "id"))
 		if err := ClaimPrize(r.Context(), pool, uid, id); err != nil {
-			playerapi.WriteError(w, http.StatusBadRequest, "claim_failed", err.Error())
+			log.Printf("challenge claim: %v", err)
+			playerapi.WriteError(w, http.StatusBadRequest, "claim_failed", "Could not complete this claim.")
 			return
 		}
 		writePlayerJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -558,7 +562,8 @@ func leaderboardHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			LIMIT 50
 		`, id, privacy.PrefAnonymisePublicName)
 		if err != nil {
-			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", err.Error())
+			log.Printf("challenge leaderboard: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "Could not load leaderboard.")
 			return
 		}
 		defer rows.Close()
@@ -617,7 +622,8 @@ func myChallengesHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			LIMIT 100
 		`, uid)
 		if err != nil {
-			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", err.Error())
+			log.Printf("challenge my list: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "Could not load your challenges.")
 			return
 		}
 		defer rows.Close()

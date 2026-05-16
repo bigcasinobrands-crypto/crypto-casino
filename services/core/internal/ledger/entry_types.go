@@ -64,6 +64,10 @@ const (
 	EntryTypeAffiliateCommission = "affiliate.commission"
 	EntryTypeAffiliatePayout     = "affiliate.payout"
 
+	// Raffle (weekly promotions — prizes credit playable cash; purchases debit cash)
+	EntryTypeRafflePrizeCredit        = "raffle.prize_credit"
+	EntryTypeRaffleTicketPurchaseDebit = "raffle.ticket_purchase_debit"
+
 	// Provider fees (debit on house user)
 	EntryTypeProviderFee = "provider.fee"
 

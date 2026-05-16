@@ -72,6 +72,14 @@ const AdminLTESidebar: FC = () => {
       if (path === '/bonushub/recommendations') return p === '/bonushub/recommendations'
       if (path === '/bonushub/player-layout') return p === '/bonushub/player-layout'
       if (path === '/bonushub/bonus-audit') return p === '/bonushub/bonus-audit'
+      if (path === '/raffles') {
+        return (
+          p === '/raffles' ||
+          p === '/raffles/new' ||
+          /^\/raffles\/[^/]+\/edit$/.test(p) ||
+          /^\/raffles\/[^/]+$/.test(p)
+        )
+      }
       if (path === '/bonushub') {
         if (p === '/bonushub') return true
         if (p.startsWith('/bonushub/promotions/')) return true

@@ -2,9 +2,12 @@ import { useState, useMemo, useEffect, type FC } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { RequireAuthLink } from './RequireAuthLink'
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronUp } from './icons'
+import { IconChevronLeft, IconChevronRight } from './icons'
+import { usePromoRaffleLive, type PromoRaffleLiveState } from '../hooks/usePromoRaffleLive'
 import { useSiteContent } from '../hooks/useSiteContent'
 import { contentImageUrl } from '../lib/contentImageUrl'
+import { usePlayerAuth } from '../playerAuth'
+import { useRaffleCountdown } from './raffle/RaffleCountdown'
 
 type HeroSlide = {
   enabled?: boolean
@@ -35,38 +38,53 @@ const tagClass =
 const promoTileClass =
   'casino-promo-card relative z-0 flex items-center justify-between overflow-hidden rounded-casino-md bg-casino-surface px-3 py-3 transition-[transform,box-shadow] duration-300 ease-out hover:z-10 hover:scale-[1.01] hover:shadow-[0_8px_22px_rgba(0,0,0,0.22)] motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:hover:shadow-none sm:px-4 sm:py-3.5'
 
-const RaffleTicketWidget: FC = () => {
+const RaffleTicketWidget: FC<{ tickets: number }> = ({ tickets }) => {
   const { t } = useTranslation()
-  const [tickets, setTickets] = useState(0)
+  const safe = Number.isFinite(tickets) ? Math.max(0, Math.min(999999, Math.floor(tickets))) : 0
   return (
     <div className="text-[11px] leading-snug text-casino-muted">
       <span className="text-casino-foreground">{t('lobby.hero.yourTickets')}</span>
-      <div className="mt-1.5 inline-flex items-stretch overflow-hidden rounded-[4px] bg-casino-elevated">
-        <span className="flex min-w-[34px] items-center justify-center px-2 py-1 text-xs font-semibold text-casino-foreground">{tickets}</span>
-        <div className="flex w-[18px] flex-col border-l border-casino-border">
-          <button
-            type="button"
-            className="flex h-[11px] w-full items-center justify-center bg-casino-primary-dim text-casino-muted transition-colors hover:text-casino-foreground"
-            aria-label={t('lobby.hero.increaseTickets')}
-            onClick={() => setTickets((n) => Math.min(99, n + 1))}
-          >
-            <IconChevronUp size={10} aria-hidden />
-          </button>
-          <button
-            type="button"
-            className="flex h-[11px] w-full items-center justify-center border-t border-casino-border bg-casino-primary-dim text-casino-muted transition-colors hover:text-casino-foreground"
-            aria-label={t('lobby.hero.decreaseTickets')}
-            onClick={() => setTickets((n) => Math.max(0, n - 1))}
-          >
-            <IconChevronDown size={10} aria-hidden />
-          </button>
-        </div>
+      <div className="mt-1.5">
+        <span
+          className="inline-flex min-w-[34px] items-center justify-center rounded-[4px] bg-casino-elevated px-2 py-1 text-xs font-semibold tabular-nums text-casino-foreground"
+          title={t('lobby.hero.ticketsEarnHint')}
+        >
+          {safe}
+        </span>
       </div>
     </div>
   )
 }
 
-const SlideCard: FC<{ slide: HeroSlide; fallbackImage: string }> = ({ slide, fallbackImage }) => {
+const RafflePromoCountdownLoaded: FC<{ endMs: number; className: string }> = ({ endMs, className }) => {
+  const { t } = useTranslation()
+  const { days, hours, minutes, expired } = useRaffleCountdown(endMs)
+  if (expired) {
+    return <span className={className}>{t('lobby.hero.raffleCountdownEnded')}</span>
+  }
+  const compact = days > 0 ? `${days}D ${hours}H ${minutes}M` : `${hours}H ${minutes}M`
+  return <span className={className}>{compact}</span>
+}
+
+const RafflePromoTagSlot: FC<{
+  raffleLive: PromoRaffleLiveState
+  className: string
+}> = ({ raffleLive, className }) => {
+  const { t } = useTranslation()
+  if (raffleLive.loading) {
+    return <span className={className}>{t('lobby.hero.raffleCountdownLoading')}</span>
+  }
+  if (raffleLive.endMs == null) {
+    return <span className={className}>{t('lobby.hero.noActiveRaffleShort')}</span>
+  }
+  return <RafflePromoCountdownLoaded endMs={raffleLive.endMs} className={className} />
+}
+
+const SlideCard: FC<{ slide: HeroSlide; fallbackImage: string; raffleLive?: PromoRaffleLiveState }> = ({
+  slide,
+  fallbackImage,
+  raffleLive,
+}) => {
   const primarySrc = contentImageUrl(slide.image_url)
   const [resolvedSrc, setResolvedSrc] = useState(fallbackImage)
   const hasTextContent =
@@ -106,21 +124,27 @@ const SlideCard: FC<{ slide: HeroSlide; fallbackImage: string }> = ({ slide, fal
         <>
           <div className="absolute inset-0 z-[2] bg-gradient-to-r from-black/80 via-black/62 to-black/40" />
           <div className="relative z-[3] flex max-w-[62%] flex-col items-start gap-1.5 sm:max-w-[58%] sm:gap-2">
-            {slide.tag && <span className={tagClass}>{slide.tag}</span>}
+            {raffleLive ? (
+              <RafflePromoTagSlot raffleLive={raffleLive} className={tagClass} />
+            ) : slide.tag ? (
+              <span className={tagClass}>{slide.tag}</span>
+            ) : null}
             {slide.title ? (
               <h2 className="text-sm font-extrabold leading-tight text-casino-foreground">
                 {slide.title}
               </h2>
             ) : null}
             {slide.interactive === 'raffle_tickets' ? (
-              <RaffleTicketWidget />
+              <RaffleTicketWidget tickets={raffleLive?.tickets ?? 0} />
             ) : slide.subtitle ? (
               <p className="text-[11px] leading-snug text-casino-muted">{slide.subtitle}</p>
             ) : null}
             {slide.cta_label && slide.cta_link && (
-              slide.cta_link === '/vip' ? (
+              slide.cta_link === '/vip' ||
+              slide.cta_link === '/raffle' ||
+              slide.cta_link === '/casino/games#raffle' ? (
                 <Link
-                  to={slide.cta_link}
+                  to={slide.cta_link === '/casino/games#raffle' ? '/raffle' : slide.cta_link}
                   className="mt-0.5 inline-flex rounded-[4px] bg-casino-primary px-3.5 py-1.5 text-[11px] font-bold text-white hover:brightness-110"
                 >
                   {slide.cta_label}
@@ -144,6 +168,8 @@ const SlideCard: FC<{ slide: HeroSlide; fallbackImage: string }> = ({ slide, fal
 const PromoHero: FC = () => {
   const { t } = useTranslation()
   const { getContent } = useSiteContent()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
+  const promoRaffleLive = usePromoRaffleLive(isAuthenticated, apiFetch)
   const [promoStart, setPromoStart] = useState(0)
   const fallbackSlides = useMemo(
     (): HeroSlide[] => [
@@ -152,7 +178,7 @@ const PromoHero: FC = () => {
         tag: t('lobby.hero.sampleCountdown'),
         title: t('lobby.hero.raffleTitle'),
         cta_label: t('lobby.hero.learnMore'),
-        cta_link: '/casino/games#raffle',
+        cta_link: '/raffle',
         image_url: RAFFLE_IMG,
         interactive: 'raffle_tickets',
       },
@@ -232,6 +258,7 @@ const PromoHero: FC = () => {
         key={`fixed-${fixedIndex}`}
         slide={fixedSlide}
         fallbackImage={fixedIndex === 0 ? RAFFLE_IMG : fixedIndex === 1 ? ROULETTE_IMG : VIP_IMG}
+        raffleLive={fixedSlide.interactive === 'raffle_tickets' ? promoRaffleLive : undefined}
       />
 
       <div
@@ -242,6 +269,7 @@ const PromoHero: FC = () => {
             key={`${slide.title ?? 'promo'}-${promoStart}-${i}`}
             slide={slide}
             fallbackImage={VIP_IMG}
+            raffleLive={slide.interactive === 'raffle_tickets' ? promoRaffleLive : undefined}
           />
         ))}
 

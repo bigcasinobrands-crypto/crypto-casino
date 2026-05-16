@@ -138,7 +138,8 @@ func (s *Server) SportsbookContextHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		res, err := s.resolveSportsbook(r.Context())
 		if err != nil {
-			playerapi.WriteError(w, http.StatusServiceUnavailable, "sportsbook_unconfigured", err.Error())
+			log.Printf("sportsbook context resolve: %v", err)
+			playerapi.WriteError(w, http.StatusServiceUnavailable, "sportsbook_unconfigured", "Sportsbook is not available right now.")
 			return
 		}
 		usesCustom := s.Cfg != nil && strings.TrimSpace(s.Cfg.BlueOceanSportsbookXAPIMethod) != ""
@@ -194,7 +195,8 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 
 		res, err := s.resolveSportsbook(r.Context())
 		if err != nil {
-			playerapi.WriteError(w, http.StatusServiceUnavailable, "sportsbook_unconfigured", err.Error())
+			log.Printf("sportsbook launch resolve: %v", err)
+			playerapi.WriteError(w, http.StatusServiceUnavailable, "sportsbook_unconfigured", "Sportsbook is not available right now.")
 			return
 		}
 
@@ -205,7 +207,8 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 
 		remote, boLogin, err := remotePlayerID(r.Context(), s.Pool, uid, s.Cfg, s.BOG)
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
+			log.Printf("sportsbook launch remote player: %v", err)
+			playerapi.WriteError(w, http.StatusInternalServerError, "server_error", "Could not prepare your session.")
 			return
 		}
 
@@ -242,25 +245,26 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 			raw, status, callErr := s.BOG.Call(r.Context(), customMethod, params)
 			if callErr != nil {
 				log.Printf("sportsbook launch: transport error method=%s: %v", customMethod, callErr)
-				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "provider connection failed: "+callErr.Error())
+				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "We couldn't open the sportsbook right now. Try again shortly.")
 				return
 			}
 			if status < 200 || status >= 300 {
 				msg := blueocean.FormatAPIError(raw, status)
 				log.Printf("sportsbook launch: provider HTTP %d method=%s: %s", status, customMethod, msg)
-				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", msg)
+				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "We couldn't open the sportsbook right now. Try again shortly.")
 				return
 			}
 			if !blueocean.LaunchPayloadOK(raw) {
 				msg := appendBlueOceanLaunchHints(blueocean.FormatAPIError(raw, status), s.Cfg)
 				log.Printf("sportsbook launch: provider failure method=%s: %s", customMethod, msg)
-				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", msg)
+				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "We couldn't open the sportsbook right now. Try again shortly.")
 				return
 			}
 			launchURL, err := blueocean.ExtractLaunchURL(raw)
 			if err != nil || launchURL == "" {
 				msg := blueocean.FormatAPIError(raw, status)
-				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "no launch URL in provider response — "+msg)
+				log.Printf("sportsbook launch: missing launch URL method=%s: %s", customMethod, msg)
+				playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "We couldn't open the sportsbook right now. Try again shortly.")
 				return
 			}
 			_, _ = s.Pool.Exec(r.Context(), `
@@ -281,7 +285,8 @@ func (s *Server) SportsbookLaunchHandler() http.HandlerFunc {
 				playerapi.WriteError(w, http.StatusServiceUnavailable, "bog_unconfigured", "Blue Ocean API is not configured")
 				return
 			}
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", err.Error())
+			log.Printf("sportsbook launch blueocean: %v", err)
+			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "We couldn't open the sportsbook right now. Try again shortly.")
 			return
 		}
 

@@ -25,7 +25,7 @@ export const CASINO_NAV_ROUTE_MAP: Record<string, string> = {
   rewards: '/bonuses',
   affiliate: '',
   vip: '/vip',
-  raffle: '/casino/games#raffle',
+  raffle: '/raffle',
 }
 
 export const CASINO_NAV_FALLBACK_CATEGORIES: CasinoNavCategory[] = [

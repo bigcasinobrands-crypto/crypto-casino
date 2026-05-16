@@ -19,6 +19,7 @@ import (
 	"github.com/crypto-casino/core/internal/bonus"
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/raffle"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -748,6 +749,7 @@ func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, ac
 	defer tx.Rollback(ctx)
 
 	var syncVIPStakeKey string
+	var raffleRollbackKey string
 
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE`, userID); err != nil {
 		return 0, "ERROR", err
@@ -810,6 +812,7 @@ func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, ac
 			return bal, "ERROR", err
 		}
 		if ins {
+			raffleRollbackKey = idem
 			if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, amount, idem); err != nil {
 				return bal, "ERROR", err
 			}
@@ -828,12 +831,16 @@ func applyOddinSeamless(ctx context.Context, pool *pgxpool.Pool, userID, ccy, ac
 	if err := tx.Commit(ctx); err != nil {
 		return bal, "ERROR", err
 	}
+	racCtx, racCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer racCancel()
 	if syncVIPStakeKey != "" {
-		accrueCtx, accrueCancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer accrueCancel()
-		if err := bonus.AccrueVIPFromLedgerIdempotencyKey(accrueCtx, pool, syncVIPStakeKey); err != nil {
+		if err := bonus.AccrueVIPFromLedgerIdempotencyKey(racCtx, pool, syncVIPStakeKey); err != nil {
 			slog.ErrorContext(ctx, "vip_accrual_sync_failed", slog.String("provider", "oddin"), slog.String("idempotency_key", syncVIPStakeKey), slog.Any("err", err))
 		}
+		raffle.IssueTicketsFromStakeLedgerKey(racCtx, pool, syncVIPStakeKey)
+	}
+	if raffleRollbackKey != "" {
+		raffle.ReverseTicketsForRollbackLedgerKey(racCtx, pool, raffleRollbackKey)
 	}
 	return bal, "OK", nil
 }

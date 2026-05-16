@@ -21,6 +21,7 @@ import (
 	"github.com/crypto-casino/core/internal/affiliate"
 	"github.com/crypto-casino/core/internal/finjobs"
 	"github.com/crypto-casino/core/internal/oddin"
+	"github.com/crypto-casino/core/internal/raffle"
 	"github.com/crypto-casino/core/internal/reconcile"
 	"github.com/crypto-casino/core/internal/redisx"
 	"github.com/crypto-casino/core/internal/wallet"
@@ -137,6 +138,25 @@ func main() {
 			}
 		}()
 	}
+
+	go func() {
+		t := time.NewTicker(90 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				bg := context.Background()
+				if n, err := raffle.ActivateScheduledCampaigns(bg, pool); err != nil {
+					log.Printf("raffle scheduled activation: %v", err)
+				} else if n > 0 {
+					log.Printf("raffle scheduled activation: promoted %d campaign(s)", n)
+				}
+				raffle.WarnStaleActivePastEnd(bg, pool)
+			}
+		}
+	}()
 
 	go func() {
 		t := time.NewTicker(1 * time.Hour)

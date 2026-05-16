@@ -407,6 +407,8 @@
     "catalogFaultApi":
       "Lobby could not load games: the API returned an error or invalid data. Check that the core service is healthy and GET /v1/games works for integration=blueocean.",
     "sectionLiveCasino": "Live casino",
+    "recentWinsTitle": "Recent wins",
+    "recentWinsAria": "Recent wins from players, scrolling horizontally",
     "searchPlaceholder": "Search titles or studios",
     "searchAriaLabel": "Search games by title or studio",
     "categoriesAriaLabel": "Game categories",
@@ -437,7 +439,71 @@
       "exploreVip": "Explore VIP",
       "yourTickets": "Your tickets:",
       "increaseTickets": "Increase tickets",
-      "decreaseTickets": "Decrease tickets"
+      "decreaseTickets": "Decrease tickets",
+      "raffleCountdownLoading": "…",
+      "raffleCountdownEnded": "Ended",
+      "noActiveRaffleShort": "Soon",
+      "ticketsEarnHint": "Earn tickets by playing."
+    }
+  },
+  "raffle": {
+    "pageTitle": "Raffle",
+    "empty": {
+      "noActive": "There is no weekly raffle running right now. Check back soon."
+    },
+    "heroTitle": "$25,000 WEEKLY RAFFLE",
+    "heroImageAlt": "Weekly raffle promotion artwork",
+    "yourTicketsLabel": "Your tickets",
+    "countdown": {
+      "day": "Day",
+      "hour": "Hour",
+      "min": "Min",
+      "sec": "Sec"
+    },
+    "howItWorks": {
+      "title": "How does it work?",
+      "body": "You earn 1 raffle ticket for each $100 wagered in the casino, and 3 raffle tickets for each $100 wagered on sports. You can also exchange vybebet Gold from Rewards for tickets. When the countdown ends, vybebet draws 100 tickets at random. The more tickets you earn, the better your chances — prizes credit automatically to your balance."
+    },
+    "rewards": {
+      "title": "Rewards",
+      "casinoLine": "1 ticket per $100 wagered in the casino",
+      "sportsLine": "3 tickets per $100 wagered on sports"
+    },
+    "purchase": {
+      "sectionTitle": "Buy tickets",
+      "balanceTitle": "Your balance",
+      "pricingTitle": "Ticket pricing",
+      "pricingNote": "Each 1,500 tickets bought doubles the price for the next 1,500. Demo pricing on this page is simplified until purchases go live.",
+      "ticketsLabel": "Tickets",
+      "sliderAria": "Number of tickets to purchase",
+      "costLabel": "Cost",
+      "buyCta": "Buy tickets",
+      "comingSoonTitle": "Purchasing coming soon",
+      "comingSoonBody": "Ticket purchases will connect to your account when this promotion goes live."
+    },
+    "prizes": {
+      "title": "Prizes",
+      "lastWeek": "Last week",
+      "moreWinners": "{{count}} more winners…",
+      "seeAllWinners": "See all winners",
+      "liveLadderHint": "Prize tiers for this draw (winner names appear after publish)."
+    },
+    "badges": {
+      "rank1": "1st",
+      "rank2": "2nd",
+      "rank3": "3rd",
+      "rank4": "4th",
+      "rank5": "5th",
+      "rank6": "6th",
+      "rank7": "7th",
+      "rank8": "8th",
+      "rank9": "9th",
+      "rank10": "10th",
+      "rankOther": "#{{n}}"
+    },
+    "winnersModal": {
+      "title": "All winners",
+      "closeAria": "Close"
     }
   },
   "header": {
@@ -567,6 +633,41 @@
     "rakebackClaimWindow": "Rakeback boost claim window is open.",
     "openVipRewards": "Open VIP rewards →"
   },
+  "errors": {
+    "genericTitle": "Something went wrong",
+    "genericBody": "Please try again. If the problem continues, contact support.",
+    "bog_error": "We couldn't connect to the game provider. Try again in a moment.",
+    "sportsbook_unconfigured": "The sportsbook isn't available right now. Please try again later.",
+    "sportsbook_not_in_catalog": "Sportsbook isn't in the catalog yet.",
+    "not_found": "We couldn't find what you're looking for.",
+    "http_error": "The request could not be completed.",
+    "invalid_credentials": "Invalid email or password.",
+    "wrong_password": "That password isn't correct.",
+    "session_expired": "Your session expired. Please sign in again.",
+    "terms_required": "Please accept the terms to continue.",
+    "already_entered": "You're already in this challenge.",
+    "vip_tier_required": "This challenge requires a higher VIP tier.",
+    "not_enterable": "This challenge can't be joined right now.",
+    "challenge_enter_failed": "We couldn't add you to this challenge. Try again or contact support.",
+    "challenge_claim_failed": "We couldn't complete this claim. Try again or contact support.",
+    "server_error": "Something went wrong on our side. Try again shortly.",
+    "csrf_failed": "Your session timed out. Refresh the page and try again.",
+    "conflict": "This action couldn't be completed. Check your account and try again.",
+    "provider_error": "The payment service had a problem. Try again or contact support.",
+    "ledger_settle_failed": "We couldn't finalize your withdrawal. Contact support with your withdrawal reference.",
+    "weak_password": "Choose a stronger password (letters and numbers, at least 6 characters).",
+    "password_breached": "This password appears in known breaches—pick a different one.",
+    "username_taken": "That username is already taken.",
+    "invalid_username": "Usernames must be 3–20 characters (letters, numbers, underscores).",
+    "email_already_registered": "An account with this email already exists.",
+    "captcha_failed": "Captcha verification failed. Try again.",
+    "email_mfa_unavailable": "Email sign-in codes aren't available right now.",
+    "fingerprint_required": "Security verification didn't complete. Refresh and try again.",
+    "networkTitle": "Connection problem",
+    "networkBody": "Check your internet connection and try again.",
+    "client_title": "Something went wrong",
+    "client_fallback": "Please refresh the page and try again."
+  },
   "notifications": {
     "title": "Notifications",
     "listAria": "Notifications list",
@@ -583,7 +684,15 @@
     "hoursAgo": "{{count}}h ago",
     "daysAgo": "{{count}}d ago",
     "ariaDefault": "Notifications",
-    "ariaRakebackLive": "Notifications, rakeback boost is live"
+    "ariaRakebackLive": "Notifications, rakeback boost is live",
+    "kinds": {
+      "wallet_deposit_credited": "Deposit",
+      "wallet_withdrawal_submitted": "Withdrawal",
+      "wallet_withdrawal_processing": "Withdrawal",
+      "wallet_withdrawal_completed": "Withdrawal",
+      "wallet_withdrawal_failed": "Withdrawal",
+      "wallet_withdrawal_rejected": "Withdrawal"
+    }
   },
   "chat": {
     "title": "Global Chat",

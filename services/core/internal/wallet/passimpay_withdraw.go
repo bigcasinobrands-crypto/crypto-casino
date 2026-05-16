@@ -378,6 +378,7 @@ func withdrawalPassimpay(
 				"held_for_review": "operator_daily_payout_cap_exceeded",
 			})
 			playernotify.WithdrawalSubmitted(pool, sender, cfg, uid, pid.String(), internalCcy, body.AmountMinor, "Pending operator review — daily payout volume limit")
+			playernotify.InAppWithdrawalSubmitted(r.Context(), pool, uid, pid.String(), internalCcy, body.AmountMinor, "Pending operator review before payout.")
 			return
 		}
 	}
@@ -419,6 +420,8 @@ func withdrawalPassimpay(
 		WHERE provider_order_id = $1`, idem, txProv)
 
 	playernotify.WithdrawalSentToProvider(pool, sender, cfg, uid, pid.String(), internalCcy, body.AmountMinor)
+
+	playernotify.InAppWithdrawalProcessing(r.Context(), pool, uid, pid.String(), internalCcy, body.AmountMinor)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{

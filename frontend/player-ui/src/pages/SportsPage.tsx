@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { formatApiError, readApiError } from '../api/errors'
 import { useAuthModal } from '../authModalContext'
@@ -14,7 +15,7 @@ import { pushRecent } from '../lib/gameStorage'
 import { playerFetch } from '../lib/playerFetch'
 import { sportsbookPlayerPath } from '../lib/oddin/oddin.config'
 import { operationalRealPlayEnabled } from '../lib/operationalPaymentGate'
-import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
+import { resolveLaunchBodyMessage } from '../notifications/playerErrorCopy'
 import { usePlayerAuth } from '../playerAuth'
 
 type SportsbookContext = {
@@ -26,46 +27,6 @@ type SportsbookContext = {
 
 type LaunchPlayMode = 'demo' | 'real'
 
-function launchErrorMessage(code: string | undefined, fallback: string) {
-  switch (code) {
-    case 'maintenance':
-      return 'The site is in maintenance mode. Try again later.'
-    case 'launch_disabled':
-      return 'Game launch is temporarily disabled.'
-    case 'geo_blocked':
-      return 'Games are not available in your region.'
-    case 'ip_blocked':
-      return 'Games are not available from this network.'
-    case 'self_excluded':
-      return 'Your account is self-excluded from play.'
-    case 'account_closed':
-      return 'This account is closed.'
-    case 'bog_unconfigured':
-      return 'Sportsbook is not available (provider not configured).'
-    case 'bog_error':
-      if (/invalid\s+user\s+details/i.test(fallback)) {
-        return fallback
-      }
-      if (
-        /demo\s+game\s+not\s+available|not\s+available\s+at\s+this\s+moment/i.test(fallback) ||
-        (/demo/i.test(fallback) && /not\s+available/i.test(fallback))
-      ) {
-        return 'The provider refused free play for this product right now. Try real play if funded, or retry later.'
-      }
-      return fallback
-    case 'demo_unavailable':
-      return 'Demo play is not available for this product.'
-    case 'not_found':
-      return 'Sportsbook is not in the catalog yet.'
-    case 'sportsbook_unconfigured':
-      return fallback
-    case 'unauthorized':
-      return 'Your session expired or is invalid. Sign out and sign in again.'
-    default:
-      return fallback
-  }
-}
-
 const chromeIconBtn =
   'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] text-white/65 transition hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-casino-primary disabled:pointer-events-none disabled:opacity-35 sm:h-8 sm:w-8'
 
@@ -76,6 +37,7 @@ const CONTEXT_PATH = '/v1/sportsbook/context'
  * and launches with POST /v1/sportsbook/launch (getGame/getGameDemo or custom XAPI method).
  */
 export default function SportsPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
   const { openAuth } = useAuthModal()
@@ -168,14 +130,10 @@ export default function SportsPage() {
         const res = await playerFetch(CONTEXT_PATH)
         if (!res.ok) {
           const parsed = await readApiError(res)
-          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          toastPlayerApiError(parsed, res.status, `GET ${CONTEXT_PATH}`, rid)
           if (!cancelled) {
+            const apiMsg = formatApiError(parsed, t('errors.sportsbook_unconfigured'))
             setCatalogLoadErr({
-              api: formatApiError(
-                parsed,
-                'Sportsbook is not configured. Set BLUEOCEAN_SPORTSBOOK_BOG_GAME_ID or BLUEOCEAN_SPORTSBOOK_GAME_ID on the API.',
-              ),
+              api: resolveLaunchBodyMessage(parsed?.code, apiMsg, t, 'sportsbook'),
             })
           }
           return
@@ -183,14 +141,13 @@ export default function SportsPage() {
         const j = (await res.json()) as SportsbookContext
         if (!cancelled) setShell(j)
       } catch {
-        toastPlayerNetworkError('Network error.', 'GET /v1/sportsbook/context')
         if (!cancelled) setCatalogLoadErr('network')
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     if (!isAuthenticated || !shell || !launchModeChoice) return
@@ -210,13 +167,11 @@ export default function SportsPage() {
         })
         if (!res.ok) {
           const apiErr = await readApiError(res)
-          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          const msg = launchErrorMessage(apiErr?.code, formatApiError(apiErr, 'Launch failed'))
-          toastPlayerApiError(
-            apiErr ? { ...apiErr, message: msg } : null,
-            res.status,
-            'POST /v1/sportsbook/launch',
-            rid,
+          const msg = resolveLaunchBodyMessage(
+            apiErr?.code,
+            formatApiError(apiErr, t('gameLobby.launchFailed')),
+            t,
+            'sportsbook',
           )
           if (!cancelled) setLaunchErr(msg)
           return
@@ -227,17 +182,13 @@ export default function SportsPage() {
           pushRecent(recentKey)
         }
       } catch {
-        toastPlayerNetworkError(
-          'Network error while launching. Check your connection and try again.',
-          'POST /v1/sportsbook/launch',
-        )
-        if (!cancelled) setLaunchErr('Network error while launching. Check your connection and try again.')
+        if (!cancelled) setLaunchErr(t('gameLobby.networkLaunching'))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [isAuthenticated, apiFetch, shell, launchModeChoice, launchRetryNonce, recentKey])
+  }, [isAuthenticated, apiFetch, shell, launchModeChoice, launchRetryNonce, recentKey, t])
 
   useEffect(() => {
     if (!isAuthenticated || !shell || catalogLoadErr !== null || iframeUrl || launchErr || launchModeChoice !== null)

@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { readApiError } from '../api/errors'
-import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
+import { resolvePlayerApiToastCopy } from '../notifications/playerErrorCopy'
 import { DepositWrongChainWarning } from './DepositFlowShared'
 import {
   WalletAmountCurrencyRow,
@@ -162,15 +162,13 @@ export function WithdrawFormPanel({
       })
       if (!res.ok) {
         const parsed = await readApiError(res)
-        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-        toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/withdraw', rid)
         if (parsed?.code === 'email_verification_required') {
           onEmailVerificationRequired?.()
         }
         if (parsed?.code === 'kyc_required') {
           onKYCVerificationRequired?.()
         }
-        setErr(parsed?.message ?? t('wallet.errWithdrawFailed'))
+        setErr(resolvePlayerApiToastCopy(parsed, res.status, '').title)
         // Keep the same Idempotency-Key — a 4xx may be transient (e.g. min amount,
         // address validation). Retrying with the same key is safe: the server will
         // either accept the new params or, if the original lock already happened,
@@ -191,7 +189,6 @@ export function WithdrawFormPanel({
         })
       }
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/withdraw')
       setErr(t('wallet.errWithdrawNetwork'))
     } finally {
       setBusy(false)

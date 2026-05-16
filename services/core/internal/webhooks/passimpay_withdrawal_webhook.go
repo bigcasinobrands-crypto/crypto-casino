@@ -132,6 +132,7 @@ func handlePassimpayWithdrawalCallback(
 		if !isWithdrawalAlreadyTerminal(status) {
 			if wdID, ok := updateWithdrawalToCompleted(ctx, pool, orderID, txhash, providerTxID, confirmations); ok {
 				playernotify.WithdrawalCompleted(pool, sender, cfg, userID, wdID, ledgerCcy, ledgerAmt)
+				playernotify.InAppWithdrawalCompleted(ctx, pool, userID, wdID, ledgerCcy, ledgerAmt)
 			}
 		} else {
 			log.Printf("passimpay withdraw webhook: COMPLETED arrived for already-terminal status=%s order=%s", status, orderID)
@@ -200,6 +201,7 @@ func handlePassimpayWithdrawalCallback(
 		}
 		if strings.TrimSpace(failedWD) != "" {
 			playernotify.WithdrawalProviderFailed(pool, sender, cfg, userID, failedWD, ledgerCcy, ledgerAmt, failureReason)
+			playernotify.InAppWithdrawalFailed(ctx, pool, userID, failedWD, ledgerCcy, ledgerAmt)
 		}
 		markProcessed(ctx, pool, dedupID, "COMPENSATED", raw)
 

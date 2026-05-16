@@ -2,10 +2,13 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
+import { usePromoRaffleLive } from '../hooks/usePromoRaffleLive'
 import type { CasinoNavCategory } from '../lib/casinoNav'
 import { casinoNavRoute } from '../lib/casinoNav'
 import { translateNavItemLabel } from '../lib/navI18n'
 import { PLAYER_CHROME_CLOSE_MOBILE_MENU_EVENT, PLAYER_CHROME_OPEN_AFFILIATE_MODAL_EVENT } from '../lib/playerChromeEvents'
+import { usePlayerAuth } from '../playerAuth'
+import { RaffleNavCountdown } from './RaffleNavCountdown'
 import { IconCrown, IconGift, IconTicket, IconUsers } from './icons'
 
 const PROMO_ICONS: Record<string, (size: number) => ReactNode> = {
@@ -28,8 +31,10 @@ type Props = {
  */
 export default function CasinoNavDrawerPromo({ promoItems }: Props) {
   const { t } = useTranslation()
-  const { pathname, hash } = useLocation()
-  const raffleActive = pathname === '/casino/games' && hash === '#raffle'
+  const { pathname } = useLocation()
+  const raffleActive = pathname === '/raffle'
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
+  const promoRaffleLive = usePromoRaffleLive(isAuthenticated, apiFetch)
 
   return (
     <>
@@ -61,12 +66,22 @@ export default function CasinoNavDrawerPromo({ promoItems }: Props) {
             <NavLink
               key={item.id}
               to={route}
-              className={`mt-1 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.06] bg-casino-surface px-3 py-2.5 text-[13px] font-bold text-casino-foreground transition hover:bg-casino-chip-hover [&_svg]:text-casino-primary ${
+              className={`mt-1 flex w-full flex-col items-center justify-center gap-0.5 rounded-xl border border-white/[0.06] bg-casino-surface px-3 py-2 text-[13px] font-bold text-casino-foreground transition hover:bg-casino-chip-hover [&_svg]:text-casino-primary ${
                 raffleActive ? 'border-casino-primary/40 bg-casino-primary/15' : ''
               }`}
             >
-              {ico}
-              {label}
+              <span className="flex items-center justify-center gap-2">
+                {ico}
+                {label}
+              </span>
+              <RaffleNavCountdown
+                raffleLive={promoRaffleLive}
+                className={
+                  raffleActive
+                    ? 'text-[10px] font-semibold leading-none text-casino-primary'
+                    : 'text-[10px] font-semibold leading-none text-casino-muted'
+                }
+              />
             </NavLink>
           )
         }

@@ -366,6 +366,7 @@ func HandlePassimpayWebhook(pool *pgxpool.Pool, cfg *config.Config, rdb *redis.C
 
 		if inserted {
 			playernotify.DepositCredited(pool, sender, cfg, intentUser, orderID, internalCcy, internalMinor)
+			playernotify.InAppDepositCredited(r.Context(), pool, intentUser, orderID, internalCcy, internalMinor)
 		}
 
 		if !inserted {

@@ -49,6 +49,11 @@ function formatNotificationTime(iso: string, t: TFunction, lng: string): string 
   })
 }
 
+function formatNotificationKindLabel(kind: string, t: TFunction): string {
+  const slug = kind.trim().replace(/\./g, '_')
+  return t(`notifications.kinds.${slug}`, { defaultValue: kind })
+}
+
 const defaultOpenClass =
   'bg-casino-primary/25 text-white ring-casino-primary/40 [&_svg]:text-white'
 
@@ -324,7 +329,7 @@ export default function NotificationBell({
                         ) : null}
                         <p className="mt-1.5 text-[11px] text-casino-muted/80">
                           {formatNotificationTime(n.created_at, t, i18n.language)}
-                          {n.kind ? ` · ${n.kind}` : ''}
+                          {n.kind ? ` · ${formatNotificationKindLabel(n.kind, t)}` : ''}
                         </p>
                       </div>
                     </div>
@@ -435,7 +440,7 @@ export default function NotificationBell({
                               ) : null}
                               <p className="mt-1.5 text-[11px] text-casino-muted/80">
                                 {formatNotificationTime(n.created_at, t, i18n.language)}
-                                {n.kind ? ` · ${n.kind}` : ''}
+                                {n.kind ? ` · ${formatNotificationKindLabel(n.kind, t)}` : ''}
                               </p>
                             </div>
                           </div>

@@ -1346,6 +1346,14 @@ function SocialProofPanel({
     online_variance_pct: number
     online_bucket_secs: number
     wager_display_multiplier: number
+    recent_wins_enabled: boolean
+    recent_wins_base_duration_sec: number
+    recent_wins_feed_size: number
+    recent_wins_real_cap: number
+    recent_wins_min_real_minor: number
+    recent_wins_bot_min_minor: number
+    recent_wins_bot_max_minor: number
+    recent_wins_real_weight: number
   }
 
   const defaults: SocialCfg = {
@@ -1354,6 +1362,14 @@ function SocialProofPanel({
     online_variance_pct: 22,
     online_bucket_secs: 90,
     wager_display_multiplier: 1,
+    recent_wins_enabled: false,
+    recent_wins_base_duration_sec: 42,
+    recent_wins_feed_size: 28,
+    recent_wins_real_cap: 14,
+    recent_wins_min_real_minor: 500,
+    recent_wins_bot_min_minor: 800,
+    recent_wins_bot_max_minor: 25000000,
+    recent_wins_real_weight: 3,
   }
 
   const [cfg, setCfg] = useState<SocialCfg>(defaults)
@@ -1391,12 +1407,51 @@ function SocialProofPanel({
       toast.error('Wager multiplier must be between 0.01 and 100')
       return
     }
+    const rwDur = Number(cfg.recent_wins_base_duration_sec)
+    if (!Number.isFinite(rwDur) || rwDur < 8 || rwDur > 240) {
+      toast.error('Recent wins base duration must be 8–240 seconds')
+      return
+    }
+    const rwFeed = Math.round(Number(cfg.recent_wins_feed_size))
+    if (!Number.isFinite(rwFeed) || rwFeed < 8 || rwFeed > 80) {
+      toast.error('Recent wins feed size must be 8–80')
+      return
+    }
+    const rwRealCap = Math.round(Number(cfg.recent_wins_real_cap))
+    if (!Number.isFinite(rwRealCap) || rwRealCap < 0 || rwRealCap > 40) {
+      toast.error('Recent wins real cap must be 0–40')
+      return
+    }
+    const rwMinReal = Math.round(Number(cfg.recent_wins_min_real_minor))
+    if (!Number.isFinite(rwMinReal) || rwMinReal < 0) {
+      toast.error('Min real win (minor units) must be ≥ 0')
+      return
+    }
+    const rwBotLo = Math.round(Number(cfg.recent_wins_bot_min_minor))
+    const rwBotHi = Math.round(Number(cfg.recent_wins_bot_max_minor))
+    if (!Number.isFinite(rwBotLo) || !Number.isFinite(rwBotHi) || rwBotLo < 1 || rwBotHi < rwBotLo) {
+      toast.error('Bot win minors: min ≥ 1 and max ≥ min')
+      return
+    }
+    const rwW = Math.round(Number(cfg.recent_wins_real_weight))
+    if (!Number.isFinite(rwW) || rwW < 1 || rwW > 10) {
+      toast.error('Real vs bot mix weight must be 1–10')
+      return
+    }
     const payload: SocialCfg = {
       enabled: cfg.enabled,
       online_target: ot,
       online_variance_pct: vp,
       online_bucket_secs: bs,
       wager_display_multiplier: wm,
+      recent_wins_enabled: cfg.recent_wins_enabled,
+      recent_wins_base_duration_sec: rwDur,
+      recent_wins_feed_size: rwFeed,
+      recent_wins_real_cap: rwRealCap,
+      recent_wins_min_real_minor: rwMinReal,
+      recent_wins_bot_min_minor: rwBotLo,
+      recent_wins_bot_max_minor: rwBotHi,
+      recent_wins_real_weight: rwW,
     }
     setSaving(true)
     await patchSetting('social_proof.config', payload)
@@ -1407,7 +1462,7 @@ function SocialProofPanel({
     <Section
       id="settings-social-proof"
       title="Menu social proof"
-      desc="Compact stats pinned under the casino sidebar on desktop and a slim strip in the mobile drawer. Online count drifts around your target; wagered uses real stakes from the ledger multiplied for display."
+      desc="Compact stats pinned under the casino sidebar on desktop and a slim strip in the mobile drawer. Online count drifts around your target; wagered uses real stakes from the ledger multiplied for display. Lobby “Recent wins” (optional) mixes real game.credit/game.win lines with synthetic wins; marquee speed scales with the displayed online count."
       defaultOpen={false}
     >
       <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -1471,6 +1526,116 @@ function SocialProofPanel({
           <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
             Applies to the sum of casino & sports stakes (same basis as admin KPI “total wagered”).
           </p>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-gray-100 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-white/[0.03]">
+        <p className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">Lobby recent wins strip</p>
+        <p className="mb-3 text-[11px] text-gray-500 dark:text-gray-400">
+          Shown on the casino home page below Hot now. Uses the same online target for scroll speed (higher displayed online → faster pass). Enable to mix ledger wins with bot tiles when the catalog has thumbnails.
+        </p>
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <Toggle
+            checked={cfg.recent_wins_enabled}
+            disabled={!isSuper}
+            onChange={(next) => setCfg((c) => ({ ...c, recent_wins_enabled: next }))}
+          />
+          <span className="text-sm text-gray-700 dark:text-gray-200">Show recent wins marquee</span>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={labelCls}>Base marquee duration (seconds at online target)</label>
+            <input
+              type="number"
+              step="1"
+              min={8}
+              max={240}
+              className={inputCls}
+              value={cfg.recent_wins_base_duration_sec}
+              disabled={!isSuper}
+              onChange={(e) =>
+                setCfg((c) => ({ ...c, recent_wins_base_duration_sec: parseFloat(e.target.value) || 0 }))
+              }
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Cards in feed</label>
+            <input
+              type="number"
+              min={8}
+              max={80}
+              className={inputCls}
+              value={cfg.recent_wins_feed_size}
+              disabled={!isSuper}
+              onChange={(e) => setCfg((c) => ({ ...c, recent_wins_feed_size: parseInt(e.target.value, 10) || 0 }))}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Max real wins pulled from ledger</label>
+            <input
+              type="number"
+              min={0}
+              max={40}
+              className={inputCls}
+              value={cfg.recent_wins_real_cap}
+              disabled={!isSuper}
+              onChange={(e) => setCfg((c) => ({ ...c, recent_wins_real_cap: parseInt(e.target.value, 10) || 0 }))}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Real vs bot mix weight (1–10)</label>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              className={inputCls}
+              value={cfg.recent_wins_real_weight}
+              disabled={!isSuper}
+              onChange={(e) => setCfg((c) => ({ ...c, recent_wins_real_weight: parseInt(e.target.value, 10) || 1 }))}
+            />
+            <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Higher favors showing real wins when available (weighted lottery vs each bot slot).
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>Min real win (minor units)</label>
+            <input
+              type="number"
+              min={0}
+              className={inputCls}
+              value={cfg.recent_wins_min_real_minor}
+              disabled={!isSuper}
+              onChange={(e) =>
+                setCfg((c) => ({ ...c, recent_wins_min_real_minor: parseInt(e.target.value, 10) || 0 }))
+              }
+            />
+            <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Example: 500 = $5.00 in USD cents.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Bot win range (minor units)</label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={1}
+                className={inputCls}
+                value={cfg.recent_wins_bot_min_minor}
+                disabled={!isSuper}
+                onChange={(e) =>
+                  setCfg((c) => ({ ...c, recent_wins_bot_min_minor: parseInt(e.target.value, 10) || 0 }))
+                }
+              />
+              <input
+                type="number"
+                min={1}
+                className={inputCls}
+                value={cfg.recent_wins_bot_max_minor}
+                disabled={!isSuper}
+                onChange={(e) =>
+                  setCfg((c) => ({ ...c, recent_wins_bot_max_minor: parseInt(e.target.value, 10) || 0 }))
+                }
+              />
+            </div>
+          </div>
         </div>
       </div>
 

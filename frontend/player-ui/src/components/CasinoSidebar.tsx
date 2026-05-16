@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation, Link } from 'react-router-dom'
 import { RequireAuthNavLink } from './RequireAuthNavLink'
+import { usePromoRaffleLive } from '../hooks/usePromoRaffleLive'
 import { useSiteContent } from '../hooks/useSiteContent'
 import {
   CASINO_NAV_FALLBACK_CATEGORIES,
@@ -17,6 +18,8 @@ import CasinoNavEsportsSection from './CasinoNavEsportsSection'
 import HeaderCasinoSportsSegment from './HeaderCasinoSportsSegment'
 import { LanguageMenu } from './LanguageMenu'
 import { sportsbookPlayerPath, isEsportsPlayerRoute } from '../lib/oddin/oddin.config'
+import { usePlayerAuth } from '../playerAuth'
+import { RaffleNavCountdown } from './RaffleNavCountdown'
 import SidebarSocialProof from './SidebarSocialProof'
 import {
   IconBanknote,
@@ -82,6 +85,8 @@ export default function CasinoSidebar({
   const onSports = isEsportsPlayerRoute(pathname)
   const { t } = useTranslation()
   const { getContent } = useSiteContent()
+  const { isAuthenticated, apiFetch } = usePlayerAuth()
+  const promoRaffleLive = usePromoRaffleLive(isAuthenticated, apiFetch)
 
   useEffect(() => {
     if (onSports) setCasinoOpen(false)
@@ -99,7 +104,7 @@ export default function CasinoSidebar({
   const hotNowSidebarActive = onGamesCatalog && hash === ''
   const helpSidebarActive = onGamesCatalog && hash === '#help'
   const blogSidebarActive = onGamesCatalog && hash === '#blog'
-  const raffleSidebarActive = onGamesCatalog && hash === '#raffle'
+  const raffleSidebarActive = pathname === '/raffle'
 
   /** Desktop sidebar only — mobile uses `MobileCasinoMenuOverlay`. */
   const closeIfMobile = () => {}
@@ -161,8 +166,8 @@ export default function CasinoSidebar({
         ? 'flex w-full items-center justify-center rounded-xl bg-casino-primary p-2.5 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] transition hover:brightness-110 [&_svg]:text-white'
         : 'flex w-full items-center justify-center rounded-xl border border-white/[0.06] bg-casino-surface p-2.5 text-casino-muted transition hover:bg-casino-chip-hover hover:text-casino-foreground [&_svg]:text-casino-primary'
       const raffleExpandedCls = raffleSidebarActive
-        ? 'mt-1 flex w-full items-center justify-center gap-2 rounded-xl bg-casino-primary px-3 py-2.5 text-[13px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110 [&_svg]:text-white'
-        : 'mt-1 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.06] bg-casino-surface px-3 py-2.5 text-[13px] font-bold text-casino-foreground transition hover:bg-casino-chip-hover [&_svg]:text-casino-primary'
+        ? 'mt-1 flex w-full flex-col items-center justify-center gap-0.5 rounded-xl bg-casino-primary px-3 py-2 text-[13px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition hover:brightness-110 [&_svg]:text-white'
+        : 'mt-1 flex w-full flex-col items-center justify-center gap-0.5 rounded-xl border border-white/[0.06] bg-casino-surface px-3 py-2 text-[13px] font-bold text-casino-foreground transition hover:bg-casino-chip-hover [&_svg]:text-casino-primary'
       if (collapsed) {
         return (
           <NavLink
@@ -176,13 +181,19 @@ export default function CasinoSidebar({
         )
       }
       return (
-        <NavLink
-          key={item.id}
-          to={route}
-          className={raffleExpandedCls}
-        >
-          {icon(item.id, 15)}
-          {label}
+        <NavLink key={item.id} to={route} className={raffleExpandedCls}>
+          <span className="flex items-center justify-center gap-2">
+            {icon(item.id, 15)}
+            {label}
+          </span>
+          <RaffleNavCountdown
+            raffleLive={promoRaffleLive}
+            className={
+              raffleSidebarActive
+                ? 'text-[10px] font-semibold leading-none text-white/90'
+                : 'text-[10px] font-semibold leading-none text-casino-muted'
+            }
+          />
         </NavLink>
       )
     }

@@ -73,6 +73,14 @@ export const ADMIN_NAV_SECTIONS: AdminNavSection[] = [
     ],
   },
   {
+    name: 'Raffles',
+    iconClass: 'bi bi-ticket-perforated',
+    subItems: [
+      { name: 'Campaigns', path: '/raffles', new: true },
+      { name: 'New campaign', path: '/raffles/new', new: true },
+    ],
+  },
+  {
     name: 'CMS',
     iconClass: 'bi bi-columns-gap',
     subItems: [

@@ -54,6 +54,10 @@ const ContentCmsPage = lazy(() => import('./pages/ContentCmsPage'))
 const ReferralProgramTiersPage = lazy(() => import('./pages/ReferralProgramTiersPage'))
 const EmailSettingsPage = lazy(() => import('./pages/EmailSettingsPage'))
 const KYCAIDSettingsPage = lazy(() => import('./pages/KYCAIDSettingsPage'))
+const RafflesAdminLayout = lazy(() => import('./pages/RafflesAdminLayout'))
+const RafflesCampaignsPage = lazy(() => import('./pages/RafflesCampaignsPage'))
+const RaffleCampaignDetailPage = lazy(() => import('./pages/RaffleCampaignDetailPage'))
+const RaffleCampaignEditorPage = lazy(() => import('./pages/RaffleCampaignEditorPage'))
 
 function BonusHubOperationsRedirect() {
   const loc = useLocation()
@@ -187,6 +191,12 @@ export default function App() {
               <Route path="/system/email" element={<EmailSettingsPage />} />
               <Route path="/system/kycaid" element={<KYCAIDSettingsPage />} />
               <Route path="/content-cms" element={<ContentCmsPage />} />
+              <Route path="/raffles" element={<RafflesAdminLayout />}>
+                <Route index element={<RafflesCampaignsPage />} />
+                <Route path="new" element={<RaffleCampaignEditorPage />} />
+                <Route path=":id/edit" element={<RaffleCampaignEditorPage />} />
+                <Route path=":id" element={<RaffleCampaignDetailPage />} />
+              </Route>
               <Route path="/system/security-keys" element={<WebAuthnSecurityPage />} />
               <Route path="/system/staff-users" element={<StaffUsersPage />} />
             </Route>

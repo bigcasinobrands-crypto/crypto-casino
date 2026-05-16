@@ -395,6 +395,8 @@
     "catalogFaultApi":
       "Impossible de charger le lobby : l'API a renvoyé une erreur ou des données invalides. Vérifiez que le service core est disponible et que GET /v1/games fonctionne avec integration=blueocean.",
     "sectionLiveCasino": "Casino en direct",
+    "recentWinsTitle": "Gains récents",
+    "recentWinsAria": "Gains récents des joueurs, défilement horizontal",
     "searchPlaceholder": "Rechercher des titres ou studios",
     "searchAriaLabel": "Rechercher des jeux par titre ou studio",
     "categoriesAriaLabel": "Catégories de jeux",
@@ -425,7 +427,71 @@
       "exploreVip": "Découvrir le VIP",
       "yourTickets": "Vos billets :",
       "increaseTickets": "Augmenter les billets",
-      "decreaseTickets": "Diminuer les billets"
+      "decreaseTickets": "Diminuer les billets",
+      "raffleCountdownLoading": "…",
+      "raffleCountdownEnded": "Terminé",
+      "noActiveRaffleShort": "Bientôt",
+      "ticketsEarnHint": "Gagnez des billets en jouant."
+    }
+  },
+  "raffle": {
+    "pageTitle": "Tombola",
+    "empty": {
+      "noActive": "Aucune tombola hebdomadaire n’est en cours pour le moment. Revenez bientôt."
+    },
+    "heroTitle": "TOMBOLA HEBDOMADAIRE DE 25 000 $",
+    "heroImageAlt": "Visuel promotionnel de la tombola hebdomadaire",
+    "yourTicketsLabel": "Vos billets",
+    "countdown": {
+      "day": "Jour",
+      "hour": "Heure",
+      "min": "Min",
+      "sec": "Sec"
+    },
+    "howItWorks": {
+      "title": "Comment ça marche?",
+      "body": "Vous obtenez 1 billet de tombola pour chaque tranche de 100 $ misée au casino et 3 billets pour chaque tranche de 100 $ misée sur les sports. Vous pouvez aussi échanger du vybebet Gold (Récompenses) contre des billets. À la fin du compte à rebours, vybebet tire 100 billets au hasard. Plus vous accumulez de billets, meilleures sont vos chances — les prix sont crédités automatiquement sur votre solde."
+    },
+    "rewards": {
+      "title": "Récompenses",
+      "casinoLine": "1 billet par tranche de 100 $ misée au casino",
+      "sportsLine": "3 billets par tranche de 100 $ misée sur les sports"
+    },
+    "purchase": {
+      "sectionTitle": "Acheter des billets",
+      "balanceTitle": "Votre solde",
+      "pricingTitle": "Tarification des billets",
+      "pricingNote": "Chaque tranche de 1 500 billets achetés double le prix pour les 1 500 suivants. La tarification démo sur cette page est simplifiée jusqu’au lancement des achats.",
+      "ticketsLabel": "Billets",
+      "sliderAria": "Nombre de billets à acheter",
+      "costLabel": "Coût",
+      "buyCta": "Acheter des billets",
+      "comingSoonTitle": "Achat à venir",
+      "comingSoonBody": "Les achats de billets seront reliés à votre compte lorsque la promotion sera active."
+    },
+    "prizes": {
+      "title": "Prix",
+      "lastWeek": "La semaine dernière",
+      "moreWinners": "{{count}} autres gagnants…",
+      "seeAllWinners": "Voir tous les gagnants",
+      "liveLadderHint": "Palettes de prix pour ce tirage (les noms apparaissent après publication)."
+    },
+    "badges": {
+      "rank1": "1er",
+      "rank2": "2e",
+      "rank3": "3e",
+      "rank4": "4e",
+      "rank5": "5e",
+      "rank6": "6e",
+      "rank7": "7e",
+      "rank8": "8e",
+      "rank9": "9e",
+      "rank10": "10e",
+      "rankOther": "#{{n}}"
+    },
+    "winnersModal": {
+      "title": "Tous les gagnants",
+      "closeAria": "Fermer"
     }
   },
   "header": {
@@ -555,6 +621,41 @@
     "rakebackClaimWindow": "La fenêtre de réclamation du boost de rakeback est ouverte.",
     "openVipRewards": "Ouvrir les récompenses VIP →"
   },
+  "errors": {
+    "genericTitle": "Une erreur s'est produite",
+    "genericBody": "Veuillez réessayer. Si le problème persiste, contactez le soutien.",
+    "bog_error": "Nous n'avons pas pu joindre le fournisseur de jeux. Réessayez dans un moment.",
+    "sportsbook_unconfigured": "Le paris sportifs n'est pas disponible pour le moment. Veuillez réessayer plus tard.",
+    "sportsbook_not_in_catalog": "Le paris sportifs n'est pas encore dans le catalogue.",
+    "not_found": "Nous n'avons pas trouvé ce que vous cherchez.",
+    "http_error": "La requête n'a pas pu être complétée.",
+    "invalid_credentials": "Courriel ou mot de passe invalide.",
+    "wrong_password": "Ce mot de passe n'est pas correct.",
+    "session_expired": "Votre session a expiré. Veuillez vous reconnecter.",
+    "terms_required": "Veuillez accepter les conditions pour continuer.",
+    "already_entered": "Vous participez déjà à ce défi.",
+    "vip_tier_required": "Ce défi exige un palier VIP plus élevé.",
+    "not_enterable": "Ce défi ne peut pas être rejoint pour le moment.",
+    "challenge_enter_failed": "Impossible de vous ajouter à ce défi. Réessayez ou contactez le soutien.",
+    "challenge_claim_failed": "Impossible de finaliser cette réclamation. Réessayez ou contactez le soutien.",
+    "server_error": "Une erreur s'est produite de notre côté. Réessayez bientôt.",
+    "csrf_failed": "Votre session a expiré. Actualisez la page et réessayez.",
+    "conflict": "Cette action n'a pas pu être complétée. Vérifiez votre compte et réessayez.",
+    "provider_error": "Le service de paiement a rencontré un problème. Réessayez ou contactez le soutien.",
+    "ledger_settle_failed": "Impossible de finaliser votre retrait. Contactez le soutien avec votre référence de retrait.",
+    "weak_password": "Choisissez un mot de passe plus fort (lettres et chiffres, au moins 6 caractères).",
+    "password_breached": "Ce mot de passe figure dans des fuites connues — choisissez-en un autre.",
+    "username_taken": "Ce nom d'utilisateur est déjà pris.",
+    "invalid_username": "Le nom d'utilisateur doit avoir 3 à 20 caractères (lettres, chiffres, traits de soulignement).",
+    "email_already_registered": "Un compte avec ce courriel existe déjà.",
+    "captcha_failed": "Échec de la vérification captcha. Réessayez.",
+    "email_mfa_unavailable": "Les codes de connexion par courriel ne sont pas disponibles pour le moment.",
+    "fingerprint_required": "La vérification de sécurité n'est pas terminée. Actualisez et réessayez.",
+    "networkTitle": "Problème de connexion",
+    "networkBody": "Vérifiez votre connexion Internet et réessayez.",
+    "client_title": "Une erreur s'est produite",
+    "client_fallback": "Actualisez la page et réessayez."
+  },
   "notifications": {
     "title": "Notifications",
     "listAria": "Liste des notifications",
@@ -571,7 +672,15 @@
     "hoursAgo": "Il y a {{count}} h",
     "daysAgo": "Il y a {{count}} j",
     "ariaDefault": "Notifications",
-    "ariaRakebackLive": "Notifications, boost de rakeback actif"
+    "ariaRakebackLive": "Notifications, boost de rakeback actif",
+    "kinds": {
+      "wallet_deposit_credited": "Dépôt",
+      "wallet_withdrawal_submitted": "Retrait",
+      "wallet_withdrawal_processing": "Retrait",
+      "wallet_withdrawal_completed": "Retrait",
+      "wallet_withdrawal_failed": "Retrait",
+      "wallet_withdrawal_rejected": "Retrait"
+    }
   },
   "chat": {
     "title": "Clavardage global",

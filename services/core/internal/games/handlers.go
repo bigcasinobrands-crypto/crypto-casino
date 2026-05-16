@@ -385,7 +385,7 @@ func (s *Server) LaunchHandler() http.HandlerFunc {
 				return
 			}
 			log.Printf("games launch: game_id=%s bog_id=%d: %v", body.GameID, bogID, err)
-			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", err.Error())
+			playerapi.WriteError(w, http.StatusBadGateway, "bog_error", "We couldn't launch this game right now. Please try again.")
 			return
 		}
 

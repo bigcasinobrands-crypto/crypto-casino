@@ -10,6 +10,7 @@ import { playerApiOriginConfigured, playerApiUrl } from '../lib/playerApiUrl'
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion'
 import { GameCardSkeleton } from './GameCardSkeleton'
 import { IconBanknote, IconChevronLeft, IconChevronRight, IconFlame, IconGem, IconRadio, IconSparkles } from './icons'
+import RecentWinsMarquee from './RecentWinsMarquee'
 import StudioMarqueeSection from './StudioMarqueeSection'
 
 type Game = {
@@ -510,6 +511,7 @@ const LobbyHomeSections: FC<LobbyHomeSectionsProps> = ({ catalogSyncAt: _catalog
         games={logoRowGames}
         showSkeletons={!hotRowReady}
       />
+      <RecentWinsMarquee />
       <GameSection
         icon={<IconGem size={18} />}
         title={t('nav.casino.slots')}

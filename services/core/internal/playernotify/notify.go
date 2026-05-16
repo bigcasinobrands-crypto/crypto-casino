@@ -53,6 +53,11 @@ func fmtMinor(ccy string, minor int64) string {
 	return fmt.Sprintf("%d %s (minor units)", minor, c)
 }
 
+// FormatMinorAmount formats minor currency amounts for player-visible notifications (email + in-app).
+func FormatMinorAmount(ccy string, minor int64) string {
+	return fmtMinor(ccy, minor)
+}
+
 // walletReceiptMailAllowed gates optional PassimPay receipt templates on the player's "transaction_alerts" preference.
 func walletReceiptMailAllowed(ctx context.Context, pool *pgxpool.Pool, userID string) bool {
 	return playerprefs.TransactionAlertsEmailReceipts(ctx, pool, userID)

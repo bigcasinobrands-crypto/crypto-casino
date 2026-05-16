@@ -13,6 +13,7 @@ import (
 	"github.com/crypto-casino/core/internal/config"
 	"github.com/crypto-casino/core/internal/fingerprint"
 	"github.com/crypto-casino/core/internal/ledger"
+	"github.com/crypto-casino/core/internal/raffle"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -113,6 +114,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	openBal := bal
 	rollbackMetaTarget := ""
 	vipStakeIdemKeys := make([]string, 0, 2)
+	raffleRollbackKeys := make([]string, 0, 2)
 
 	finish := func(st int, balBefore int64, balAfter int64, amt *int64, m string) ([]byte, int64, int, string, error) {
 		body, jerr := boMarshalWalletResponseJSON(st, balAfter, m)
@@ -479,6 +481,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 					if err := bonus.ReverseVIPAccrualForBonusRollbackTx(ctx, tx, userID, fb, idemRB); err != nil {
 						return nil, 0, 500, "", false, false, err
 					}
+					raffleRollbackKeys = append(raffleRollbackKeys, idemRB)
 				}
 			}
 			if fc > 0 {
@@ -492,6 +495,7 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 					if err := bonus.ReverseVIPAccrualForCashRollbackTx(ctx, tx, userID, fc, idemRC); err != nil {
 						return nil, 0, 500, "", false, false, err
 					}
+					raffleRollbackKeys = append(raffleRollbackKeys, idemRC)
 				}
 			}
 			if wrRollbackStake > 0 {
@@ -636,12 +640,16 @@ func applyBOSeamless(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client,
 	}
 	committed = true
 
-	if len(vipStakeIdemKeys) > 0 {
+	if len(vipStakeIdemKeys) > 0 || len(raffleRollbackKeys) > 0 {
 		accrueCtx, accrueCancel := context.WithTimeout(context.Background(), 8*time.Second)
 		for _, k := range vipStakeIdemKeys {
 			if err := bonus.AccrueVIPFromLedgerIdempotencyKey(accrueCtx, pool, k); err != nil {
 				slog.ErrorContext(ctx, "vip_accrual_sync_failed", slog.String("idempotency_key", k), slog.Any("err", err))
 			}
+			raffle.IssueTicketsFromStakeLedgerKey(accrueCtx, pool, k)
+		}
+		for _, rk := range raffleRollbackKeys {
+			raffle.ReverseTicketsForRollbackLedgerKey(accrueCtx, pool, rk)
 		}
 		accrueCancel()
 	}

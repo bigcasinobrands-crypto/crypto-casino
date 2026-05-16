@@ -248,6 +248,8 @@ func (h *Handler) RejectWithdrawal(w http.ResponseWriter, r *http.Request) {
 
 	playernotify.WithdrawalRejected(h.Pool, h.Mail, h.Cfg, userID, wdID, ledgerCcy, ledgerAmt, body.Reason)
 
+	playernotify.InAppWithdrawalRejected(ctx, h.Pool, userID, wdID, ledgerCcy, ledgerAmt)
+
 	writeJSON(w, map[string]any{"ok": true, "withdrawal_id": wdID, "admin_decision": "rejected", "status": "REJECTED_BY_ADMIN"})
 }
 

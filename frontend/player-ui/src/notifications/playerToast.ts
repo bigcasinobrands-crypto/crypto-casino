@@ -1,9 +1,21 @@
 import { toast } from 'sonner'
 
 import type { ApiErr } from '../api/errors'
+import { formatApiError } from '../api/errors'
+import {
+  formatPlayerErrorDebugFooter,
+  playerErrorDebugEnabled,
+  resolvePlayerApiToastCopy,
+  resolvePlayerClientToastCopy,
+  resolvePlayerNetworkToastCopy,
+} from './playerErrorCopy'
 
 /** Sonner id so health polls update one toast instead of stacking. */
 export const PLAYER_CATALOG_SYNC_TOAST_ID = 'player-catalog-sync-warning'
+
+export type PlayerToastOpts = {
+  skipToast?: boolean
+}
 
 export function truncate(s: string, max: number): string {
   if (s.length <= max) return s
@@ -15,31 +27,42 @@ export function toastPlayerApiError(
   status: number,
   source: string,
   requestId?: string | null,
+  opts?: PlayerToastOpts,
 ) {
-  const code = parsed?.code?.trim() || (status ? `HTTP_${status}` : 'HTTP_ERROR')
-  const msg = parsed?.message?.trim() || 'Something went wrong'
-  const lines = [
-    msg,
-    `HTTP ${status}`,
-    `Source: ${source}`,
-    ...(requestId ? [`Request: ${requestId}`] : []),
-  ]
-  toast.error(code, {
-    description: lines.join('\n'),
+  if (opts?.skipToast) return
+
+  const fallback = formatApiError(parsed, '')
+  const resolved = resolvePlayerApiToastCopy(parsed, status, fallback || '')
+  let description = resolved.description
+  if (playerErrorDebugEnabled()) {
+    const dbg = formatPlayerErrorDebugFooter(parsed, status, source, requestId)
+    description = description?.trim() ? `${description.trim()}\n\n${dbg}` : dbg
+  }
+  toast.error(resolved.title, {
+    description,
     duration: 14_000,
   })
 }
 
-export function toastPlayerNetworkError(message: string, source: string) {
-  toast.error('network', {
-    description: `${message}\nSource: ${source}`,
+export function toastPlayerNetworkError(message: string, source: string, opts?: PlayerToastOpts) {
+  if (opts?.skipToast) return
+
+  const resolved = resolvePlayerNetworkToastCopy(message)
+  let description = resolved.description
+  if (playerErrorDebugEnabled()) {
+    const dbg = `Source: ${source}`
+    description = description?.trim() ? `${description.trim()}\n\n${dbg}` : dbg
+  }
+  toast.error(resolved.title, {
+    description,
     duration: 14_000,
   })
 }
 
 export function toastPlayerClientError(code: string, message: string, detail?: string) {
-  toast.error(code, {
-    description: detail ? `${message}\n${detail}` : message,
+  const resolved = resolvePlayerClientToastCopy(code, message, detail)
+  toast.error(resolved.title, {
+    description: resolved.description,
     duration: 14_000,
   })
 }
@@ -47,8 +70,12 @@ export function toastPlayerClientError(code: string, message: string, detail?: s
 const CATALOG_SYNC_TOAST_DESCRIPTION =
   'Catalog sync reported a problem. Staff: open Blue Ocean ops, check status, and run Sync catalog again. Game counts in the casino view still reflect the database.'
 
-/** Shown while operational health reports `catalog_sync_ok: false` (deduped by id). */
+/** Staff/dev only — players rely on OperationalBanner for catalog health. */
 export function toastPlayerCatalogSyncWarning() {
+  const raw = String(import.meta.env.VITE_SHOW_CATALOG_SYNC_TOAST || '').toLowerCase()
+  const staffOnly = import.meta.env.DEV || raw === 'true' || raw === '1'
+  if (!staffOnly) return
+
   toast.warning('Catalog sync', {
     id: PLAYER_CATALOG_SYNC_TOAST_ID,
     description: CATALOG_SYNC_TOAST_DESCRIPTION,

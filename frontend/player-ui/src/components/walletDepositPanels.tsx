@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { buildDepositQrPayload, isLikelyWebHttpUrl } from '../lib/depositQrPayload'
 import { readApiError } from '../api/errors'
+import { resolvePlayerApiToastCopy, resolvePlayerNetworkToastCopy } from '../notifications/playerErrorCopy'
 import { resolveCryptoLogoUrl, useCryptoLogoUrlMap } from '../lib/cryptoLogoUrls'
 import { networkHelpUrl, transactionExplorerUrl } from '../lib/walletExplorer'
-import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
 import { CryptoLogoMark } from './wallet/CryptoLogoMark'
 import { WalletBonusStrip } from './wallet/WalletBonusStrip'
@@ -120,9 +120,8 @@ export function DepositAddressPanel({
         const res = await apiFetch(`/v1/wallet/deposit-address?${q}`)
         if (!res.ok) {
           const parsed = await readApiError(res)
-          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          toastPlayerApiError(parsed, res.status, 'GET /v1/wallet/deposit-address', rid)
-          setErr(parsed?.message ?? 'Could not load deposit address')
+          const friendly = resolvePlayerApiToastCopy(parsed, res.status, '').title
+          setErr(friendly)
           if (!opts?.background) setData(null)
           return
         }
@@ -130,8 +129,7 @@ export function DepositAddressPanel({
         setData(j)
         setErr(null)
       } catch {
-        toastPlayerNetworkError('Network error.', 'GET /v1/wallet/deposit-address')
-        setErr('Network error')
+        setErr(resolvePlayerNetworkToastCopy('Network error.').title)
         if (!opts?.background) setData(null)
       } finally {
         if (!opts?.background) setLoading(false)
@@ -194,9 +192,8 @@ export function DepositAddressPanel({
       })
       if (!res.ok) {
         const parsed = await readApiError(res)
-        const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-        toastPlayerApiError(parsed, res.status, 'POST /v1/wallet/deposit-invoice', rid)
-        setInvoiceErr(parsed?.message ?? t('wallet.depositInvoiceFailed'))
+        const friendly = resolvePlayerApiToastCopy(parsed, res.status, '').title
+        setInvoiceErr(friendly)
         return
       }
       const j = (await res.json()) as { invoice_url?: string }
@@ -210,7 +207,6 @@ export function DepositAddressPanel({
         window.location.href = url
       }
     } catch {
-      toastPlayerNetworkError('Network error.', 'POST /v1/wallet/deposit-invoice')
       setInvoiceErr(t('wallet.depositInvoiceFailed'))
     } finally {
       setInvoiceBusy(false)

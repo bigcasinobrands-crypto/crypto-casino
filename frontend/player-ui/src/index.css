@@ -343,30 +343,28 @@ body {
   }
 
   /**
-   * Header wallet — $0 balance: animated beam in the 2px gutter of `.wallet-chip-zero-ring`.
-   * The ring wraps the full header pill (balance + divider + Deposit) on md+; opaque inner surface keeps
-   * the arc on the outside edge only. Mobile: same ring around the balance tray when Deposit is in bottom nav.
+   * Header wallet — $0 balance: rotating highlight only in the gutter outside the inner pill.
+   * JSX pairs this with inner `.wallet-pill-inner-surface` using margin so the beam never draws behind EUR.
    */
   .wallet-chip-zero-ring {
     isolation: isolate;
-    contain: paint;
-    border-radius: 0.75rem;
+    overflow: hidden;
   }
 
   .wallet-chip-zero-ring__beam {
     position: absolute;
-    inset: -48%;
+    inset: 0;
     z-index: 0;
     border-radius: inherit;
     will-change: transform;
     background: conic-gradient(
       from 0deg,
       transparent 0deg 228deg,
-      rgba(123, 97, 255, 0.12) 248deg,
-      rgba(155, 108, 255, 1) 274deg,
-      rgba(199, 181, 255, 0.95) 292deg,
-      rgba(123, 97, 255, 0.35) 312deg,
-      transparent 328deg,
+      rgba(123, 97, 255, 0.22) 248deg,
+      rgba(155, 108, 255, 0.92) 272deg,
+      rgba(199, 181, 255, 0.78) 288deg,
+      rgba(123, 97, 255, 0.28) 306deg,
+      transparent 322deg,
       transparent 360deg
     );
     animation:
@@ -396,6 +394,30 @@ body {
     .wallet-chip-zero-ring__beam {
       animation: none;
       opacity: 0.85;
+    }
+  }
+
+  /** Lobby — horizontal recent-wins strip (duplicated track; animates -50% for seamless loop). */
+  @keyframes recent-wins-marquee {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(-50%, 0, 0);
+    }
+  }
+
+  .recent-wins-marquee-track {
+    display: flex;
+    width: max-content;
+    animation: recent-wins-marquee linear infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .recent-wins-marquee-track {
+      animation: none;
+      transform: none;
     }
   }
 

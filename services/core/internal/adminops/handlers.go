@@ -180,6 +180,7 @@ func (h *Handler) Mount(r chi.Router) {
 	}
 	h.mountChallenges(r)
 	h.mountBonusHub(r)
+	h.mountRaffles(r)
 }
 
 // MountPublicRoutes registers content/settings endpoints that do NOT require admin auth.
@@ -187,6 +188,7 @@ func (h *Handler) Mount(r chi.Router) {
 func (h *Handler) MountPublicRoutes(r chi.Router) {
 	r.Get("/settings/public", h.GetSettingsPublic)
 	r.Get("/social-proof", h.GetSocialProof)
+	r.Get("/recent-wins", h.GetRecentWins)
 	r.Get("/content/bundle", h.ContentBundle)
 	r.Get("/content/{key}", h.ContentByKeyPublic)
 }

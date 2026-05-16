@@ -244,6 +244,9 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
   const walletPillInnerSurface =
     'relative z-[1] flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-2 max-[767px]:gap-2 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.1] md:bg-[#141414] md:py-0 md:pl-0 md:pr-0 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(22rem,calc(100vw-14rem))] min-[1280px]:justify-start'
 
+  /** Nested inside `.wallet-chip-zero-ring`: margin reveals the 2px gutter for the rotating beam. */
+  const walletPillInnerSurfaceZeroInset = `${walletPillInnerSurface} m-[2px] max-md:rounded-[calc(0.75rem-2px)]`
+
   const walletPillOuterFrame =
     'pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center gap-2 max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:flex-row md:items-stretch md:justify-start md:gap-0 md:overflow-hidden md:rounded-full md:border md:border-white/[0.1] md:bg-[#141414] md:py-0 md:pl-0 md:pr-0 md:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(22rem,calc(100vw-14rem))] min-[1280px]:justify-start'
 
@@ -252,10 +255,10 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
       {showZeroBalanceAlert ? (
         <div
           ref={barRef}
-          className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:rounded-full max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(22rem,calc(100vw-14rem))]"
+          className="pointer-events-auto relative inline-flex min-w-0 w-full max-w-full flex-col items-center justify-center overflow-hidden rounded-xl wallet-chip-zero-ring max-[1279px]:min-w-0 max-[1279px]:max-w-full max-[1279px]:md:max-w-[min(28rem,100%)] md:rounded-full max-[1279px]:md:w-full max-[1279px]:md:min-w-0 min-[1280px]:w-max min-[1280px]:max-w-[min(22rem,calc(100vw-14rem))]"
         >
           <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
-          <div className={walletPillInnerSurface}>
+          <div className={walletPillInnerSurfaceZeroInset}>
             <div className={chipInnerClosed}>{walletBarCore}</div>
             {walletDepositWrap}
           </div>
@@ -280,14 +283,14 @@ const HeaderWalletBar: FC<HeaderWalletBarProps> = ({ onOpenWallet, depositsEnabl
               style={{ position: 'fixed', top: barRect.top, left: barRect.left, width: barRect.width, height: barRect.height, zIndex: 218 }}
               className={
                 showZeroBalanceAlert
-                  ? 'relative box-border inline-flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl p-[2px] wallet-chip-zero-ring md:rounded-full'
+                  ? 'relative box-border inline-flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl wallet-chip-zero-ring md:rounded-full'
                   : `${walletPillOuterFrame} box-border h-full min-h-0 w-full min-w-0 shrink-0`
               }
             >
               {showZeroBalanceAlert ? (
                 <>
                   <span className="wallet-chip-zero-ring__beam pointer-events-none" aria-hidden />
-                  <div className={`${walletPillInnerSurface} min-h-0 flex-1`}>
+                  <div className={`${walletPillInnerSurfaceZeroInset} min-h-0 flex-1`}>
                     <div className={chipInnerClosed}>{walletBarCore}</div>
                     {walletDepositWrap}
                   </div>

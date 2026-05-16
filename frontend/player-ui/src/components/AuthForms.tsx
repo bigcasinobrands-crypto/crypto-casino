@@ -135,7 +135,6 @@ export function LoginForm({
     const r = await login(email, password, captcha ?? undefined)
     setLoading(false)
     if (r.kind === 'error') {
-      toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/login')
       setErr(formatApiError(r.error, t('auth.signInFailed')))
       return
     }
@@ -158,7 +157,6 @@ export function LoginForm({
     const r = await completeLoginEmailMfa(mfaToken, mfaCode, captcha ?? undefined)
     setLoading(false)
     if (!r.ok) {
-      toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/login/email-mfa')
       setErr(formatApiError(r.error, t('auth.login.emailMfaFailed')))
       return
     }
@@ -370,7 +368,6 @@ export function RegisterForm({ idPrefix = 'm' }: { idPrefix?: string }) {
     })
     setLoading(false)
     if (!r.ok) {
-      toastPlayerApiError(r.error, r.error?.status ?? 0, 'POST /v1/auth/register')
       setErr(
         r.error?.code === 'email_already_registered'
           ? t('auth.registerForm.emailAlreadyRegistered')

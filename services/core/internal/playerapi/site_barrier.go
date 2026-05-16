@@ -70,6 +70,8 @@ func siteBarrierBypass(path, method string) bool {
 		return true
 	case rest == "social-proof" && method == http.MethodGet:
 		return true
+	case rest == "recent-wins" && method == http.MethodGet:
+		return true
 	case rest == "content/bundle" && method == http.MethodGet:
 		return true
 	case strings.HasPrefix(rest, "content/") && method == http.MethodGet:

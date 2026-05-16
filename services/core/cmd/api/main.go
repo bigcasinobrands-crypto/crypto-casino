@@ -43,6 +43,7 @@ import (
 	"github.com/crypto-casino/core/internal/playerfavourites"
 	"github.com/crypto-casino/core/internal/playerkyc"
 	"github.com/crypto-casino/core/internal/pwnedpasswords"
+	"github.com/crypto-casino/core/internal/raffle"
 	"github.com/crypto-casino/core/internal/redisx"
 	"github.com/crypto-casino/core/internal/referrals"
 	"github.com/crypto-casino/core/internal/securityheaders"
@@ -411,6 +412,7 @@ func main() {
 				r.Use(httprate.LimitByIP(120, time.Minute))
 				adminH.MountPublicRoutes(r)
 				challenges.MountPlayer(r, pool, jwtIss, jtiRev, cfg.BlueOceanImageBaseURL, playerAccessCookie)
+				raffle.MountPlayer(r, pool, &cfg, jwtIss, jtiRev, playerAccessCookie)
 				r.With(httprate.LimitByIP(180, time.Minute), playerapi.OptionalBearerMiddleware(jwtIss, jtiRev, playerAccessCookie)).
 					Post("/analytics/session", adminH.IngestTrafficSession)
 				r.With(httprate.LimitByIP(120, time.Minute), playerapi.OptionalBearerMiddleware(jwtIss, jtiRev, playerAccessCookie)).

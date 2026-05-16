@@ -585,7 +585,7 @@ const store: CMSStore = {
       title: '$25K Raffle',
       subtitle: 'Your tickets:',
       ctaLabel: 'Learn more',
-      ctaLink: '/bonuses',
+      ctaLink: '/raffle',
       image: '/assets/hero/raffle-banner.png',
       active: true,
       ticketsLabel: '0',

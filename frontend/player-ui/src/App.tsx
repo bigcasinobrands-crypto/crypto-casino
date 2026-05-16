@@ -72,6 +72,7 @@ import {
   StudiosPageLazy,
   VerifyEmailPageLazy,
   VipPageLazy,
+  RafflePageLazy,
   WalletDepositPageLazy,
 } from './lib/lazyRoutePages'
 import LobbyPage from './pages/LobbyPage'
@@ -197,6 +198,13 @@ function AppShell() {
   const catalogSyncOk = op.data?.catalog_sync_ok
   useEffect(() => {
     if (!op.data) return
+    const catalogStaffToastEnv = String(import.meta.env.VITE_SHOW_CATALOG_SYNC_TOAST || '').toLowerCase()
+    const showCatalogStaffToast =
+      import.meta.env.DEV || catalogStaffToastEnv === 'true' || catalogStaffToastEnv === '1'
+    if (!showCatalogStaffToast) {
+      dismissPlayerCatalogSyncToast()
+      return
+    }
     if (catalogSyncOk === false) {
       toastPlayerCatalogSyncWarning()
     } else {
@@ -775,6 +783,7 @@ function AppShell() {
                     <Route path="/rewards/preview" element={<Navigate to="/bonuses/preview" replace />} />
                     <Route path="/rewards" element={<Navigate to="/bonuses" replace />} />
                     <Route path="/vip" element={<VipPageLazy />} />
+                    <Route path="/raffle" element={<RafflePageLazy />} />
                     <Route path="/wallet/deposit" element={<WalletDepositPageLazy />} />
                     <Route path="/wallet/deposit/instructions" element={<LegacyDepositInstructionsRedirect />} />
                     <Route path="/wallet/deposit/submitted" element={<LegacyDepositSubmittedRedirect />} />

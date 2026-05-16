@@ -1,4 +1,3 @@
-import type { TFunction } from 'i18next'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -31,7 +30,8 @@ import {
 } from '../lib/playerChromeEvents'
 import { isFavourite, pushRecent, toggleFavouriteWithServerSync } from '../lib/gameStorage'
 import { playerFetch } from '../lib/playerFetch'
-import { toastPlayerApiError, toastPlayerNetworkError } from '../notifications/playerToast'
+import { resolveLaunchBodyMessage } from '../notifications/playerErrorCopy'
+import { toastPlayerNetworkError } from '../notifications/playerToast'
 import { usePlayerAuth } from '../playerAuth'
 import GameLobbyActiveChallenges from '../components/challenges/GameLobbyActiveChallenges'
 import { RequireAuthLink } from '../components/RequireAuthLink'
@@ -147,46 +147,6 @@ function requestGameFullscreen(el: HTMLElement): Promise<void> {
     }
   }
   return Promise.reject(new Error('fullscreen not supported'))
-}
-
-function launchErrorMessage(code: string | undefined, fallback: string, t: TFunction) {
-  switch (code) {
-    case 'maintenance':
-      return t('gameLobby.error.maintenance')
-    case 'launch_disabled':
-      return t('gameLobby.error.launch_disabled')
-    case 'geo_blocked':
-      return t('gameLobby.error.geo_blocked')
-    case 'ip_blocked':
-      return t('gameLobby.error.ip_blocked')
-    case 'self_excluded':
-      return t('gameLobby.error.self_excluded')
-    case 'account_closed':
-      return t('gameLobby.error.account_closed')
-    case 'bog_unconfigured':
-      return t('gameLobby.error.bog_unconfigured')
-    case 'bog_error':
-      if (/invalid\s+user\s+details/i.test(fallback)) {
-        // Prefer full API message — core API appends snapshot/agent/IP hints after this phrase.
-        return fallback
-      }
-      // Provider often returns HTTP 200 in the body text while our API surfaces 502 — demo sandbox refused.
-      if (
-        /demo\s+game\s+not\s+available|not\s+available\s+at\s+this\s+moment/i.test(fallback) ||
-        (/demo/i.test(fallback) && /not\s+available/i.test(fallback))
-      ) {
-        return t('gameLobby.error.providerRefusedFreePlay')
-      }
-      return fallback
-    case 'demo_unavailable':
-      return t('gameLobby.error.demo_unavailable')
-    case 'not_found':
-      return t('gameLobby.error.not_found')
-    case 'unauthorized':
-      return t('gameLobby.error.unauthorized')
-    default:
-      return fallback
-  }
 }
 
 type GameLaunchErrorModalProps = {
@@ -519,15 +479,12 @@ export default function GameLobbyPage() {
         const res = await apiFetch(statsPath)
         if (!res.ok) {
           const apiErr = await readApiError(res)
-          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          toastPlayerApiError(apiErr, res.status, `GET ${statsPath}`, rid)
           if (!cancelled) setStatsErr(formatApiError(apiErr, t('gameLobby.statsCouldNotLoad')))
           return
         }
         const j = (await res.json()) as BlueOceanInfoResponse
         if (!cancelled) setStatsData(j)
       } catch {
-        toastPlayerNetworkError('Network error.', 'GET /v1/games/.../blueocean-info')
         if (!cancelled) setStatsErr(t('profile.networkErrorShort'))
       } finally {
         if (!cancelled) setStatsLoading(false)
@@ -620,9 +577,6 @@ export default function GameLobbyPage() {
         const metaPath = `/v1/games?integration=blueocean&limit=1&ids=${encodeURIComponent(gameId)}`
         const res = await playerFetch(metaPath)
         if (!res.ok) {
-          const parsed = await readApiError(res)
-          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          toastPlayerApiError(parsed, res.status, `GET ${metaPath}`, rid)
           if (!cancelled) setMetaErr(t('gameLobby.couldNotLoadDetails'))
           return
         }
@@ -634,7 +588,6 @@ export default function GameLobbyPage() {
         }
         if (!cancelled) setMeta(g)
       } catch {
-        toastPlayerNetworkError('Network error loading game.', 'GET /v1/games (game meta)')
         if (!cancelled) setMetaErr(t('gameLobby.networkLoadingGame'))
       }
     })()
@@ -663,14 +616,7 @@ export default function GameLobbyPage() {
         })
         if (!res.ok) {
           const apiErr = await readApiError(res)
-          const rid = res.headers.get('X-Request-Id') ?? res.headers.get('X-Request-ID')
-          const msg = launchErrorMessage(apiErr?.code, formatApiError(apiErr, t('gameLobby.launchFailed')), t)
-          toastPlayerApiError(
-            apiErr ? { ...apiErr, message: msg } : null,
-            res.status,
-            'POST /v1/games/launch',
-            rid,
-          )
+          const msg = resolveLaunchBodyMessage(apiErr?.code, formatApiError(apiErr, t('gameLobby.launchFailed')), t)
           if (!cancelled) {
             setRequestedImmersiveLaunch(false)
             setLaunchFailCode(apiErr?.code)
@@ -685,10 +631,6 @@ export default function GameLobbyPage() {
           pushRecent(gameId)
         }
       } catch {
-        toastPlayerNetworkError(
-          'Network error while launching. Check your connection and try again.',
-          'POST /v1/games/launch',
-        )
         if (!cancelled) {
           setRequestedImmersiveLaunch(false)
           setLaunchFailCode(undefined)
