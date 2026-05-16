@@ -258,6 +258,7 @@ export default function WalletDepositPage() {
           onBack={backFromAddress}
           onSent={markSent}
           initialDepositSnapshot={initialDepositSnapshot}
+          onHostedInvoiceUrl={setPassimpayHostedUrl}
         />
       </>,
       ),

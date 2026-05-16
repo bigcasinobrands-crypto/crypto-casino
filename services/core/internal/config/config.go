@@ -144,7 +144,7 @@ type Config struct {
 	PassimpaySecretKey            string // outbound API signing (never expose to clients)
 	PassimpayWebhookSecret        string // verifies inbound webhook x-signature (often same as API key — set explicitly)
 	PassimpayCallbackPublicBase   string // public API origin PassimPay will call back (staff configures exact URL in dashboard)
-	PassimpayDepositMethod        string // h2h | invoice (invoice link path not wired yet — use h2h)
+	PassimpayDepositMethod        string // h2h | invoice — stored on deposit intents; crypto hosted invoice uses POST /wallet/deposit-invoice (Passim createorder type 1)
 	PassimpayDefaultInvoiceExpiry int    // minutes; placeholder until invoice endpoints are added
 	PassimpayWithdrawalsEnabled   bool
 	PassimpayRequestTimeoutMs     int

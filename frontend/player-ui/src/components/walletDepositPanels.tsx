@@ -72,6 +72,11 @@ type DepositAddressPanelProps = {
   onSent: () => void
   /** When present (e.g. prefetched on pick step), show details immediately and refresh in background */
   initialDepositSnapshot?: DepositAddrRes | null
+  /**
+   * PassimPay hosted crypto invoice (Invoice Editor / createorder type 1).
+   * When set, opens in-app ({@link PassimpayHostedCheckoutOverlay}); otherwise falls back to a new tab.
+   */
+  onHostedInvoiceUrl?: (url: string) => void
 }
 
 export function DepositAddressPanel({
@@ -83,6 +88,7 @@ export function DepositAddressPanel({
   onBack,
   onSent,
   initialDepositSnapshot = null,
+  onHostedInvoiceUrl,
 }: DepositAddressPanelProps) {
   const { t } = useTranslation()
   const { isAuthenticated, apiFetch } = usePlayerAuth()
@@ -202,6 +208,10 @@ export function DepositAddressPanel({
         setInvoiceErr(t('wallet.depositInvoiceFailed'))
         return
       }
+      if (onHostedInvoiceUrl) {
+        onHostedInvoiceUrl(url)
+        return
+      }
       const popup = window.open(url, '_blank', 'noopener,noreferrer')
       if (!popup) {
         window.location.href = url
@@ -211,7 +221,7 @@ export function DepositAddressPanel({
     } finally {
       setInvoiceBusy(false)
     }
-  }, [amountMinorResolved, apiFetch, network, paymentId, symbol, t])
+  }, [amountMinorResolved, apiFetch, network, onHostedInvoiceUrl, paymentId, symbol, t])
 
   const address = data?.address?.trim() ?? ''
   const qrUrl = data?.qr_url?.trim()

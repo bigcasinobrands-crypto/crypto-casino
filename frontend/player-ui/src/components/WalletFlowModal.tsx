@@ -383,6 +383,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
                       onBack={() => setDepositFlowStep('pick')}
                       onSent={() => setDepositFlowStep('sent')}
                       initialDepositSnapshot={initialDepositSnapshot}
+                      onHostedInvoiceUrl={setPassimpayHostedUrl}
                     />
                   ) : depositFlowStep === 'sent' && committedDeposit ? (
                     <DepositSentPanel
