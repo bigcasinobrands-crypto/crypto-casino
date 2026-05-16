@@ -290,7 +290,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
         aria-modal="true"
         aria-labelledby={titleId}
         style={{ transform: `translateY(-${currencyMenuLiftPx}px)` }}
-        className="relative flex w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border border-casino-border bg-wallet-modal shadow-[0_32px_64px_rgba(0,0,0,0.55)] max-sm:mb-[var(--casino-mobile-nav-offset)] max-sm:h-fit max-sm:max-h-[calc(100dvh-var(--casino-mobile-nav-offset)-0.75rem)] max-sm:transition-transform max-sm:duration-200 max-sm:ease-out sm:max-h-[min(90vh,720px)] sm:rounded-2xl"
+        className="relative flex w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border border-casino-border bg-wallet-modal shadow-[0_32px_64px_rgba(0,0,0,0.55)] max-sm:mb-[var(--casino-mobile-nav-offset)] max-sm:h-fit max-sm:max-h-[calc(100dvh-var(--casino-mobile-nav-offset))] max-sm:transition-transform max-sm:duration-200 max-sm:ease-out sm:max-h-[min(90vh,720px)] sm:rounded-2xl"
       >
         <h2 id={titleId} className="sr-only">
           {mainTab === 'deposit'
@@ -308,7 +308,7 @@ const WalletFlowModal: FC<WalletFlowModalProps> = ({
           <WalletCloseButton label={t('wallet.close')} onClick={onClose} />
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2 max-sm:flex-none max-sm:px-5 max-sm:pb-[max(1rem,env(safe-area-inset-bottom,0px))] sm:min-h-0">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 pt-2 max-sm:flex-none max-sm:px-5 max-sm:pb-4 sm:min-h-0">
           {!walletFullyPaused ? (
             <WalletMainTabs
               active={mainTab}

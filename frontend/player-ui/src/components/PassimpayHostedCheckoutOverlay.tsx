@@ -52,7 +52,7 @@ export function PassimpayHostedCheckoutOverlay({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="animate-passimpay-flow-in relative z-10 flex min-h-0 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border border-casino-border bg-wallet-modal shadow-[0_32px_64px_rgba(0,0,0,0.55)] max-sm:mb-[var(--casino-mobile-nav-offset)] max-sm:max-h-[calc(100dvh-var(--casino-mobile-nav-offset)-0.75rem)] sm:max-h-[min(90vh,720px)] sm:rounded-2xl"
+        className="animate-passimpay-flow-in relative z-10 flex min-h-0 w-full max-w-[440px] flex-col overflow-hidden rounded-t-2xl border border-casino-border bg-wallet-modal shadow-[0_32px_64px_rgba(0,0,0,0.55)] max-sm:mb-[var(--casino-mobile-nav-offset)] max-sm:max-h-[calc(100dvh-var(--casino-mobile-nav-offset))] sm:max-h-[min(90vh,720px)] sm:rounded-2xl"
       >
         <div className="flex shrink-0 flex-col gap-3 border-b border-white/[0.06] px-6 pb-4 pt-5 max-sm:px-5 max-sm:pb-3 max-sm:pt-4">
           <div className="flex items-start justify-between gap-3">

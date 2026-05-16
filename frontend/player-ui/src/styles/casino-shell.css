@@ -283,13 +283,17 @@
   min-height: 0;
   /* Mobile: offset for fixed top header + notch */
   padding-top: calc(var(--casino-header-h-mobile) + env(safe-area-inset-top, 0px));
-  /* Fixed bottom nav (~56px) + chrome + footer breathing room so last content scrolls above the bar */
-  padding-bottom: calc(5.25rem + env(safe-area-inset-bottom, 0px));
+  /**
+   * Reserve exactly the fixed tab bar (`--casino-mobile-nav-offset`, incl. home-indicator inset)
+   * plus a modest gutter so last content reaches near the nav without a large dead band.
+   * (Older `5.25rem + safe-area` overshot the bar and looked disconnected on phones.)
+   */
+  padding-bottom: calc(var(--casino-mobile-nav-offset) + 0.5rem);
 }
 
 /*
  * Oddin `/esports`: outer scroll is overflow-y-hidden; bottom nav is fixed. Do not reserve the catalog
- * footer gutter (~5.25rem) — it creates a dead band above the tab bar on phones and fights flex sizing.
+ * footer gutter (mobile shell bottom pad) — it creates a dead band above the tab bar on phones and fights flex sizing.
  * Applies at every breakpoint where this modifier is set (phones + tablet esports shell).
  */
 .casino-shell-scroll.casino-shell-scroll--oddin-bifrost {

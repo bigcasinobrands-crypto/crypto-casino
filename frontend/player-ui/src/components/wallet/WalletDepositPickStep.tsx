@@ -158,10 +158,10 @@ export function WalletDepositPickStep({
   if (splitFooter) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden max-sm:flex-none sm:min-h-0">
-        <div className="min-h-0 overflow-y-auto overscroll-y-contain scroll-smooth px-3 py-1 scrollbar-casino max-sm:max-h-[min(56dvh,480px)] max-sm:flex-none sm:flex-1 sm:min-h-0 sm:px-4 sm:py-2">
+        <div className="min-h-0 overflow-y-auto overscroll-y-contain scroll-smooth px-3 py-1 scrollbar-casino max-sm:max-h-[min(62dvh,520px)] max-sm:flex-none sm:flex-1 sm:min-h-0 sm:px-4 sm:py-2">
           {fields}
         </div>
-        <div className="z-[1] shrink-0 bg-wallet-modal pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
+        <div className="z-[1] shrink-0 bg-wallet-modal pb-[max(1.125rem,calc(env(safe-area-inset-bottom,0px)+14px))] pt-1 shadow-[0_-8px_24px_rgba(0,0,0,0.35)]">
           <div className="px-3 pt-3 sm:px-4 [&_button]:mt-0">
             {continueBtn}
           </div>

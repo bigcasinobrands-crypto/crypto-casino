@@ -31,7 +31,7 @@ export const WalletFiatOnrampPanel: FC<WalletFiatOnrampPanelProps> = ({
   const { t } = useTranslation()
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-1 max-sm:flex-none sm:px-4 sm:py-2">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-1 pb-[max(1rem,calc(env(safe-area-inset-bottom,0px)+12px))] max-sm:flex-none sm:px-4 sm:py-2 sm:pb-2">
       <WalletPanel className="border border-white/[0.06] shadow-none">
         <p className="text-sm font-semibold text-white">{t('wallet.fiatOnrampPlaceholderTitle')}</p>
         <p className="mt-1.5 text-xs leading-relaxed text-casino-muted">{t('wallet.fiatOnrampPlaceholderBody')}</p>
